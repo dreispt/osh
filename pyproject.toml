@@ -1,0 +1,21 @@
+[project]
+name = "osh"
+version = "0.1.0"
+description = "Odoo Shell command-line interface"
+authors = [
+    {name = "Odoo Community Association", email="info@odoo-community.org"}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "click>=8.1",
+    # Uncomment the following line when you are ready to connect to an actual server
+    # "odoorpc>=0.12",
+]
+
+[project.scripts]
+osh = "osh.cli:main"
+
+[build-system]
+requires = ["setuptools>=70.0", "wheel"]
+build-backend = "setuptools.build_meta"
