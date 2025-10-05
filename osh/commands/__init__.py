@@ -9,8 +9,6 @@ from importlib import import_module
 
 # Names of command modules to import (relative to this package)
 _MODULES = [
-    "shell",
-    "info",
     "init_cmd",  # avoid shadowing built-in `init` when importing
     "status_cmd",
     "run_cmd",

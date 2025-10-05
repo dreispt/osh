@@ -5,7 +5,7 @@ import os
 
 import click
 
-from ..utils import _find_project_root, _find_odoo_executable
+from ..utils import _find_project_root, _find_odoo_executable, _get_odoo_config_path, discover_addons_paths
 
 
 @click.command(name="run", context_settings=dict(ignore_unknown_options=True))
@@ -24,8 +24,45 @@ def run(ctx: click.Context, extra_args: tuple[str, ...]) -> None:  # noqa: D401
             "Could not locate Odoo executable. Run 'osh init' again."
         )
 
-    click.echo(f"Running {exe} {' '.join(extra_args)}", err=True)
+    # Check for .odoorc in the project root
+    odoo_rc = _get_odoo_config_path(base)
+    args = [exe]
+    if odoo_rc.exists() and not any(
+        arg.startswith('--config') or arg.startswith('-c') for arg in extra_args
+    ):
+        args.extend(["--config", str(odoo_rc)])
+    
+    # Set addons_path from discovered addon directories if not already specified
+    if not any(arg.startswith('--addons-path') for arg in extra_args):
+        addon_modules = discover_addons_paths(base)
+        if addon_modules:
+            # Get unique parent directories of addon modules
+            addons_paths = sorted(set(addon.parent for addon in addon_modules))
+            addons_path_str = ','.join(str(p) for p in addons_paths)
+            args.extend(['--addons-path', addons_path_str])
+    
+    # Add Git branch/reference as -d argument if not already specified
+    if not any(arg.startswith('-d') or arg.startswith('--database') for arg in extra_args):
+        try:
+            import subprocess
+            git_ref = subprocess.check_output(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                cwd=base,
+                stderr=subprocess.DEVNULL,
+                text=True
+            ).strip()
+            if git_ref and git_ref != 'HEAD':  # Only add if not in detached HEAD state
+                args.extend(['-d', git_ref])
+                # Also add db_filter to match the exact database name
+                if not any(arg.startswith('--db-filter') for arg in extra_args):
+                    args.extend(['--db-filter', f'^{git_ref}$'])
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass  # Git not available or not a git repo
+    
+    args.extend(extra_args)
+
+    click.echo(f"Running {' '.join(args)}", err=True)
     try:
-        os.execvp(exe, (exe, *extra_args))  # replace current process
+        os.execvp(exe, args)  # replace current process
     except Exception as exc:  # pragma: no cover
         raise click.ClickException(str(exc))

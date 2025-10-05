@@ -24,7 +24,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 @click.version_option(package_name="osh")
 @click.pass_context
 def main(ctx: click.Context) -> None:  # noqa: D401
-    """Odoo Shell – hack on your Odoo server from the comfort of your terminal."""
+    """Odoo Shell – Odoo wrapper to accelerate your development and staging workflows."""
 
 
 # Register all sub-commands from the dedicated package
