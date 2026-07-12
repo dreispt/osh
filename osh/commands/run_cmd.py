@@ -6,18 +6,20 @@ from pathlib import Path
 
 import click
 
+from ..db import (
+    _get_branch_db,
+    _get_current_branch,
+    _get_last_db,
+    _sanitize_db_name,
+    _set_branch_db,
+    _set_last_db,
+)
 from ..utils import (
     _find_project_root,
     _find_odoo_executable,
     _get_odoo_config_path,
     _get_odoo_base_dir,
-    _get_current_branch,
-    _get_last_db,
     _get_project_name,
-    _sanitize_db_name,
-    _set_branch_db,
-    _set_last_db,
-    _get_branch_db,
     discover_addons_paths,
 )
 

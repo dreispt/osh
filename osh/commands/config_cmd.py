@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import click
 
-from ..utils import (
-    _find_project_root,
+from ..db import (
     _get_branch_db,
     _get_current_branch,
     _get_last_db,
@@ -14,6 +13,7 @@ from ..utils import (
     _set_branch_db,
     _set_last_db,
 )
+from ..utils import _find_project_root
 
 
 @click.group(name="config")
