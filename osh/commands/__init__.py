@@ -13,6 +13,7 @@ _MODULES = [
     "status_cmd",
     "run_cmd",
     "config_cmd",
+    "plug_cmd",
 ]
 
 COMMANDS = []

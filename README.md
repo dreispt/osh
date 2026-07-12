@@ -105,6 +105,22 @@ osh config db myproject-dev --branch main
 osh config db myproject-dev --default  # also set as last used
 ```
 
+### `osh plug`
+
+Install, list, and remove `osh` plugins from git repositories.
+Plugins are installed into `~/.config/osh/plugins/` and can add new commands.
+
+```bash
+osh plug install https://github.com/ORG/REPO
+osh plug install https://github.com/ORG/REPO --trust  # skip security prompt
+osh plug list
+osh plug uninstall REPO
+```
+
+A plugin must expose a `get_commands()` function that returns a list of Click
+commands, or a `COMMANDS` list. See the `osh/plugins/` directory for built-in
+examples.
+
 ## Configuration
 
 ### Database name
@@ -156,6 +172,7 @@ Commands:
   status  Show project base directory and Odoo version if in an Osh project.
   run     Run the project's Odoo executable with additional arguments.
   config  Manage Osh project settings.
+  plug    Manage Osh plugins installed from git repositories.
 ```
 
 ## License

@@ -9,6 +9,7 @@ import click
 
 from . import __version__
 from .commands import COMMANDS
+from .plugin_loader import load_plugins
 
 
 class NaturalOrderGroup(click.Group):
@@ -31,3 +32,7 @@ def main(ctx: click.Context) -> None:  # noqa: D401
 # Register all sub-commands from the dedicated package
 for _cmd in COMMANDS:
     main.add_command(_cmd)
+
+# Register commands from built-in and user-installed plugins
+for _plugin_cmd in load_plugins():
+    main.add_command(_plugin_cmd)
