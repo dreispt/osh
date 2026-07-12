@@ -121,6 +121,24 @@ A plugin must expose a `get_commands()` function that returns a list of Click
 commands, or a `COMMANDS` list. See the `osh/plugins/` directory for built-in
 examples.
 
+### `osh test`
+
+Run Odoo tests for project modules. This is a built-in plugin.
+
+```bash
+osh test                  # test all project modules
+osh test my_module        # test specific modules
+osh test --all            # test all project modules
+osh test --tags :TestClass.method
+osh test --current-db     # test against the current branch database
+osh test --dropdb         # drop the test database after the run
+osh test --dry-run        # show the commands that would be run
+```
+
+By default `osh test` uses a database named `<project>-<branch>-test`. If that
+database does not exist, it is created with `-i` and then the tests are run with
+`-u`. The test database is kept by default; use `--dropdb` to remove it.
+
 ## Configuration
 
 ### Database name
