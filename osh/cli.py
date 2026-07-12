@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import click
 
+from . import __version__
 from .commands import COMMANDS
 
 
@@ -21,7 +22,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
 @click.group(context_settings=CONTEXT_SETTINGS, cls=NaturalOrderGroup)
-@click.version_option(package_name="osh")
+@click.version_option(version=__version__, prog_name="osh", help="Show the version and exit.")
 @click.pass_context
 def main(ctx: click.Context) -> None:  # noqa: D401
     """Odoo Shell – Odoo wrapper to accelerate your development and staging workflows."""

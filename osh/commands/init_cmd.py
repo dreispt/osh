@@ -32,8 +32,9 @@ def _find_local_odoo_sources(base: Path) -> Path | None:
 @click.argument("directory", required=False, type=click.Path(file_okay=False, path_type=Path))
 def init(version: str, directory: Path | None) -> None:  # noqa: D401
     """Initialise *directory* for an Odoo project.
-    
-    VERSION: Odoo version to use (e.g., '16.0', 'saas-16.4', 'master')
+
+    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
+    DIRECTORY: Project directory to initialise (defaults to current directory)
     """
 
     target = (directory or Path.cwd()).expanduser().resolve()
@@ -69,7 +70,9 @@ def init(version: str, directory: Path | None) -> None:  # noqa: D401
                     str(odoo_src),
                 ])
             except subprocess.CalledProcessError as exc:
-                raise click.ClickException(f"git clone failed: {exc}")
+                raise click.ClickException(
+                    f"git clone failed: {exc}. Check the version '{version}' is a valid Odoo branch."
+                )
 
     # ------------------------------------------------------------------
     # Ensure virtual environment

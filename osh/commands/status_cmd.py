@@ -17,7 +17,7 @@ def status(ctx: click.Context) -> None:  # noqa: D401
 
     base = _find_project_root()
     if base is None:
-        click.echo("Not inside an Osh project", err=True)
+        click.echo("Not inside an Osh project. Run 'osh init <version>' to create one.", err=True)
         ctx.exit(1)
 
     click.echo(f"Project directory: {base}")
