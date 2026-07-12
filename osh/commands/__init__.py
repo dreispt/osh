@@ -12,6 +12,7 @@ _MODULES = [
     "init_cmd",  # avoid shadowing built-in `init` when importing
     "status_cmd",
     "run_cmd",
+    "config_cmd",
 ]
 
 COMMANDS = []

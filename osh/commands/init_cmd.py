@@ -3,11 +3,12 @@
 Initialises a project directory for Osh by:
 1. Ensuring the target directory exists.
 2. Creating a `.osh/` sub-directory for configuration and links.
-3. Detecting an existing Odoo source tree inside *target*; if found, creates a
+3. Creating a `.osh/config` file for branch-to-database mappings.
+4. Detecting an existing Odoo source tree inside *target*; if found, creates a
    symlink `.osh/odoo` pointing to it.
-4. If no sources are found, performs a shallow git clone of Odoo into
-   `.osh/odoo_src` and links `.osh/odoo` to it.
-5. Writes `.osh/config` with the path to `odoo-bin` under `[odoo]` section.
+5. If no sources are found, performs a shallow git clone of Odoo into
+   `.osh/odoo`.
+6. Installing Odoo dependencies and the Odoo source in editable mode.
 """
 from __future__ import annotations
 
@@ -44,6 +45,11 @@ def init(version: str, directory: Path | None) -> None:  # noqa: D401
 
     osh_dir = target / ".osh"
     osh_dir.mkdir(exist_ok=True)
+
+    # Ensure osh config file exists
+    config_path = osh_dir / "config"
+    if not config_path.exists():
+        config_path.touch()
 
     # ------------------------------------------------------------------
     # Detect or obtain Odoo sources

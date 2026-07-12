@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import os
-import re
-import subprocess
+from pathlib import Path
 
 import click
 
@@ -12,17 +11,15 @@ from ..utils import (
     _find_odoo_executable,
     _get_odoo_config_path,
     _get_odoo_base_dir,
+    _get_current_branch,
+    _get_last_db,
     _get_project_name,
+    _sanitize_db_name,
+    _set_branch_db,
+    _set_last_db,
+    _get_branch_db,
     discover_addons_paths,
 )
-
-
-def _sanitize_db_name(name: str) -> str:
-    """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
-    name = name.lower()
-    name = re.sub(r"[^a-z0-9_]+", "-", name)
-    name = name.strip("-")
-    return name or "db"
 
 
 @click.command(name="run", context_settings=dict(ignore_unknown_options=True))
@@ -93,34 +90,16 @@ def run(
                 click.echo(f"Using addons path: {addons_path_str}", err=True)
             args.extend(["--addons-path", addons_path_str])
 
-    # Add Git branch/reference as -d argument if not already specified
+    # Determine database to use
     if not any(arg.startswith("-d") or arg.startswith("--database") for arg in extra_args):
-        try:
-            git_ref = subprocess.check_output(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=base,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            ).strip()
-            if git_ref:
-                if git_ref == "HEAD":
-                    # In detached HEAD state, use the short commit hash instead.
-                    git_ref = subprocess.check_output(
-                        ["git", "rev-parse", "--short", "HEAD"],
-                        cwd=base,
-                        stderr=subprocess.DEVNULL,
-                        text=True,
-                    ).strip()
-                project_name = _sanitize_db_name(_get_project_name(base))
-                db_name = f"{project_name}-{_sanitize_db_name(git_ref)}"
-                if verbose:
-                    click.echo(f"Using database: {db_name}", err=True)
-                args.extend(["-d", db_name])
-                # Also add db_filter to match the exact database name
-                if not any(arg.startswith("--db-filter") for arg in extra_args):
-                    args.extend(["--db-filter", f"^{db_name}$"])
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass  # Git not available or not a git repo
+        db_name = _resolve_db_name(base, verbose)
+        if db_name:
+            if verbose:
+                click.echo(f"Using database: {db_name}", err=True)
+            args.extend(["-d", db_name])
+            # Also add db_filter to match the exact database name
+            if not any(arg.startswith("--db-filter") for arg in extra_args):
+                args.extend(["--db-filter", f"^{db_name}$"])
 
     args.extend(extra_args)
 
@@ -137,3 +116,49 @@ def run(
         os.execvp(exe, args)  # replace current process
     except Exception as exc:  # pragma: no cover
         raise click.ClickException(str(exc))
+
+
+def _resolve_db_name(base: Path, verbose: bool) -> str | None:
+    """Resolve the database name for the current branch, prompting if needed."""
+    branch = _get_current_branch(base)
+    if branch is None:
+        branch = "default"
+
+    # Check if this branch already has a preferred database.
+    db_name = _get_branch_db(base, branch)
+    if db_name:
+        _set_last_db(base, db_name)
+        return db_name
+
+    # No preferred database for this branch. Try the last one used.
+    last_db = _get_last_db(base)
+    if last_db:
+        use_last = click.confirm(
+            f"Branch '{branch}' has no database configured. Use last database '{last_db}'?",
+            default=True,
+            err=True,
+        )
+        if use_last:
+            _set_branch_db(base, branch, last_db)
+            _set_last_db(base, last_db)
+            return last_db
+
+    # Fall back to a generated name and ask the user to confirm or change it.
+    project_name = _sanitize_db_name(_get_project_name(base))
+    if branch == "default":
+        default_db = project_name
+    else:
+        default_db = f"{project_name}-{_sanitize_db_name(branch)}"
+
+    db_name = click.prompt(
+        "Database name",
+        default=default_db,
+        err=True,
+    )
+    db_name = _sanitize_db_name(db_name)
+    if not db_name:
+        raise click.ClickException("A database name is required.")
+
+    _set_branch_db(base, branch, db_name)
+    _set_last_db(base, db_name)
+    return db_name
