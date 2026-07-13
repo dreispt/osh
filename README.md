@@ -139,6 +139,15 @@ By default `osh test` uses a database named `<project>-<branch>-test`. If that
 database does not exist, it is created with `-i` and then the tests are run with
 `-u`. The test database is kept by default; use `--dropdb` to remove it.
 
+### `osh version`
+
+Show the installed `osh` version.
+
+```bash
+osh version
+osh --version
+```
+
 ## Configuration
 
 ### Database name
@@ -191,6 +200,8 @@ Commands:
   run     Run the project's Odoo executable with additional arguments.
   config  Manage Osh project settings.
   plug    Manage Osh plugins installed from git repositories.
+  version Show the Osh version.
+  test    Run Odoo tests for project modules.
 ```
 
 ## License
