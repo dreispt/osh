@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from typing import Any, Callable
 
 import pytest
 
@@ -25,6 +27,50 @@ def fake_odoo_executable(tmp_project: Path) -> Path:
     odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
     odoo_exe.chmod(0o755)
     return odoo_exe
+
+
+@pytest.fixture
+def subprocess_run_capture(monkeypatch):
+    """Capture ``subprocess.run`` calls and optionally write output to stdout.
+
+    The returned object has:
+
+    - ``calls``: list of argument lists passed to ``subprocess.run``.
+    - ``stdout``: bytes written to the ``stdout`` stream (default ``b""``).
+    - ``side_effect``: optional callable that handles a call instead of the
+      default behaviour. It must return a ``CompletedProcess``.
+    """
+
+    class _Capture:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+            self.stdout: bytes = b""
+            self.side_effect: Callable[..., Any] | None = None
+
+        def fake_run(self, args, **kwargs):
+            self.calls.append(list(args))
+            if self.side_effect is not None:
+                return self.side_effect(args, **kwargs)
+            if "stdout" in kwargs and kwargs["stdout"] is not None:
+                kwargs["stdout"].write(self.stdout)
+            return subprocess.CompletedProcess(args, returncode=0)
+
+    capture = _Capture()
+    monkeypatch.setattr(subprocess, "run", capture.fake_run)
+    return capture
+
+
+@pytest.fixture
+def subprocess_check_call_capture(monkeypatch):
+    """Capture ``subprocess.check_call`` calls in a list and return it."""
+    calls: list[list[str]] = []
+
+    def fake_check_call(cmd, *args, **kwargs):
+        calls.append(list(cmd) if isinstance(cmd, (list, tuple)) else [cmd])
+        return 0
+
+    monkeypatch.setattr(subprocess, "check_call", fake_check_call)
+    return calls
 
 
 @pytest.fixture

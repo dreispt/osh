@@ -20,18 +20,16 @@ def test_prune_outside_project_fails(tmp_path: Path, monkeypatch) -> None:
     assert "Not inside an Osh project" in result.output
 
 
-def test_prune_runs_git_gc_on_clones(tmp_project: Path, monkeypatch) -> None:
+def test_prune_runs_git_gc_on_clones(
+    tmp_project: Path, monkeypatch, subprocess_check_call_capture: list[list[str]]
+) -> None:
     """Prune runs ``git gc`` on all local source clones."""
     osh_dir = tmp_project / ".osh"
     sources = ["odoo", "enterprise", "design-themes"]
     for name in sources:
         (osh_dir / name / ".git").mkdir(parents=True, exist_ok=True)
 
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        "osh.plugins.osh_prune.commands.subprocess.check_call",
-        lambda cmd, **kwargs: calls.append(list(cmd)),
-    )
+    calls = subprocess_check_call_capture
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
@@ -45,7 +43,9 @@ def test_prune_runs_git_gc_on_clones(tmp_project: Path, monkeypatch) -> None:
     assert "Pruned 3 source clone(s)" in result.output
 
 
-def test_prune_skips_symlinked_sources(tmp_project: Path, monkeypatch) -> None:
+def test_prune_skips_symlinked_sources(
+    tmp_project: Path, monkeypatch, subprocess_check_call_capture: list[list[str]]
+) -> None:
     """Prune does not run on symlinked sources."""
     osh_dir = tmp_project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
@@ -54,11 +54,7 @@ def test_prune_skips_symlinked_sources(tmp_project: Path, monkeypatch) -> None:
     (external / ".git").mkdir(parents=True, exist_ok=True)
     (osh_dir / "odoo").symlink_to(external, target_is_directory=True)
 
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        "osh.plugins.osh_prune.commands.subprocess.check_call",
-        lambda cmd, **kwargs: calls.append(list(cmd)),
-    )
+    calls = subprocess_check_call_capture
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
@@ -69,16 +65,14 @@ def test_prune_skips_symlinked_sources(tmp_project: Path, monkeypatch) -> None:
     assert "symlinked source" in result.output
 
 
-def test_prune_aggressive_option(tmp_project: Path, monkeypatch) -> None:
+def test_prune_aggressive_option(
+    tmp_project: Path, monkeypatch, subprocess_check_call_capture: list[list[str]]
+) -> None:
     """``--aggressive`` passes the flag to ``git gc``."""
     osh_dir = tmp_project / ".osh"
     (osh_dir / "odoo" / ".git").mkdir(parents=True, exist_ok=True)
 
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        "osh.plugins.osh_prune.commands.subprocess.check_call",
-        lambda cmd, **kwargs: calls.append(list(cmd)),
-    )
+    calls = subprocess_check_call_capture
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
@@ -89,16 +83,14 @@ def test_prune_aggressive_option(tmp_project: Path, monkeypatch) -> None:
     assert "--aggressive" in calls[0]
 
 
-def test_prune_dry_run_does_not_call(tmp_project: Path, monkeypatch) -> None:
+def test_prune_dry_run_does_not_call(
+    tmp_project: Path, monkeypatch, subprocess_check_call_capture: list[list[str]]
+) -> None:
     """``--dry-run`` prints commands without executing them."""
     osh_dir = tmp_project / ".osh"
     (osh_dir / "odoo" / ".git").mkdir(parents=True, exist_ok=True)
 
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        "osh.plugins.osh_prune.commands.subprocess.check_call",
-        lambda cmd, **kwargs: calls.append(list(cmd)),
-    )
+    calls = subprocess_check_call_capture
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()

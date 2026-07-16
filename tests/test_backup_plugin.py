@@ -21,18 +21,11 @@ def in_project(monkeypatch, tmp_project: Path) -> Path:
     return tmp_project
 
 
-def test_download_db_source_writes_to_cache(in_project: Path, monkeypatch) -> None:
+def test_download_db_source_writes_to_cache(
+    in_project: Path, subprocess_run_capture
+) -> None:
     """Downloading a db:// source writes the dump and metadata into the cache."""
-    calls: list[list[str]] = []
-
-    def fake_run(args, **kwargs):
-        calls.append(args)
-        # Simulate pg_dump writing to stdout.
-        if "stdout" in kwargs and kwargs["stdout"] is not None:
-            kwargs["stdout"].write(b"pg_dump output")
-        return subprocess.CompletedProcess(args, returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    subprocess_run_capture.stdout = b"pg_dump output"
 
     runner = CliRunner()
     result = runner.invoke(backup, ["download", "db://sourcedb"])
@@ -62,17 +55,14 @@ def test_download_requires_output_outside_project(monkeypatch, tmp_path: Path) -
     assert "--output PATH" in result.output
 
 
-def test_download_with_output_outside_project(monkeypatch, tmp_path: Path) -> None:
+def test_download_with_output_outside_project(
+    monkeypatch, tmp_path: Path, subprocess_run_capture
+) -> None:
     """With --output, `backup download` works outside a project."""
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "sourcedb.dump"
 
-    def fake_run(args, **kwargs):
-        if "stdout" in kwargs and kwargs["stdout"] is not None:
-            kwargs["stdout"].write(b"dump")
-        return subprocess.CompletedProcess(args, returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    subprocess_run_capture.stdout = b"dump"
 
     runner = CliRunner()
     result = runner.invoke(backup, ["download", "db://sourcedb", str(output)])
@@ -235,7 +225,7 @@ def test_download_odoosh_with_filestore_dry_run(in_project: Path) -> None:
 
 
 def test_download_odoosh_with_filestore_creates_zip(
-    in_project: Path, monkeypatch, tmp_path: Path
+    in_project: Path, monkeypatch, tmp_path: Path, subprocess_run_capture
 ) -> None:
     """--filestream fetches the dump and filestore and packages them as a zip."""
     import gzip
@@ -263,14 +253,11 @@ def test_download_odoosh_with_filestore_creates_zip(
         tar.addfile(info, io.BytesIO(data))
     filestore_tar = filestore_buf.getvalue()
 
-    scp_calls: list[list[str]] = []
-
     def fake_run(args, **kwargs):
-        scp_calls.append(args)
         Path(args[-1]).write_bytes(dump_gz.read_bytes())
         return subprocess.CompletedProcess(args, returncode=0)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    subprocess_run_capture.side_effect = fake_run
 
     class MockProcess:
         def __init__(self, args, **kwargs):
@@ -388,17 +375,16 @@ def test_ssh_source_dry_run_shows_scp_command(capsys) -> None:
     assert "user@myhost:/var/backups/odoo.sql.gz" in captured.err
 
 
-def test_ssh_source_runs_scp(monkeypatch, tmp_path: Path) -> None:
+def test_ssh_source_runs_scp(tmp_path: Path, subprocess_run_capture) -> None:
     """Fetching an ssh:// source runs scp with the expected arguments."""
-    calls: list[list[str]] = []
 
-    def fake_run(args, **kwargs):
-        calls.append(args)
+    def _scp_write(args, **kwargs):
+        subprocess_run_capture.calls.append(list(args))
         # scp writes to the local destination (last argument) itself.
         Path(args[-1]).write_bytes(b"backup data")
         return subprocess.CompletedProcess(args, returncode=0)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    subprocess_run_capture.side_effect = _scp_write
 
     ssh_key = tmp_path / "id_rsa"
     ssh_key.write_text("key")
@@ -408,31 +394,25 @@ def test_ssh_source_runs_scp(monkeypatch, tmp_path: Path) -> None:
     source.fetch(output)
 
     assert output.read_bytes() == b"backup data"
-    assert calls[0][:4] == [
+    assert subprocess_run_capture.calls[0][:4] == [
         "scp",
         "-i",
         str(ssh_key),
         "user@myhost:/var/backups/odoo.sql.gz",
     ]
-    assert calls[0][-1] == str(output)
+    assert subprocess_run_capture.calls[0][-1] == str(output)
 
 
-def test_ssh_source_with_port_includes_p_flag(monkeypatch, tmp_path: Path) -> None:
+def test_ssh_source_with_port_includes_p_flag(
+    tmp_path: Path, subprocess_run_capture
+) -> None:
     """A non-standard SSH port is passed to scp with -P."""
-    calls: list[list[str]] = []
-
-    def fake_run(args, **kwargs):
-        calls.append(args)
-        return subprocess.CompletedProcess(args, returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
     output = tmp_path / "dump.sql.gz"
     source = SshSource("ssh://user@myhost:2222/var/backups/odoo.sql.gz")
     source.fetch(output)
 
-    assert "-P" in calls[0]
-    assert "2222" in calls[0]
+    assert "-P" in subprocess_run_capture.calls[0]
+    assert "2222" in subprocess_run_capture.calls[0]
 
 
 def test_ssh_source_missing_host_or_path_raises() -> None:
@@ -441,19 +421,18 @@ def test_ssh_source_missing_host_or_path_raises() -> None:
         SshSource("ssh:///var/backups/odoo.sql.gz")
 
 
-def test_download_ssh_source_invokes_fetch(monkeypatch, tmp_path: Path) -> None:
+def test_download_ssh_source_invokes_fetch(
+    monkeypatch, tmp_project: Path, subprocess_run_capture
+) -> None:
     """`osh backup download ssh://...` copies the remote file into the cache."""
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / ".osh").mkdir()
-    monkeypatch.chdir(project)
+    monkeypatch.chdir(tmp_project)
 
-    def fake_run(args, **kwargs):
+    def _scp_write(args, **kwargs):
         # scp writes to the local destination (last argument) itself.
         Path(args[-1]).write_bytes(b"backup data")
         return subprocess.CompletedProcess(args, returncode=0)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    subprocess_run_capture.side_effect = _scp_write
 
     runner = CliRunner()
     result = runner.invoke(
@@ -461,7 +440,7 @@ def test_download_ssh_source_invokes_fetch(monkeypatch, tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0
-    cache_dir = project / ".osh" / "backups"
+    cache_dir = tmp_project / ".osh" / "backups"
     files = [p for p in cache_dir.iterdir() if not p.name.endswith(".meta.json")]
     assert len(files) == 1
     assert files[0].read_bytes() == b"backup data"
