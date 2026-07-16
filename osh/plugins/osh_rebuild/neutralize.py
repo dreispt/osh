@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from ...db import _run_psql_script
-from ...utils import _get_odoo_base_dir, _get_venv_python, discover_addons_paths
+from ...utils import _build_addons_paths, _get_venv_python
 
 
 def _neutralize_database(
@@ -50,16 +50,7 @@ def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
     """Run ``odoo-bin neutralize`` against the target database."""
     args = [exe, "--config", str(base / ".odoorc")]
 
-    addons_paths: list[Path] = []
-    odoo_dir = _get_odoo_base_dir(base)
-    if odoo_dir and (odoo_dir / "addons").exists():
-        addons_paths.append(odoo_dir / "addons")
-    enterprise_dir = base / ".osh" / "enterprise"
-    if enterprise_dir.exists():
-        addons_paths.append(enterprise_dir)
-    for addon in discover_addons_paths(base):
-        addons_paths.append(addon.parent)
-
+    addons_paths = _build_addons_paths(base)
     if addons_paths:
         unique_paths = sorted({str(p) for p in addons_paths})
         args.extend(["--addons-path", ",".join(unique_paths)])

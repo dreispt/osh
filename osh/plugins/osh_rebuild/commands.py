@@ -6,8 +6,7 @@ from pathlib import Path
 
 import click
 
-from ...commands.run_cmd import _resolve_db_name
-from ...db import _create_db, _db_exists, _drop_db
+from ...db import _create_db, _db_exists, _drop_db, _resolve_db_name
 from ...plugins.osh_backup.cache import _get_cache_dir, _list_cache, _resolve_cache_id
 from ...utils import _find_odoo_executable, _find_project_root
 from .neutralize import _neutralize_database
@@ -47,17 +46,8 @@ def rebuild(
       osh rebuild /path/to/backup.sql.gz --force
     """
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
-
-    exe = _find_odoo_executable(base)
-    if not exe:
-        raise click.ClickException(
-            "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
-        )
+    base = _find_project_root(required=True)
+    exe = _find_odoo_executable(base, required=True)
 
     dump_path = _resolve_dump(base, dump)
 

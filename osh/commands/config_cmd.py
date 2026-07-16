@@ -53,11 +53,7 @@ def db(
       osh config db myproject-dev --default
     """
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
+    base = _find_project_root(required=True)
 
     if branch is None:
         branch = _get_current_branch(base) or "default"
@@ -78,11 +74,7 @@ def db(
 def show(ctx: click.Context) -> None:  # noqa: D401
     """Show the current Osh project configuration."""
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
+    base = _find_project_root(required=True)
 
     cfg = _load_osh_config(base)
     config_path = _get_osh_config_path(base)

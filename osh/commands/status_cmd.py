@@ -29,13 +29,7 @@ def status(ctx: click.Context) -> None:  # noqa: D401
       - Odoo version
     """
 
-    base = _find_project_root()
-    if base is None:
-        click.echo(
-            "Not inside an Osh project. Run 'osh init <version>' to create one.",
-            err=True,
-        )
-        ctx.exit(1)
+    base = _find_project_root(required=True)
 
     click.echo(f"Project directory: {base}")
 

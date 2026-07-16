@@ -72,24 +72,10 @@ def test(
       osh test --dry-run
     """
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
+    base = _find_project_root(required=True)
+    exe = _find_odoo_executable(base, required=True)
 
-    exe = _find_odoo_executable(base)
-    if not exe:
-        raise click.ClickException(
-            "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
-        )
-
-    if not modules and not test_all:
-        modules = tuple(discover_module_names(base))
-        if not modules:
-            raise click.ClickException("No project modules found to test.")
-
-    if not modules and test_all:
+    if not modules:
         modules = tuple(discover_module_names(base))
         if not modules:
             raise click.ClickException("No project modules found to test.")

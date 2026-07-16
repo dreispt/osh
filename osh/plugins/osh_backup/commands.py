@@ -179,11 +179,7 @@ def list_backups(
 ) -> None:  # noqa: D401
     """List backups stored in the project cache."""
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
+    base = _find_project_root(required=True)
 
     entries = _list_cache(base, limit=limit, reverse=reverse)
     if not entries:

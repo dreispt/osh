@@ -13,11 +13,10 @@ import os
 import click
 
 from ..utils import (
+    _build_addons_paths,
     _find_odoo_executable,
     _find_project_root,
-    _get_odoo_base_dir,
     _get_odoo_config_path,
-    discover_addons_paths,
 )
 
 
@@ -56,17 +55,8 @@ def odoo(
       osh odoo --dry-run -- shell -d mydb
     """
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
-
-    exe = _find_odoo_executable(base)
-    if not exe:
-        raise click.ClickException(
-            "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
-        )
+    base = _find_project_root(required=True)
+    exe = _find_odoo_executable(base, required=True)
 
     args: list[str] = [exe]
 
@@ -81,21 +71,7 @@ def odoo(
 
     # Discover addons path unless already specified.
     if not any(arg.startswith("--addons-path") for arg in extra_args):
-        addons_paths: list[os.PathLike] = []
-
-        odoo_dir = _get_odoo_base_dir(base)
-        if odoo_dir:
-            odoo_addons = odoo_dir / "addons"
-            if odoo_addons.exists():
-                addons_paths.append(odoo_addons)
-
-        enterprise_dir = base / ".osh" / "enterprise"
-        if enterprise_dir.exists():
-            addons_paths.append(enterprise_dir)
-
-        project_addons = sorted({addon.parent for addon in discover_addons_paths(base)})
-        addons_paths.extend(project_addons)
-
+        addons_paths = _build_addons_paths(base)
         if addons_paths:
             addons_path_str = ",".join(str(p) for p in addons_paths)
             if verbose:

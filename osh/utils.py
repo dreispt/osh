@@ -23,12 +23,21 @@ except ImportError:  # pragma: no cover (<3.11)
     import tomli as tomllib
 
 
-def _find_project_root(start: Path | None = None) -> Path | None:
-    """Return the nearest ancestor (including *start*) that contains a .osh file."""
+def _find_project_root(
+    start: Path | None = None, *, required: bool = False
+) -> Path | None:
+    """Return the nearest ancestor (including *start*) that contains a .osh file.
+
+    When *required* is True, raise a ClickException instead of returning None.
+    """
     start = (start or Path.cwd()).resolve()
     for p in [start] + list(start.parents):
         if (p / ".osh").exists():
             return p
+    if required:
+        raise click.ClickException(
+            "Not inside an Osh project. Run 'osh init <version>' to create one."
+        )
     return None
 
 
@@ -113,12 +122,14 @@ def _save_user_init_setting(key: str, value: Any) -> None:
     config_file.write_text("".join(lines))
 
 
-def _find_odoo_executable(base: Path) -> str | None:
+def _find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
     """Return path to Odoo executable.
 
     Search order:
     1. *base*/.venv/bin/odoo (pip-installed) or odoo-bin (source)
     2. First `odoo` or `odoo-bin` found in PATH.
+
+    When *required* is True, raise a ClickException instead of returning None.
     """
     # 1. virtualenv local - check both odoo (pip) and odoo-bin (source)
     venv_dir = base / ".venv" / ("Scripts" if os.name == "nt" else "bin")
@@ -128,7 +139,43 @@ def _find_odoo_executable(base: Path) -> str | None:
             return str(venv_exe)
 
     # 2. PATH fallback
-    return shutil.which("odoo") or shutil.which("odoo-bin")
+    exe = shutil.which("odoo") or shutil.which("odoo-bin")
+    if not exe and required:
+        raise click.ClickException(
+            "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
+        )
+    return exe
+
+
+def _build_addons_paths(base: Path, *, include_themes: bool = False) -> list[Path]:
+    """Return a list of addon paths for *base*.
+
+    Includes the Odoo core addons directory, Enterprise, optionally
+    design-themes, and discovered project addon parent directories.
+    """
+    addons_paths: list[Path] = []
+
+    odoo_dir = _get_odoo_base_dir(base)
+    if odoo_dir:
+        odoo_addons = odoo_dir / "addons"
+        if odoo_addons.exists():
+            addons_paths.append(odoo_addons)
+
+    enterprise_dir = base / ".osh" / "enterprise"
+    if enterprise_dir.exists():
+        addons_paths.append(enterprise_dir)
+
+    if include_themes:
+        themes_dir = base / ".osh" / "design-themes"
+        if themes_dir.exists():
+            addons_paths.append(themes_dir)
+
+    addon_modules = discover_addons_paths(base)
+    if addon_modules:
+        project_addons = sorted({addon.parent for addon in addon_modules})
+        addons_paths.extend(project_addons)
+
+    return addons_paths
 
 
 def _get_odoo_config_path(base: Path) -> Path:

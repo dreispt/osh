@@ -7,12 +7,7 @@ import os
 import click
 
 from ..db import _resolve_db_name
-from ..utils import (
-    _find_odoo_executable,
-    _find_project_root,
-    _get_odoo_base_dir,
-    discover_addons_paths,
-)
+from ..utils import _build_addons_paths, _find_odoo_executable, _find_project_root
 
 
 @click.command(name="run", context_settings=dict(ignore_unknown_options=True))
@@ -58,17 +53,8 @@ def run(
       osh run --verbose
     """
 
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
-
-    exe = _find_odoo_executable(base)
-    if not exe:
-        raise click.ClickException(
-            "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
-        )
+    base = _find_project_root(required=True)
+    exe = _find_odoo_executable(base, required=True)
 
     # Determine computed configuration unless the user supplied an explicit config.
     has_explicit_config = any(
@@ -76,31 +62,7 @@ def run(
     )
 
     if not any(arg.startswith("--addons-path") for arg in extra_args):
-        addons_paths: list[os.PathLike] = []
-
-        # Add Odoo's own addons directory
-        odoo_dir = _get_odoo_base_dir(base)
-        if odoo_dir:
-            odoo_addons = odoo_dir / "addons"
-            if odoo_addons.exists():
-                addons_paths.append(odoo_addons)
-
-        # Add Enterprise addons directory if available
-        enterprise_dir = base / ".osh" / "enterprise"
-        if enterprise_dir.exists():
-            addons_paths.append(enterprise_dir)
-
-        # Add design-themes addons directory if available
-        themes_dir = base / ".osh" / "design-themes"
-        if themes_dir.exists():
-            addons_paths.append(themes_dir)
-
-        # Add discovered project addon directories
-        addon_modules = discover_addons_paths(base)
-        if addon_modules:
-            # Get unique parent directories of addon modules
-            project_addons = sorted({addon.parent for addon in addon_modules})
-            addons_paths.extend(project_addons)
+        addons_paths = _build_addons_paths(base, include_themes=True)
     else:
         addons_paths = []
 

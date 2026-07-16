@@ -38,11 +38,7 @@ def prune(aggressive: bool, dry_run: bool) -> None:  # noqa: D401
       osh prune --aggressive
       osh prune --dry-run
     """
-    base = _find_project_root()
-    if base is None:
-        raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
-        )
+    base = _find_project_root(required=True)
 
     osh_dir = base / ".osh"
     sources = ["odoo", "enterprise", "design-themes"]
