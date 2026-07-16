@@ -10,15 +10,6 @@ from click.testing import CliRunner
 from osh.plugins.osh_rebuild.commands import rebuild
 
 
-@pytest.fixture
-def tmp_project(tmp_path: Path) -> Path:
-    """Return a minimal Osh project directory."""
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / ".osh").mkdir()
-    return project
-
-
 def _setup_fake_project(project: Path, db_name: str = "testdb") -> None:
     """Create a fake Odoo executable and project config in *project*."""
     osh_dir = project / ".osh"

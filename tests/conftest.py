@@ -9,9 +9,10 @@ import pytest
 
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
-    """Return an empty temporary project directory."""
+    """Return a temporary project directory with a .osh marker."""
     project = tmp_path / "project"
     project.mkdir(parents=True, exist_ok=True)
+    (project / ".osh").mkdir(parents=True, exist_ok=True)
     return project
 
 

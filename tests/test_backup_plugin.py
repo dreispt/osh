@@ -15,15 +15,6 @@ from osh.plugins.osh_backup.sources import OdooshSource, SourceError, SshSource
 
 
 @pytest.fixture
-def tmp_project(tmp_path: Path) -> Path:
-    """Return a minimal Osh project directory."""
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / ".osh").mkdir()
-    return project
-
-
-@pytest.fixture
 def in_project(monkeypatch, tmp_project: Path) -> Path:
     """Switch into the temporary project for project-aware commands."""
     monkeypatch.chdir(tmp_project)
