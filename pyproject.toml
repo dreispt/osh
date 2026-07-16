@@ -13,6 +13,11 @@ dependencies = [
     # "odoorpc>=0.12",
 ]
 
+[project.optional-dependencies]
+tests = [
+    "pytest>=7.0",
+]
+
 [project.scripts]
 osh = "osh.cli:main"
 
