@@ -1,10 +1,8 @@
 """`osh plug` command for managing user-installed plugins."""
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
-from pathlib import Path
 
 import click
 
@@ -22,7 +20,11 @@ def _repo_name_from_url(url: str) -> str:
 @click.group(name="plug")
 @click.pass_context
 def plug(ctx: click.Context) -> None:  # noqa: D401
-    """Manage Osh plugins installed from git repositories."""
+    """Install, list, and remove Osh plugins from git repositories.
+
+    Plugins are installed into ~/.config/osh/plugins/ and add new commands to the
+    CLI. Restart `osh` after installing or removing a plugin.
+    """
 
 
 @plug.command(name="install")
@@ -34,7 +36,11 @@ def plug(ctx: click.Context) -> None:  # noqa: D401
 )
 @click.pass_context
 def install(ctx: click.Context, url: str, trust: bool) -> None:  # noqa: D401
-    """Install a plugin from a git URL."""
+    """Install a plugin from a git URL.
+
+    The repository must expose a `get_commands()` function or a `COMMANDS` list.
+    Use --trust to skip the security warning.
+    """
 
     if not url.startswith(("https://", "git@", "http://", "git://", "file://")):
         raise click.ClickException("URL must be a git repository.")
@@ -65,7 +71,10 @@ def install(ctx: click.Context, url: str, trust: bool) -> None:  # noqa: D401
 @plug.command(name="list")
 @click.pass_context
 def list_(ctx: click.Context) -> None:  # noqa: D401
-    """List installed user plugins."""
+    """List installed user plugins.
+
+    Plugins are located in ~/.config/osh/plugins/.
+    """
 
     plugin_dir = _user_plugin_dir()
     if not plugin_dir.is_dir():
@@ -91,7 +100,10 @@ def list_(ctx: click.Context) -> None:  # noqa: D401
 )
 @click.pass_context
 def uninstall(ctx: click.Context, name: str, yes: bool) -> None:  # noqa: D401
-    """Remove an installed plugin."""
+    """Remove an installed plugin by name.
+
+    Use --yes to skip the confirmation prompt.
+    """
 
     plugin_dir = _user_plugin_dir() / name
     if not plugin_dir.exists():

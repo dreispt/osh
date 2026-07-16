@@ -4,9 +4,7 @@ from __future__ import annotations
 import click
 
 from ..db import (
-    _get_branch_db,
     _get_current_branch,
-    _get_last_db,
     _get_osh_config_path,
     _load_osh_config,
     _sanitize_db_name,
@@ -19,7 +17,7 @@ from ..utils import _find_project_root
 @click.group(name="config")
 @click.pass_context
 def config(ctx: click.Context) -> None:  # noqa: D401
-    """Manage Osh project settings."""
+    """Manage Osh project settings stored in `.osh/config`."""
 
 
 @config.command(name="db")
@@ -41,7 +39,18 @@ def db(
     branch: str | None,
     set_default: bool,
 ) -> None:  # noqa: D401
-    """Set the preferred database for a branch."""
+    """Set the preferred database for a branch.
+
+    By default the current git branch is used. Use --branch to target another
+    branch. Use --default to also store this database as the last used default.
+
+    Examples:
+
+    \b
+      osh config db myproject-dev
+      osh config db myproject-dev --branch main
+      osh config db myproject-dev --default
+    """
 
     base = _find_project_root()
     if base is None:
@@ -66,7 +75,7 @@ def db(
 @config.command(name="show")
 @click.pass_context
 def show(ctx: click.Context) -> None:  # noqa: D401
-    """Show the Osh project configuration."""
+    """Show the current Osh project configuration."""
 
     base = _find_project_root()
     if base is None:

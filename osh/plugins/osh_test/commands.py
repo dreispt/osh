@@ -5,7 +5,6 @@ initialised with `-i`, then the tests are executed with `-u`.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -196,7 +195,22 @@ def test(
     no_stop_after_init: bool,
     dry_run: bool,
 ) -> None:  # noqa: D401
-    """Run Odoo tests for project modules."""
+    """Run Odoo tests for project modules.
+
+    By default the test database is `<project>-<branch>-test`. If it does not
+    exist, it is created with `-i` and then tests are run with `-u`.
+
+    Examples:
+
+    \b
+      osh test
+      osh test my_module
+      osh test --all
+      osh test --tags :TestClass.method
+      osh test --current-db
+      osh test --dropdb
+      osh test --dry-run
+    """
 
     base = _find_project_root()
     if base is None:

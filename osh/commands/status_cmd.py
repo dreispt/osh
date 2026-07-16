@@ -1,9 +1,7 @@
 """`osh status` command implementation."""
 from __future__ import annotations
 
-import shutil
 import subprocess
-from pathlib import Path
 
 import click
 
@@ -13,7 +11,17 @@ from ..utils import _find_project_root, _find_odoo_executable, _get_odoo_config_
 @click.command(name="status")
 @click.pass_context
 def status(ctx: click.Context) -> None:  # noqa: D401
-    """Show project base directory and Odoo version if in an Osh project."""
+    """Show project information.
+
+    Displays:
+
+    \b
+      - Project directory
+      - Odoo executable path
+      - Odoo configuration file location if it exists
+      - Discovered addon paths and module count
+      - Odoo version
+    """
 
     base = _find_project_root()
     if base is None:
