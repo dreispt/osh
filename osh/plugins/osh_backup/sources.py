@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import os
 import re
 import shutil
@@ -224,19 +225,44 @@ class OdooshSource(BackupSource):
     """Fetch an odoo.sh daily backup via SSH."""
 
     BACKUP_DIR = "/home/odoo/backup.daily"
+    FILESTORE_DIR = "/home/odoo/data/filestore"
+    BUILD_ID_RE = re.compile(r"-([0-9]+)(\.dev\.odoo\.com)?$", re.IGNORECASE)
+    DB_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}-(.+)-\d+_daily\.sql\.gz$")
 
-    def __init__(self, url: str, ssh_key: Path | None = None):
+    def __init__(
+        self,
+        url: str,
+        ssh_key: Path | None = None,
+        include_filestore: bool = False,
+    ):
         parsed = urlparse(url)
-        self.build_id = parsed.username
-        self.domain = parsed.netloc
         self.ssh_key = ssh_key
-        self.original_format = "sql.gz"
+        self.include_filestore = include_filestore
+        self.original_format = "zip" if include_filestore else "sql.gz"
         query = parse_qs(parsed.query)
         self.backup_name = self._first(query.get("backup"))
+        self.domain = self._normalize_domain(parsed.netloc)
+        self.build_id = self._resolve_build_id(parsed.username)
         if not self.build_id or not self.domain:
             raise SourceError(
-                "odoosh:// source must be `odoosh://<build_id>@<domain>`."
+                "odoosh:// source must be `odoosh://<build_id>@<domain>` "
+                "or `odoosh://<slug>` with a numeric build suffix."
             )
+        self._remote_file: str | None = None
+        self._db_name: str | None = None
+
+    def _normalize_domain(self, netloc: str) -> str:
+        if not netloc.endswith(".dev.odoo.com"):
+            return netloc + ".dev.odoo.com"
+        return netloc
+
+    def _resolve_build_id(self, username: str | None) -> str | None:
+        if username:
+            return username
+        match = self.BUILD_ID_RE.search(self.domain)
+        if match:
+            return match.group(1)
+        return None
 
     @staticmethod
     def _first(values: list[str] | None) -> str | None:
@@ -246,13 +272,21 @@ class OdooshSource(BackupSource):
     def ssh_target(self) -> str:
         return f"{self.build_id}@{self.domain}"
 
+    @property
+    def db_name(self) -> str | None:
+        return self._db_name
+
     def default_output_name(self) -> str:
         safe_domain = _safe_name(self.domain)
         safe_build = _safe_name(self.build_id)
-        return f"{safe_domain}_{safe_build}_{_now_stamp()}.sql.gz"
+        ext = "zip" if self.include_filestore else "sql.gz"
+        return f"{safe_domain}_{safe_build}_{_now_stamp()}.{ext}"
 
     def fetch(self, output: Path, *, dry_run: bool = False) -> None:
         remote_file = self._resolve_remote_file(dry_run=dry_run)
+        if self.include_filestore:
+            self._fetch_full_backup(remote_file, output, dry_run=dry_run)
+            return
         remote_path = f"{self.ssh_target}:{self.BACKUP_DIR}/{remote_file}"
         if dry_run:
             click.echo(f"Would run: scp {remote_path} {output}", err=True)
@@ -260,8 +294,12 @@ class OdooshSource(BackupSource):
         self._scp(remote_path, output)
 
     def _resolve_remote_file(self, *, dry_run: bool = False) -> str:
+        if self._remote_file:
+            return self._remote_file
         if self.backup_name:
-            return self.backup_name
+            self._remote_file = self.backup_name
+            self._db_name = self._parse_db_name(self.backup_name)
+            return self._remote_file
         ssh_args = self._ssh_args()
         ls_command = f"ls {self.BACKUP_DIR}"
         if dry_run:
@@ -288,7 +326,93 @@ class OdooshSource(BackupSource):
         if not files:
             raise SourceError(f"No daily backups found in {self.BACKUP_DIR}.")
         files.sort()
-        return files[-1]
+        self._remote_file = files[-1]
+        self._db_name = self._parse_db_name(self._remote_file)
+        return self._remote_file
+
+    def _parse_db_name(self, remote_file: str) -> str | None:
+        match = self.DB_NAME_RE.match(remote_file)
+        if match:
+            return match.group(1)
+        return None
+
+    def _fetch_full_backup(
+        self, remote_file: str, output: Path, *, dry_run: bool = False
+    ) -> None:
+        if dry_run:
+            click.echo(
+                f"Would download {remote_file} and filestore to {output}", err=True
+            )
+            return
+        if not self.db_name:
+            raise SourceError(
+                f"Could not determine database name from backup file {remote_file}."
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            dump_gz = tmp_path / "dump.sql.gz"
+            remote_path = f"{self.ssh_target}:{self.BACKUP_DIR}/{remote_file}"
+            self._scp(remote_path, dump_gz)
+
+            dump_sql = tmp_path / "dump.sql"
+            self._gunzip(dump_gz, dump_sql)
+
+            filestore_dir = tmp_path / "filestore"
+            filestore_dir.mkdir()
+            self._download_filestore(filestore_dir)
+
+            self._create_zip(output, dump_sql, filestore_dir)
+
+    def _gunzip(self, source: Path, target: Path) -> None:
+        try:
+            with gzip.open(source, "rb") as gz, target.open("wb") as f:
+                shutil.copyfileobj(gz, f)
+        except Exception as exc:
+            raise SourceError(f"Could not decompress backup dump: {exc}") from exc
+
+    def _download_filestore(self, filestore_dir: Path) -> None:
+        ssh_args = self._ssh_args()
+        remote_cmd = f"tar cz -C {self.FILESTORE_DIR} {self.db_name}"
+        try:
+            with subprocess.Popen(
+                ["ssh", *ssh_args, self.ssh_target, remote_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ) as ssh_proc, subprocess.Popen(
+                ["tar", "xz", "-C", str(filestore_dir)],
+                stdin=ssh_proc.stdout,
+                stderr=subprocess.PIPE,
+            ) as tar_proc:
+                if ssh_proc.stdout is not None:
+                    ssh_proc.stdout.close()
+                ssh_proc.wait()
+                tar_proc.wait()
+                if ssh_proc.returncode != 0:
+                    stderr = (
+                        ssh_proc.stderr.read().decode("utf-8", errors="replace")
+                        if ssh_proc.stderr
+                        else ""
+                    )
+                    raise SourceError(f"Failed to download filestore: {stderr}")
+                if tar_proc.returncode != 0:
+                    stderr = (
+                        tar_proc.stderr.read().decode("utf-8", errors="replace")
+                        if tar_proc.stderr
+                        else ""
+                    )
+                    raise SourceError(f"Failed to extract filestore: {stderr}")
+        except FileNotFoundError as exc:
+            raise SourceError("Could not locate `ssh` or `tar`.") from exc
+
+    def _create_zip(self, output: Path, dump_sql: Path, filestore_dir: Path) -> None:
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(dump_sql, "dump.sql")
+            for path in filestore_dir.rglob("*"):
+                if path.is_file():
+                    arcname = "filestore/" + path.relative_to(
+                        filestore_dir
+                    ).as_posix()
+                    zf.write(path, arcname)
 
     def _ssh_args(self) -> list[str]:
         args: list[str] = []
@@ -375,6 +499,7 @@ def parse_source(
     output_format: str = "dump",
     master_password: str | None = None,
     ssh_key: Path | None = None,
+    include_filestore: bool = False,
 ) -> BackupSource:
     """Parse a source string into a BackupSource instance."""
     if source.startswith("db://"):
@@ -382,7 +507,9 @@ def parse_source(
     if source.startswith("https://") or source.startswith("http://"):
         return HttpsSource(source, master_password=master_password)
     if source.startswith("odoosh://"):
-        return OdooshSource(source, ssh_key=ssh_key)
+        return OdooshSource(
+            source, ssh_key=ssh_key, include_filestore=include_filestore
+        )
     if source.startswith("ssh://"):
         return SshSource(source, ssh_key=ssh_key)
     raise SourceError(

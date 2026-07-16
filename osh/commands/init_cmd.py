@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -332,6 +333,13 @@ def init(
         subprocess.check_call([str(pip_exe), "install", "-e", str(odoo_link)])
 
     except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"pip install failed: {exc}")
+        if isinstance(exc.cmd, (list, tuple)):
+            command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
+        else:
+            command = str(exc.cmd)
+        raise click.ClickException(
+            f"pip install failed (exit status {exc.returncode}).\n\n"
+            f"You can retry the command manually:\n\n  {command}\n"
+        )
 
     click.echo(f"Initialised project directory at {target}")

@@ -36,6 +36,11 @@ def backup() -> None:  # noqa: D401
     help="SSH private key for odoosh:// and ssh:// sources.",
 )
 @click.option(
+    "--filestore",
+    is_flag=True,
+    help="For odoosh:// sources, also download the filestore and produce a .zip backup.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Print the commands that would be run without executing them.",
@@ -48,6 +53,7 @@ def download(
     output_format: str,
     master_password: str | None,
     ssh_key: Path | None,
+    filestore: bool,
     dry_run: bool,
 ) -> None:  # noqa: D401
     """Download or dump a backup source to the project cache.
@@ -57,20 +63,20 @@ def download(
     \b
       db://<database>          - PostgreSQL dump via pg_dump
       https://<host>?db=<db>  - Odoo manager backup download
-      odoosh://<build>@<host> - SSH/scp daily dump from an Odoo.sh container
+      odoosh://[<build>@]<host> - SSH/scp daily dump from an Odoo.sh container
       ssh://[user@]host[:port]/path - SSH/scp an existing backup file
 
     Odoo.sh quick start:
 
     1. Add your SSH key in the odoo.sh project profile.
-    2. Copy the build id and domain from the SSH tab of your branch.
+    2. Copy the domain from the SSH tab of your branch.
     3. Download the latest daily SQL dump:
 
-       osh backup download odoosh://BUILD@PROJECT-BRANCH-BUILD.dev.odoo.com
+       osh backup download odoosh://PROJECT-BRANCH-BUILD
 
-    The daily dump contains only the database (no filestore). For a full backup
-    including filestore, download the .zip from the odoo.sh web UI and use
-    `osh rebuild PATH`.
+    The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
+    is optional. Add `--filestore` to also download the filestore over SSH and
+    produce a full `.zip` backup that `osh rebuild` can restore directly.
 
     Generic SSH (VPS / disabled dbmanager):
 
@@ -88,6 +94,9 @@ def download(
     \b
       osh backup download db://prod_db
       osh backup download https://my.odoo.com?db=prod&format=zip
+      osh backup download odoosh://my-project-master-123456
+      osh backup download odoosh://my-project-master-123456 --filestore
+      osh backup download odoosh://my-project-master-123456.dev.odoo.com
       osh backup download odoosh://123456@my-project-master-123456.dev.odoo.com
       osh backup download ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
@@ -105,6 +114,7 @@ def download(
             output_format=output_format,
             master_password=master_password,
             ssh_key=ssh_key,
+            include_filestore=filestore,
         )
         output_path = cache_dir / parsed.default_output_name()
     else:
@@ -118,6 +128,7 @@ def download(
         output_format=output_format,
         master_password=master_password,
         ssh_key=ssh_key,
+        include_filestore=filestore,
     )
 
     if dry_run:

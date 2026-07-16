@@ -93,8 +93,8 @@ osh plug install https://github.com/ORG/REPO
 Download or dump a backup and store it in the project cache (`.osh/backups/`).
 
 ```bash
-# Fetch the latest odoo.sh daily dump
-osh backup download odoosh://123456@my-project-master-123456.dev.odoo.com
+# Fetch the latest odoo.sh daily dump (add --filestore for a full zip)
+osh backup download odoosh://my-project-master-123456
 
 # Download a remote Odoo manager backup
 osh backup download https://my.odoo.com?db=prod&format=zip

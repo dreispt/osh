@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.plugins.osh_backup.commands import backup
-from osh.plugins.osh_backup.sources import SourceError, SshSource
+from osh.plugins.osh_backup.sources import OdooshSource, SourceError, SshSource
 
 
 @pytest.fixture
@@ -161,6 +161,172 @@ def test_download_odoosh_dry_run(in_project: Path) -> None:
     assert "ssh" in result.output
     assert "scp" in result.output
     assert "123456@my-project-master-123456.dev.odoo.com" in result.output
+
+
+def test_download_odoosh_dry_run_without_build_id(in_project: Path) -> None:
+    """odoosh:// dry-run infers the build id from the domain suffix."""
+    runner = CliRunner()
+    result = runner.invoke(
+        backup,
+        [
+            "download",
+            "odoosh://my-project-master-123456.dev.odoo.com",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "ssh" in result.output
+    assert "scp" in result.output
+    assert "123456@my-project-master-123456.dev.odoo.com" in result.output
+
+
+def test_odoosh_source_extracts_build_id_from_domain() -> None:
+    """When the username is omitted, the build id is parsed from the domain."""
+    source = OdooshSource("odoosh://my-project-master-123456.dev.odoo.com")
+
+    assert source.build_id == "123456"
+    assert source.domain == "my-project-master-123456.dev.odoo.com"
+    assert source.ssh_target == "123456@my-project-master-123456.dev.odoo.com"
+
+
+def test_odoosh_source_expands_shorthand_domain() -> None:
+    """A slug without the .dev.odoo.com suffix is expanded automatically."""
+    source = OdooshSource("odoosh://osi-sh-barberhood-main-29869268")
+
+    assert source.build_id == "29869268"
+    assert source.domain == "osi-sh-barberhood-main-29869268.dev.odoo.com"
+    assert source.ssh_target == "29869268@osi-sh-barberhood-main-29869268.dev.odoo.com"
+
+
+def test_odoosh_source_prefers_explicit_build_id() -> None:
+    """An explicit username overrides the build id parsed from the domain."""
+    source = OdooshSource("odoosh://999999@my-project-master-123456.dev.odoo.com")
+
+    assert source.build_id == "999999"
+
+
+def test_odoosh_source_parses_db_name_from_backup_filename() -> None:
+    """The database name is extracted from the daily backup filename."""
+    source = OdooshSource(
+        "odoosh://my-project-master-123456.dev.odoo.com"
+        "?backup=2023-09-07_010937-my-project-prod-123456_daily.sql.gz"
+    )
+    source._resolve_remote_file()
+
+    assert source.db_name == "my-project-prod"
+
+
+def test_odoosh_source_include_filestore_changes_format() -> None:
+    """With include_filestore, the output becomes a .zip backup."""
+    source = OdooshSource(
+        "odoosh://my-project-master-123456.dev.odoo.com",
+        include_filestore=True,
+    )
+
+    assert source.original_format == "zip"
+    assert source.default_output_name().endswith(".zip")
+
+
+def test_download_odoosh_with_filestore_dry_run(in_project: Path) -> None:
+    """--filestore dry-run reports the full backup download."""
+    runner = CliRunner()
+    result = runner.invoke(
+        backup,
+        [
+            "download",
+            "odoosh://my-project-master-123456.dev.odoo.com",
+            "--filestore",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "filestore" in result.output
+    assert "odoosh://my-project-master-123456.dev.odoo.com" in result.output
+    assert ".zip" in result.output
+
+
+def test_download_odoosh_with_filestore_creates_zip(
+    in_project: Path, monkeypatch, tmp_path: Path
+) -> None:
+    """--filestream fetches the dump and filestore and packages them as a zip."""
+    import gzip
+    import io
+    import tarfile
+    import time
+    import zipfile
+
+    source = OdooshSource(
+        "odoosh://my-project-master-123456.dev.odoo.com"
+        "?backup=2023-09-07_010937-my-project-prod-123456_daily.sql.gz",
+        include_filestore=True,
+    )
+
+    dump_gz = tmp_path / "dump.sql.gz"
+    with gzip.open(dump_gz, "wb") as f:
+        f.write(b"-- dump")
+
+    filestore_buf = io.BytesIO()
+    with tarfile.open(fileobj=filestore_buf, mode="w:gz") as tar:
+        data = b"attachment content"
+        info = tarfile.TarInfo(name="myfile.txt")
+        info.size = len(data)
+        info.mtime = time.time()
+        tar.addfile(info, io.BytesIO(data))
+    filestore_tar = filestore_buf.getvalue()
+
+    scp_calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        scp_calls.append(args)
+        Path(args[-1]).write_bytes(dump_gz.read_bytes())
+        return subprocess.CompletedProcess(args, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    class MockProcess:
+        def __init__(self, args, **kwargs):
+            self.args = args
+            self.returncode = 0
+            self.stderr = io.BytesIO()
+            if args[0] == "ssh":
+                self.stdout = io.BytesIO(filestore_tar)
+                self.stdin = None
+            else:
+                self.stdout = io.BytesIO()
+                self.stdin = kwargs.get("stdin")
+                if self.args[0] == "tar" and self.stdin is not None:
+                    data = self.stdin.read()
+                    filestore_dir = Path(self.args[-1])
+                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                        tar.extractall(filestore_dir)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", MockProcess)
+
+    output = tmp_path / "backup.zip"
+    source.fetch(output)
+
+    assert output.exists()
+    with zipfile.ZipFile(output, "r") as zf:
+        names = zf.namelist()
+        assert "dump.sql" in names
+        assert "filestore/myfile.txt" in names
+
+
+def test_odoosh_source_without_build_id_raises() -> None:
+    """A domain without a numeric odoo.sh build suffix is rejected."""
+    with pytest.raises(SourceError):
+        OdooshSource("odoosh://my-project-master.dev.odoo.com")
 
 
 def test_list_cached_backups(in_project: Path) -> None:

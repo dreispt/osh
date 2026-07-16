@@ -133,8 +133,23 @@ The exact build ID and domain for your branch are shown on the **SSH** button/ta
 Instead of copying the file manually, you can use the backup plugin to fetch the latest daily dump into the project cache:
 
 ```bash
+osh backup download odoosh://my-user-my-repository-staging-25004381
+```
+
+`osh` expands the shorthand to `my-user-my-repository-staging-25004381.dev.odoo.com` and uses the numeric suffix as the SSH user. The longer forms are still accepted:
+
+```bash
+osh backup download odoosh://my-user-my-repository-staging-25004381.dev.odoo.com
 osh backup download odoosh://25004381@my-user-my-repository-staging-25004381.dev.odoo.com
 ```
+
+To also download the filestore and create a full `.zip` backup, add `--filestore`:
+
+```bash
+osh backup download odoosh://my-user-my-repository-staging-25004381 --filestore
+```
+
+The database name is read from the daily backup filename, and `osh` streams the filestore from `/home/odoo/data/filestore/<db_name>` over SSH into a zip that `osh rebuild` can restore directly.
 
 This stores the `.sql.gz` file in `.osh/backups/`. To restore the newest cached backup:
 
@@ -149,7 +164,7 @@ osh backup list
 osh rebuild cache:1
 ```
 
-`osh rebuild` will create the target database, restore the dump, and neutralize it. The filestore is not restored from a daily dump; if you need attachments, download the full `.zip` via the web UI instead.
+`osh rebuild` will create the target database, restore the dump, and neutralize it. The filestore is not restored from a plain daily dump; use `--filestore` when downloading via `odoosh://` or download the full `.zip` via the web UI if you need attachments.
 
 ---
 
@@ -158,7 +173,7 @@ osh rebuild cache:1
 | Method          | Command path                                          | Full backup?                                         | Automation? | Authentication                        |
 | --------------- | ----------------------------------------------------- | ---------------------------------------------------- | ----------- | ------------------------------------- |
 | Web UI download | copy `.zip` into `.osh/backups/`, then `osh rebuild`  | Yes (zip with dump + filestore)                      | Manual only | odoo.sh/GitHub login                  |
-| SSH daily dump  | `osh backup download odoosh://...` then `osh rebuild` | Partial (SQL dump only; filestore needs extra steps) | Scriptable  | SSH key configured in odoo.sh profile |
+| SSH daily dump  | `osh backup download odoosh://PROJECT-BRANCH-BUILD` then `osh rebuild` | Partial by default (add `--filestore` for a full zip) | Scriptable  | SSH key configured in odoo.sh profile |
 
 ---
 
