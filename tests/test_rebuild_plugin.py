@@ -10,20 +10,15 @@ from click.testing import CliRunner
 from osh.plugins.osh_rebuild.commands import rebuild
 
 
-def _setup_fake_project(project: Path, db_name: str = "testdb") -> None:
-    """Create a fake Odoo executable and project config in *project*."""
+def _setup_fake_db_config(project: Path, db_name: str = "testdb") -> None:
+    """Write a branch database mapping into the project config."""
     osh_dir = project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     (osh_dir / "config").write_text(f"[db]\ndefault = {db_name}\n")
-    venv_bin = project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho fake odoo")
-    odoo_exe.chmod(0o755)
 
 
 @pytest.fixture
-def patched_rebuild(monkeypatch, tmp_project: Path):
+def patched_rebuild(monkeypatch, tmp_project: Path, fake_odoo_executable: Path):
     """Patch external dependencies used by `osh rebuild` for isolated tests."""
     state = {
         "restore": None,
@@ -32,7 +27,7 @@ def patched_rebuild(monkeypatch, tmp_project: Path):
         "created": [],
     }
 
-    _setup_fake_project(tmp_project)
+    _setup_fake_db_config(tmp_project)
     monkeypatch.chdir(tmp_project)
 
     monkeypatch.setattr(
@@ -113,9 +108,11 @@ def test_rebuild_explicit_file(patched_rebuild, tmp_project: Path) -> None:
     assert patched_rebuild["restore"][1] == "testdb"
 
 
-def test_rebuild_no_cache_error(tmp_project: Path, monkeypatch) -> None:
+def test_rebuild_no_cache_error(
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+) -> None:
     """`osh rebuild` without an argument fails when the cache is empty."""
-    _setup_fake_project(tmp_project)
+    _setup_fake_db_config(tmp_project)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()

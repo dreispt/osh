@@ -17,6 +17,17 @@ def tmp_project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def fake_odoo_executable(tmp_project: Path) -> Path:
+    """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``."""
+    venv_bin = tmp_project / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    odoo_exe = venv_bin / "odoo"
+    odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
+    odoo_exe.chmod(0o755)
+    return odoo_exe
+
+
+@pytest.fixture
 def patch_cache(monkeypatch, tmp_path: Path) -> Path:
     """Redirect the central source cache into a temporary directory."""
     cache = tmp_path / "cache"

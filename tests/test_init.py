@@ -469,18 +469,12 @@ class TestInitCommand:
         assert any(call[2:5] == ["-r", *project_req_arg] for call in calls)
 
     def test_smoke_test_succeeds_when_odoo_executable_works(
-        self, tmp_project: Path, monkeypatch
+        self, tmp_project: Path, monkeypatch, fake_odoo_executable: Path
     ) -> None:
         """After pip install, a working Odoo executable passes the smoke test."""
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
-
-        venv_bin = tmp_project / ".venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        odoo_exe = venv_bin / "odoo"
-        odoo_exe.write_text("#!/bin/sh\necho Odoo 19.0")
-        odoo_exe.chmod(0o755)
 
         self._real_git_only_subprocess(monkeypatch)
 
@@ -493,18 +487,14 @@ class TestInitCommand:
         assert "Odoo setup incomplete" not in result.output
 
     def test_smoke_test_failure_still_initializes(
-        self, tmp_project: Path, monkeypatch
+        self, tmp_project: Path, monkeypatch, fake_odoo_executable: Path
     ) -> None:
         """A failing smoke test keeps the project initialised and warns."""
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
 
-        venv_bin = tmp_project / ".venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        odoo_exe = venv_bin / "odoo"
-        odoo_exe.write_text("#!/bin/sh\necho error; exit 1")
-        odoo_exe.chmod(0o755)
+        fake_odoo_executable.write_text("#!/bin/sh\necho error; exit 1")
 
         self._real_git_only_subprocess(monkeypatch)
 

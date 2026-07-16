@@ -10,23 +10,19 @@ from osh.commands.run_cmd import run
 
 
 def _setup_project_sources(tmp_project: Path) -> Path:
-    """Create .osh source directories and a fake Odoo executable."""
+    """Create .osh source directories."""
     osh_dir = tmp_project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
     (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
     (osh_dir / "design-themes").mkdir(parents=True, exist_ok=True)
 
-    venv_bin = tmp_project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
-    odoo_exe.chmod(0o755)
-
     return osh_dir
 
 
-def test_run_dry_run_shows_addons_path_and_save(tmp_project: Path, monkeypatch) -> None:
+def test_run_dry_run_shows_addons_path_and_save(
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+) -> None:
     """Dry-run prints the command with --addons-path and --save."""
     osh_dir = _setup_project_sources(tmp_project)
 
@@ -53,7 +49,7 @@ def test_run_dry_run_shows_addons_path_and_save(tmp_project: Path, monkeypatch) 
 
 
 def test_run_creates_empty_config_and_adds_save_flag(
-    tmp_project: Path, monkeypatch
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
 ) -> None:
     """``osh run`` touches ``.osh/odoo.conf`` and adds ``--config --save``."""
     osh_dir = _setup_project_sources(tmp_project)
@@ -85,7 +81,9 @@ def test_run_creates_empty_config_and_adds_save_flag(
     assert "-d testdb" in joined
 
 
-def test_run_does_not_overwrite_existing_config(tmp_project: Path, monkeypatch) -> None:
+def test_run_does_not_overwrite_existing_config(
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+) -> None:
     """An existing ``.osh/odoo.conf`` is not overwritten, only touched."""
     osh_dir = _setup_project_sources(tmp_project)
     odoo_conf = osh_dir / "odoo.conf"
@@ -113,7 +111,9 @@ def test_run_does_not_overwrite_existing_config(tmp_project: Path, monkeypatch) 
     assert "--save" in final_args
 
 
-def test_run_uses_explicit_config_without_save(tmp_project: Path, monkeypatch) -> None:
+def test_run_uses_explicit_config_without_save(
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+) -> None:
     """An explicit --config disables the automatic --config --save pair."""
     osh_dir = _setup_project_sources(tmp_project)
 
@@ -141,7 +141,7 @@ def test_run_uses_explicit_config_without_save(tmp_project: Path, monkeypatch) -
 
 
 def test_run_keeps_explicit_addons_path_and_still_saves(
-    tmp_project: Path, monkeypatch
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
 ) -> None:
     """An explicit --addons-path is kept and the config is still saved."""
     osh_dir = _setup_project_sources(tmp_project)

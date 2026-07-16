@@ -9,17 +9,13 @@ from click.testing import CliRunner
 from osh.commands.odoo_cmd import odoo
 
 
-def test_odoo_includes_addons_path(tmp_project: Path, monkeypatch) -> None:
+def test_odoo_includes_addons_path(
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+) -> None:
     """``osh odoo`` adds --addons-path and --config like ``osh run``."""
     osh_dir = tmp_project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
-
-    venv_bin = tmp_project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
-    odoo_exe.chmod(0o755)
 
     # Create .odoorc so the command uses it.
     (tmp_project / ".odoorc").write_text("[options]\n")
@@ -37,17 +33,13 @@ def test_odoo_includes_addons_path(tmp_project: Path, monkeypatch) -> None:
     assert "--db-filter" not in result.output
 
 
-def test_odoo_respects_explicit_config(tmp_project: Path, monkeypatch) -> None:
+def test_odoo_respects_explicit_config(
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+) -> None:
     """``osh odoo`` does not add --config if the user already provides -c."""
     osh_dir = tmp_project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
-
-    venv_bin = tmp_project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho odoo")
-    odoo_exe.chmod(0o755)
 
     (tmp_project / ".odoorc").write_text("[options]\n")
 
