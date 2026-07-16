@@ -50,14 +50,27 @@ described in `README.md`.
 
 ## Testing
 
-Run the `osh` test suite with `pytest`:
+Install the test dependencies and run the `osh` test suite with `pytest`:
 
 ```bash
+pip install pytest
 python -m pytest
 ```
 
-`osh` currently does not ship a unit test suite; add `pytest` tests under
-`tests/` and run them with the command above.
+Run a specific test file or test:
+
+```bash
+python -m pytest tests/test_init.py
+python -m pytest tests/test_init.py -k test_sh_includes_themes
+```
+
+The project uses `pre-commit` to keep code formatted and linted. Install and
+run the hooks locally before committing:
+
+```bash
+pip install pre-commit
+pre-commit run --all-files
+```
 
 ## Plugin Development
 
