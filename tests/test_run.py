@@ -9,10 +9,8 @@ from click.testing import CliRunner
 from osh.commands.run_cmd import run
 
 
-def test_run_saves_addons_path_only_with_odoo_save_option(
-    tmp_project: Path, monkeypatch
-) -> None:
-    """``osh run`` uses ``odoo-bin --save`` only for --addons-path."""
+def _setup_project_sources(tmp_project: Path) -> Path:
+    """Create .osh source directories and a fake Odoo executable."""
     osh_dir = tmp_project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
@@ -25,7 +23,13 @@ def test_run_saves_addons_path_only_with_odoo_save_option(
     odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
     odoo_exe.chmod(0o755)
 
-    # Avoid prompting for a database name.
+    return osh_dir
+
+
+def test_run_dry_run_shows_addons_path_and_save(tmp_project: Path, monkeypatch) -> None:
+    """Dry-run prints the command with --addons-path and --save."""
+    osh_dir = _setup_project_sources(tmp_project)
+
     monkeypatch.setattr(
         "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
     )
@@ -36,30 +40,23 @@ def test_run_saves_addons_path_only_with_odoo_save_option(
 
     assert result.exit_code == 0
     odoo_conf = osh_dir / "odoo.conf"
-    assert "--save" in result.output
-    assert f"--config {odoo_conf}" in result.output
-    assert (
-        f"--addons-path {osh_dir / 'odoo' / 'addons'},{osh_dir / 'enterprise'},{osh_dir / 'design-themes'}"
-        in result.output
-    )
-    assert "-d testdb" in result.output
-    assert "--db-filter ^testdb$" in result.output
+    joined = result.output
+    assert "--addons-path" in joined
+    assert str(osh_dir / "odoo" / "addons") in joined
+    assert str(osh_dir / "enterprise") in joined
+    assert str(osh_dir / "design-themes") in joined
+    assert f"--config {odoo_conf}" in joined
+    assert "--save" in joined
+    assert "-d testdb" in joined
+    assert "--db-filter ^testdb$" in joined
+    assert not odoo_conf.exists()
 
 
-def test_run_falls_back_to_computed_args_when_save_fails(
+def test_run_creates_empty_config_and_adds_save_flag(
     tmp_project: Path, monkeypatch
 ) -> None:
-    """If ``odoo-bin --save`` fails, ``osh run`` falls back to command-line args."""
-    osh_dir = tmp_project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
-    (osh_dir / "design-themes").mkdir(parents=True, exist_ok=True)
-
-    venv_bin = tmp_project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho error; exit 1")
-    odoo_exe.chmod(0o755)
+    """``osh run`` touches ``.osh/odoo.conf`` and adds ``--config --save``."""
+    osh_dir = _setup_project_sources(tmp_project)
 
     monkeypatch.setattr(
         "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
@@ -76,10 +73,99 @@ def test_run_falls_back_to_computed_args_when_save_fails(
     result = runner.invoke(run, [])
 
     assert result.exit_code == 0
-    assert "Warning: could not save Odoo config" in result.output
+    odoo_conf = osh_dir / "odoo.conf"
+    assert odoo_conf.exists()
+
     assert len(exec_calls) == 1
     _, final_args = exec_calls[0]
-    assert "--save" not in final_args
-    assert "--config" not in final_args
-    assert "--addons-path" in final_args
-    assert "testdb" in final_args
+    joined = " ".join(final_args)
+    assert "--addons-path" in joined
+    assert f"--config {odoo_conf}" in joined
+    assert "--save" in joined
+    assert "-d testdb" in joined
+
+
+def test_run_does_not_overwrite_existing_config(tmp_project: Path, monkeypatch) -> None:
+    """An existing ``.osh/odoo.conf`` is not overwritten, only touched."""
+    osh_dir = _setup_project_sources(tmp_project)
+    odoo_conf = osh_dir / "odoo.conf"
+    odoo_conf.parent.mkdir(parents=True, exist_ok=True)
+    odoo_conf.write_text("# custom header\n[options]\n")
+
+    monkeypatch.setattr(
+        "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
+    )
+
+    exec_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        "osh.commands.run_cmd.os.execvp",
+        lambda exe, args: exec_calls.append((exe, args)),
+    )
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(run, [])
+
+    assert result.exit_code == 0
+    assert odoo_conf.read_text().startswith("# custom header")
+    assert len(exec_calls) == 1
+    _, final_args = exec_calls[0]
+    assert "--save" in final_args
+
+
+def test_run_uses_explicit_config_without_save(tmp_project: Path, monkeypatch) -> None:
+    """An explicit --config disables the automatic --config --save pair."""
+    osh_dir = _setup_project_sources(tmp_project)
+
+    monkeypatch.setattr(
+        "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
+    )
+
+    exec_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        "osh.commands.run_cmd.os.execvp",
+        lambda exe, args: exec_calls.append((exe, args)),
+    )
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(run, ["--config", "/other/odoo.conf"])
+
+    assert result.exit_code == 0
+    assert not (osh_dir / "odoo.conf").exists()
+    assert len(exec_calls) == 1
+    _, final_args = exec_calls[0]
+    joined = " ".join(final_args)
+    assert "--config /other/odoo.conf" in joined
+    assert "--save" not in joined
+
+
+def test_run_keeps_explicit_addons_path_and_still_saves(
+    tmp_project: Path, monkeypatch
+) -> None:
+    """An explicit --addons-path is kept and the config is still saved."""
+    osh_dir = _setup_project_sources(tmp_project)
+
+    monkeypatch.setattr(
+        "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
+    )
+
+    exec_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        "osh.commands.run_cmd.os.execvp",
+        lambda exe, args: exec_calls.append((exe, args)),
+    )
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(run, ["--", "--addons-path", "/custom/addons"])
+
+    assert result.exit_code == 0
+    odoo_conf = osh_dir / "odoo.conf"
+    assert odoo_conf.exists()
+    assert len(exec_calls) == 1
+    _, final_args = exec_calls[0]
+    joined = " ".join(final_args)
+    assert "--config" in joined
+    assert "--save" in joined
+    assert "--addons-path /custom/addons" in joined

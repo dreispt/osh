@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 import click
@@ -51,9 +50,11 @@ def run(
     Automatic configuration:
 
     \b
-      - Persists --addons-path in ``.osh/odoo.conf`` using Odoo's ``--save``
-        option, then runs with ``--config .osh/odoo.conf``.
-      - Discovers --addons-path from project addon directories.
+      - Discovers --addons-path from project addon directories and passes it
+        on the odoo-bin command line.
+      - If no explicit --config/-c is provided, creates ``.osh/odoo.conf`` and
+        passes ``--config .osh/odoo.conf --save`` so Odoo persists the computed
+        configuration for later manual use.
       - Remembers the database name per git branch.
       - Passes ``-d`` and ``--db-filter`` on the command line.
 
@@ -119,8 +120,8 @@ def run(
         db_name = _resolve_db_name(base, verbose)
 
     # Build the computed addons_path and database arguments. addons_path is
-    # persisted through Odoo's --save option, while database options are kept
-    # on the command line
+    # always passed on the command line so manual edits to .osh/odoo.conf are
+    # not required. Database options are kept on the command line.
     addons_path_args: list[str] = []
     if addons_paths:
         addons_path_str = ",".join(str(p) for p in addons_paths)
@@ -136,49 +137,20 @@ def run(
         if not any(arg.startswith("--db-filter") for arg in extra_args):
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
-    # Generate or update .osh/odoo.conf with Odoo's own --save option when no
-    # explicit config file is provided and we have an addons_path to persist.
-    odoo_conf = base / ".osh" / "odoo.conf"
-    use_config = False
-    if not has_explicit_config and addons_path_args:
-        odoo_conf.parent.mkdir(parents=True, exist_ok=True)
-        save_args = [
-            exe,
-            "--config",
-            str(odoo_conf),
-            "--save",
-            "--version",
-            *addons_path_args,
-        ]
-        if dry_run:
-            click.echo(f"Would run: {' '.join(save_args)}", err=True)
-            use_config = True
-        else:
-            if verbose:
-                click.echo(f"Saving config: {odoo_conf}", err=True)
-            try:
-                subprocess.run(
-                    save_args,
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                )
-            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-                click.echo(
-                    f"Warning: could not save Odoo config to {odoo_conf}: {exc}",
-                    err=True,
-                )
-                use_config = False
-            else:
-                use_config = True
-
-    args = [exe]
-    if use_config:
-        args.extend(["--config", str(odoo_conf)])
-    else:
-        args.extend(addons_path_args)
+    args: list[str] = [exe]
+    args.extend(addons_path_args)
     args.extend(db_args)
     args.extend(extra_args)
+
+    # When no explicit --config is provided, ensure .osh/odoo.conf exists and
+    # pass --config/--save so Odoo persists the computed configuration. This lets
+    # users reuse the file for manual odoo-bin invocations or hand-edited params.
+    odoo_conf = base / ".osh" / "odoo.conf"
+    if not has_explicit_config:
+        odoo_conf.parent.mkdir(parents=True, exist_ok=True)
+        if not dry_run and not odoo_conf.exists():
+            odoo_conf.touch()
+        args.extend(["--config", str(odoo_conf), "--save"])
 
     if dry_run:
         click.echo(f"Would run: {' '.join(args)}", err=True)
