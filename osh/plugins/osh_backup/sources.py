@@ -307,6 +307,67 @@ class OdooshSource(BackupSource):
             raise SourceError("Could not locate `scp`. Is OpenSSH installed?") from exc
 
 
+class SshSource(BackupSource):
+    """Fetch an existing backup file from a remote host via SSH/SCP."""
+
+    def __init__(self, url: str, ssh_key: Path | None = None):
+        parsed = urlparse(url)
+        self.host = parsed.hostname
+        self.port = parsed.port
+        self.username = parsed.username
+        self.path = parsed.path
+        self.ssh_key = ssh_key
+        self.original_format = self._format_from_path(self.path)
+
+        if not self.host or not self.path:
+            raise SourceError(
+                "ssh:// source must be `ssh://[user@]host[:port]/path/to/file`."
+            )
+
+    @staticmethod
+    def _format_from_path(path: str) -> str:
+        ext = Path(path).suffix.lower()
+        if ext == ".gz":
+            return "sql.gz"
+        return ext.lstrip(".") or "backup"
+
+    @property
+    def ssh_target(self) -> str:
+        if self.username:
+            return f"{self.username}@{self.host}"
+        return self.host
+
+    def default_output_name(self) -> str:
+        safe_host = _safe_name(self.host)
+        safe_name = _safe_name(Path(self.path).name)
+        return f"{safe_host}_{safe_name}_{_now_stamp()}.{self.original_format}"
+
+    def fetch(self, output: Path, *, dry_run: bool = False) -> None:
+        remote_path = f"{self.ssh_target}:{self.path}"
+        scp_args = ["scp", *self._ssh_args()]
+        if self.port:
+            scp_args.extend(["-P", str(self.port)])
+        scp_args.extend([remote_path, str(output)])
+
+        if dry_run:
+            click.echo(f"Would run: {' '.join(scp_args)}", err=True)
+            return
+
+        try:
+            subprocess.run(scp_args, stderr=subprocess.PIPE, check=True)
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+            raise SourceError(f"scp failed: {stderr}") from exc
+        except FileNotFoundError as exc:
+            raise SourceError("Could not locate `scp`. Is OpenSSH installed?") from exc
+
+    def _ssh_args(self) -> list[str]:
+        args: list[str] = []
+        if self.ssh_key:
+            args.extend(["-i", str(self.ssh_key)])
+        return args
+
+
 def parse_source(
     source: str,
     *,
@@ -322,6 +383,9 @@ def parse_source(
         return HttpsSource(source, master_password=master_password)
     if source.startswith("odoosh://"):
         return OdooshSource(source, ssh_key=ssh_key)
+    if source.startswith("ssh://"):
+        return SshSource(source, ssh_key=ssh_key)
     raise SourceError(
-        f"Unsupported source: {source}. " "Expected db://, https://, or odoosh://."
+        f"Unsupported source: {source}. "
+        "Expected db://, https://, odoosh://, or ssh://."
     )

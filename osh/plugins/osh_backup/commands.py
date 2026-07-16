@@ -33,7 +33,7 @@ def backup() -> None:  # noqa: D401
 @click.option(
     "--ssh-key",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="SSH private key for odoosh:// sources.",
+    help="SSH private key for odoosh:// and ssh:// sources.",
 )
 @click.option(
     "--dry-run",
@@ -58,6 +58,7 @@ def download(
       db://<database>          - PostgreSQL dump via pg_dump
       https://<host>?db=<db>  - Odoo manager backup download
       odoosh://<build>@<host> - SSH/scp daily dump from an Odoo.sh container
+      ssh://[user@]host[:port]/path - SSH/scp an existing backup file
 
     Odoo.sh quick start:
 
@@ -71,6 +72,15 @@ def download(
     including filestore, download the .zip from the odoo.sh web UI and use
     `osh rebuild PATH`.
 
+    Generic SSH (VPS / disabled dbmanager):
+
+    If the Odoo web database manager is disabled but you have SSH access, copy
+    an existing backup file from the server:
+
+    \b
+      osh backup download ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh backup download ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
+
     See docs/odoo-sh-backup-howto.md for the complete guide.
 
     Examples:
@@ -79,6 +89,7 @@ def download(
       osh backup download db://prod_db
       osh backup download https://my.odoo.com?db=prod&format=zip
       osh backup download odoosh://123456@my-project-master-123456.dev.odoo.com
+      osh backup download ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
 
     base = _find_project_root()

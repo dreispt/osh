@@ -11,6 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.plugins.osh_backup.commands import backup
+from osh.plugins.osh_backup.sources import SourceError, SshSource
 
 
 @pytest.fixture
@@ -201,3 +202,114 @@ def test_list_outside_project(monkeypatch, tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "Not inside an Osh project" in result.output
+
+
+def test_ssh_source_parses_url_components() -> None:
+    """An ssh:// source extracts user, host, port and remote path."""
+    source = SshSource("ssh://admin@myhost:2222/var/backups/odoo.sql.gz")
+
+    assert source.username == "admin"
+    assert source.host == "myhost"
+    assert source.port == 2222
+    assert source.path == "/var/backups/odoo.sql.gz"
+    assert source.original_format == "sql.gz"
+
+
+def test_ssh_source_default_output_name_uses_host_and_file() -> None:
+    """The default output name contains the host and remote filename."""
+    source = SshSource("ssh://myhost/var/backups/odoo.sql.gz")
+
+    name = source.default_output_name()
+    assert name.startswith("myhost_odoo.sql.gz_")
+    assert name.endswith(".sql.gz")
+
+
+def test_ssh_source_dry_run_shows_scp_command(capsys) -> None:
+    """A dry run prints the scp command that would be run."""
+    source = SshSource("ssh://user@myhost/var/backups/odoo.sql.gz")
+
+    source.fetch(Path("/tmp/ignored"), dry_run=True)
+    captured = capsys.readouterr()
+
+    assert "Would run: scp" in captured.err
+    assert "user@myhost:/var/backups/odoo.sql.gz" in captured.err
+
+
+def test_ssh_source_runs_scp(monkeypatch, tmp_path: Path) -> None:
+    """Fetching an ssh:// source runs scp with the expected arguments."""
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        # scp writes to the local destination (last argument) itself.
+        Path(args[-1]).write_bytes(b"backup data")
+        return subprocess.CompletedProcess(args, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    ssh_key = tmp_path / "id_rsa"
+    ssh_key.write_text("key")
+    source = SshSource("ssh://user@myhost/var/backups/odoo.sql.gz", ssh_key=ssh_key)
+    output = tmp_path / "dump.sql.gz"
+
+    source.fetch(output)
+
+    assert output.read_bytes() == b"backup data"
+    assert calls[0][:4] == [
+        "scp",
+        "-i",
+        str(ssh_key),
+        "user@myhost:/var/backups/odoo.sql.gz",
+    ]
+    assert calls[0][-1] == str(output)
+
+
+def test_ssh_source_with_port_includes_p_flag(monkeypatch, tmp_path: Path) -> None:
+    """A non-standard SSH port is passed to scp with -P."""
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    output = tmp_path / "dump.sql.gz"
+    source = SshSource("ssh://user@myhost:2222/var/backups/odoo.sql.gz")
+    source.fetch(output)
+
+    assert "-P" in calls[0]
+    assert "2222" in calls[0]
+
+
+def test_ssh_source_missing_host_or_path_raises() -> None:
+    """An ssh:// source without host or path is rejected."""
+    with pytest.raises(SourceError):
+        SshSource("ssh:///var/backups/odoo.sql.gz")
+
+
+def test_download_ssh_source_invokes_fetch(monkeypatch, tmp_path: Path) -> None:
+    """`osh backup download ssh://...` copies the remote file into the cache."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".osh").mkdir()
+    monkeypatch.setattr("osh.utils._find_project_root", lambda: project)
+    monkeypatch.chdir(project)
+
+    def fake_run(args, **kwargs):
+        # scp writes to the local destination (last argument) itself.
+        Path(args[-1]).write_bytes(b"backup data")
+        return subprocess.CompletedProcess(args, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        backup, ["download", "ssh://user@myhost/var/backups/odoo.sql.gz"]
+    )
+
+    assert result.exit_code == 0
+    cache_dir = project / ".osh" / "backups"
+    files = [p for p in cache_dir.iterdir() if not p.name.endswith(".meta.json")]
+    assert len(files) == 1
+    assert files[0].read_bytes() == b"backup data"
