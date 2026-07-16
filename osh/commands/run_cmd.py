@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import click
@@ -19,7 +20,6 @@ from ..utils import (
     _find_odoo_executable,
     _find_project_root,
     _get_odoo_base_dir,
-    _get_odoo_config_path,
     _get_project_name,
     discover_addons_paths,
 )
@@ -51,10 +51,11 @@ def run(
     Automatic configuration:
 
     \b
+      - Persists --addons-path in ``.osh/odoo.conf`` using Odoo's ``--save``
+        option, then runs with ``--config .osh/odoo.conf``.
       - Discovers --addons-path from project addon directories.
-      - Uses .odoorc in the project root if it exists.
       - Remembers the database name per git branch.
-      - Sets --db-filter to match the selected database exactly.
+      - Passes ``-d`` and ``--db-filter`` on the command line.
 
     Examples:
 
@@ -77,18 +78,11 @@ def run(
             "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
         )
 
-    args: list[str] = [exe]
-
-    # Check for .odoorc in the project root
-    odoo_rc = _get_odoo_config_path(base)
-    if odoo_rc.exists() and not any(
+    # Determine computed configuration unless the user supplied an explicit config.
+    has_explicit_config = any(
         arg.startswith("--config") or arg.startswith("-c") for arg in extra_args
-    ):
-        if verbose:
-            click.echo(f"Using config: {odoo_rc}", err=True)
-        args.extend(["--config", str(odoo_rc)])
+    )
 
-    # Set addons_path from discovered addon directories if not already specified
     if not any(arg.startswith("--addons-path") for arg in extra_args):
         addons_paths: list[os.PathLike] = []
 
@@ -104,32 +98,86 @@ def run(
         if enterprise_dir.exists():
             addons_paths.append(enterprise_dir)
 
+        # Add design-themes addons directory if available
+        themes_dir = base / ".osh" / "design-themes"
+        if themes_dir.exists():
+            addons_paths.append(themes_dir)
+
         # Add discovered project addon directories
         addon_modules = discover_addons_paths(base)
         if addon_modules:
             # Get unique parent directories of addon modules
             project_addons = sorted({addon.parent for addon in addon_modules})
             addons_paths.extend(project_addons)
+    else:
+        addons_paths = []
 
-        if addons_paths:
-            addons_path_str = ",".join(str(p) for p in addons_paths)
-            if verbose:
-                click.echo(f"Using addons path: {addons_path_str}", err=True)
-            args.extend(["--addons-path", addons_path_str])
-
-    # Determine database to use
+    db_name = None
     if not any(
         arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
     ):
         db_name = _resolve_db_name(base, verbose)
-        if db_name:
-            if verbose:
-                click.echo(f"Using database: {db_name}", err=True)
-            args.extend(["-d", db_name])
-            # Also add db_filter to match the exact database name
-            if not any(arg.startswith("--db-filter") for arg in extra_args):
-                args.extend(["--db-filter", f"^{db_name}$"])
 
+    # Build the computed addons_path and database arguments. addons_path is
+    # persisted through Odoo's --save option, while database options are kept
+    # on the command line
+    addons_path_args: list[str] = []
+    if addons_paths:
+        addons_path_str = ",".join(str(p) for p in addons_paths)
+        if verbose:
+            click.echo(f"Using addons path: {addons_path_str}", err=True)
+        addons_path_args.extend(["--addons-path", addons_path_str])
+
+    db_args: list[str] = []
+    if db_name:
+        if verbose:
+            click.echo(f"Using database: {db_name}", err=True)
+        db_args.extend(["-d", db_name])
+        if not any(arg.startswith("--db-filter") for arg in extra_args):
+            db_args.extend(["--db-filter", f"^{db_name}$"])
+
+    # Generate or update .osh/odoo.conf with Odoo's own --save option when no
+    # explicit config file is provided and we have an addons_path to persist.
+    odoo_conf = base / ".osh" / "odoo.conf"
+    use_config = False
+    if not has_explicit_config and addons_path_args:
+        odoo_conf.parent.mkdir(parents=True, exist_ok=True)
+        save_args = [
+            exe,
+            "--config",
+            str(odoo_conf),
+            "--save",
+            "--version",
+            *addons_path_args,
+        ]
+        if dry_run:
+            click.echo(f"Would run: {' '.join(save_args)}", err=True)
+            use_config = True
+        else:
+            if verbose:
+                click.echo(f"Saving config: {odoo_conf}", err=True)
+            try:
+                subprocess.run(
+                    save_args,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+                click.echo(
+                    f"Warning: could not save Odoo config to {odoo_conf}: {exc}",
+                    err=True,
+                )
+                use_config = False
+            else:
+                use_config = True
+
+    args = [exe]
+    if use_config:
+        args.extend(["--config", str(odoo_conf)])
+    else:
+        args.extend(addons_path_args)
+    args.extend(db_args)
     args.extend(extra_args)
 
     if dry_run:
