@@ -6,7 +6,11 @@ Loads built-in plugins from `osh.plugins` and user-installed plugins from
 A plugin must expose a `get_commands()` function returning a list of Click
 commands, or a `COMMANDS` list. Plugins are expected to be Python packages
 (directories with `__init__.py`) or a single `osh_plugin.py` file.
+
+`load_plugins()` returns ``(source, command)`` pairs so callers can resolve
+command-name collisions by prefixing the command with its plugin source.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -54,7 +58,9 @@ def _load_commands(module: Any) -> list[click.Command]:
     return [cmd for cmd in commands if isinstance(cmd, click.Command)]
 
 
-def _import_plugin_from_dir(plugin_dir: Path, prefix: str = "osh_user_plugin") -> Any | None:
+def _import_plugin_from_dir(
+    plugin_dir: Path, prefix: str = "osh_user_plugin"
+) -> Any | None:
     """Import a plugin package or `osh_plugin.py` from a directory."""
     if not plugin_dir.is_dir():
         return None
@@ -79,16 +85,26 @@ def _import_plugin_from_dir(plugin_dir: Path, prefix: str = "osh_user_plugin") -
     return module
 
 
-def _load_builtin_plugins() -> list[click.Command]:
+def _plugin_source_name(name: str) -> str:
+    """Return a CLI-friendly source identifier from a plugin module/directory name."""
+    name = re.sub(r"^osh\.plugins\.", "", name)
+    name = re.sub(r"[^a-zA-Z0-9]+", "-", name)
+    return name.strip("-") or "plugin"
+
+
+def _load_builtin_plugins() -> list[tuple[str, click.Command]]:
     """Load built-in plugins from the `osh.plugins` package."""
-    commands: list[click.Command] = []
+    commands: list[tuple[str, click.Command]] = []
     try:
         import osh.plugins as plugins_pkg
 
-        for _, module_name, _ in pkgutil.iter_modules(plugins_pkg.__path__, prefix="osh.plugins."):
+        for _, module_name, _ in pkgutil.iter_modules(
+            plugins_pkg.__path__, prefix="osh.plugins."
+        ):
             try:
                 module = importlib.import_module(module_name)
-                commands.extend(_load_commands(module))
+                source = _plugin_source_name(module_name)
+                commands.extend((source, cmd) for cmd in _load_commands(module))
             except Exception:
                 # Skip broken built-in plugins.
                 continue
@@ -97,9 +113,9 @@ def _load_builtin_plugins() -> list[click.Command]:
     return commands
 
 
-def _load_user_plugins() -> list[click.Command]:
+def _load_user_plugins() -> list[tuple[str, click.Command]]:
     """Load user-installed plugins from `~/.config/osh/plugins/`."""
-    commands: list[click.Command] = []
+    commands: list[tuple[str, click.Command]] = []
     plugin_dir = _user_plugin_dir()
     if not plugin_dir.is_dir():
         return commands
@@ -110,15 +126,16 @@ def _load_user_plugins() -> list[click.Command]:
         try:
             module = _import_plugin_from_dir(child)
             if module is not None:
-                commands.extend(_load_commands(module))
+                source = _plugin_source_name(child.name)
+                commands.extend((source, cmd) for cmd in _load_commands(module))
         except Exception:
             # Skip broken user plugins.
             continue
     return commands
 
 
-def load_plugins() -> list[click.Command]:
-    """Return all plugin commands from built-in and user plugins."""
+def load_plugins() -> list[tuple[str, click.Command]]:
+    """Return ``(source, command)`` pairs for all loaded plugins."""
     commands = _load_builtin_plugins()
     commands.extend(_load_user_plugins())
     return commands
