@@ -1,4 +1,5 @@
 """Database neutralization helpers for `osh rebuild`."""
+
 from __future__ import annotations
 
 import importlib.resources
@@ -12,7 +13,9 @@ from ...db import _run_psql_script
 from ...utils import _get_odoo_base_dir, discover_addons_paths
 
 
-def _neutralize_database(base: Path, exe: str, db_name: str, *, dry_run: bool = False) -> None:
+def _neutralize_database(
+    base: Path, exe: str, db_name: str, *, dry_run: bool = False
+) -> None:
     """Neutralize *db_name* using the best available strategy."""
     if dry_run:
         click.echo(
@@ -48,7 +51,11 @@ def _venv_python(exe: str) -> Path | None:
     """Return the Python interpreter associated with an Odoo executable."""
     exe_path = Path(exe).resolve()
     # Typical venv layout: .venv/bin/odoo or .venv/bin/odoo-bin
-    candidate = exe_path.parent.parent / ("Scripts" if sys.platform == "win32" else "bin") / "python"
+    candidate = (
+        exe_path.parent.parent
+        / ("Scripts" if sys.platform == "win32" else "bin")
+        / "python"
+    )
     if candidate.exists():
         return candidate
     # Fall back to sys.executable if it can import odoo.
@@ -70,7 +77,7 @@ def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
         addons_paths.append(addon.parent)
 
     if addons_paths:
-        unique_paths = sorted(set(str(p) for p in addons_paths))
+        unique_paths = sorted({str(p) for p in addons_paths})
         args.extend(["--addons-path", ",".join(unique_paths)])
 
     args.extend(["neutralize", "-d", db_name])

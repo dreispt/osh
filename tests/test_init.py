@@ -1,4 +1,5 @@
 """Tests for ``osh init`` source resolution."""
+
 from __future__ import annotations
 
 import subprocess
@@ -19,7 +20,9 @@ from osh.commands.init_cmd import (
 )
 
 
-def _make_bare_repo(tmp_path: Path, name: str, branches: tuple[str, ...] = ("master",)) -> Path:
+def _make_bare_repo(
+    tmp_path: Path, name: str, branches: tuple[str, ...] = ("master",)
+) -> Path:
     """Create a bare git repository with commits on the requested branches."""
     repo = tmp_path / name
     repo.mkdir(parents=True, exist_ok=True)
@@ -125,9 +128,7 @@ class TestEnsureCache:
         assert (cache / "config").exists()
         assert _cache_has_branch(cache, "master")
 
-    def test_fetches_missing_version(
-        self, tmp_path: Path, patch_cache: Path
-    ) -> None:
+    def test_fetches_missing_version(self, tmp_path: Path, patch_cache: Path) -> None:
         bare = _make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
         _ensure_cache("odoo", "master", f"file://{bare}")
         cache = _ensure_cache("odoo", "19.0", f"file://{bare}")
@@ -250,9 +251,7 @@ class TestEnsureSource:
         monkeypatch.setattr(
             "osh.commands.init_cmd.click.confirm", lambda *a, **kw: False
         )
-        monkeypatch.setattr(
-            "osh.commands.init_cmd.click.prompt", lambda *a, **kw: ""
-        )
+        monkeypatch.setattr("osh.commands.init_cmd.click.prompt", lambda *a, **kw: "")
 
         result = _ensure_source(
             "odoo",
@@ -286,9 +285,7 @@ class TestInitCommand:
         monkeypatch.setattr("venv.create", lambda *a, **kw: None)
         return calls
 
-    def test_with_project_sources(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_with_project_sources(self, tmp_project: Path, monkeypatch) -> None:
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
@@ -305,9 +302,7 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "config").exists()
 
-    def test_with_source_flags(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_with_source_flags(self, tmp_project: Path, monkeypatch) -> None:
         odoo_src = tmp_project / "my-odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()

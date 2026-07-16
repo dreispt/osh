@@ -3,15 +3,15 @@
 This module was extracted from `cli.py` to keep the command-line interface
 lean and focused on command definitions while grouping reusable helpers here.
 """
+
 from __future__ import annotations
 
-import shutil
 import os
+import shutil
 from pathlib import Path
-from typing import Optional
 
 
-def _find_project_root(start: Optional[Path] = None) -> Optional[Path]:
+def _find_project_root(start: Path | None = None) -> Path | None:
     """Return the nearest ancestor (including *start*) that contains a .osh file."""
     start = (start or Path.cwd()).resolve()
     for p in [start] + list(start.parents):
@@ -45,7 +45,7 @@ def _get_odoo_config_path(base: Path) -> Path:
 
 def _get_odoo_base_dir(base: Path) -> Path | None:
     """Return path to Odoo base directory (containing addons).
-    
+
     This locates the Odoo installation directory by checking:
     1. The .osh/odoo directory in the project
     2. Deriving from the Odoo executable location
@@ -54,26 +54,23 @@ def _get_odoo_base_dir(base: Path) -> Path | None:
     odoo_dir = base / ".osh" / "odoo"
     if odoo_dir.exists() and (odoo_dir / "addons").exists():
         return odoo_dir
-    
-    # If not found, try to derive from the executable
-    exe = _find_odoo_executable(base)
-    if exe:
-        exe_path = Path(exe)
-        # For virtualenv installations, the odoo directory might be linked
-        # Check if there's a symlink or actual directory
+
+    # If an executable is available, accept a plain .osh/odoo directory even
+    # when it does not yet contain an addons/ subdirectory.
+    if _find_odoo_executable(base):
         possible_odoo = base / ".osh" / "odoo"
         if possible_odoo.exists():
             return possible_odoo
-    
+
     return None
 
 
 def _get_project_name(base: Path) -> str:
     """Return the project name based on the folder name of the osh environment.
-    
+
     Args:
         base: The project root directory (containing .osh)
-    
+
     Returns:
         The name of the project directory
     """
@@ -99,7 +96,9 @@ def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
             if child.name.startswith(".") or child.name.startswith("__"):
                 continue
             if child.is_dir():
-                if (child / "__manifest__.py").exists() or (child / "__openerp__.py").exists():
+                if (child / "__manifest__.py").exists() or (
+                    child / "__openerp__.py"
+                ).exists():
                     addons.append(child)
                 _walk(child, depth + 1)
 

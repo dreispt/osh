@@ -1,4 +1,5 @@
 """`osh plug` command for managing user-installed plugins."""
+
 from __future__ import annotations
 
 import shutil
@@ -56,7 +57,9 @@ def install(ctx: click.Context, url: str, trust: bool) -> None:  # noqa: D401
     name = _repo_name_from_url(url)
     plugin_dir = _user_plugin_dir() / name
     if plugin_dir.exists():
-        raise click.ClickException(f"Plugin '{name}' is already installed. Remove it first.")
+        raise click.ClickException(
+            f"Plugin '{name}' is already installed. Remove it first."
+        )
 
     plugin_dir.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -81,7 +84,9 @@ def list_(ctx: click.Context) -> None:  # noqa: D401
         click.echo("No plugins installed.")
         return
 
-    plugins = sorted(p for p in plugin_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+    plugins = sorted(
+        p for p in plugin_dir.iterdir() if p.is_dir() and not p.name.startswith(".")
+    )
     if not plugins:
         click.echo("No plugins installed.")
         return

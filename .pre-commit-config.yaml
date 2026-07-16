@@ -1,0 +1,68 @@
+# Pre-commit hooks inspired by OCA tooling, adapted for a pure Python CLI project.
+---
+exclude: |
+  (?x)
+  ^\.venv/|
+  ^\.git/|
+  ^__pycache__/|
+  \.egg-info/|
+  ^build/|
+  ^dist/|
+  \.pyc$
+
+default_language_version:
+  python: python3
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: debug-statements
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: fix-encoding-pragma
+        args: ["--remove"]
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.17.0
+    hooks:
+      - id: pyupgrade
+        args: ["--py38-plus"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: prettier
+        args: [--write, --list-different, --ignore-unknown]
+        types: [text]
+        files: \.(json|yaml|yml|md)$
+        language: node
+        additional_dependencies:
+          - "prettier@3.3.3"

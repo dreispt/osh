@@ -55,11 +55,11 @@ When run inside an Osh project, the backup is stored in `.osh/backups/` and a me
 
 #### Supported sources
 
-| Source string | Kind | Fetched data |
-|---------------|------|--------------|
-| `db://source_dbname` | local database | `pg_dump` of the named database |
-| `https://my.odoo.com?db=prod&format=zip` | remote Odoo manager | backup from `POST /web/database/backup` |
-| `odoosh://build_id@my-project.dev.odoo.com` | odoo.sh SSH | latest daily `.sql.gz` from `/home/odoo/backup.daily` |
+| Source string                               | Kind                | Fetched data                                          |
+| ------------------------------------------- | ------------------- | ----------------------------------------------------- |
+| `db://source_dbname`                        | local database      | `pg_dump` of the named database                       |
+| `https://my.odoo.com?db=prod&format=zip`    | remote Odoo manager | backup from `POST /web/database/backup`               |
+| `odoosh://build_id@my-project.dev.odoo.com` | odoo.sh SSH         | latest daily `.sql.gz` from `/home/odoo/backup.daily` |
 
 #### `db://<dbname>`
 
@@ -93,11 +93,11 @@ When run inside an Osh project, the backup is stored in `.osh/backups/` and a me
 
 #### Default cache filenames
 
-| Source | Default filename in `.osh/backups/` | Notes |
-|--------|------------------------------------|-------|
-| `db://mydb` | `mydb_YYYYMMDD_HHMMSS.dump` | `--format` controls extension |
-| `https://host?db=prod` | `host_prod_YYYYMMDD_HHMMSS.zip` | matches requested `format` |
-| `odoosh://id@domain` | `domain_id_YYYYMMDD_HHMMSS.sql.gz` | kept as the remote `.sql.gz` |
+| Source                 | Default filename in `.osh/backups/` | Notes                         |
+| ---------------------- | ----------------------------------- | ----------------------------- |
+| `db://mydb`            | `mydb_YYYYMMDD_HHMMSS.dump`         | `--format` controls extension |
+| `https://host?db=prod` | `host_prod_YYYYMMDD_HHMMSS.zip`     | matches requested `format`    |
+| `odoosh://id@domain`   | `domain_id_YYYYMMDD_HHMMSS.sql.gz`  | kept as the remote `.sql.gz`  |
 
 ### `osh backup list`
 
@@ -147,12 +147,12 @@ Options:
 
 ### Supported dump files
 
-| Extension | Restore tool | Notes |
-|-----------|--------------|-------|
-| `.dump` | `pg_restore` | PostgreSQL custom-format dump |
-| `.sql` | `psql -f` | Plain SQL dump |
-| `.sql.gz` | `gunzip -c \| psql` | Gzipped plain SQL dump |
-| `.zip` | `psql` + filestore copy | Odoo backup zip (`dump.sql` + `filestore/`) |
+| Extension | Restore tool            | Notes                                       |
+| --------- | ----------------------- | ------------------------------------------- |
+| `.dump`   | `pg_restore`            | PostgreSQL custom-format dump               |
+| `.sql`    | `psql -f`               | Plain SQL dump                              |
+| `.sql.gz` | `gunzip -c \| psql`     | Gzipped plain SQL dump                      |
+| `.zip`    | `psql` + filestore copy | Odoo backup zip (`dump.sql` + `filestore/`) |
 
 ### Target database
 
@@ -246,20 +246,20 @@ osh rebuild /tmp/prod.zip
 
 All failures surface as `click.ClickException` with a concise, actionable message.
 
-| Failure | Behaviour |
-|---------|-----------|
-| Not inside an Osh project | “Not inside an Osh project. Run `osh init <version>` to create one.” |
-| Odoo executable not found (for `rebuild`) | “Could not locate Odoo executable. Run `osh init <version>` to set up the project.” |
-| Source string not supported or empty (`backup download`) | List supported formats. |
-| Cache is empty and `osh rebuild` is called without `<dump>` | “No cached backup found. Run `osh backup download <source>` first.” |
-| `cache:<id>` not found | List valid cache IDs. |
-| `osh backup download` outside an Osh project without `--output` | “Not inside an Osh project. Use `--output PATH` to save the backup to a specific file.” |
-| Required external tool missing | Name the missing tool and the step that needs it. |
-| HTTP download fails (`backup download`) | Report status code / URL error; suggest checking URL and master password. |
-| Remote master password wrong | Print the response body and fail. |
-| SSH authentication fails (`backup download`) | Report `ssh`/`scp` exit; suggest checking `ssh-agent` / `--ssh-key` / odoo.sh profile. |
-| Restore tool exits non-zero (`rebuild`) | Print stderr and abort. The target DB is left as-is for inspection unless `--force` caused it to be dropped. |
-| Neutralize fails (`rebuild`) | Fail with “Database restored but not neutralized. Run `odoo-bin neutralize -d <db>` manually.” |
+| Failure                                                         | Behaviour                                                                                                    |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Not inside an Osh project                                       | “Not inside an Osh project. Run `osh init <version>` to create one.”                                         |
+| Odoo executable not found (for `rebuild`)                       | “Could not locate Odoo executable. Run `osh init <version>` to set up the project.”                          |
+| Source string not supported or empty (`backup download`)        | List supported formats.                                                                                      |
+| Cache is empty and `osh rebuild` is called without `<dump>`     | “No cached backup found. Run `osh backup download <source>` first.”                                          |
+| `cache:<id>` not found                                          | List valid cache IDs.                                                                                        |
+| `osh backup download` outside an Osh project without `--output` | “Not inside an Osh project. Use `--output PATH` to save the backup to a specific file.”                      |
+| Required external tool missing                                  | Name the missing tool and the step that needs it.                                                            |
+| HTTP download fails (`backup download`)                         | Report status code / URL error; suggest checking URL and master password.                                    |
+| Remote master password wrong                                    | Print the response body and fail.                                                                            |
+| SSH authentication fails (`backup download`)                    | Report `ssh`/`scp` exit; suggest checking `ssh-agent` / `--ssh-key` / odoo.sh profile.                       |
+| Restore tool exits non-zero (`rebuild`)                         | Print stderr and abort. The target DB is left as-is for inspection unless `--force` caused it to be dropped. |
+| Neutralize fails (`rebuild`)                                    | Fail with “Database restored but not neutralized. Run `odoo-bin neutralize -d <db>` manually.”               |
 
 ---
 

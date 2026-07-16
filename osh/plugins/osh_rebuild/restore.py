@@ -1,4 +1,5 @@
 """Database restore helpers for `osh rebuild`."""
+
 from __future__ import annotations
 
 import gzip
@@ -7,7 +8,6 @@ import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -21,18 +21,21 @@ def _tool_available(name: str) -> bool:
 
 def _ensure_tool(name: str) -> None:
     if not _tool_available(name):
-        raise click.ClickException(
-            f"Required tool '{name}' is not available on PATH."
-        )
+        raise click.ClickException(f"Required tool '{name}' is not available on PATH.")
 
 
-def _restore_dump(base: Path, dump_path: Path, target_db: str, *, dry_run: bool = False) -> None:
+def _restore_dump(
+    base: Path, dump_path: Path, target_db: str, *, dry_run: bool = False
+) -> None:
     """Restore *dump_path* into a freshly created *target_db*."""
     suffix = _dump_suffix(dump_path)
     conn_args, env = _get_pg_credentials(base)
 
     if dry_run:
-        click.echo(f"Would drop/create database '{target_db}' and restore {dump_path}", err=True)
+        click.echo(
+            f"Would drop/create database '{target_db}' and restore {dump_path}",
+            err=True,
+        )
         return
 
     _drop_db(base, target_db)
@@ -40,7 +43,14 @@ def _restore_dump(base: Path, dump_path: Path, target_db: str, *, dry_run: bool 
 
     if suffix == ".dump":
         _ensure_tool("pg_restore")
-        args = ["pg_restore", "--no-owner", "--dbname", target_db, *conn_args, str(dump_path)]
+        args = [
+            "pg_restore",
+            "--no-owner",
+            "--dbname",
+            target_db,
+            *conn_args,
+            str(dump_path),
+        ]
         _run(args, env, "pg_restore")
     elif suffix == ".sql":
         _ensure_tool("psql")
@@ -114,9 +124,7 @@ def _restore_zip(
 
         dump_sql = tmp_path / "dump.sql"
         if not dump_sql.exists():
-            raise click.ClickException(
-                "Backup zip does not contain dump.sql"
-            )
+            raise click.ClickException("Backup zip does not contain dump.sql")
 
         args = ["psql", "-d", target_db, "-f", str(dump_sql), *conn_args]
         _run(args, env, "psql")
@@ -137,7 +145,7 @@ def _restore_zip(
             click.echo(f"Restored filestore to {filestore_dst}", err=True)
 
 
-def _data_dir(base: Path) -> Optional[Path]:
+def _data_dir(base: Path) -> Path | None:
     """Return the Odoo data directory from .odoorc or the default location."""
     odoo_rc = _get_odoo_config_path(base)
     if odoo_rc.exists():

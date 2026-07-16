@@ -1,4 +1,5 @@
 """Built-in `osh backup` plugin."""
+
 from __future__ import annotations
 
 from .commands import backup

@@ -1,4 +1,5 @@
 """Tests for plugin command name collision handling."""
+
 from __future__ import annotations
 
 import importlib
@@ -60,7 +61,8 @@ def test_collision_between_plugins_is_renamed(monkeypatch, tmp_path: Path) -> No
         click.echo("second custom")
 
     monkeypatch.setattr(
-        "osh.plugin_loader.load_plugins", lambda: [("first", first_custom), ("second", second_custom)]
+        "osh.plugin_loader.load_plugins",
+        lambda: [("first", first_custom), ("second", second_custom)],
     )
 
     from osh import cli
@@ -118,7 +120,11 @@ def test_double_collision_is_ignored(monkeypatch, tmp_path: Path, capsys) -> Non
 
     monkeypatch.setattr(
         "osh.plugin_loader.load_plugins",
-        lambda: [("first", first_custom), ("source", second_custom), ("source", second_custom)],
+        lambda: [
+            ("first", first_custom),
+            ("source", second_custom),
+            ("source", second_custom),
+        ],
     )
 
     from osh import cli
@@ -128,4 +134,6 @@ def test_double_collision_is_ignored(monkeypatch, tmp_path: Path, capsys) -> Non
     assert cli.main.commands["custom"].callback is first_custom.callback
     assert cli.main.commands["source-custom"].callback is second_custom.callback
     assert "source-source-custom" not in cli.main.commands
-    assert "conflicts with an existing command and is ignored" in capsys.readouterr().err
+    assert (
+        "conflicts with an existing command and is ignored" in capsys.readouterr().err
+    )

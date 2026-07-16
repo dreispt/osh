@@ -1,7 +1,7 @@
 """Backup source parsers and fetchers for `osh backup download`."""
+
 from __future__ import annotations
 
-import click
 import os
 import re
 import shutil
@@ -10,9 +10,10 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
+
+import click
 
 from ...db import _get_pg_credentials
 from ...utils import _get_odoo_config_path
@@ -47,7 +48,7 @@ class BackupSource:
 class DbSource(BackupSource):
     """Dump a local PostgreSQL database."""
 
-    def __init__(self, db_name: str, base: Optional[Path], output_format: str = "dump"):
+    def __init__(self, db_name: str, base: Path | None, output_format: str = "dump"):
         self.db_name = db_name
         self.base = base
         self.output_format = output_format
@@ -87,12 +88,16 @@ class DbSource(BackupSource):
     def _run_dump(self, args: list[str], env: dict[str, str], output: Path) -> None:
         try:
             with output.open("wb") as f:
-                subprocess.run(args, env=env, stdout=f, stderr=subprocess.PIPE, check=True)
+                subprocess.run(
+                    args, env=env, stdout=f, stderr=subprocess.PIPE, check=True
+                )
         except subprocess.CalledProcessError as exc:
             stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
             raise SourceError(f"pg_dump failed: {stderr}") from exc
         except FileNotFoundError as exc:
-            raise SourceError("Could not locate `pg_dump`. Is PostgreSQL installed?") from exc
+            raise SourceError(
+                "Could not locate `pg_dump`. Is PostgreSQL installed?"
+            ) from exc
 
     def _fetch_zip(self, output: Path) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,26 +111,33 @@ class DbSource(BackupSource):
                         dump_args, env=env, stdout=f, stderr=subprocess.PIPE, check=True
                     )
             except subprocess.CalledProcessError as exc:
-                stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+                stderr = (
+                    exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+                )
                 raise SourceError(f"pg_dump failed: {stderr}") from exc
             except FileNotFoundError as exc:
                 raise SourceError("Could not locate `pg_dump`.") from exc
 
             data_dir = self._data_dir()
-            source_filestore = data_dir / "filestore" / self.db_name if data_dir else None
+            source_filestore = (
+                data_dir / "filestore" / self.db_name if data_dir else None
+            )
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(dump_sql, "dump.sql")
                 if source_filestore and source_filestore.exists():
                     for path in source_filestore.rglob("*"):
                         if path.is_file():
-                            arcname = "filestore/" + path.relative_to(source_filestore).as_posix()
+                            arcname = (
+                                "filestore/"
+                                + path.relative_to(source_filestore).as_posix()
+                            )
                             zf.write(path, arcname)
                 else:
                     click.echo(
                         f"Warning: filestore not found at {source_filestore}", err=True
                     )
 
-    def _data_dir(self) -> Optional[Path]:
+    def _data_dir(self) -> Path | None:
         if self.base is None:
             return Path.home() / ".local" / "share" / "Odoo"
         odoo_rc = _get_odoo_config_path(self.base)
@@ -146,7 +158,7 @@ class HttpsSource(BackupSource):
     def __init__(
         self,
         url: str,
-        master_password: Optional[str] = None,
+        master_password: str | None = None,
     ):
         parsed = urlparse(url)
         self.scheme = parsed.scheme
@@ -164,7 +176,7 @@ class HttpsSource(BackupSource):
         self.endpoint = base_url.rstrip("/") + "/web/database/backup"
 
     @staticmethod
-    def _first(values: Optional[list[str]]) -> Optional[str]:
+    def _first(values: list[str] | None) -> str | None:
         return values[0] if values else None
 
     def default_output_name(self) -> str:
@@ -195,7 +207,9 @@ class HttpsSource(BackupSource):
                 with output.open("wb") as f:
                     shutil.copyfileobj(resp, f)
         except Exception as exc:
-            raise SourceError(f"Failed to download backup from {self.endpoint}: {exc}") from exc
+            raise SourceError(
+                f"Failed to download backup from {self.endpoint}: {exc}"
+            ) from exc
 
     def _resolve_master_password(self) -> str:
         if self.master_password:
@@ -211,7 +225,7 @@ class OdooshSource(BackupSource):
 
     BACKUP_DIR = "/home/odoo/backup.daily"
 
-    def __init__(self, url: str, ssh_key: Optional[Path] = None):
+    def __init__(self, url: str, ssh_key: Path | None = None):
         parsed = urlparse(url)
         self.build_id = parsed.username
         self.domain = parsed.netloc
@@ -225,7 +239,7 @@ class OdooshSource(BackupSource):
             )
 
     @staticmethod
-    def _first(values: Optional[list[str]]) -> Optional[str]:
+    def _first(values: list[str] | None) -> str | None:
         return values[0] if values else None
 
     @property
@@ -256,8 +270,7 @@ class OdooshSource(BackupSource):
         try:
             result = subprocess.run(
                 ["ssh", *ssh_args, self.ssh_target, ls_command],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 check=True,
                 text=True,
             )
@@ -297,10 +310,10 @@ class OdooshSource(BackupSource):
 def parse_source(
     source: str,
     *,
-    base: Optional[Path] = None,
+    base: Path | None = None,
     output_format: str = "dump",
-    master_password: Optional[str] = None,
-    ssh_key: Optional[Path] = None,
+    master_password: str | None = None,
+    ssh_key: Path | None = None,
 ) -> BackupSource:
     """Parse a source string into a BackupSource instance."""
     if source.startswith("db://"):
@@ -310,6 +323,5 @@ def parse_source(
     if source.startswith("odoosh://"):
         return OdooshSource(source, ssh_key=ssh_key)
     raise SourceError(
-        f"Unsupported source: {source}. "
-        "Expected db://, https://, or odoosh://."
+        f"Unsupported source: {source}. " "Expected db://, https://, or odoosh://."
     )

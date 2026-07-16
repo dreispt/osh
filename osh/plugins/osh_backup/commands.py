@@ -1,17 +1,13 @@
 """`osh backup` command implementation."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import click
 
 from ...utils import _find_project_root
-from .cache import (
-    _ensure_cache_dir,
-    _list_cache,
-    _write_metadata,
-)
+from .cache import _ensure_cache_dir, _list_cache, _write_metadata
 from .sources import parse_source
 
 
@@ -48,10 +44,10 @@ def backup() -> None:  # noqa: D401
 def download(
     ctx: click.Context,
     source: str,
-    output: Optional[str],
+    output: str | None,
     output_format: str,
-    master_password: Optional[str],
-    ssh_key: Optional[Path],
+    master_password: str | None,
+    ssh_key: Path | None,
     dry_run: bool,
 ) -> None:  # noqa: D401
     """Download or dump a backup source to the project cache.
@@ -65,7 +61,7 @@ def download(
     """
 
     base = _find_project_root()
-    output_path: Optional[Path] = None
+    output_path: Path | None = None
 
     if output:
         output_path = Path(output).expanduser().resolve()

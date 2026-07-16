@@ -1,4 +1,5 @@
 """Tests for the `osh rebuild` plugin."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,16 +33,21 @@ def patched_rebuild(monkeypatch, tmp_project: Path):
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._find_project_root", lambda: tmp_project
     )
-    monkeypatch.setattr("osh.utils._find_odoo_executable", lambda base: "/fake/odoo-bin")
+    monkeypatch.setattr(
+        "osh.utils._find_odoo_executable", lambda base: "/fake/odoo-bin"
+    )
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._find_odoo_executable",
         lambda base: "/fake/odoo-bin",
     )
 
     monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._resolve_db_name", lambda base, verbose: "testdb"
+        "osh.plugins.osh_rebuild.commands._resolve_db_name",
+        lambda base, verbose: "testdb",
     )
-    monkeypatch.setattr("osh.plugins.osh_rebuild.commands._db_exists", lambda base, db: False)
+    monkeypatch.setattr(
+        "osh.plugins.osh_rebuild.commands._db_exists", lambda base, db: False
+    )
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._drop_db",
         lambda base, db: state["dropped"].append(db),
@@ -122,13 +128,16 @@ def test_rebuild_no_cache_error(tmp_project: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._find_project_root", lambda: tmp_project
     )
-    monkeypatch.setattr("osh.utils._find_odoo_executable", lambda base: "/fake/odoo-bin")
+    monkeypatch.setattr(
+        "osh.utils._find_odoo_executable", lambda base: "/fake/odoo-bin"
+    )
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._find_odoo_executable",
         lambda base: "/fake/odoo-bin",
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._resolve_db_name", lambda base, verbose: "testdb"
+        "osh.plugins.osh_rebuild.commands._resolve_db_name",
+        lambda base, verbose: "testdb",
     )
 
     runner = CliRunner()

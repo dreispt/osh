@@ -1,4 +1,5 @@
 """Tests for the `osh backup` plugin."""
+
 from __future__ import annotations
 
 import json
@@ -121,7 +122,12 @@ def test_download_https_posts_payload(in_project: Path, monkeypatch) -> None:
     runner = CliRunner()
     result = runner.invoke(
         backup,
-        ["download", "https://demo.odoo.com?db=prod&format=zip", "--master-password", "secret"],
+        [
+            "download",
+            "https://demo.odoo.com?db=prod&format=zip",
+            "--master-password",
+            "secret",
+        ],
     )
 
     assert result.exit_code == 0
@@ -168,7 +174,13 @@ def test_list_cached_backups(in_project: Path) -> None:
         json.dumps({"source": "db://db1", "format": "dump", "created_at": "2026-01-01"})
     )
     Path(str(second) + ".meta.json").write_text(
-        json.dumps({"source": "https://host?db=prod", "format": "zip", "created_at": "2026-01-02"})
+        json.dumps(
+            {
+                "source": "https://host?db=prod",
+                "format": "zip",
+                "created_at": "2026-01-02",
+            }
+        )
     )
 
     runner = CliRunner()

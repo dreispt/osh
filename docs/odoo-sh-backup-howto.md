@@ -155,10 +155,10 @@ osh rebuild cache:1
 
 ## Summary
 
-| Method | Command path | Full backup? | Automation? | Authentication |
-|--------|--------------|--------------|-------------|----------------|
-| Web UI download | copy `.zip` into `.osh/backups/`, then `osh rebuild` | Yes (zip with dump + filestore) | Manual only | odoo.sh/GitHub login |
-| SSH daily dump | `osh backup download odoosh://...` then `osh rebuild` | Partial (SQL dump only; filestore needs extra steps) | Scriptable | SSH key configured in odoo.sh profile |
+| Method          | Command path                                          | Full backup?                                         | Automation? | Authentication                        |
+| --------------- | ----------------------------------------------------- | ---------------------------------------------------- | ----------- | ------------------------------------- |
+| Web UI download | copy `.zip` into `.osh/backups/`, then `osh rebuild`  | Yes (zip with dump + filestore)                      | Manual only | odoo.sh/GitHub login                  |
+| SSH daily dump  | `osh backup download odoosh://...` then `osh rebuild` | Partial (SQL dump only; filestore needs extra steps) | Scriptable  | SSH key configured in odoo.sh profile |
 
 ---
 

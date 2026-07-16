@@ -12,6 +12,7 @@ Initialises a project directory for Osh by:
    project under `.osh/odoo` and `.osh/enterprise`.
 6. Installing Odoo dependencies and the Odoo source in editable mode.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,14 +52,26 @@ def _find_local_enterprise_sources(base: Path) -> Path | None:
 
 def _is_git_url(spec: str) -> bool:
     """Return True if *spec* looks like a git URL rather than a local path."""
-    return bool(re.match(r"^[a-z][a-z0-9+.-]*://", spec, re.IGNORECASE)) or spec.startswith("git@")
+    return bool(
+        re.match(r"^[a-z][a-z0-9+.-]*://", spec, re.IGNORECASE)
+    ) or spec.startswith("git@")
 
 
 def _git_shallow_clone(url: str, branch: str, target: Path) -> None:
     """Clone *url* at *branch* into *target* with a shallow history."""
-    subprocess.check_call([
-        "git", "clone", "--progress", "--depth", "1", "--branch", branch, url, str(target)
-    ])
+    subprocess.check_call(
+        [
+            "git",
+            "clone",
+            "--progress",
+            "--depth",
+            "1",
+            "--branch",
+            branch,
+            url,
+            str(target),
+        ]
+    )
 
 
 def _cache_has_branch(cache: Path, version: str) -> bool:
@@ -85,15 +98,35 @@ def _ensure_cache(name: str, version: str, default_url: str) -> Path:
     if not cache.exists():
         SOURCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         click.echo(f"Creating central {name} cache at {cache} (shallow)…", err=True)
-        subprocess.check_call([
-            "git", "clone", "--progress", "--bare", "--depth", "1",
-            "--branch", version, default_url, str(cache),
-        ])
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--progress",
+                "--bare",
+                "--depth",
+                "1",
+                "--branch",
+                version,
+                default_url,
+                str(cache),
+            ]
+        )
     if not _cache_has_branch(cache, version):
         click.echo(f"Fetching {name} {version} into cache…", err=True)
-        subprocess.check_call([
-            "git", "-C", str(cache), "fetch", "--progress", "--depth", "1", "origin", refspec,
-        ])
+        subprocess.check_call(
+            [
+                "git",
+                "-C",
+                str(cache),
+                "fetch",
+                "--progress",
+                "--depth",
+                "1",
+                "origin",
+                refspec,
+            ]
+        )
     return cache
 
 
@@ -181,18 +214,20 @@ def _ensure_source(
 
 @click.command(name="init")
 @click.argument("version", type=str)
-@click.argument("directory", required=False, type=click.Path(file_okay=False, path_type=Path))
+@click.argument(
+    "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
+)
 @click.option(
     "-c",
     "--odoo-source",
     help="Odoo source: an existing local directory or a git URL. "
-         "Defaults to the central cache (populated from GitHub).",
+    "Defaults to the central cache (populated from GitHub).",
 )
 @click.option(
     "-e",
     "--enterprise-source",
     help="Enterprise source: an existing local directory or a git URL. "
-         "Defaults to the central cache (populated from GitHub).",
+    "Defaults to the central cache (populated from GitHub).",
 )
 def init(
     version: str,
@@ -274,6 +309,7 @@ def init(
     else:
         click.echo(f"Creating virtual environment at {venv_path}…", err=True)
         import venv
+
         try:
             venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
         except AttributeError:  # pragma: no cover (py<3.9)
@@ -288,7 +324,9 @@ def init(
         requirements_file = odoo_link / "requirements.txt"
         if requirements_file.exists():
             click.echo(f"Installing requirements from {requirements_file}…", err=True)
-            subprocess.check_call([str(pip_exe), "install", "-r", str(requirements_file)])
+            subprocess.check_call(
+                [str(pip_exe), "install", "-r", str(requirements_file)]
+            )
 
         click.echo(f"Installing Odoo from {odoo_link} into virtualenv…", err=True)
         subprocess.check_call([str(pip_exe), "install", "-e", str(odoo_link)])

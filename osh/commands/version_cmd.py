@@ -1,4 +1,5 @@
 """`osh version` command implementation."""
+
 from __future__ import annotations
 
 import click

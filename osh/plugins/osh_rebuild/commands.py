@@ -1,15 +1,15 @@
 """`osh rebuild` command implementation."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import click
 
-from ...db import _db_exists, _create_db, _drop_db
-from ...utils import _find_odoo_executable, _find_project_root
 from ...commands.run_cmd import _resolve_db_name
+from ...db import _create_db, _db_exists, _drop_db
 from ...plugins.osh_backup.cache import _get_cache_dir, _list_cache, _resolve_cache_id
+from ...utils import _find_odoo_executable, _find_project_root
 from .neutralize import _neutralize_database
 from .restore import _restore_dump
 
@@ -29,7 +29,7 @@ from .restore import _restore_dump
 @click.pass_context
 def rebuild(
     ctx: click.Context,
-    dump: Optional[str],
+    dump: str | None,
     force: bool,
     dry_run: bool,
 ) -> None:  # noqa: D401
@@ -98,7 +98,7 @@ def rebuild(
         click.echo(f"Rebuilt database '{db_name}' from {dump_path}", err=True)
 
 
-def _resolve_dump(base: Path, dump: Optional[str]) -> Path:
+def _resolve_dump(base: Path, dump: str | None) -> Path:
     """Resolve a dump argument to an existing file path."""
     cache_dir = _get_cache_dir(base)
 

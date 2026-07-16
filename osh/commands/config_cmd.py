@@ -1,4 +1,5 @@
 """`osh config` command group for managing project settings."""
+
 from __future__ import annotations
 
 import click

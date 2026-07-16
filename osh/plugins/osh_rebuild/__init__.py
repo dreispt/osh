@@ -1,4 +1,5 @@
 """Built-in `osh rebuild` plugin."""
+
 from __future__ import annotations
 
 from .commands import rebuild

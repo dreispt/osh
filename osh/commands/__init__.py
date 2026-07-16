@@ -3,14 +3,10 @@
 Importing this package provides the list `COMMANDS` that can be registered
 with the root click group in `cli.py`.
 """
+
 from __future__ import annotations
 
-from . import init_cmd
-from . import status_cmd
-from . import run_cmd
-from . import config_cmd
-from . import plug_cmd
-from . import version_cmd
+from . import config_cmd, init_cmd, plug_cmd, run_cmd, status_cmd, version_cmd
 
 COMMANDS = [
     init_cmd.init,

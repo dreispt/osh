@@ -1,4 +1,5 @@
 """Tests for ``osh run`` command assembly."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,9 +9,7 @@ from click.testing import CliRunner
 from osh.commands.run_cmd import run
 
 
-def test_run_includes_enterprise_addons_path(
-    tmp_project: Path, monkeypatch
-) -> None:
+def test_run_includes_enterprise_addons_path(tmp_project: Path, monkeypatch) -> None:
     """When ``.osh/enterprise`` exists it is included in ``--addons-path``."""
     osh_dir = tmp_project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)

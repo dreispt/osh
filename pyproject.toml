@@ -30,3 +30,23 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 osh.plugins.osh_rebuild = ["data/*.sql"]
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
+]
+ignore = ["E501"]  # line length handled by black

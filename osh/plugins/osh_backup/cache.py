@@ -1,10 +1,10 @@
 """Project-local backup cache helpers."""
+
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from ...utils import _find_project_root
 
@@ -31,7 +31,7 @@ def _write_metadata(
     *,
     source: str,
     original_format: str,
-    created_at: Optional[str] = None,
+    created_at: str | None = None,
 ) -> None:
     """Write the metadata sidecar next to a cached backup."""
     created_at = created_at or datetime.now(timezone.utc).isoformat()
@@ -56,7 +56,9 @@ def _read_metadata(backup_path: Path) -> dict:
     return {
         "source": "unknown",
         "format": backup_path.suffix.lstrip("."),
-        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        "created_at": datetime.fromtimestamp(
+            stat.st_mtime, tz=timezone.utc
+        ).isoformat(),
         "path": str(backup_path),
     }
 
@@ -98,6 +100,6 @@ def _resolve_cache_id(base: Path, cache_id: int, *, limit: int = 20) -> Path:
     raise ValueError(f"Cache entry #{cache_id} not found.")
 
 
-def _project_root_or_none() -> Optional[Path]:
+def _project_root_or_none() -> Path | None:
     """Return the project root, or None if not inside an Osh project."""
     return _find_project_root()

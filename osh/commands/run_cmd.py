@@ -1,4 +1,5 @@
 """`osh run` command implementation."""
+
 from __future__ import annotations
 
 import os
@@ -15,10 +16,10 @@ from ..db import (
     _set_last_db,
 )
 from ..utils import (
-    _find_project_root,
     _find_odoo_executable,
-    _get_odoo_config_path,
+    _find_project_root,
     _get_odoo_base_dir,
+    _get_odoo_config_path,
     _get_project_name,
     discover_addons_paths,
 )
@@ -107,7 +108,7 @@ def run(
         addon_modules = discover_addons_paths(base)
         if addon_modules:
             # Get unique parent directories of addon modules
-            project_addons = sorted(set(addon.parent for addon in addon_modules))
+            project_addons = sorted({addon.parent for addon in addon_modules})
             addons_paths.extend(project_addons)
 
         if addons_paths:
@@ -117,7 +118,9 @@ def run(
             args.extend(["--addons-path", addons_path_str])
 
     # Determine database to use
-    if not any(arg.startswith("-d") or arg.startswith("--database") for arg in extra_args):
+    if not any(
+        arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
+    ):
         db_name = _resolve_db_name(base, verbose)
         if db_name:
             if verbose:
