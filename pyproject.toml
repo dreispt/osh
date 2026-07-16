@@ -29,7 +29,7 @@ build-backend = "setuptools.build_meta"
 include-package-data = true
 
 [tool.setuptools.package-data]
-osh.plugins.osh_rebuild = ["data/*.sql"]
+osh = ["plugins/osh_rebuild/data/*.sql"]
 
 [tool.black]
 line-length = 88
