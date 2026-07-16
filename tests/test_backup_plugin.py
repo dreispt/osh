@@ -25,11 +25,7 @@ def tmp_project(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def in_project(monkeypatch, tmp_project: Path) -> Path:
-    """Make _find_project_root return the temporary project."""
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: tmp_project)
-    monkeypatch.setattr(
-        "osh.plugins.osh_backup.cache._find_project_root", lambda: tmp_project
-    )
+    """Switch into the temporary project for project-aware commands."""
     monkeypatch.chdir(tmp_project)
     return tmp_project
 
@@ -66,7 +62,7 @@ def test_download_db_source_writes_to_cache(in_project: Path, monkeypatch) -> No
 
 def test_download_requires_output_outside_project(monkeypatch, tmp_path: Path) -> None:
     """Outside a project, `backup download` requires --output."""
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: None)
+    monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(backup, ["download", "db://sourcedb"])
@@ -77,7 +73,7 @@ def test_download_requires_output_outside_project(monkeypatch, tmp_path: Path) -
 
 def test_download_with_output_outside_project(monkeypatch, tmp_path: Path) -> None:
     """With --output, `backup download` works outside a project."""
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: None)
+    monkeypatch.chdir(tmp_path)
     output = tmp_path / "sourcedb.dump"
 
     def fake_run(args, **kwargs):
@@ -361,7 +357,7 @@ def test_list_cached_backups(in_project: Path) -> None:
 
 def test_list_outside_project(monkeypatch, tmp_path: Path) -> None:
     """`osh backup list` fails outside an Osh project."""
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: None)
+    monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(backup, ["list"])
@@ -459,7 +455,6 @@ def test_download_ssh_source_invokes_fetch(monkeypatch, tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     (project / ".osh").mkdir()
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: project)
     monkeypatch.chdir(project)
 
     def fake_run(args, **kwargs):

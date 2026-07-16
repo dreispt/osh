@@ -19,6 +19,18 @@ def tmp_project(tmp_path: Path) -> Path:
     return project
 
 
+def _setup_fake_project(project: Path, db_name: str = "testdb") -> None:
+    """Create a fake Odoo executable and project config in *project*."""
+    osh_dir = project / ".osh"
+    osh_dir.mkdir(parents=True, exist_ok=True)
+    (osh_dir / "config").write_text(f"[db]\ndefault = {db_name}\n")
+    venv_bin = project / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    odoo_exe = venv_bin / "odoo"
+    odoo_exe.write_text("#!/bin/sh\necho fake odoo")
+    odoo_exe.chmod(0o755)
+
+
 @pytest.fixture
 def patched_rebuild(monkeypatch, tmp_project: Path):
     """Patch external dependencies used by `osh rebuild` for isolated tests."""
@@ -29,22 +41,9 @@ def patched_rebuild(monkeypatch, tmp_project: Path):
         "created": [],
     }
 
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: tmp_project)
-    monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._find_project_root", lambda: tmp_project
-    )
-    monkeypatch.setattr(
-        "osh.utils._find_odoo_executable", lambda base: "/fake/odoo-bin"
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._find_odoo_executable",
-        lambda base: "/fake/odoo-bin",
-    )
+    _setup_fake_project(tmp_project)
+    monkeypatch.chdir(tmp_project)
 
-    monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._resolve_db_name",
-        lambda base, verbose: "testdb",
-    )
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._db_exists", lambda base, db: False
     )
@@ -86,11 +85,12 @@ def test_rebuild_uses_latest_cache(patched_rebuild, tmp_project: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(rebuild, [])
 
+    exe = str(tmp_project / ".venv" / "bin" / "odoo")
     assert result.exit_code == 0
     assert patched_rebuild["restore"][0] == new
     assert patched_rebuild["restore"][1] == "testdb"
     assert patched_rebuild["restore"][2] is False
-    assert patched_rebuild["neutralize"] == ("/fake/odoo-bin", "testdb", False)
+    assert patched_rebuild["neutralize"] == (exe, "testdb", False)
 
 
 def test_rebuild_cache_id(patched_rebuild, tmp_project: Path) -> None:
@@ -124,21 +124,8 @@ def test_rebuild_explicit_file(patched_rebuild, tmp_project: Path) -> None:
 
 def test_rebuild_no_cache_error(tmp_project: Path, monkeypatch) -> None:
     """`osh rebuild` without an argument fails when the cache is empty."""
-    monkeypatch.setattr("osh.utils._find_project_root", lambda: tmp_project)
-    monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._find_project_root", lambda: tmp_project
-    )
-    monkeypatch.setattr(
-        "osh.utils._find_odoo_executable", lambda base: "/fake/odoo-bin"
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._find_odoo_executable",
-        lambda base: "/fake/odoo-bin",
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_rebuild.commands._resolve_db_name",
-        lambda base, verbose: "testdb",
-    )
+    _setup_fake_project(tmp_project)
+    monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
     result = runner.invoke(rebuild, [])
