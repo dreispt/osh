@@ -30,6 +30,16 @@ def fake_odoo_executable(tmp_project: Path) -> Path:
 
 
 @pytest.fixture
+def osh_source_dirs(tmp_project: Path) -> Path:
+    """Create ``.osh/{odoo/addons, enterprise, design-themes}`` source dirs."""
+    osh_dir = tmp_project / ".osh"
+    (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
+    (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
+    (osh_dir / "design-themes").mkdir(parents=True, exist_ok=True)
+    return osh_dir
+
+
+@pytest.fixture
 def subprocess_run_capture(monkeypatch):
     """Capture ``subprocess.run`` calls and optionally write output to stdout.
 

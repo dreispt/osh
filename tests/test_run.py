@@ -9,23 +9,10 @@ from click.testing import CliRunner
 from osh.commands.run_cmd import run
 
 
-def _setup_project_sources(tmp_project: Path) -> Path:
-    """Create .osh source directories."""
-    osh_dir = tmp_project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
-    (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
-    (osh_dir / "design-themes").mkdir(parents=True, exist_ok=True)
-
-    return osh_dir
-
-
 def test_run_dry_run_shows_addons_path_and_save(
-    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path, osh_source_dirs: Path
 ) -> None:
     """Dry-run prints the command with --addons-path and --save."""
-    osh_dir = _setup_project_sources(tmp_project)
-
     monkeypatch.setattr(
         "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
     )
@@ -35,12 +22,12 @@ def test_run_dry_run_shows_addons_path_and_save(
     result = runner.invoke(run, ["--dry-run"])
 
     assert result.exit_code == 0
-    odoo_conf = osh_dir / "odoo.conf"
+    odoo_conf = osh_source_dirs / "odoo.conf"
     joined = result.output
     assert "--addons-path" in joined
-    assert str(osh_dir / "odoo" / "addons") in joined
-    assert str(osh_dir / "enterprise") in joined
-    assert str(osh_dir / "design-themes") in joined
+    assert str(osh_source_dirs / "odoo" / "addons") in joined
+    assert str(osh_source_dirs / "enterprise") in joined
+    assert str(osh_source_dirs / "design-themes") in joined
     assert f"--config {odoo_conf}" in joined
     assert "--save" in joined
     assert "-d testdb" in joined
@@ -49,11 +36,9 @@ def test_run_dry_run_shows_addons_path_and_save(
 
 
 def test_run_creates_empty_config_and_adds_save_flag(
-    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path, osh_source_dirs: Path
 ) -> None:
     """``osh run`` touches ``.osh/odoo.conf`` and adds ``--config --save``."""
-    osh_dir = _setup_project_sources(tmp_project)
-
     monkeypatch.setattr(
         "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
     )
@@ -69,7 +54,7 @@ def test_run_creates_empty_config_and_adds_save_flag(
     result = runner.invoke(run, [])
 
     assert result.exit_code == 0
-    odoo_conf = osh_dir / "odoo.conf"
+    odoo_conf = osh_source_dirs / "odoo.conf"
     assert odoo_conf.exists()
 
     assert len(exec_calls) == 1
@@ -82,11 +67,10 @@ def test_run_creates_empty_config_and_adds_save_flag(
 
 
 def test_run_does_not_overwrite_existing_config(
-    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path, osh_source_dirs: Path
 ) -> None:
     """An existing ``.osh/odoo.conf`` is not overwritten, only touched."""
-    osh_dir = _setup_project_sources(tmp_project)
-    odoo_conf = osh_dir / "odoo.conf"
+    odoo_conf = osh_source_dirs / "odoo.conf"
     odoo_conf.parent.mkdir(parents=True, exist_ok=True)
     odoo_conf.write_text("# custom header\n[options]\n")
 
@@ -112,11 +96,9 @@ def test_run_does_not_overwrite_existing_config(
 
 
 def test_run_uses_explicit_config_without_save(
-    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path, osh_source_dirs: Path
 ) -> None:
     """An explicit --config disables the automatic --config --save pair."""
-    osh_dir = _setup_project_sources(tmp_project)
-
     monkeypatch.setattr(
         "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
     )
@@ -132,7 +114,7 @@ def test_run_uses_explicit_config_without_save(
     result = runner.invoke(run, ["--config", "/other/odoo.conf"])
 
     assert result.exit_code == 0
-    assert not (osh_dir / "odoo.conf").exists()
+    assert not (osh_source_dirs / "odoo.conf").exists()
     assert len(exec_calls) == 1
     _, final_args = exec_calls[0]
     joined = " ".join(final_args)
@@ -141,11 +123,9 @@ def test_run_uses_explicit_config_without_save(
 
 
 def test_run_keeps_explicit_addons_path_and_still_saves(
-    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
+    tmp_project: Path, monkeypatch, fake_odoo_executable: Path, osh_source_dirs: Path
 ) -> None:
     """An explicit --addons-path is kept and the config is still saved."""
-    osh_dir = _setup_project_sources(tmp_project)
-
     monkeypatch.setattr(
         "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
     )
@@ -161,7 +141,7 @@ def test_run_keeps_explicit_addons_path_and_still_saves(
     result = runner.invoke(run, ["--", "--addons-path", "/custom/addons"])
 
     assert result.exit_code == 0
-    odoo_conf = osh_dir / "odoo.conf"
+    odoo_conf = osh_source_dirs / "odoo.conf"
     assert odoo_conf.exists()
     assert len(exec_calls) == 1
     _, final_args = exec_calls[0]
