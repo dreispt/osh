@@ -88,6 +88,38 @@ Install, list, and remove plugins from git repositories.
 osh plug install https://github.com/ORG/REPO
 ```
 
+### `osh backup`
+
+Download or dump a backup and store it in the project cache (`.osh/backups/`).
+
+```bash
+# Fetch the latest odoo.sh daily dump
+osh backup download odoosh://123456@my-project-master-123456.dev.odoo.com
+
+# Download a remote Odoo manager backup
+osh backup download https://my.odoo.com?db=prod&format=zip
+
+# List cached backups
+osh backup list
+```
+
+See `docs/odoo-sh-backup-howto.md` for detailed odoo.sh backup instructions.
+
+### `osh rebuild`
+
+Restore a local backup file into the current branch's database and neutralize it.
+
+```bash
+# Use the newest cached backup
+osh rebuild
+
+# Pick a specific cached entry
+osh rebuild cache:1
+
+# Restore an explicit file
+osh rebuild /path/to/backup.zip
+```
+
 ### `osh test`
 
 Run Odoo tests for project modules (built-in plugin).
@@ -132,21 +164,9 @@ If a `.odoorc` file exists in the project root, `osh run` passes it as
 
 Run `osh --help` or `osh <command> --help` for detailed usage information.
 
-  Odoo Shell – run Odoo from the comfort of your terminal.
-
-Options:
-  --version   Show the version and exit.
-  -h, --help  Show this message and exit.
-
-Commands:
-  init    Initialise a directory for an Odoo project.
-  status  Show project base directory and Odoo version if in an Osh project.
-  run     Run the project's Odoo executable with additional arguments.
-  config  Manage Osh project settings.
-  plug    Manage Osh plugins installed from git repositories.
-  version Show the Osh version.
-  test    Run Odoo tests for project modules.
-```
+The command list is generated automatically from the built-in commands plus any
+installed plugins, so it may include additional commands such as `backup`,
+`rebuild`, and `test`.
 
 ## License
 
