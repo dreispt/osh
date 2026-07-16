@@ -52,6 +52,27 @@ def download(
 ) -> None:  # noqa: D401
     """Download or dump a backup source to the project cache.
 
+    Supported source schemes:
+
+    \b
+      db://<database>          - PostgreSQL dump via pg_dump
+      https://<host>?db=<db>  - Odoo manager backup download
+      odoosh://<build>@<host> - SSH/scp daily dump from an Odoo.sh container
+
+    Odoo.sh quick start:
+
+    1. Add your SSH key in the odoo.sh project profile.
+    2. Copy the build id and domain from the SSH tab of your branch.
+    3. Download the latest daily SQL dump:
+
+       osh backup download odoosh://BUILD@PROJECT-BRANCH-BUILD.dev.odoo.com
+
+    The daily dump contains only the database (no filestore). For a full backup
+    including filestore, download the .zip from the odoo.sh web UI and use
+    `osh rebuild PATH`.
+
+    See docs/odoo-sh-backup-howto.md for the complete guide.
+
     Examples:
 
     \b
