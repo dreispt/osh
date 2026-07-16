@@ -9,6 +9,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "click>=8.1",
+    'tomli>=1.2.0; python_version<"3.11"',
     # Uncomment the following line when you are ready to connect to an actual server
     # "odoorpc>=0.12",
 ]

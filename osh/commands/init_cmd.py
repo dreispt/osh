@@ -5,11 +5,13 @@ Initialises a project directory for Osh by:
 2. Creating a `.osh/` sub-directory for configuration and links.
 3. Creating a `.osh/config` file for branch-to-database mappings.
 4. Detecting existing Odoo/Enterprise/design-themes source trees inside *target*;
-   if found, creates symlinks in `.osh/` pointing to them.
+   if found (and the selected edition allows it), creates symlinks in `.osh/`
+   pointing to them.
 5. If no sources are found, asks to use a central cache. The cache is a git
    mirror of the upstream repository, stored in `~/.cache/osh`. The requested
    version is fetched if missing, and then a shallow clone is made into the
-   project under `.osh/odoo`, `.osh/enterprise` and `.osh/design-themes`.
+   project under `.osh/odoo` and, depending on the edition, `.osh/enterprise`
+   and `.osh/design-themes`.
 6. Installing Odoo dependencies (and any project-level requirements.txt),
    installing the Odoo source in editable mode, and running a quick Odoo
    executable smoke test.
@@ -25,6 +27,8 @@ import sys
 from pathlib import Path
 
 import click
+
+from ..utils import _load_user_init_config, _save_user_init_setting
 
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
@@ -248,29 +252,79 @@ def _ensure_source(
     help="Design-themes source: an existing local directory or a git URL. "
     "Defaults to the central cache (populated from GitHub).",
 )
+@click.option(
+    "--edition",
+    type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
+    default=None,
+    envvar="OSH_INIT_EDITION",
+    help="Edition to initialize: ce (Community), ee (Enterprise), "
+    "sh (Odoo.sh with Enterprise + design-themes). "
+    "May also be set in ~/.config/osh/config.toml ([init] edition = ...).",
+)
+@click.option(
+    "--ce",
+    "edition",
+    flag_value="ce",
+    help="Alias for --edition ce.",
+)
+@click.option(
+    "--ee",
+    "edition",
+    flag_value="ee",
+    help="Alias for --edition ee.",
+)
+@click.option(
+    "--sh",
+    "edition",
+    flag_value="sh",
+    help="Alias for --edition sh.",
+)
+@click.option(
+    "--save",
+    is_flag=True,
+    help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
+)
+@click.pass_context
 def init(
+    ctx: click.Context,
     version: str,
     directory: Path | None,
     odoo_source: str | None,
     enterprise_source: str | None,
     themes_source: str | None,
+    edition: str | None,
+    save: bool,
 ) -> None:  # noqa: D401
     """Initialise *directory* for an Odoo project.
 
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
+    Edition mode (set with --edition, --ce, --ee, --sh, OSH_INIT_EDITION, or
+    ~/.config/osh/config.toml):
+
+    \b
+      ce - Community only: no Enterprise or design-themes.
+      ee - Include Enterprise sources.
+      sh - Include Enterprise and design-themes sources.
+
+    If no edition is supplied and stdin is a terminal, the user is prompted to
+    pick one; otherwise it defaults to ce.
+
+    Use --save to persist the resolved edition to ~/.config/osh/config.toml.
+
     Source resolution (applied separately for Odoo, Enterprise and design-themes):
 
     \b
       1. Explicit --odoo-source / --enterprise-source / --themes-source flag.
-      2. Source tree already included in the project.
+      2. Source tree already included in the project (when the edition allows it).
       3. Central cache under ~/.cache/osh (shallow clone from GitHub by default).
       4. Interactive prompt for a local path or git URL.
 
     The central cache is a shallow bare clone of the upstream repository. osh
     init fetches the requested version if it is missing from the cache, then
-    makes a shallow clone into .osh/odoo, .osh/enterprise and .osh/design-themes.
+    makes a shallow clone into .osh/odoo and, depending on the edition, into
+    .osh/enterprise and .osh/design-themes.
 
     If the final pip install step fails, the project directory, .osh
     configuration, source links, and virtualenv are still created so the
@@ -287,6 +341,10 @@ def init(
 
     \b
       osh init 19.0
+      osh init 19.0 --enterprise
+      osh init 19.0 --sh
+      osh init 19.0 --edition ee
+      osh init 19.0 --sh --save
       osh init 19.0 ./another-project
       osh init 19.0 -c /path/to/odoo -e /path/to/enterprise
       osh init 19.0 -c /path/to/odoo -e /path/to/enterprise -t /path/to/design-themes
@@ -306,6 +364,28 @@ def init(
         config_path.touch()
 
     # ------------------------------------------------------------------
+    # Resolve edition mode
+    # ------------------------------------------------------------------
+    if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
+        user_cfg = _load_user_init_config()
+        edition = user_cfg.get("edition") or edition
+        if edition is None:
+            if sys.stdin.isatty():
+                edition = click.prompt(
+                    "Which edition should be initialized?",
+                    type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
+                    default="ce",
+                    show_choices=True,
+                )
+            else:
+                edition = "ce"
+    edition = (edition or "ce").lower()
+    if save:
+        _save_user_init_setting("edition", edition)
+    include_enterprise = edition in ("ee", "sh") or enterprise_source is not None
+    include_themes = edition == "sh" or themes_source is not None
+
+    # ------------------------------------------------------------------
     # Detect or obtain Odoo sources
     # ------------------------------------------------------------------
     odoo_link = _ensure_source(
@@ -320,32 +400,34 @@ def init(
     # ------------------------------------------------------------------
     # Detect or obtain Enterprise sources
     # ------------------------------------------------------------------
-    _ensure_source(
-        "enterprise",
-        version,
-        enterprise_source,
-        _find_local_source(
-            target, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
-        ),
-        osh_dir,
-        DEFAULT_ENTERPRISE_URL,
-    )
+    if include_enterprise:
+        _ensure_source(
+            "enterprise",
+            version,
+            enterprise_source,
+            _find_local_source(
+                target, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
+            ),
+            osh_dir,
+            DEFAULT_ENTERPRISE_URL,
+        )
 
     # ------------------------------------------------------------------
     # Detect or obtain design-themes sources
     # ------------------------------------------------------------------
-    _ensure_source(
-        "design-themes",
-        version,
-        themes_source,
-        _find_local_source(
-            target,
-            ("design-themes", "themes"),
-            ("*/__manifest__.py", "*/__openerp__.py"),
-        ),
-        osh_dir,
-        DEFAULT_THEMES_URL,
-    )
+    if include_themes:
+        _ensure_source(
+            "design-themes",
+            version,
+            themes_source,
+            _find_local_source(
+                target,
+                ("design-themes", "themes"),
+                ("*/__manifest__.py", "*/__openerp__.py"),
+            ),
+            osh_dir,
+            DEFAULT_THEMES_URL,
+        )
 
     if not odoo_link:
         raise click.ClickException("Odoo sources are required.")

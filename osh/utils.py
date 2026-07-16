@@ -7,8 +7,15 @@ lean and focused on command definitions while grouping reusable helpers here.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from pathlib import Path
+from typing import Any
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover (<3.11)
+    import tomli as tomllib
 
 
 def _find_project_root(start: Path | None = None) -> Path | None:
@@ -18,6 +25,87 @@ def _find_project_root(start: Path | None = None) -> Path | None:
         if (p / ".osh").exists():
             return p
     return None
+
+
+def _load_user_init_config() -> dict[str, Any]:
+    """Load optional user-level init defaults from ``~/.config/osh/config.toml``."""
+    config_file = Path.home() / ".config" / "osh" / "config.toml"
+    if not config_file.exists():
+        return {}
+    try:
+        with config_file.open("rb") as f:
+            data = tomllib.load(f)
+    except Exception:  # pragma: no cover
+        return {}
+    return data.get("init", {}) if isinstance(data, dict) else {}
+
+
+def _format_toml_value(value: Any) -> str:
+    """Return a simple TOML representation of *value*.
+
+    Supports strings, booleans, integers, and floats. This is intentionally
+    limited to the small set of values stored in Osh user config.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if isinstance(value, (int, float)):
+        return str(value)
+    raise ValueError(f"Unsupported TOML value type: {type(value)}")
+
+
+def _save_user_init_setting(key: str, value: Any) -> None:
+    """Persist *key* = *value* in the ``[init]`` table of ``~/.config/osh/config.toml``.
+
+    Existing content outside the ``[init]`` table is preserved. If the file
+    does not exist it is created.
+    """
+    config_file = Path.home() / ".config" / "osh" / "config.toml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    formatted = _format_toml_value(value)
+
+    if config_file.exists():
+        lines = config_file.read_text().splitlines(keepends=True)
+    else:
+        lines = []
+
+    in_init = False
+    key_line: int | None = None
+    init_start: int | None = None
+    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*.*$")
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "[init]":
+            in_init = True
+            init_start = i
+            continue
+        if in_init and stripped.startswith("[") and stripped.endswith("]"):
+            in_init = False
+            continue
+        if in_init and key_pattern.match(line):
+            key_line = i
+            break
+
+    if key_line is not None:
+        lines[key_line] = f"{key} = {formatted}\n"
+    elif init_start is not None:
+        insert_pos = init_start + 1
+        while insert_pos < len(lines) and (
+            lines[insert_pos].strip() == "" or lines[insert_pos].strip().startswith("#")
+        ):
+            insert_pos += 1
+        lines.insert(insert_pos, f"{key} = {formatted}\n")
+    else:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        if lines and lines[-1].strip() != "":
+            lines.append("\n")
+        lines.append("[init]\n")
+        lines.append(f"{key} = {formatted}\n")
+
+    config_file.write_text("".join(lines))
 
 
 def _find_odoo_executable(base: Path) -> str | None:

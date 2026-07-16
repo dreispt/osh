@@ -316,7 +316,7 @@ class TestInitCommand:
 
         self._real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project)])
+        result = runner.invoke(init, ["19.0", "--edition", "ee", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -401,7 +401,7 @@ class TestInitCommand:
         self._real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["master", str(tmp_project)])
+        result = runner.invoke(init, ["master", "--sh", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (patch_cache / "odoo.git").exists()
@@ -515,3 +515,164 @@ class TestInitCommand:
         assert "Warning: Odoo smoke test failed" in result.output
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "config").exists()
+
+
+class TestInitEdition:
+    def _real_git_only_subprocess(self, monkeypatch) -> list:
+        """Run git commands for real; record/no-op everything else."""
+        calls: list = []
+        real_check_call = subprocess.check_call
+
+        def fake_check_call(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args")
+            if isinstance(cmd, (list, tuple)) and "git" in cmd:
+                return real_check_call(*args, **kwargs)
+            calls.append(cmd)
+            return None
+
+        monkeypatch.setattr(
+            "osh.commands.init_cmd.subprocess.check_call", fake_check_call
+        )
+        monkeypatch.setattr("venv.create", lambda *a, **kw: None)
+        return calls
+
+    def _make_local_sources(self, tmp_project: Path) -> None:
+        """Create odoo, enterprise and design-themes source trees in project."""
+        odoo = tmp_project / "odoo"
+        odoo.mkdir(parents=True, exist_ok=True)
+        (odoo / "odoo-bin").touch()
+
+        ent_web = tmp_project / "enterprise" / "web"
+        ent_web.mkdir(parents=True, exist_ok=True)
+        (ent_web / "__manifest__.py").touch()
+
+        theme = tmp_project / "design-themes" / "theme_buzzy"
+        theme.mkdir(parents=True, exist_ok=True)
+        (theme / "__manifest__.py").touch()
+
+    def test_ce_skips_enterprise_and_themes(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """Default --edition ce only links Odoo sources."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert not (tmp_project / ".osh" / "enterprise").exists()
+        assert not (tmp_project / ".osh" / "design-themes").exists()
+
+    def test_ee_alias_includes_enterprise(self, tmp_project: Path, monkeypatch) -> None:
+        """--ee links Odoo and Enterprise but not design-themes."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", "--ee", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "enterprise").is_symlink()
+        assert not (tmp_project / ".osh" / "design-themes").exists()
+
+    def test_sh_alias_includes_themes(self, tmp_project: Path, monkeypatch) -> None:
+        """--sh links Odoo, Enterprise and design-themes."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", "--sh", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "enterprise").is_symlink()
+        assert (tmp_project / ".osh" / "design-themes").is_symlink()
+
+    def test_save_writes_user_config(self, tmp_project: Path, monkeypatch) -> None:
+        """--save persists the resolved edition to ~/.config/osh/config.toml."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        fake_home = tmp_project / "home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("osh.utils.Path.home", lambda: fake_home)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", "--sh", "--save", str(tmp_project)])
+
+        assert result.exit_code == 0
+        config_file = fake_home / ".config" / "osh" / "config.toml"
+        assert config_file.exists()
+        assert 'edition = "sh"' in config_file.read_text()
+
+    def test_ce_alias_skips_optional_sources(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """--ce explicitly selects Community only."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", "--ce", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert not (tmp_project / ".osh" / "enterprise").exists()
+        assert not (tmp_project / ".osh" / "design-themes").exists()
+
+    def test_interactive_prompt_uses_answer(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """When no edition is supplied and stdin is a tty, the user is asked."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+        monkeypatch.setattr(
+            "click.testing._NamedTextIOWrapper.isatty", lambda self: True
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", str(tmp_project)], input="ee\n")
+
+        assert result.exit_code == 0
+        assert "Which edition should be initialized?" in result.output
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "enterprise").is_symlink()
+        assert not (tmp_project / ".osh" / "design-themes").exists()
+
+    def test_env_var_sets_default_edition(self, tmp_project: Path, monkeypatch) -> None:
+        """OSH_INIT_EDITION sets the default edition when no CLI flag is given."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner(env={"OSH_INIT_EDITION": "ee"})
+        result = runner.invoke(init, ["19.0", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "enterprise").is_symlink()
+        assert not (tmp_project / ".osh" / "design-themes").exists()
+
+    def test_user_config_sets_default_edition(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """~/.config/osh/config.toml sets the default edition."""
+        self._make_local_sources(tmp_project)
+        self._real_git_only_subprocess(monkeypatch)
+
+        fake_home = tmp_project / "home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        config_dir = fake_home / ".config" / "osh"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text('[init]\nedition = "sh"\n')
+        monkeypatch.setattr("osh.utils.Path.home", lambda: fake_home)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "enterprise").is_symlink()
+        assert (tmp_project / ".osh" / "design-themes").is_symlink()
