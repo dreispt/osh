@@ -3,6 +3,7 @@
 Runs Odoo tests for project modules. If the test database does not exist it is
 initialised with `-i`, then the tests are executed with `-u`.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -11,6 +12,8 @@ from pathlib import Path
 import click
 
 from ...db import (
+    _db_exists,
+    _drop_db,
     _get_branch_db,
     _get_current_branch,
     _get_last_db,
@@ -19,105 +22,10 @@ from ...db import (
 from ...utils import (
     _find_odoo_executable,
     _find_project_root,
-    _get_odoo_config_path,
     _get_odoo_base_dir,
     _get_project_name,
     discover_addons_paths,
 )
-
-
-def _db_exists(base: Path, db_name: str) -> bool:
-    """Return True if the PostgreSQL database exists."""
-    pg_args = ["psql", "-d", db_name, "-c", "SELECT 1"]
-
-    # Read .odoorc for credentials if present.
-    odoo_rc = _get_odoo_config_path(base)
-    if odoo_rc.exists():
-        import configparser
-
-        cfg = configparser.ConfigParser()
-        cfg.read(odoo_rc)
-        if cfg.has_section("options"):
-            for key, arg in [
-                ("db_host", "--host"),
-                ("db_port", "--port"),
-                ("db_user", "--username"),
-            ]:
-                value = cfg.get("options", key, fallback=None)
-                if value:
-                    pg_args.extend([arg, value])
-            password = cfg.get("options", "db_password", fallback=None)
-            if password:
-                pg_env = dict(subprocess.os.environ)
-                pg_env["PGPASSWORD"] = password
-                try:
-                    subprocess.run(
-                        pg_args,
-                        env=pg_env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        check=True,
-                    )
-                    return True
-                except subprocess.CalledProcessError:
-                    return False
-
-    try:
-        subprocess.run(
-            pg_args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-        )
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-
-def _drop_db(base: Path, db_name: str) -> None:
-    """Drop a PostgreSQL database if it exists."""
-    drop_args = ["dropdb", db_name]
-
-    odoo_rc = _get_odoo_config_path(base)
-    if odoo_rc.exists():
-        import configparser
-
-        cfg = configparser.ConfigParser()
-        cfg.read(odoo_rc)
-        if cfg.has_section("options"):
-            for key, arg in [
-                ("db_host", "--host"),
-                ("db_port", "--port"),
-                ("db_user", "--username"),
-            ]:
-                value = cfg.get("options", key, fallback=None)
-                if value:
-                    drop_args.extend([arg, value])
-            password = cfg.get("options", "db_password", fallback=None)
-            if password:
-                env = dict(subprocess.os.environ)
-                env["PGPASSWORD"] = password
-                try:
-                    subprocess.run(
-                        drop_args,
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        check=False,
-                    )
-                except FileNotFoundError:
-                    pass
-                return
-
-    try:
-        subprocess.run(
-            drop_args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    except FileNotFoundError:
-        pass
 
 
 def _project_module_names(base: Path) -> list[str]:
@@ -158,7 +66,9 @@ def _resolve_db(base: Path, current_db: bool, test_db_name: str | None) -> str:
 
 @click.command(name="test")
 @click.argument("modules", nargs=-1)
-@click.option("--db", "test_db", help="Test database name (defaults to <project>-<branch>-test).")
+@click.option(
+    "--db", "test_db", help="Test database name (defaults to <project>-<branch>-test)."
+)
 @click.option(
     "--current-db",
     is_flag=True,
