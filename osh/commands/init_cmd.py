@@ -321,6 +321,7 @@ def init(
     # Install Odoo sources in editable mode into the virtualenv
     # ------------------------------------------------------------------
     pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
+    pip_failed = False
     try:
         requirements_file = odoo_link / "requirements.txt"
         if requirements_file.exists():
@@ -333,13 +334,22 @@ def init(
         subprocess.check_call([str(pip_exe), "install", "-e", str(odoo_link)])
 
     except subprocess.CalledProcessError as exc:
+        pip_failed = True
         if isinstance(exc.cmd, (list, tuple)):
             command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
         else:
             command = str(exc.cmd)
-        raise click.ClickException(
-            f"pip install failed (exit status {exc.returncode}).\n\n"
-            f"You can retry the command manually:\n\n  {command}\n"
+        click.echo(
+            f"Warning: pip install failed (exit status {exc.returncode}).\n\n"
+            f"You can retry the command manually:\n\n  {command}\n",
+            err=True,
         )
 
-    click.echo(f"Initialised project directory at {target}")
+    if pip_failed:
+        click.echo(
+            f"Initialised project directory at {target} "
+            "(pip install failed; environment is usable but Odoo is not installed).",
+            err=True,
+        )
+    else:
+        click.echo(f"Initialised project directory at {target}")

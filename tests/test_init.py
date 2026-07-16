@@ -354,3 +354,39 @@ class TestInitCommand:
         assert (patch_cache / "enterprise.git").exists()
         assert (tmp_project / ".osh" / "odoo" / ".git").is_dir()
         assert (tmp_project / ".osh" / "enterprise" / ".git").is_dir()
+
+    def test_pip_install_failure_still_initializes(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """If pip install fails, the project environment is still created."""
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir(parents=True, exist_ok=True)
+        (odoo_src / "odoo-bin").touch()
+        (odoo_src / "requirements.txt").touch()
+        ent_src = tmp_project / "enterprise"
+        web = ent_src / "web"
+        web.mkdir(parents=True, exist_ok=True)
+        (web / "__manifest__.py").touch()
+
+        monkeypatch.setattr("venv.create", lambda *a, **kw: None)
+
+        def failing_check_call(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args")
+            if isinstance(cmd, (list, tuple)) and "git" in cmd:
+                return subprocess.check_call(*args, **kwargs)
+            raise subprocess.CalledProcessError(1, cmd)
+
+        monkeypatch.setattr(
+            "osh.commands.init_cmd.subprocess.check_call", failing_check_call
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            init, ["19.0", str(tmp_project), "-c", str(odoo_src), "-e", str(ent_src)]
+        )
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "enterprise").is_symlink()
+        assert (tmp_project / ".osh" / "config").exists()
+        assert "pip install failed" in result.output
