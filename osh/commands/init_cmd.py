@@ -37,6 +37,16 @@ def _find_local_odoo_sources(base: Path) -> Path | None:
     return None
 
 
+def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
+    """Return the Odoo executable inside *venv_path*, or None if not found."""
+    bin_dir = venv_path / ("Scripts" if os.name == "nt" else "bin")
+    for name in ("odoo", "odoo-bin"):
+        exe = bin_dir / name
+        if exe.is_file():
+            return exe
+    return None
+
+
 def _find_local_enterprise_sources(base: Path) -> Path | None:
     """Detect an Enterprise addons directory inside *base*."""
     for cand in [base] + [p for p in base.iterdir() if p.is_dir()]:
@@ -253,6 +263,14 @@ def init(
     init fetches the requested version if it is missing from the cache, then
     makes a shallow clone into .osh/odoo and .osh/enterprise.
 
+    If the final pip install step fails, the project directory, .osh
+    configuration, source links, and virtualenv are still created so the
+    environment remains usable and the install can be retried manually.
+
+    After a successful install, a quick smoke test (`odoo-bin --version`) is
+    run to confirm the Odoo executable launches. If the smoke test fails, the
+    environment is still created but a warning is shown.
+
     Examples:
 
     \b
@@ -345,10 +363,51 @@ def init(
             err=True,
         )
 
-    if pip_failed:
+    # ------------------------------------------------------------------
+    # Quick smoke test: ensure the Odoo executable can start
+    # ------------------------------------------------------------------
+    smoke_failed = False
+    if not pip_failed:
+        odoo_exe = _find_odoo_executable_in_venv(venv_path)
+        if odoo_exe is None:
+            smoke_failed = True
+            click.echo(
+                "Warning: Odoo executable not found in virtualenv. "
+                "The environment is initialised but Odoo may not be usable.",
+                err=True,
+            )
+        else:
+            click.echo(f"Running quick Odoo smoke test ({odoo_exe})…", err=True)
+            try:
+                subprocess.run(
+                    [str(odoo_exe), "--version"],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+            except subprocess.CalledProcessError as exc:
+                smoke_failed = True
+                stdout = (
+                    exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
+                )
+                click.echo(
+                    f"Warning: Odoo smoke test failed (exit status {exc.returncode}).\n"
+                    f"{stdout}\n"
+                    "The environment is initialised but Odoo may not be usable.",
+                    err=True,
+                )
+            except FileNotFoundError:
+                smoke_failed = True
+                click.echo(
+                    "Warning: Odoo executable could not be executed. "
+                    "The environment is initialised but Odoo may not be usable.",
+                    err=True,
+                )
+
+    if pip_failed or smoke_failed:
         click.echo(
             f"Initialised project directory at {target} "
-            "(pip install failed; environment is usable but Odoo is not installed).",
+            "(Odoo setup incomplete; see warnings above).",
             err=True,
         )
     else:

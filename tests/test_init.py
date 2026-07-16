@@ -390,3 +390,51 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "config").exists()
         assert "pip install failed" in result.output
+
+    def test_smoke_test_succeeds_when_odoo_executable_works(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """After pip install, a working Odoo executable passes the smoke test."""
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir(parents=True, exist_ok=True)
+        (odoo_src / "odoo-bin").touch()
+
+        venv_bin = tmp_project / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        odoo_exe = venv_bin / "odoo"
+        odoo_exe.write_text("#!/bin/sh\necho Odoo 19.0")
+        odoo_exe.chmod(0o755)
+
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
+
+        assert result.exit_code == 0
+        assert "Running quick Odoo smoke test" in result.output
+        assert "Initialised project directory" in result.output
+        assert "Odoo setup incomplete" not in result.output
+
+    def test_smoke_test_failure_still_initializes(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """A failing smoke test keeps the project initialised and warns."""
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir(parents=True, exist_ok=True)
+        (odoo_src / "odoo-bin").touch()
+
+        venv_bin = tmp_project / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        odoo_exe = venv_bin / "odoo"
+        odoo_exe.write_text("#!/bin/sh\necho error; exit 1")
+        odoo_exe.chmod(0o755)
+
+        self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
+
+        assert result.exit_code == 0
+        assert "Warning: Odoo smoke test failed" in result.output
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert (tmp_project / ".osh" / "config").exists()
