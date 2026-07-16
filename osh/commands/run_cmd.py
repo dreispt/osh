@@ -43,7 +43,26 @@ def run(
     verbose: bool,
     extra_args: tuple[str, ...],
 ) -> None:  # noqa: D401
-    """Run the project's Odoo executable with *extra_args*."""
+    """Run the project's Odoo executable.
+
+    Extra arguments are passed through to odoo-bin.
+
+    Automatic configuration:
+
+    \b
+      - Discovers --addons-path from project addon directories.
+      - Uses .odoorc in the project root if it exists.
+      - Remembers the database name per git branch.
+      - Sets --db-filter to match the selected database exactly.
+
+    Examples:
+
+    \b
+      osh run
+      osh run -- --http-port=8080 --workers=0
+      osh run --dry-run
+      osh run --verbose
+    """
 
     base = _find_project_root()
     if base is None:
@@ -78,6 +97,11 @@ def run(
             odoo_addons = odoo_dir / "addons"
             if odoo_addons.exists():
                 addons_paths.append(odoo_addons)
+
+        # Add Enterprise addons directory if available
+        enterprise_dir = base / ".osh" / "enterprise"
+        if enterprise_dir.exists():
+            addons_paths.append(enterprise_dir)
 
         # Add discovered project addon directories
         addon_modules = discover_addons_paths(base)
