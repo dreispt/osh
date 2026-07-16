@@ -409,9 +409,7 @@ class OdooshSource(BackupSource):
             zf.write(dump_sql, "dump.sql")
             for path in filestore_dir.rglob("*"):
                 if path.is_file():
-                    arcname = "filestore/" + path.relative_to(
-                        filestore_dir
-                    ).as_posix()
+                    arcname = "filestore/" + path.relative_to(filestore_dir).as_posix()
                     zf.write(path, arcname)
 
     def _ssh_args(self) -> list[str]:
