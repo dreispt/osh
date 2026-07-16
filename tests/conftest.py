@@ -47,6 +47,25 @@ def osh_source_dirs(tmp_project: Path) -> Path:
 
 
 @pytest.fixture
+def patch_resolve_db_name(monkeypatch) -> None:
+    """Patch ``osh.commands.run_cmd._resolve_db_name`` to return ``testdb``."""
+    monkeypatch.setattr(
+        "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
+    )
+
+
+@pytest.fixture
+def capture_execvp(monkeypatch) -> list[tuple[str, list[str]]]:
+    """Capture ``osh.commands.run_cmd.os.execvp`` calls and return them."""
+    exec_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        "osh.commands.run_cmd.os.execvp",
+        lambda exe, args: exec_calls.append((exe, args)),
+    )
+    return exec_calls
+
+
+@pytest.fixture
 def subprocess_run_capture(monkeypatch):
     """Capture ``subprocess.run`` calls and optionally write output to stdout.
 
