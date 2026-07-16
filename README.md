@@ -11,16 +11,16 @@ picks a database name for you, and runs the right virtual environment.
 ## Quick start
 
 ```bash
-# 1. Create a project directory
+# Create a project directory
 cd my-odoo-project
 
-# 2. Initialise it for Odoo 19.0
+# Initialise it for Odoo 19.0
 osh init 19.0
 
-# 3. Check the project status
+# Check the project status
 osh status
 
-# 4. Run Odoo
+# Run Odoo
 osh run
 ```
 
@@ -34,13 +34,7 @@ osh run
 ## Installation
 
 ```bash
-pip install osh
-```
-
-For development, install in editable mode:
-
-```bash
-pip install -e .
+pipx install osh
 ```
 
 ## Commands
