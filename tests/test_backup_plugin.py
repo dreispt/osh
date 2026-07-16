@@ -14,13 +14,6 @@ from osh.plugins.osh_backup.commands import backup
 from osh.plugins.osh_backup.sources import OdooshSource, SourceError, SshSource
 
 
-@pytest.fixture
-def in_project(monkeypatch, tmp_project: Path) -> Path:
-    """Switch into the temporary project for project-aware commands."""
-    monkeypatch.chdir(tmp_project)
-    return tmp_project
-
-
 def test_download_db_source_writes_to_cache(
     in_project: Path, subprocess_run_capture
 ) -> None:

@@ -18,7 +18,7 @@ def _setup_fake_db_config(project: Path, db_name: str = "testdb") -> None:
 
 
 @pytest.fixture
-def patched_rebuild(monkeypatch, tmp_project: Path, fake_odoo_executable: Path):
+def patched_rebuild(monkeypatch, in_project: Path, fake_odoo_executable: Path):
     """Patch external dependencies used by `osh rebuild` for isolated tests."""
     state = {
         "restore": None,
@@ -27,8 +27,7 @@ def patched_rebuild(monkeypatch, tmp_project: Path, fake_odoo_executable: Path):
         "created": [],
     }
 
-    _setup_fake_db_config(tmp_project)
-    monkeypatch.chdir(tmp_project)
+    _setup_fake_db_config(in_project)
 
     monkeypatch.setattr(
         "osh.plugins.osh_rebuild.commands._db_exists", lambda base, db: False
@@ -59,9 +58,9 @@ def patched_rebuild(monkeypatch, tmp_project: Path, fake_odoo_executable: Path):
     return state
 
 
-def test_rebuild_uses_latest_cache(patched_rebuild, tmp_project: Path) -> None:
+def test_rebuild_uses_latest_cache(patched_rebuild, in_project: Path) -> None:
     """`osh rebuild` with no argument uses the newest cached backup."""
-    cache_dir = tmp_project / ".osh" / "backups"
+    cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     old = cache_dir / "old.dump"
     new = cache_dir / "new.dump"
@@ -71,7 +70,7 @@ def test_rebuild_uses_latest_cache(patched_rebuild, tmp_project: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(rebuild, [])
 
-    exe = str(tmp_project / ".venv" / "bin" / "odoo")
+    exe = str(in_project / ".venv" / "bin" / "odoo")
     assert result.exit_code == 0
     assert patched_rebuild["restore"][0] == new
     assert patched_rebuild["restore"][1] == "testdb"
@@ -79,9 +78,9 @@ def test_rebuild_uses_latest_cache(patched_rebuild, tmp_project: Path) -> None:
     assert patched_rebuild["neutralize"] == (exe, "testdb", False)
 
 
-def test_rebuild_cache_id(patched_rebuild, tmp_project: Path) -> None:
+def test_rebuild_cache_id(patched_rebuild, in_project: Path) -> None:
     """`osh rebuild cache:<id>` selects the correct cached backup."""
-    cache_dir = tmp_project / ".osh" / "backups"
+    cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     first = cache_dir / "first.dump"
     second = cache_dir / "second.dump"
@@ -95,9 +94,9 @@ def test_rebuild_cache_id(patched_rebuild, tmp_project: Path) -> None:
     assert patched_rebuild["restore"][0] == first
 
 
-def test_rebuild_explicit_file(patched_rebuild, tmp_project: Path) -> None:
+def test_rebuild_explicit_file(patched_rebuild, in_project: Path) -> None:
     """`osh rebuild <path>` restores an explicit file outside the cache."""
-    dump = tmp_project / "custom.sql"
+    dump = in_project / "custom.sql"
     dump.write_text("SELECT 1;")
 
     runner = CliRunner()
@@ -108,12 +107,9 @@ def test_rebuild_explicit_file(patched_rebuild, tmp_project: Path) -> None:
     assert patched_rebuild["restore"][1] == "testdb"
 
 
-def test_rebuild_no_cache_error(
-    tmp_project: Path, monkeypatch, fake_odoo_executable: Path
-) -> None:
+def test_rebuild_no_cache_error(in_project: Path, fake_odoo_executable: Path) -> None:
     """`osh rebuild` without an argument fails when the cache is empty."""
-    _setup_fake_db_config(tmp_project)
-    monkeypatch.chdir(tmp_project)
+    _setup_fake_db_config(in_project)
 
     runner = CliRunner()
     result = runner.invoke(rebuild, [])
@@ -122,9 +118,9 @@ def test_rebuild_no_cache_error(
     assert "No cached backup found" in result.output
 
 
-def test_rebuild_dry_run(patched_rebuild, tmp_project: Path) -> None:
+def test_rebuild_dry_run(patched_rebuild, in_project: Path) -> None:
     """`osh rebuild --dry-run` does not execute subprocesses."""
-    cache_dir = tmp_project / ".osh" / "backups"
+    cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
     dump.write_bytes(b"x")

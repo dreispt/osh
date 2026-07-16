@@ -19,6 +19,13 @@ def tmp_project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def in_project(monkeypatch, tmp_project: Path) -> Path:
+    """Switch into the temporary project for project-aware commands."""
+    monkeypatch.chdir(tmp_project)
+    return tmp_project
+
+
+@pytest.fixture
 def fake_odoo_executable(tmp_project: Path) -> Path:
     """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``."""
     venv_bin = tmp_project / ".venv" / "bin"
