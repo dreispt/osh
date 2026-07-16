@@ -18,6 +18,8 @@ from osh.commands.init_cmd import (
     init,
 )
 
+from .conftest import real_git_only_subprocess
+
 
 def _make_bare_repo(
     tmp_path: Path, name: str, branches: tuple[str, ...] = ("master",)
@@ -288,24 +290,6 @@ class TestEnsureSource:
 
 
 class TestInitCommand:
-    def _real_git_only_subprocess(self, monkeypatch) -> list:
-        """Run git commands for real; record/no-op everything else."""
-        calls: list = []
-        real_check_call = subprocess.check_call
-
-        def fake_check_call(*args, **kwargs):
-            cmd = args[0] if args else kwargs.get("args")
-            if isinstance(cmd, (list, tuple)) and "git" in cmd:
-                return real_check_call(*args, **kwargs)
-            calls.append(cmd)
-            return None
-
-        monkeypatch.setattr(
-            "osh.commands.init_cmd.subprocess.check_call", fake_check_call
-        )
-        monkeypatch.setattr("venv.create", lambda *a, **kw: None)
-        return calls
-
     def test_with_project_sources(self, tmp_project: Path, monkeypatch) -> None:
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
@@ -314,7 +298,7 @@ class TestInitCommand:
         web.mkdir(parents=True, exist_ok=True)
         (web / "__manifest__.py").touch()
 
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", "--edition", "ee", str(tmp_project)])
 
@@ -332,7 +316,7 @@ class TestInitCommand:
         web.mkdir(parents=True, exist_ok=True)
         (web / "__manifest__.py").touch()
 
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(
             init,
@@ -359,7 +343,7 @@ class TestInitCommand:
         theme.mkdir(parents=True, exist_ok=True)
         (theme / "__manifest__.py").touch()
 
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(
             init,
@@ -398,7 +382,7 @@ class TestInitCommand:
         monkeypatch.setattr(
             "osh.commands.init_cmd.DEFAULT_THEMES_URL", f"file://{themes_bare}"
         )
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["master", "--sh", str(tmp_project)])
@@ -459,7 +443,7 @@ class TestInitCommand:
         (odoo_src / "requirements.txt").touch()
         (tmp_project / "requirements.txt").touch()
 
-        calls = self._real_git_only_subprocess(monkeypatch)
+        calls = real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
@@ -476,7 +460,7 @@ class TestInitCommand:
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
 
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
@@ -496,7 +480,7 @@ class TestInitCommand:
 
         fake_odoo_executable.write_text("#!/bin/sh\necho error; exit 1")
 
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
@@ -508,24 +492,6 @@ class TestInitCommand:
 
 
 class TestInitEdition:
-    def _real_git_only_subprocess(self, monkeypatch) -> list:
-        """Run git commands for real; record/no-op everything else."""
-        calls: list = []
-        real_check_call = subprocess.check_call
-
-        def fake_check_call(*args, **kwargs):
-            cmd = args[0] if args else kwargs.get("args")
-            if isinstance(cmd, (list, tuple)) and "git" in cmd:
-                return real_check_call(*args, **kwargs)
-            calls.append(cmd)
-            return None
-
-        monkeypatch.setattr(
-            "osh.commands.init_cmd.subprocess.check_call", fake_check_call
-        )
-        monkeypatch.setattr("venv.create", lambda *a, **kw: None)
-        return calls
-
     def _make_local_sources(self, tmp_project: Path) -> None:
         """Create odoo, enterprise and design-themes source trees in project."""
         odoo = tmp_project / "odoo"
@@ -545,7 +511,7 @@ class TestInitEdition:
     ) -> None:
         """Default --edition ce only links Odoo sources."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", str(tmp_project)])
@@ -558,7 +524,7 @@ class TestInitEdition:
     def test_ee_alias_includes_enterprise(self, tmp_project: Path, monkeypatch) -> None:
         """--ee links Odoo and Enterprise but not design-themes."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", "--ee", str(tmp_project)])
@@ -571,7 +537,7 @@ class TestInitEdition:
     def test_sh_alias_includes_themes(self, tmp_project: Path, monkeypatch) -> None:
         """--sh links Odoo, Enterprise and design-themes."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", "--sh", str(tmp_project)])
@@ -584,7 +550,7 @@ class TestInitEdition:
     def test_save_writes_user_config(self, tmp_project: Path, monkeypatch) -> None:
         """--save persists the resolved edition to ~/.config/osh/config.toml."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         fake_home = tmp_project / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
@@ -603,7 +569,7 @@ class TestInitEdition:
     ) -> None:
         """--ce explicitly selects Community only."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
         result = runner.invoke(init, ["19.0", "--ce", str(tmp_project)])
@@ -618,7 +584,7 @@ class TestInitEdition:
     ) -> None:
         """When no edition is supplied and stdin is a tty, the user is asked."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
         monkeypatch.setattr(
             "click.testing._NamedTextIOWrapper.isatty", lambda self: True
         )
@@ -635,7 +601,7 @@ class TestInitEdition:
     def test_env_var_sets_default_edition(self, tmp_project: Path, monkeypatch) -> None:
         """OSH_INIT_EDITION sets the default edition when no CLI flag is given."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "ee"})
         result = runner.invoke(init, ["19.0", str(tmp_project)])
@@ -650,7 +616,7 @@ class TestInitEdition:
     ) -> None:
         """~/.config/osh/config.toml sets the default edition."""
         self._make_local_sources(tmp_project)
-        self._real_git_only_subprocess(monkeypatch)
+        real_git_only_subprocess(monkeypatch)
 
         fake_home = tmp_project / "home"
         fake_home.mkdir(parents=True, exist_ok=True)

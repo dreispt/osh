@@ -79,3 +79,25 @@ def patch_cache(monkeypatch, tmp_path: Path) -> Path:
     cache = tmp_path / "cache"
     monkeypatch.setattr("osh.commands.init_cmd.SOURCE_CACHE_DIR", cache)
     return cache
+
+
+def real_git_only_subprocess(monkeypatch) -> list:
+    """Run git commands for real; record/no-op everything else.
+
+    Patches ``osh.commands.init_cmd.subprocess.check_call`` so that calls
+    containing ``git`` are executed normally, while other calls are recorded in
+    the returned list. Also disables ``venv.create``.
+    """
+    calls: list = []
+    real_check_call = subprocess.check_call
+
+    def fake_check_call(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args")
+        if isinstance(cmd, (list, tuple)) and "git" in cmd:
+            return real_check_call(*args, **kwargs)
+        calls.append(cmd)
+        return None
+
+    monkeypatch.setattr("osh.commands.init_cmd.subprocess.check_call", fake_check_call)
+    monkeypatch.setattr("venv.create", lambda *a, **kw: None)
+    return calls
