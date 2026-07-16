@@ -9,8 +9,13 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import click
 
 try:
     import tomllib
@@ -192,3 +197,81 @@ def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
 
     _walk(base.resolve(), 0)
     return sorted(addons)
+
+
+def discover_module_names(base: Path) -> list[str]:
+    """Return module names found in the project addons paths, excluding Odoo core."""
+    odoo_dir = _get_odoo_base_dir(base)
+    module_paths = discover_addons_paths(base)
+    names: list[str] = []
+    for path in module_paths:
+        if odoo_dir and (path == odoo_dir or odoo_dir in path.parents):
+            continue
+        if path.name.startswith(".") or path.name.startswith("__"):
+            continue
+        names.append(path.name)
+    return sorted(set(names))
+
+
+def _is_git_url(spec: str) -> bool:
+    """Return True if *spec* looks like a git URL rather than a local path."""
+    return (
+        spec.startswith("http://")
+        or spec.startswith("https://")
+        or spec.startswith("git@")
+        or spec.startswith("ssh://")
+        or spec.endswith(".git")
+    )
+
+
+def _git_shallow_clone(url: str, branch: str, target: Path) -> None:
+    """Clone *url* at *branch* into *target* with a shallow history."""
+    subprocess.check_call(
+        [
+            "git",
+            "clone",
+            "--progress",
+            "--depth",
+            "1",
+            "--branch",
+            branch,
+            url,
+            str(target),
+        ]
+    )
+
+
+def _get_venv_python(exe: str) -> Path | None:
+    """Return the Python interpreter associated with an Odoo executable."""
+    exe_path = Path(exe).resolve()
+    # Typical venv layout: .venv/bin/odoo or .venv/bin/odoo-bin
+    candidate = (
+        exe_path.parent.parent
+        / ("Scripts" if sys.platform == "win32" else "bin")
+        / "python"
+    )
+    if candidate.exists():
+        return candidate
+    # Fall back to sys.executable if it can import odoo.
+    return Path(sys.executable)
+
+
+def _tool_available(name: str) -> bool:
+    """Return True if *name* is available on PATH."""
+    return shutil.which(name) is not None
+
+
+def _ensure_tool(name: str) -> None:
+    """Raise a ClickException if *name* is not available on PATH."""
+    if not _tool_available(name):
+        raise click.ClickException(f"Required tool '{name}' is not available on PATH.")
+
+
+def _now_stamp() -> str:
+    """Return a filesystem-safe timestamp string."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _safe_name(value: str) -> str:
+    """Make a value safe to embed in a filename."""
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value).strip("._")

@@ -3,23 +3,14 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import click
 
-from ..db import (
-    _get_branch_db,
-    _get_current_branch,
-    _get_last_db,
-    _sanitize_db_name,
-    _set_branch_db,
-    _set_last_db,
-)
+from ..db import _resolve_db_name
 from ..utils import (
     _find_odoo_executable,
     _find_project_root,
     _get_odoo_base_dir,
-    _get_project_name,
     discover_addons_paths,
 )
 
@@ -165,49 +156,3 @@ def run(
         os.execvp(exe, args)  # replace current process
     except Exception as exc:  # pragma: no cover
         raise click.ClickException(str(exc))
-
-
-def _resolve_db_name(base: Path, verbose: bool) -> str | None:
-    """Resolve the database name for the current branch, prompting if needed."""
-    branch = _get_current_branch(base)
-    if branch is None:
-        branch = "default"
-
-    # Check if this branch already has a preferred database.
-    db_name = _get_branch_db(base, branch)
-    if db_name:
-        _set_last_db(base, db_name)
-        return db_name
-
-    # No preferred database for this branch. Try the last one used.
-    last_db = _get_last_db(base)
-    if last_db:
-        use_last = click.confirm(
-            f"Branch '{branch}' has no database configured. Use last database '{last_db}'?",
-            default=True,
-            err=True,
-        )
-        if use_last:
-            _set_branch_db(base, branch, last_db)
-            _set_last_db(base, last_db)
-            return last_db
-
-    # Fall back to a generated name and ask the user to confirm or change it.
-    project_name = _sanitize_db_name(_get_project_name(base))
-    if branch == "default":
-        default_db = project_name
-    else:
-        default_db = f"{project_name}-{_sanitize_db_name(branch)}"
-
-    db_name = click.prompt(
-        "Database name",
-        default=default_db,
-        err=True,
-    )
-    db_name = _sanitize_db_name(db_name)
-    if not db_name:
-        raise click.ClickException("A database name is required.")
-
-    _set_branch_db(base, branch, db_name)
-    _set_last_db(base, db_name)
-    return db_name

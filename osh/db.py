@@ -12,6 +12,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import click
+
+from .utils import _get_project_name
+
 
 def _sanitize_db_name(name: str) -> str:
     """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
@@ -207,3 +211,73 @@ def _run_psql_script(base: Path, db_name: str, script_path: Path) -> None:
         ) from exc
     except FileNotFoundError as exc:
         raise RuntimeError("Could not locate `psql`. Is PostgreSQL installed?") from exc
+
+
+def _resolve_db_name(base: Path, verbose: bool) -> str | None:
+    """Resolve the database name for the current branch, prompting if needed."""
+    branch = _get_current_branch(base)
+    if branch is None:
+        branch = "default"
+
+    # Check if this branch already has a preferred database.
+    db_name = _get_branch_db(base, branch)
+    if db_name:
+        _set_last_db(base, db_name)
+        return db_name
+
+    # No preferred database for this branch. Try the last one used.
+    last_db = _get_last_db(base)
+    if last_db:
+        use_last = click.confirm(
+            f"Branch '{branch}' has no database configured. Use last database '{last_db}'?",
+            default=True,
+            err=True,
+        )
+        if use_last:
+            _set_branch_db(base, branch, last_db)
+            _set_last_db(base, last_db)
+            return last_db
+
+    # Fall back to a generated name and ask the user to confirm or change it.
+    project_name = _sanitize_db_name(_get_project_name(base))
+    if branch == "default":
+        default_db = project_name
+    else:
+        default_db = f"{project_name}-{_sanitize_db_name(branch)}"
+
+    db_name = click.prompt(
+        "Database name",
+        default=default_db,
+        err=True,
+    )
+    db_name = _sanitize_db_name(db_name)
+    if not db_name:
+        raise click.ClickException("A database name is required.")
+
+    _set_branch_db(base, branch, db_name)
+    _set_last_db(base, db_name)
+    return db_name
+
+
+def _resolve_test_db_name(
+    base: Path, current_db: bool, test_db_name: str | None
+) -> str:
+    """Return the database name to use for testing."""
+    if current_db:
+        branch = _get_current_branch(base) or "default"
+        db_name = _get_branch_db(base, branch) or _get_last_db(base)
+        if not db_name:
+            raise click.ClickException(
+                "No database configured for this branch. Run 'osh run' or 'osh config db' first."
+            )
+        return db_name
+
+    if test_db_name:
+        return _sanitize_db_name(test_db_name)
+
+    branch = _get_current_branch(base) or "default"
+    if branch == "HEAD":
+        # Detached HEAD; use a generic test suffix.
+        branch = "commit"
+    project_name = _sanitize_db_name(_get_project_name(base))
+    return f"{project_name}-{_sanitize_db_name(branch)}-test"

@@ -20,7 +20,6 @@ Initialises a project directory for Osh by:
 from __future__ import annotations
 
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -28,7 +27,12 @@ from pathlib import Path
 
 import click
 
-from ..utils import _load_user_init_config, _save_user_init_setting
+from ..utils import (
+    _git_shallow_clone,
+    _is_git_url,
+    _load_user_init_config,
+    _save_user_init_setting,
+)
 
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
@@ -65,30 +69,6 @@ def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
         if exe.is_file():
             return exe
     return None
-
-
-def _is_git_url(spec: str) -> bool:
-    """Return True if *spec* looks like a git URL rather than a local path."""
-    return bool(
-        re.match(r"^[a-z][a-z0-9+.-]*://", spec, re.IGNORECASE)
-    ) or spec.startswith("git@")
-
-
-def _git_shallow_clone(url: str, branch: str, target: Path) -> None:
-    """Clone *url* at *branch* into *target* with a shallow history."""
-    subprocess.check_call(
-        [
-            "git",
-            "clone",
-            "--progress",
-            "--depth",
-            "1",
-            "--branch",
-            branch,
-            url,
-            str(target),
-        ]
-    )
 
 
 def _cache_has_branch(cache: Path, version: str) -> bool:

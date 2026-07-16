@@ -12,16 +12,7 @@ from pathlib import Path
 import click
 
 from ...db import _create_db, _drop_db, _get_pg_credentials
-from ...utils import _get_odoo_config_path
-
-
-def _tool_available(name: str) -> bool:
-    return shutil.which(name) is not None
-
-
-def _ensure_tool(name: str) -> None:
-    if not _tool_available(name):
-        raise click.ClickException(f"Required tool '{name}' is not available on PATH.")
+from ...utils import _ensure_tool, _get_odoo_config_path
 
 
 def _restore_dump(

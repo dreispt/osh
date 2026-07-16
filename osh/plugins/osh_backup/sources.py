@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -17,21 +16,11 @@ from urllib.request import Request, urlopen
 import click
 
 from ...db import _get_pg_credentials
-from ...utils import _get_odoo_config_path
+from ...utils import _get_odoo_config_path, _now_stamp, _safe_name
 
 
 class SourceError(click.ClickException):
     """Raised when a source cannot be fetched; Click will show the message and exit cleanly."""
-
-
-def _now_stamp() -> str:
-    """Return a filesystem-safe timestamp string."""
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-
-def _safe_name(value: str) -> str:
-    """Make a value safe to embed in a filename."""
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value).strip("._")
 
 
 class BackupSource:

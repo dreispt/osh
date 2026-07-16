@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import importlib.resources
 import subprocess
-import sys
 from pathlib import Path
 
 import click
 
 from ...db import _run_psql_script
-from ...utils import _get_odoo_base_dir, discover_addons_paths
+from ...utils import _get_odoo_base_dir, _get_venv_python, discover_addons_paths
 
 
 def _neutralize_database(
@@ -32,7 +31,7 @@ def _neutralize_database(
 
 def _neutralize_command_available(exe: str) -> bool:
     """Return True if the installed Odoo provides `odoo-bin neutralize`."""
-    python = _venv_python(exe)
+    python = _get_venv_python(exe)
     if not python:
         return False
     try:
@@ -45,21 +44,6 @@ def _neutralize_command_available(exe: str) -> bool:
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
-
-
-def _venv_python(exe: str) -> Path | None:
-    """Return the Python interpreter associated with an Odoo executable."""
-    exe_path = Path(exe).resolve()
-    # Typical venv layout: .venv/bin/odoo or .venv/bin/odoo-bin
-    candidate = (
-        exe_path.parent.parent
-        / ("Scripts" if sys.platform == "win32" else "bin")
-        / "python"
-    )
-    if candidate.exists():
-        return candidate
-    # Fall back to sys.executable if it can import odoo.
-    return Path(sys.executable)
 
 
 def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
