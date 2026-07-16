@@ -13,8 +13,7 @@ from osh.commands.init_cmd import (
     _cache_has_branch,
     _ensure_cache,
     _ensure_source,
-    _find_local_enterprise_sources,
-    _find_local_odoo_sources,
+    _find_local_source,
     _is_git_url,
     init,
 )
@@ -85,20 +84,42 @@ def _make_bare_repo(
 class TestFindLocalSources:
     def test_find_odoo_in_root(self, tmp_project: Path) -> None:
         (tmp_project / "odoo-bin").touch()
-        assert _find_local_odoo_sources(tmp_project) == tmp_project.resolve()
+        assert (
+            _find_local_source(tmp_project, ("",), ("odoo-bin",))
+            == tmp_project.resolve()
+        )
 
     def test_find_odoo_in_subdirectory(self, tmp_project: Path) -> None:
         sub = tmp_project / "odoo"
         sub.mkdir(parents=True, exist_ok=True)
         (sub / "odoo-bin").touch()
-        assert _find_local_odoo_sources(tmp_project) == sub.resolve()
+        assert _find_local_source(tmp_project, ("",), ("odoo-bin",)) == sub.resolve()
 
     def test_find_enterprise_with_manifest(self, tmp_project: Path) -> None:
         ent = tmp_project / "enterprise"
         web = ent / "web"
         web.mkdir(parents=True, exist_ok=True)
         (web / "__manifest__.py").touch()
-        assert _find_local_enterprise_sources(tmp_project) == ent.resolve()
+        assert (
+            _find_local_source(
+                tmp_project, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
+            )
+            == ent.resolve()
+        )
+
+    def test_find_themes_with_manifest(self, tmp_project: Path) -> None:
+        themes = tmp_project / "design-themes"
+        theme_buzzy = themes / "theme_buzzy"
+        theme_buzzy.mkdir(parents=True, exist_ok=True)
+        (theme_buzzy / "__manifest__.py").touch()
+        assert (
+            _find_local_source(
+                tmp_project,
+                ("design-themes", "themes"),
+                ("*/__manifest__.py", "*/__openerp__.py"),
+            )
+            == themes.resolve()
+        )
 
 
 class TestIsGitUrl:
@@ -148,7 +169,7 @@ class TestEnsureSource:
             "odoo",
             "19.0",
             None,
-            _find_local_odoo_sources(tmp_project),
+            _find_local_source(tmp_project, ("",), ("odoo-bin",)),
             osh_dir,
             DEFAULT_ODOO_URL,
         )
@@ -329,6 +350,35 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "odoo").resolve() == odoo_src.resolve()
         assert (tmp_project / ".osh" / "enterprise").resolve() == ent_src.resolve()
 
+    def test_with_themes_source_flag(self, tmp_project: Path, monkeypatch) -> None:
+        odoo_src = tmp_project / "my-odoo"
+        odoo_src.mkdir(parents=True, exist_ok=True)
+        (odoo_src / "odoo-bin").touch()
+        themes_src = tmp_project / "my-themes"
+        theme = themes_src / "theme_buzzy"
+        theme.mkdir(parents=True, exist_ok=True)
+        (theme / "__manifest__.py").touch()
+
+        self._real_git_only_subprocess(monkeypatch)
+        runner = CliRunner()
+        result = runner.invoke(
+            init,
+            [
+                "19.0",
+                str(tmp_project),
+                "-c",
+                str(odoo_src),
+                "-t",
+                str(themes_src),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").resolve() == odoo_src.resolve()
+        assert (
+            tmp_project / ".osh" / "design-themes"
+        ).resolve() == themes_src.resolve()
+
     def test_cache_first_non_interactive(
         self,
         tmp_path: Path,
@@ -338,11 +388,15 @@ class TestInitCommand:
     ) -> None:
         odoo_bare = _make_bare_repo(tmp_path, "odoo")
         ent_bare = _make_bare_repo(tmp_path, "enterprise")
+        themes_bare = _make_bare_repo(tmp_path, "design-themes")
         monkeypatch.setattr(
             "osh.commands.init_cmd.DEFAULT_ODOO_URL", f"file://{odoo_bare}"
         )
         monkeypatch.setattr(
             "osh.commands.init_cmd.DEFAULT_ENTERPRISE_URL", f"file://{ent_bare}"
+        )
+        monkeypatch.setattr(
+            "osh.commands.init_cmd.DEFAULT_THEMES_URL", f"file://{themes_bare}"
         )
         self._real_git_only_subprocess(monkeypatch)
 
@@ -352,8 +406,10 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert (patch_cache / "odoo.git").exists()
         assert (patch_cache / "enterprise.git").exists()
+        assert (patch_cache / "design-themes.git").exists()
         assert (tmp_project / ".osh" / "odoo" / ".git").is_dir()
         assert (tmp_project / ".osh" / "enterprise" / ".git").is_dir()
+        assert (tmp_project / ".osh" / "design-themes" / ".git").is_dir()
 
     def test_pip_install_failure_still_initializes(
         self, tmp_project: Path, monkeypatch
@@ -370,10 +426,12 @@ class TestInitCommand:
 
         monkeypatch.setattr("venv.create", lambda *a, **kw: None)
 
+        real_check_call = subprocess.check_call
+
         def failing_check_call(*args, **kwargs):
             cmd = args[0] if args else kwargs.get("args")
             if isinstance(cmd, (list, tuple)) and "git" in cmd:
-                return subprocess.check_call(*args, **kwargs)
+                return real_check_call(*args, **kwargs)
             raise subprocess.CalledProcessError(1, cmd)
 
         monkeypatch.setattr(
@@ -390,6 +448,25 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "config").exists()
         assert "pip install failed" in result.output
+
+    def test_installs_project_requirements(
+        self, tmp_project: Path, monkeypatch
+    ) -> None:
+        """A top-level requirements.txt is installed into the virtualenv."""
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir(parents=True, exist_ok=True)
+        (odoo_src / "odoo-bin").touch()
+        (odoo_src / "requirements.txt").touch()
+        (tmp_project / "requirements.txt").touch()
+
+        calls = self._real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
+
+        assert result.exit_code == 0
+        project_req_arg = [str(tmp_project / "requirements.txt")]
+        assert any(call[2:5] == ["-r", *project_req_arg] for call in calls)
 
     def test_smoke_test_succeeds_when_odoo_executable_works(
         self, tmp_project: Path, monkeypatch

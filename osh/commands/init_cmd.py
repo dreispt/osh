@@ -4,13 +4,15 @@ Initialises a project directory for Osh by:
 1. Ensuring the target directory exists.
 2. Creating a `.osh/` sub-directory for configuration and links.
 3. Creating a `.osh/config` file for branch-to-database mappings.
-4. Detecting existing Odoo/Enterprise source trees inside *target*; if found,
-   creates symlinks `.osh/odoo` and `.osh/enterprise` pointing to them.
+4. Detecting existing Odoo/Enterprise/design-themes source trees inside *target*;
+   if found, creates symlinks in `.osh/` pointing to them.
 5. If no sources are found, asks to use a central cache. The cache is a git
    mirror of the upstream repository, stored in `~/.cache/osh`. The requested
    version is fetched if missing, and then a shallow clone is made into the
-   project under `.osh/odoo` and `.osh/enterprise`.
-6. Installing Odoo dependencies and the Odoo source in editable mode.
+   project under `.osh/odoo`, `.osh/enterprise` and `.osh/design-themes`.
+6. Installing Odoo dependencies (and any project-level requirements.txt),
+   installing the Odoo source in editable mode, and running a quick Odoo
+   executable smoke test.
 """
 
 from __future__ import annotations
@@ -26,14 +28,28 @@ import click
 
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
+DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
 SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
 
 
-def _find_local_odoo_sources(base: Path) -> Path | None:
-    """Detect an Odoo source tree inside *base* (looking for ``odoo-bin``)."""
-    for cand in [base] + [p for p in base.iterdir() if p.is_dir()]:
-        if (cand / "odoo-bin").is_file():
-            return cand.resolve()
+def _find_local_source(
+    base: Path,
+    names: tuple[str, ...],
+    files: tuple[str, ...],
+) -> Path | None:
+    """Detect a local source directory inside *base*.
+
+    *names* are candidate directory names (an empty string means *base* itself).
+    *files* are glob patterns to look for inside the candidate directory.
+    """
+    candidates = [base] + [p for p in base.iterdir() if p.is_dir()]
+    for cand in candidates:
+        for name in names:
+            path = cand / name if name else cand
+            if not path.is_dir():
+                continue
+            if any(next(path.glob(pattern), None) is not None for pattern in files):
+                return path.resolve()
     return None
 
 
@@ -44,20 +60,6 @@ def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
         exe = bin_dir / name
         if exe.is_file():
             return exe
-    return None
-
-
-def _find_local_enterprise_sources(base: Path) -> Path | None:
-    """Detect an Enterprise addons directory inside *base*."""
-    for cand in [base] + [p for p in base.iterdir() if p.is_dir()]:
-        ent = cand / "enterprise"
-        if ent.is_dir():
-            for child in ent.iterdir():
-                if child.is_dir() and (
-                    (child / "__manifest__.py").is_file()
-                    or (child / "__openerp__.py").is_file()
-                ):
-                    return ent.resolve()
     return None
 
 
@@ -240,28 +242,35 @@ def _ensure_source(
     help="Enterprise source: an existing local directory or a git URL. "
     "Defaults to the central cache (populated from GitHub).",
 )
+@click.option(
+    "-t",
+    "--themes-source",
+    help="Design-themes source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
 def init(
     version: str,
     directory: Path | None,
     odoo_source: str | None,
     enterprise_source: str | None,
+    themes_source: str | None,
 ) -> None:  # noqa: D401
     """Initialise *directory* for an Odoo project.
 
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
-    Source resolution (applied separately for Odoo and Enterprise):
+    Source resolution (applied separately for Odoo, Enterprise and design-themes):
 
     \b
-      1. Explicit --odoo-source / --enterprise-source flag.
+      1. Explicit --odoo-source / --enterprise-source / --themes-source flag.
       2. Source tree already included in the project.
       3. Central cache under ~/.cache/osh (shallow clone from GitHub by default).
       4. Interactive prompt for a local path or git URL.
 
     The central cache is a shallow bare clone of the upstream repository. osh
     init fetches the requested version if it is missing from the cache, then
-    makes a shallow clone into .osh/odoo and .osh/enterprise.
+    makes a shallow clone into .osh/odoo, .osh/enterprise and .osh/design-themes.
 
     If the final pip install step fails, the project directory, .osh
     configuration, source links, and virtualenv are still created so the
@@ -271,12 +280,16 @@ def init(
     run to confirm the Odoo executable launches. If the smoke test fails, the
     environment is still created but a warning is shown.
 
+    Any `requirements.txt` at the project root is installed in addition to the
+    Odoo source requirements.
+
     Examples:
 
     \b
       osh init 19.0
       osh init 19.0 ./another-project
       osh init 19.0 -c /path/to/odoo -e /path/to/enterprise
+      osh init 19.0 -c /path/to/odoo -e /path/to/enterprise -t /path/to/design-themes
       osh init 19.0 -c git@github.com:myfork/odoo.git
     """
     target = (directory or Path.cwd()).expanduser().resolve()
@@ -299,7 +312,7 @@ def init(
         "odoo",
         version,
         odoo_source,
-        _find_local_odoo_sources(target),
+        _find_local_source(target, ("",), ("odoo-bin",)),
         osh_dir,
         DEFAULT_ODOO_URL,
     )
@@ -311,9 +324,27 @@ def init(
         "enterprise",
         version,
         enterprise_source,
-        _find_local_enterprise_sources(target),
+        _find_local_source(
+            target, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
+        ),
         osh_dir,
         DEFAULT_ENTERPRISE_URL,
+    )
+
+    # ------------------------------------------------------------------
+    # Detect or obtain design-themes sources
+    # ------------------------------------------------------------------
+    _ensure_source(
+        "design-themes",
+        version,
+        themes_source,
+        _find_local_source(
+            target,
+            ("design-themes", "themes"),
+            ("*/__manifest__.py", "*/__openerp__.py"),
+        ),
+        osh_dir,
+        DEFAULT_THEMES_URL,
     )
 
     if not odoo_link:
@@ -346,6 +377,16 @@ def init(
             click.echo(f"Installing requirements from {requirements_file}…", err=True)
             subprocess.check_call(
                 [str(pip_exe), "install", "-r", str(requirements_file)]
+            )
+
+        project_requirements = target / "requirements.txt"
+        if project_requirements.exists():
+            click.echo(
+                f"Installing project requirements from {project_requirements}…",
+                err=True,
+            )
+            subprocess.check_call(
+                [str(pip_exe), "install", "-r", str(project_requirements)]
             )
 
         click.echo(f"Installing Odoo from {odoo_link} into virtualenv…", err=True)
