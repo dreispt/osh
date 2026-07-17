@@ -130,19 +130,76 @@ def _ensure_cache(name: str, version: str, default_url: str) -> Path:
     return cache
 
 
-def _install_source(link: Path, spec: str, version: str) -> None:
-    """Make *link* point to sources described by *spec*.
+def _resolve_source(
+    name: str,
+    source_flag: str | None,
+    project_source: Path | None,
+    osh_dir: Path,
+    default_url: str,
+) -> tuple[str, str | Path]:
+    """Return the planned action and source spec for *name*.
 
-    *spec* can be either an existing local directory (symlinked) or a git URL
-    (cloned).
+    Actions are ``existing``, ``symlink``, ``clone`` or ``cache``.
     """
-    local_path = Path(spec).expanduser().resolve()
-    if not _is_git_url(spec) and local_path.is_dir():
-        click.echo(f"Linking {link.name} → {local_path}…", err=True)
-        os.symlink(local_path, link, target_is_directory=True)
-    else:
-        click.echo(f"Cloning {link.name} from {spec} (shallow)…", err=True)
+    link = osh_dir / name
+    if link.exists() or link.is_symlink():
+        return "existing", link
+
+    if source_flag:
+        local_path = Path(source_flag).expanduser().resolve()
+        if not _is_git_url(source_flag) and local_path.is_dir():
+            return "symlink", local_path
+        return "clone", source_flag
+
+    if project_source:
+        return "symlink", project_source
+
+    return "cache", default_url
+
+
+def _describe_source_plan(name: str, action: str, spec: str | Path) -> str:
+    """Return a human-readable description of a source plan entry."""
+    if action == "existing":
+        return f"  {name}: use existing {spec}"
+    if action == "symlink":
+        return f"  {name}: symlink from {spec}"
+    if action == "clone":
+        return f"  {name}: clone from {spec}"
+    if action == "cache":
+        return f"  {name}: clone from central cache ({spec})"
+    return f"  {name}: (unknown action {action})"
+
+
+def _install_source_plan(
+    name: str,
+    version: str,
+    action: str,
+    spec: str | Path,
+    osh_dir: Path,
+) -> Path | None:
+    """Execute a source plan entry and return the installed link, if any."""
+    link = osh_dir / name
+    if action == "existing":
+        click.echo(f"Using existing {name} sources at {link}", err=True)
+        return link
+
+    if action == "symlink":
+        click.echo(f"Linking {name} → {spec}…", err=True)
+        os.symlink(spec, link, target_is_directory=True)
+        return link
+
+    if action == "clone":
+        click.echo(f"Cloning {name} from {spec} (shallow)…", err=True)
         _git_shallow_clone(spec, version, link)
+        return link
+
+    if action == "cache":
+        cache = _ensure_cache(name, version, str(spec))
+        click.echo(f"Cloning {name} from cache into {link} (shallow)…", err=True)
+        _git_shallow_clone(f"file://{cache}", version, link)
+        return link
+
+    raise ValueError(f"Unknown source action: {action}")
 
 
 def _ensure_source(
@@ -161,55 +218,37 @@ def _ensure_source(
     3. Central cache (cloned from the cache mirror if missing).
     4. Interactive alternative (local path or git URL).
     """
-    link = osh_dir / name
-    if link.exists() or link.is_symlink():
-        click.echo(f"Using existing {name} sources at {link}", err=True)
-        return link
+    action, spec = _resolve_source(
+        name, source_flag, project_source, osh_dir, default_url
+    )
 
-    if source_flag:
-        _install_source(link, source_flag, version)
-        return link
-
-    if project_source:
-        click.echo(f"Found {name} sources in project at {project_source}", err=True)
-        os.symlink(project_source, link, target_is_directory=True)
-        return link
-
-    if sys.stdin.isatty():
+    if action == "cache" and sys.stdin.isatty():
         use_cache = click.confirm(
             f"{name.capitalize()} sources not found in project. "
             f"Use central cache (clone from {default_url} if missing)?",
             default=True,
             err=True,
         )
-    else:
-        click.echo(
-            f"{name.capitalize()} sources not found in project; "
-            f"using central cache (non-interactive default).",
-            err=True,
-        )
-        use_cache = True
-    if use_cache:
-        cache = _ensure_cache(name, version, default_url)
-        click.echo(f"Cloning {name} from cache into {link} (shallow)…", err=True)
-        _git_shallow_clone(f"file://{cache}", version, link)
-        return link
+        if not use_cache:
+            if not sys.stdin.isatty():
+                return None
+            spec = click.prompt(
+                "Enter a local path or git URL for "
+                f"{name} sources (leave empty to skip)",
+                default="",
+                show_default=False,
+                err=True,
+            ).strip()
+            if not spec:
+                click.echo(f"Skipping {name} sources.", err=True)
+                return None
+            local_path = Path(spec).expanduser().resolve()
+            if not _is_git_url(spec) and local_path.is_dir():
+                action, spec = "symlink", local_path
+            else:
+                action, spec = "clone", spec
 
-    if not sys.stdin.isatty():
-        click.echo(f"Skipping {name} sources.", err=True)
-        return None
-
-    spec = click.prompt(
-        f"Enter a local path or git URL for {name} sources (leave empty to skip)",
-        default="",
-        show_default=False,
-        err=True,
-    ).strip()
-    if not spec:
-        click.echo(f"Skipping {name} sources.", err=True)
-        return None
-    _install_source(link, spec, version)
-    return link
+    return _install_source_plan(name, version, action, spec, osh_dir)
 
 
 class LocalInitBackend(InitBackend):
@@ -483,17 +522,7 @@ def init_local(
     # ------------------------------------------------------------------
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         user_cfg = _load_user_init_config()
-        edition = user_cfg.get("edition") or edition
-        if edition is None:
-            if sys.stdin.isatty():
-                edition = click.prompt(
-                    "Which edition should be initialized?",
-                    type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
-                    default="ce",
-                    show_choices=True,
-                )
-            else:
-                edition = "ce"
+        edition = user_cfg.get("edition") or edition or "ce"
     edition = (edition or "ce").lower()
     if save and edition:
         _save_user_init_setting("edition", edition)
@@ -507,58 +536,90 @@ def init_local(
     )
 
     # ------------------------------------------------------------------
-    # Detect or obtain Odoo sources (only the local backend needs them)
+    # Build a source plan, show diagnostics, and confirm once
     # ------------------------------------------------------------------
-    odoo_link: Path | None = None
-    enterprise_link: Path | None = None
-    themes_link: Path | None = None
-
     include_enterprise = edition in ("ee", "sh") or enterprise_source is not None
     include_themes = edition == "sh" or themes_source is not None
 
-    odoo_link = _ensure_source(
-        "odoo",
-        version,
-        odoo_source,
-        _find_local_source(target, ("",), ("odoo-bin",)),
-        osh_dir,
-        DEFAULT_ODOO_URL,
+    source_plans: list[tuple[str, str, str | Path]] = []
+    source_plans.append(
+        (
+            "odoo",
+            *_resolve_source(
+                "odoo",
+                odoo_source,
+                _find_local_source(target, ("",), ("odoo-bin",)),
+                osh_dir,
+                DEFAULT_ODOO_URL,
+            ),
+        )
     )
-
     if include_enterprise:
-        enterprise_link = _ensure_source(
-            "enterprise",
-            version,
-            enterprise_source,
-            _find_local_source(
-                target, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
-            ),
-            osh_dir,
-            DEFAULT_ENTERPRISE_URL,
+        source_plans.append(
+            (
+                "enterprise",
+                *_resolve_source(
+                    "enterprise",
+                    enterprise_source,
+                    _find_local_source(
+                        target,
+                        ("enterprise",),
+                        ("*/__manifest__.py", "*/__openerp__.py"),
+                    ),
+                    osh_dir,
+                    DEFAULT_ENTERPRISE_URL,
+                ),
+            )
         )
-
     if include_themes:
-        themes_link = _ensure_source(
-            "design-themes",
-            version,
-            themes_source,
-            _find_local_source(
-                target,
-                ("design-themes", "themes"),
-                ("*/__manifest__.py", "*/__openerp__.py"),
-            ),
-            osh_dir,
-            DEFAULT_THEMES_URL,
+        source_plans.append(
+            (
+                "design-themes",
+                *_resolve_source(
+                    "design-themes",
+                    themes_source,
+                    _find_local_source(
+                        target,
+                        ("design-themes", "themes"),
+                        ("*/__manifest__.py", "*/__openerp__.py"),
+                    ),
+                    osh_dir,
+                    DEFAULT_THEMES_URL,
+                ),
+            )
         )
 
-    if not odoo_link:
-        raise click.ClickException("Odoo sources are required.")
+    click.echo(
+        f"Will initialise project at {target} with edition '{edition}':", err=True
+    )
+    for name, action, spec in source_plans:
+        click.echo(_describe_source_plan(name, action, spec), err=True)
 
-    sources: dict[str, Path | None] = {
-        "odoo": odoo_link,
-        "enterprise": enterprise_link,
-        "design-themes": themes_link,
-    }
+    venv_path = target / ".venv"
+    if venv_path.exists():
+        click.echo(f"  virtualenv: use existing {venv_path}", err=True)
+    else:
+        click.echo(f"  virtualenv: create at {venv_path}", err=True)
+
+    if sys.stdin.isatty():
+        if not click.confirm("Proceed?", default=True, abort=True):
+            return
+    else:
+        click.echo("Proceeding in non-interactive mode.", err=True)
+
+    # Install sources with enterprise first, so credential prompts happen early.
+    install_order = ["enterprise", "design-themes", "odoo"]
+    plan_by_name = {name: (action, spec) for name, action, spec in source_plans}
+    sources: dict[str, Path | None] = {}
+    for name in install_order:
+        if name not in plan_by_name:
+            continue
+        action, spec = plan_by_name[name]
+        link = _install_source_plan(name, version, action, spec, osh_dir)
+        sources[name] = link
+
+    if not sources.get("odoo"):
+        raise click.ClickException("Odoo sources are required.")
 
     env_ready = backend.setup_environment(
         ctx,

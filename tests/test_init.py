@@ -592,10 +592,10 @@ class TestInitEdition:
         assert not (tmp_project / ".osh" / "enterprise").exists()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
-    def test_interactive_prompt_uses_answer(
+    def test_interactive_confirm_prompt_uses_default(
         self, tmp_project: Path, monkeypatch
     ) -> None:
-        """When no edition is supplied and stdin is a tty, the user is asked."""
+        """When stdin is a tty, a single confirmation prompt is shown."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
         monkeypatch.setattr(
@@ -603,13 +603,15 @@ class TestInitEdition:
         )
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "19.0", str(tmp_project)], input="ee\n")
+        result = runner.invoke(
+            main, ["init", "19.0", "--sh", str(tmp_project)], input="\n"
+        )
 
         assert result.exit_code == 0
-        assert "Which edition should be initialized?" in result.output
+        assert "Proceed?" in result.output
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
-        assert not (tmp_project / ".osh" / "design-themes").exists()
+        assert (tmp_project / ".osh" / "design-themes").is_symlink()
 
     def test_env_var_sets_default_edition(self, tmp_project: Path, monkeypatch) -> None:
         """OSH_INIT_EDITION sets the default edition when no CLI flag is given."""
