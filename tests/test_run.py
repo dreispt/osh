@@ -6,6 +6,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
+from osh.cli import main
 from osh.commands.run_cmd import run
 
 
@@ -129,3 +130,53 @@ def test_run_keeps_explicit_addons_path_and_still_saves(
     assert "--config" in joined
     assert "--save" in joined
     assert "--addons-path /custom/addons" in joined
+
+
+def test_test_wraps_run_with_install_and_test_enable(
+    tmp_project: Path,
+    monkeypatch,
+    fake_odoo_executable: Path,
+    osh_source_dirs: Path,
+) -> None:
+    """``osh test`` assembles a test run and delegates to ``osh run``."""
+    my_module = tmp_project / "my_module"
+    my_module.mkdir()
+    (my_module / "__manifest__.py").write_text("{}")
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(main, ["test", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "-i my_module" in result.output
+    assert "--test-enable" in result.output
+    assert "--no-http" in result.output
+    assert "--stop-after-init" in result.output
+    assert "-d project-default-test" in result.output
+    assert "--db-filter ^project-default-test$" in result.output
+    assert f"--config {osh_source_dirs / 'odoo.conf'}" in result.output
+    assert "--save" in result.output
+
+
+def test_test_dropdb_dry_run_does_not_drop_database(
+    tmp_project: Path,
+    monkeypatch,
+    fake_odoo_executable: Path,
+) -> None:
+    """``osh test --dropdb --dry-run`` does not call ``_drop_db``."""
+    my_module = tmp_project / "my_module"
+    my_module.mkdir()
+    (my_module / "__manifest__.py").write_text("{}")
+
+    dropped: list[object] = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_test.commands._drop_db", lambda *a, **k: dropped.append(True)
+    )
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(main, ["test", "--dropdb", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert not dropped, "_drop_db was called during dry-run"
+    assert "-i my_module" in result.output

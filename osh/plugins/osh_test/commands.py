@@ -1,17 +1,17 @@
 """`osh test` command implementation.
 
-Runs Odoo tests for project modules. If the test database does not exist it is
-initialised with `-i`, then the tests are executed with `-u`.
+Runs Odoo tests for project modules. It is a thin wrapper around `osh run`
+that adds the test-specific arguments (`--test-enable`, `-u`/`-i`, etc.) and
+lets `osh run` handle the target backend.
 """
 
 from __future__ import annotations
 
-import subprocess
-
 import click
 
+from ...commands.run_cmd import run
 from ...db import _db_exists, _drop_db, _resolve_test_db_name
-from ...utils import _find_odoo_executable, _find_project_root, discover_module_names
+from ...utils import _find_project_root, discover_module_names
 
 
 @click.command(name="test")
@@ -29,7 +29,7 @@ from ...utils import _find_odoo_executable, _find_project_root, discover_module_
 @click.option(
     "--dropdb",
     is_flag=True,
-    help="Drop the test database after the test run.",
+    help="Drop the test database before running tests, then install modules on a fresh database.",
 )
 @click.option("--http", is_flag=True, help="Run the HTTP server during tests.")
 @click.option(
@@ -40,7 +40,7 @@ from ...utils import _find_odoo_executable, _find_project_root, discover_module_
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="Print the commands that would be run without executing them.",
+    help="Print the command that would be run without executing it.",
 )
 @click.pass_context
 def test(
@@ -57,8 +57,11 @@ def test(
 ) -> None:  # noqa: D401
     """Run Odoo tests for project modules.
 
-    By default the test database is `<project>-<branch>-test`. If it does not
-    exist, it is created with `-i` and then tests are run with `-u`.
+    The test database is `<project>-<branch>-test` by default. If it does not
+    exist, modules are installed with `-i` and tested. If ``--dropdb`` is
+    given, the test database is dropped first so the run always installs on a
+    fresh database. Otherwise, if the database exists, modules are updated with
+    `-u` and tested.
 
     Examples:
 
@@ -73,7 +76,6 @@ def test(
     """
 
     base = _find_project_root(required=True)
-    exe = _find_odoo_executable(base, required=True)
 
     if not modules:
         modules = tuple(discover_module_names(base))
@@ -81,50 +83,33 @@ def test(
             raise click.ClickException("No project modules found to test.")
 
     module_list = ",".join(modules)
-
     db_name = _resolve_test_db_name(base, current_db, test_db)
 
     need_install = not _db_exists(base, db_name)
     if need_install and current_db:
         raise click.ClickException(f"Current database '{db_name}' does not exist.")
 
-    install_args: list[str] | None = None
-    if need_install and not current_db:
-        install_args = [exe, "-d", db_name, "-i", module_list]
-        if not http:
-            install_args.append("--no-http")
-        if not no_stop_after_init:
-            install_args.append("--stop-after-init")
-
-    test_args = [exe, "-d", db_name, "-u", module_list, "--test-enable"]
-    if not http:
-        test_args.append("--no-http")
-    if not no_stop_after_init:
-        test_args.append("--stop-after-init")
-    if tags:
-        test_args.extend(["--test-tags", tags])
-
-    if dry_run:
-        if install_args:
-            click.echo(f"Would run: {' '.join(install_args)}", err=True)
-        click.echo(f"Would run: {' '.join(test_args)}", err=True)
-        if dropdb and not current_db:
-            click.echo(f"Would drop database: {db_name}", err=True)
-        return
-
-    if install_args:
-        click.echo(f"Creating test database '{db_name}'...", err=True)
-        try:
-            subprocess.check_call(install_args)
-        except subprocess.CalledProcessError as exc:
-            raise click.ClickException(f"Failed to create test database: {exc}")
-
-    click.echo(f"Running tests in '{db_name}' for modules: {module_list}", err=True)
-    try:
-        subprocess.check_call(test_args)
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"Tests failed: {exc}")
-
     if dropdb and not current_db:
-        click.echo(f"Dropping test database '{db_name}'...", err=True)
-        _drop_db(base, db_name)
+        if not dry_run:
+            _drop_db(base, db_name)
+        need_install = True
+
+    odoo_args = ["-d", db_name]
+    if need_install:
+        odoo_args.extend(["-i", module_list])
+    else:
+        odoo_args.extend(["-u", module_list])
+    odoo_args.append("--test-enable")
+    if not http:
+        odoo_args.append("--no-http")
+    if not no_stop_after_init:
+        odoo_args.append("--stop-after-init")
+    if tags:
+        odoo_args.extend(["--test-tags", tags])
+
+    run_args: list[str] = []
+    if dry_run:
+        run_args.append("--dry-run")
+    run_args.extend(odoo_args)
+    run_ctx = run.make_context(run.name, run_args, parent=ctx)
+    run.invoke(run_ctx)
