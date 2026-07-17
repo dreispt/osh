@@ -44,20 +44,6 @@ def _plugin_name_from_path(path: Path) -> str:
     return name or "plugin"
 
 
-def _load_commands(module: Any) -> list[click.Command]:
-    """Return Click commands exposed by a plugin module."""
-    if hasattr(module, "get_commands"):
-        commands = module.get_commands()
-    elif hasattr(module, "COMMANDS"):
-        commands = module.COMMANDS
-    else:
-        commands = []
-
-    if not isinstance(commands, list):
-        commands = [commands]
-    return [cmd for cmd in commands if isinstance(cmd, click.Command)]
-
-
 def _import_plugin_from_dir(
     plugin_dir: Path, prefix: str = "osh_user_plugin"
 ) -> Any | None:
@@ -92,9 +78,8 @@ def _plugin_source_name(name: str) -> str:
     return name.strip("-") or "plugin"
 
 
-def _load_builtin_plugins() -> list[tuple[str, click.Command]]:
-    """Load built-in plugins from the `osh.plugins` package."""
-    commands: list[tuple[str, click.Command]] = []
+def _iter_plugin_modules():
+    """Yield ``(source, module)`` pairs for built-in and user plugins."""
     try:
         import osh.plugins as plugins_pkg
 
@@ -104,38 +89,92 @@ def _load_builtin_plugins() -> list[tuple[str, click.Command]]:
             try:
                 module = importlib.import_module(module_name)
                 source = _plugin_source_name(module_name)
-                commands.extend((source, cmd) for cmd in _load_commands(module))
+                yield source, module
             except Exception:
                 # Skip broken built-in plugins.
                 continue
     except ImportError:
         pass
-    return commands
 
-
-def _load_user_plugins() -> list[tuple[str, click.Command]]:
-    """Load user-installed plugins from `~/.config/osh/plugins/`."""
-    commands: list[tuple[str, click.Command]] = []
     plugin_dir = _user_plugin_dir()
-    if not plugin_dir.is_dir():
-        return commands
+    if plugin_dir.is_dir():
+        for child in plugin_dir.iterdir():
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            try:
+                module = _import_plugin_from_dir(child)
+                if module is not None:
+                    source = _plugin_source_name(child.name)
+                    yield source, module
+            except Exception:
+                # Skip broken user plugins.
+                continue
 
-    for child in plugin_dir.iterdir():
-        if not child.is_dir() or child.name.startswith("."):
-            continue
-        try:
-            module = _import_plugin_from_dir(child)
-            if module is not None:
-                source = _plugin_source_name(child.name)
-                commands.extend((source, cmd) for cmd in _load_commands(module))
-        except Exception:
-            # Skip broken user plugins.
-            continue
-    return commands
+
+def _load_commands_from_module(module: Any) -> list[click.Command]:
+    """Return Click commands exposed by a plugin module."""
+    if hasattr(module, "get_commands"):
+        commands = module.get_commands()
+    elif hasattr(module, "COMMANDS"):
+        commands = module.COMMANDS
+    else:
+        commands = []
+
+    if not isinstance(commands, list):
+        commands = [commands]
+    return [cmd for cmd in commands if isinstance(cmd, click.Command)]
+
+
+def _load_backends_from_module(module: Any, backend_type: str) -> list[type]:
+    """Return backend classes of *backend_type* exposed by a plugin module."""
+    from .backends import InitBackend, RunBackend
+
+    if hasattr(module, "get_backends"):
+        backends = module.get_backends()
+    elif hasattr(module, "BACKENDS"):
+        backends = module.BACKENDS
+    else:
+        backends = []
+
+    if not isinstance(backends, list):
+        backends = [backends]
+
+    base_map = {"init": InitBackend, "run": RunBackend}
+    base_cls = base_map.get(backend_type)
+    if base_cls is None:
+        return []
+
+    valid: list[type] = []
+    for backend in backends:
+        if (
+            isinstance(backend, type)
+            and issubclass(backend, base_cls)
+            and backend is not base_cls
+            and getattr(backend, "backend_type", None) == backend_type
+            and getattr(backend, "name", None)
+        ):
+            valid.append(backend)
+    return valid
 
 
 def load_plugins() -> list[tuple[str, click.Command]]:
     """Return ``(source, command)`` pairs for all loaded plugins."""
-    commands = _load_builtin_plugins()
-    commands.extend(_load_user_plugins())
+    commands: list[tuple[str, click.Command]] = []
+    for source, module in _iter_plugin_modules():
+        commands.extend((source, cmd) for cmd in _load_commands_from_module(module))
     return commands
+
+
+def load_backends(backend_type: str) -> dict[str, type]:
+    """Return a mapping of backend name to class for *backend_type*.
+
+    Supported backend types are ``"init"`` and ``"run"``.
+    """
+    result: dict[str, type] = {}
+    for _source, module in _iter_plugin_modules():
+        for backend in _load_backends_from_module(module, backend_type):
+            name = getattr(backend, "name")
+            if name in result:
+                continue
+            result[name] = backend
+    return result

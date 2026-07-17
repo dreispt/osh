@@ -50,6 +50,35 @@ def _save_osh_config(base: Path, cfg: configparser.ConfigParser) -> None:
         cfg.write(f)
 
 
+def _record_run_target(base: Path, target: str) -> None:
+    """Store the most recently used run target in ``.osh/config``."""
+    cfg = _load_osh_config(base)
+    if not cfg.has_section("run"):
+        cfg.add_section("run")
+    cfg.set("run", "target", target)
+    _save_osh_config(base, cfg)
+
+
+def _resolve_run_target(base: Path, default_target: str, ctx: click.Context) -> str:
+    """Resolve the effective run/init target, remembering explicit choices.
+
+    Explicit ``--target`` or the corresponding env var take precedence. Otherwise
+    the last used target from ``.osh/config`` is reused, falling back to
+    *default_target*.
+    """
+    source = ctx.get_parameter_source("backend_name")
+    if source in (
+        click.core.ParameterSource.COMMANDLINE,
+        click.core.ParameterSource.ENVIRONMENT,
+    ):
+        return default_target
+
+    cfg = _load_osh_config(base)
+    if cfg.has_option("run", "target"):
+        return cfg.get("run", "target")
+    return default_target
+
+
 def _get_branch_db(base: Path, branch: str) -> str | None:
     """Return the configured database for *branch*, or None."""
     cfg = _load_osh_config(base)
