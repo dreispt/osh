@@ -24,9 +24,12 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
+from ..backends import InitBackend
+from ..db import _record_run_target
 from ..utils import (
     _git_shallow_clone,
     _is_git_url,
@@ -209,7 +212,126 @@ def _ensure_source(
     return link
 
 
-@click.command(name="init")
+class LocalInitBackend(InitBackend):
+    """Default ``osh init`` backend: create a Python virtualenv and install Odoo."""
+
+    name = "local"
+    label = "Local virtualenv"
+
+    def pre_init(
+        self, ctx: click.Context, target: Path, version: str, **options: Any
+    ) -> None:
+        """No-op for the local backend."""
+
+    def setup_environment(
+        self,
+        ctx: click.Context,
+        target: Path,
+        osh_dir: Path,
+        sources: dict[str, Path | None],
+        version: str,
+        **options: Any,
+    ) -> bool:
+        """Create a virtualenv and pip-install Odoo sources."""
+        odoo_link = sources.get("odoo")
+        venv_path = target / ".venv"
+        if venv_path.exists():
+            click.echo(f"Using existing virtual environment at {venv_path}", err=True)
+        else:
+            click.echo(f"Creating virtual environment at {venv_path}…", err=True)
+            import venv
+
+            try:
+                venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
+            except AttributeError:  # pragma: no cover (py<3.9)
+                builder = venv.EnvBuilder(with_pip=True)
+                builder.create(str(venv_path))
+
+        pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
+        pip_failed = False
+        try:
+            requirements_file = odoo_link / "requirements.txt"
+            if requirements_file.exists():
+                click.echo(
+                    f"Installing requirements from {requirements_file}…", err=True
+                )
+                subprocess.check_call(
+                    [str(pip_exe), "install", "-r", str(requirements_file)]
+                )
+
+            project_requirements = target / "requirements.txt"
+            if project_requirements.exists():
+                click.echo(
+                    f"Installing project requirements from {project_requirements}…",
+                    err=True,
+                )
+                subprocess.check_call(
+                    [str(pip_exe), "install", "-r", str(project_requirements)]
+                )
+
+            click.echo(f"Installing Odoo from {odoo_link} into virtualenv…", err=True)
+            subprocess.check_call([str(pip_exe), "install", "-e", str(odoo_link)])
+
+        except subprocess.CalledProcessError as exc:
+            pip_failed = True
+            if isinstance(exc.cmd, (list, tuple)):
+                command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
+            else:
+                command = str(exc.cmd)
+            click.echo(
+                f"Warning: pip install failed (exit status {exc.returncode}).\n\n"
+                f"You can retry the command manually:\n\n  {command}\n",
+                err=True,
+            )
+
+        return not pip_failed
+
+    def smoke_test(
+        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
+    ) -> bool:
+        """Run ``odoo --version`` from the virtualenv."""
+        odoo_exe = _find_odoo_executable_in_venv(target / ".venv")
+        if odoo_exe is None:
+            click.echo(
+                "Warning: Odoo executable not found in virtualenv. "
+                "The environment is initialised but Odoo may not be usable.",
+                err=True,
+            )
+            return False
+
+        click.echo(f"Running quick Odoo smoke test ({odoo_exe})…", err=True)
+        try:
+            subprocess.run(
+                [str(odoo_exe), "--version"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except subprocess.CalledProcessError as exc:
+            stdout = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
+            click.echo(
+                f"Warning: Odoo smoke test failed (exit status {exc.returncode}).\n"
+                f"{stdout}\n"
+                "The environment is initialised but Odoo may not be usable.",
+                err=True,
+            )
+            return False
+        except FileNotFoundError:
+            click.echo(
+                "Warning: Odoo executable could not be executed. "
+                "The environment is initialised but Odoo may not be usable.",
+                err=True,
+            )
+            return False
+        return True
+
+    def post_init(
+        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
+    ) -> None:
+        """No-op for the local backend."""
+
+
+@click.command(name="init-local")
 @click.argument("version", type=str)
 @click.argument(
     "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
@@ -265,7 +387,7 @@ def _ensure_source(
     help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
 )
 @click.pass_context
-def init(
+def init_local(
     ctx: click.Context,
     version: str,
     directory: Path | None,
@@ -280,8 +402,17 @@ def init(
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
+    Init target (set with --target):
+
+    \b
+      local - Clone Odoo sources, create a Python virtualenv, install Odoo,
+              and run an `odoo-bin --version` smoke test (default).
+      docker - Do not clone or install. Only write ``.osh/docker.toml`` with
+               the service, command and optional compose file for use with an
+               existing Docker Compose stack.
+
     Edition mode (set with --edition, --ce, --ee, --sh, OSH_INIT_EDITION, or
-    ~/.config/osh/config.toml):
+    ~/.config/osh/config.toml). Only used by the local target:
 
     \b
       ce - Community only: no Enterprise or design-themes.
@@ -293,7 +424,8 @@ def init(
 
     Use --save to persist the resolved edition to ~/.config/osh/config.toml.
 
-    Source resolution (applied separately for Odoo, Enterprise and design-themes):
+    Source resolution (applied separately for Odoo, Enterprise and design-themes,
+    local target only):
 
     \b
       1. Explicit --odoo-source / --enterprise-source / --themes-source flag.
@@ -321,6 +453,7 @@ def init(
 
     \b
       osh init 19.0
+      osh init 19.0 --target docker --service odoo --compose-file devel.yaml
       osh init 19.0 --enterprise
       osh init 19.0 --sh
       osh init 19.0 --edition ee
@@ -343,8 +476,10 @@ def init(
     if not config_path.exists():
         config_path.touch()
 
+    backend = LocalInitBackend()
+
     # ------------------------------------------------------------------
-    # Resolve edition mode
+    # Resolve edition mode (only relevant for the local target)
     # ------------------------------------------------------------------
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         user_cfg = _load_user_init_config()
@@ -360,14 +495,27 @@ def init(
             else:
                 edition = "ce"
     edition = (edition or "ce").lower()
-    if save:
+    if save and edition:
         _save_user_init_setting("edition", edition)
+
+    backend.pre_init(
+        ctx,
+        target,
+        version,
+        edition=edition,
+        save=save,
+    )
+
+    # ------------------------------------------------------------------
+    # Detect or obtain Odoo sources (only the local backend needs them)
+    # ------------------------------------------------------------------
+    odoo_link: Path | None = None
+    enterprise_link: Path | None = None
+    themes_link: Path | None = None
+
     include_enterprise = edition in ("ee", "sh") or enterprise_source is not None
     include_themes = edition == "sh" or themes_source is not None
 
-    # ------------------------------------------------------------------
-    # Detect or obtain Odoo sources
-    # ------------------------------------------------------------------
     odoo_link = _ensure_source(
         "odoo",
         version,
@@ -377,11 +525,8 @@ def init(
         DEFAULT_ODOO_URL,
     )
 
-    # ------------------------------------------------------------------
-    # Detect or obtain Enterprise sources
-    # ------------------------------------------------------------------
     if include_enterprise:
-        _ensure_source(
+        enterprise_link = _ensure_source(
             "enterprise",
             version,
             enterprise_source,
@@ -392,11 +537,8 @@ def init(
             DEFAULT_ENTERPRISE_URL,
         )
 
-    # ------------------------------------------------------------------
-    # Detect or obtain design-themes sources
-    # ------------------------------------------------------------------
     if include_themes:
-        _ensure_source(
+        themes_link = _ensure_source(
             "design-themes",
             version,
             themes_source,
@@ -412,102 +554,41 @@ def init(
     if not odoo_link:
         raise click.ClickException("Odoo sources are required.")
 
-    # ------------------------------------------------------------------
-    # Ensure virtual environment
-    # ------------------------------------------------------------------
-    venv_path = target / ".venv"
-    if venv_path.exists():
-        click.echo(f"Using existing virtual environment at {venv_path}", err=True)
-    else:
-        click.echo(f"Creating virtual environment at {venv_path}…", err=True)
-        import venv
+    sources: dict[str, Path | None] = {
+        "odoo": odoo_link,
+        "enterprise": enterprise_link,
+        "design-themes": themes_link,
+    }
 
-        try:
-            venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
-        except AttributeError:  # pragma: no cover (py<3.9)
-            builder = venv.EnvBuilder(with_pip=True)
-            builder.create(str(venv_path))
-
-    # ------------------------------------------------------------------
-    # Install Odoo sources in editable mode into the virtualenv
-    # ------------------------------------------------------------------
-    pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
-    pip_failed = False
-    try:
-        requirements_file = odoo_link / "requirements.txt"
-        if requirements_file.exists():
-            click.echo(f"Installing requirements from {requirements_file}…", err=True)
-            subprocess.check_call(
-                [str(pip_exe), "install", "-r", str(requirements_file)]
-            )
-
-        project_requirements = target / "requirements.txt"
-        if project_requirements.exists():
-            click.echo(
-                f"Installing project requirements from {project_requirements}…",
-                err=True,
-            )
-            subprocess.check_call(
-                [str(pip_exe), "install", "-r", str(project_requirements)]
-            )
-
-        click.echo(f"Installing Odoo from {odoo_link} into virtualenv…", err=True)
-        subprocess.check_call([str(pip_exe), "install", "-e", str(odoo_link)])
-
-    except subprocess.CalledProcessError as exc:
-        pip_failed = True
-        if isinstance(exc.cmd, (list, tuple)):
-            command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
-        else:
-            command = str(exc.cmd)
-        click.echo(
-            f"Warning: pip install failed (exit status {exc.returncode}).\n\n"
-            f"You can retry the command manually:\n\n  {command}\n",
-            err=True,
+    env_ready = backend.setup_environment(
+        ctx,
+        target,
+        osh_dir,
+        sources,
+        version,
+        edition=edition,
+        save=save,
+    )
+    smoke_ok = True
+    if env_ready:
+        smoke_ok = backend.smoke_test(
+            ctx,
+            target,
+            osh_dir,
+            edition=edition,
+            save=save,
         )
+    backend.post_init(
+        ctx,
+        target,
+        osh_dir,
+        edition=edition,
+        save=save,
+    )
 
-    # ------------------------------------------------------------------
-    # Quick smoke test: ensure the Odoo executable can start
-    # ------------------------------------------------------------------
-    smoke_failed = False
-    if not pip_failed:
-        odoo_exe = _find_odoo_executable_in_venv(venv_path)
-        if odoo_exe is None:
-            smoke_failed = True
-            click.echo(
-                "Warning: Odoo executable not found in virtualenv. "
-                "The environment is initialised but Odoo may not be usable.",
-                err=True,
-            )
-        else:
-            click.echo(f"Running quick Odoo smoke test ({odoo_exe})…", err=True)
-            try:
-                subprocess.run(
-                    [str(odoo_exe), "--version"],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                )
-            except subprocess.CalledProcessError as exc:
-                smoke_failed = True
-                stdout = (
-                    exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
-                )
-                click.echo(
-                    f"Warning: Odoo smoke test failed (exit status {exc.returncode}).\n"
-                    f"{stdout}\n"
-                    "The environment is initialised but Odoo may not be usable.",
-                    err=True,
-                )
-            except FileNotFoundError:
-                smoke_failed = True
-                click.echo(
-                    "Warning: Odoo executable could not be executed. "
-                    "The environment is initialised but Odoo may not be usable.",
-                    err=True,
-                )
+    _record_run_target(target, "local")
 
-    if pip_failed or smoke_failed:
+    if not env_ready or not smoke_ok:
         click.echo(
             f"Initialised project directory at {target} "
             "(Odoo setup incomplete; see warnings above).",
@@ -515,3 +596,41 @@ def init(
         )
     else:
         click.echo(f"Initialised project directory at {target}")
+
+
+@click.command(
+    name="init",
+    add_help_option=False,
+    context_settings=dict(ignore_unknown_options=True),
+)
+@click.option(
+    "--target",
+    "backend_name",
+    default="local",
+    envvar="OSH_INIT_TARGET",
+    help="Environment target to initialise: local virtualenv or a plugin backend.",
+)
+@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def init(ctx, backend_name, extra_args):
+    """Initialise a project for the chosen target.
+
+    ``osh init`` is a router that delegates to ``init-<target>`` commands
+    (e.g. ``init-local``, ``init-docker``). All extra arguments are forwarded.
+
+    Pass ``--help`` to see the options for the selected target, or run
+    ``osh init-local --help`` / ``osh init-<target> --help`` directly.
+    """
+    if any(arg in ("-h", "--help") for arg in extra_args):
+        target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
+        if target_cmd is None:
+            click.echo(ctx.get_help(), err=False)
+            return
+        target_ctx = click.Context(target_cmd, info_name=target_cmd.name)
+        click.echo(target_cmd.get_help(target_ctx))
+        return
+
+    target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
+    if target_cmd is None:
+        raise click.ClickException(f"Unknown init target: {backend_name}")
+    return target_cmd.main(list(extra_args), standalone_mode=False)

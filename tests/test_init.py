@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osh.cli import main
 from osh.commands.init_cmd import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
@@ -15,7 +16,6 @@ from osh.commands.init_cmd import (
     _ensure_source,
     _find_local_source,
     _is_git_url,
-    init,
 )
 
 from .conftest import real_git_only_subprocess
@@ -300,7 +300,9 @@ class TestInitCommand:
 
         real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", "--edition", "ee", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", "--edition", "ee", str(tmp_project)]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -319,8 +321,9 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(
-            init,
+            main,
             [
+                "init",
                 "19.0",
                 str(tmp_project),
                 "-c",
@@ -346,8 +349,9 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(
-            init,
+            main,
             [
+                "init",
                 "19.0",
                 str(tmp_project),
                 "-c",
@@ -385,7 +389,7 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["master", "--sh", str(tmp_project)])
+        result = runner.invoke(main, ["init", "master", "--sh", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (patch_cache / "odoo.git").exists()
@@ -424,7 +428,8 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            init, ["19.0", str(tmp_project), "-c", str(odoo_src), "-e", str(ent_src)]
+            main,
+            ["init", "19.0", str(tmp_project), "-c", str(odoo_src), "-e", str(ent_src)],
         )
 
         assert result.exit_code == 0
@@ -446,7 +451,9 @@ class TestInitCommand:
         calls = real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+        )
 
         assert result.exit_code == 0
         project_req_arg = [str(tmp_project / "requirements.txt")]
@@ -463,7 +470,9 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+        )
 
         assert result.exit_code == 0
         assert "Running quick Odoo smoke test" in result.output
@@ -483,7 +492,9 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project), "-c", str(odoo_src)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+        )
 
         assert result.exit_code == 0
         assert "Warning: Odoo smoke test failed" in result.output
@@ -514,7 +525,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project)])
+        result = runner.invoke(main, ["init", "19.0", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -527,7 +538,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", "--ee", str(tmp_project)])
+        result = runner.invoke(main, ["init", "19.0", "--ee", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -540,7 +551,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", "--sh", str(tmp_project)])
+        result = runner.invoke(main, ["init", "19.0", "--sh", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -557,7 +568,9 @@ class TestInitEdition:
         monkeypatch.setattr("osh.utils.Path.home", lambda: fake_home)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", "--sh", "--save", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", "--sh", "--save", str(tmp_project)]
+        )
 
         assert result.exit_code == 0
         config_file = fake_home / ".config" / "osh" / "config.toml"
@@ -572,7 +585,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", "--ce", str(tmp_project)])
+        result = runner.invoke(main, ["init", "19.0", "--ce", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -590,7 +603,7 @@ class TestInitEdition:
         )
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project)], input="ee\n")
+        result = runner.invoke(main, ["init", "19.0", str(tmp_project)], input="ee\n")
 
         assert result.exit_code == 0
         assert "Which edition should be initialized?" in result.output
@@ -604,7 +617,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "ee"})
-        result = runner.invoke(init, ["19.0", str(tmp_project)])
+        result = runner.invoke(main, ["init", "19.0", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -626,7 +639,7 @@ class TestInitEdition:
         monkeypatch.setattr("osh.utils.Path.home", lambda: fake_home)
 
         runner = CliRunner()
-        result = runner.invoke(init, ["19.0", str(tmp_project)])
+        result = runner.invoke(main, ["init", "19.0", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()

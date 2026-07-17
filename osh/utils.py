@@ -36,7 +36,8 @@ def _find_project_root(
             return p
     if required:
         raise click.ClickException(
-            "Not inside an Osh project. Run 'osh init <version>' to create one."
+            "Not inside an Osh project. "
+            "Run 'osh init --target <local|docker> <version>' to create one."
         )
     return None
 
@@ -142,7 +143,8 @@ def _find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
     exe = shutil.which("odoo") or shutil.which("odoo-bin")
     if not exe and required:
         raise click.ClickException(
-            "Could not locate Odoo executable. Run 'osh init <version>' to set up the project."
+            "Could not locate Odoo executable. "
+            "Run 'osh init --target local <version>' to set up the local target."
         )
     return exe
 
