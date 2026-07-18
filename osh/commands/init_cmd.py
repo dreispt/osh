@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import click
@@ -194,7 +195,13 @@ def init(
 
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         user_cfg = _load_user_init_config()
-        edition = user_cfg.get("edition") or edition or "ce"
+        edition = user_cfg.get("edition") or edition
+        if not edition and not dry_run and not assume_yes and sys.stdin.isatty():
+            edition = click.prompt(
+                "Edition",
+                type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
+                default="ce",
+            )
     edition = (edition or "ce").lower()
     if save and edition and not dry_run:
         save_user_preference("edition", edition, section="init")
