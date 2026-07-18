@@ -69,35 +69,13 @@ def _compose_base_command(base: Path, ctx: click.Context | None) -> list[str]:
 
 def _default_compose_content(version: str) -> str:
     """Return a generated Docker Compose file for a standard Odoo stack."""
-    image = f"odoo:{version}" if version else "odoo:latest"
-    return f"""services:
-  odoo:
-    image: {image}
-    depends_on:
-      - db
-    ports:
-      - "8069:8069"
-    environment:
-      HOST: db
-      USER: odoo
-      PASSWORD: myodoo
-      PORT: 5432
-    volumes:
-      - odoo-web-data:/var/lib/odoo
-      - ..:/mnt/extra-addons
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: odoo
-      POSTGRES_PASSWORD: myodoo
-      POSTGRES_DB: postgres
-    volumes:
-      - odoo-db-data:/var/lib/postgresql/data
+    import importlib.resources
 
-volumes:
-  odoo-web-data:
-  odoo-db-data:
-"""
+    image = f"odoo:{version}" if version else "odoo:latest"
+    template = importlib.resources.read_text(
+        "osh.plugins.osh_docker.data", "docker-compose.yml"
+    )
+    return template.format(image=image)
 
 
 def _generate_compose_file(target: Path, version: str) -> None:
