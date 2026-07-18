@@ -2,65 +2,29 @@
 
 from __future__ import annotations
 
-import subprocess
-
 import click
 
-from ..utils import (
-    _find_odoo_executable,
-    _find_project_root,
-    _get_odoo_config_path,
-    discover_addons_paths,
-)
+from ..db import _load_osh_config
+from ..plugin_loader import load_backends
+from ..utils import _find_project_root
 
 
 @click.command(name="doctor")
 @click.pass_context
 def doctor(ctx: click.Context) -> None:  # noqa: D401
-    """Show project information.
-
-    Displays:
-
-    \b
-      - Project directory
-      - Odoo executable path
-      - Odoo configuration file location if it exists
-      - Discovered addon paths and module count
-      - Odoo version
-    """
-
+    """Show project diagnostics by delegating to the active backend."""
     base = _find_project_root(required=True)
 
-    click.echo(f"Project directory: {base}")
+    cfg = _load_osh_config(base)
+    backend_name = cfg.get("run", "target", fallback="local")
 
-    exe = _find_odoo_executable(base)
-    if not exe:
-        click.echo("Could not determine Odoo executable", err=True)
-        return
-
-    click.echo(f"Odoo executable: {exe}")
-
-    # Check for Odoo configuration file
-    odoo_rc = _get_odoo_config_path(base)
-    if odoo_rc.exists():
-        click.echo(f"Odoo config file: {odoo_rc}")
-
-    # Discover addons paths (parent directories containing modules)
-    addon_modules = discover_addons_paths(base)
-    if addon_modules:
-        # Get unique parent directories of addon modules
-        addons_paths = sorted({addon.parent for addon in addon_modules})
-        click.echo(
-            f"Addons paths ({len(addons_paths)} directories, {len(addon_modules)} modules):"
+    backends = load_backends()
+    backend_cls = backends.get(backend_name)
+    if backend_cls is None:
+        raise click.ClickException(
+            f"Unknown backend '{backend_name}'. "
+            f"Available: {', '.join(backends)} or run 'osh init --target <backend>'."
         )
-        for addon_path in addons_paths:
-            click.echo(f"  - {addon_path}")
 
-    try:
-        res = subprocess.run(
-            [exe, "--version"], capture_output=True, text=True, check=False
-        )
-        version = res.stdout.strip() or res.stderr.strip()
-        click.echo(f"Odoo version: {version}")
-    except Exception as exc:  # pragma: no cover
-        click.echo(f"Failed to run {exe}: {exc}", err=True)
+    for line in backend_cls().status(ctx, base):
+        click.echo(line)

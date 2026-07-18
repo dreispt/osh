@@ -113,8 +113,7 @@ def run(
     backend_name = _resolve_run_target(base, backend_name, ctx)
     _record_run_target(base, backend_name)
 
-    run_backends = load_backends("run")
-    run_backends.setdefault("local", LocalRunBackend)
+    run_backends = load_backends()
     backend_cls = run_backends.get(backend_name)
     if backend_cls is None:
         raise click.ClickException(f"Unknown run target: {backend_name}")
