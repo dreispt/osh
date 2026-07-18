@@ -43,7 +43,15 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 def main(
     ctx: click.Context, verbosity: str | None, no_emoji: bool
 ) -> None:  # noqa: D401
-    """Odoo Shell – Odoo wrapper to accelerate your development and staging workflows."""
+    """
+    Odoo Shell – your toolkit for Odoo environments
+    to accelerate your development and staging workflows.
+
+    Use `osh init` to initialize an Odoo environment in a project.
+    Use `osh run` to run Odoo in that environment, using an available
+    backend (local, docker, etc.).
+    Add the `--help` option to a command to learn more.
+    """
     ctx.ensure_object(dict)
     ctx.obj["verbosity"] = verbosity
     ctx.obj["no_emoji"] = no_emoji

@@ -2,6 +2,6 @@
 
 __all__: list[str] = []
 
-__author__ = "Odoo Community Association"
-__email__ = "info@odoo-community.org"
+__author__ = "Daniel Reis"
+__email__ = "dreis.pt@gmail.com"
 __version__ = "0.1.0"
