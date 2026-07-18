@@ -18,14 +18,51 @@ import click
 DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
 
 
+def _find_git_root(start: Path) -> Path | None:
+    """Return the nearest ancestor (including *start*) that is a git repo root.
+
+    A git repo root is a directory containing a ``.git`` entry (directory for
+    normal repos, file for submodules and worktrees).
+    """
+    for p in [start] + list(start.parents):
+        if (p / ".git").exists():
+            return p
+    return None
+
+
 def find_project_root(
     start: Path | None = None, *, required: bool = False
 ) -> Path | None:
-    """Return the nearest ancestor (including *start*) that contains a .osh file.
+    """Return the project root containing a ``.osh`` directory.
+
+    When inside a git repository, the ``.osh`` directory is expected at the
+    git root. If the git root itself has no ``.osh``, the immediate parent is
+    checked as well (to support running from inside a git submodule of the
+    actual project). The search does **not** walk past the git boundary.
+
+    When not inside a git repository, falls back to walking up from *start*
+    looking for a ``.osh`` directory.
 
     When *required* is True, raise a ClickException instead of returning None.
     """
     start = (start or Path.cwd()).resolve()
+
+    git_root = _find_git_root(start)
+    if git_root is not None:
+        if (git_root / ".osh").exists():
+            return git_root
+        # Submodule case: .osh lives one level above the submodule's git root.
+        parent = git_root.parent
+        if parent != git_root and (parent / ".osh").exists():
+            return parent
+        if required:
+            raise click.ClickException(
+                "Not inside an Osh project. "
+                "Run 'osh init --target <local|docker> <version>' to create one."
+            )
+        return None
+
+    # No git repo: walk up looking for .osh (supports non-git projects).
     for p in [start] + list(start.parents):
         if (p / ".osh").exists():
             return p
