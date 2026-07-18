@@ -14,7 +14,7 @@ from pathlib import Path
 
 import click
 
-from .commons import get_odoo_config_path
+from .commons import decode_stderr, get_odoo_config_path
 from .utils import _get_osh_config_path
 
 
@@ -214,7 +214,7 @@ def create_db(base: Path, db_name: str) -> None:
             check=True,
         )
     except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+        stderr = decode_stderr(exc.stderr)
         raise RuntimeError(f"Could not create database '{db_name}': {stderr}") from exc
     except FileNotFoundError as exc:
         raise RuntimeError(
@@ -235,7 +235,7 @@ def run_psql_script(base: Path, db_name: str, script_path: Path) -> None:
             check=True,
         )
     except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+        stderr = decode_stderr(exc.stderr)
         raise RuntimeError(
             f"Failed to run SQL script on '{db_name}': {stderr}"
         ) from exc

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import click
 
-from .commons import ensure_tool, get_odoo_config_path
+from .commons import decode_stderr, ensure_tool, get_odoo_data_dir
 from .db import create_db, drop_db, get_pg_credentials
 
 
@@ -76,7 +76,7 @@ def _run(args: list[str], env: dict[str, str], label: str) -> None:
     try:
         subprocess.run(args, env=env, check=True, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+        stderr = decode_stderr(exc.stderr)
         raise click.ClickException(f"{label} failed: {stderr}") from exc
     except FileNotFoundError as exc:
         raise click.ClickException(f"Could not locate `{label}`.") from exc
@@ -128,7 +128,7 @@ def _restore_zip(
 
         filestore_src = tmp_path / "filestore"
         if filestore_src.exists():
-            data_dir = _data_dir(base)
+            data_dir = get_odoo_data_dir(base)
             if data_dir is None:
                 click.echo(
                     "Warning: could not determine Odoo data_dir; filestore not restored.",
@@ -140,18 +140,3 @@ def _restore_zip(
                 shutil.rmtree(filestore_dst)
             shutil.copytree(filestore_src, filestore_dst)
             click.echo(f"Restored filestore to {filestore_dst}", err=True)
-
-
-def _data_dir(base: Path) -> Path | None:
-    """Return the Odoo data directory from .odoorc or the default location."""
-    odoo_rc = get_odoo_config_path(base)
-    if odoo_rc.exists():
-        import configparser
-
-        cfg = configparser.ConfigParser()
-        cfg.read(odoo_rc)
-        value = cfg.get("options", "data_dir", fallback=None)
-        if value:
-            return Path(value)
-    default = Path.home() / ".local" / "share" / "Odoo"
-    return default if default.exists() else None

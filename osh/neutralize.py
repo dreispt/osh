@@ -13,6 +13,7 @@ from pathlib import Path
 
 import click
 
+from .commons import decode_stderr
 from .db import run_psql_script
 from .utils import build_addons_paths
 
@@ -68,7 +69,7 @@ def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
     try:
         subprocess.run(args, check=True, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+        stderr = decode_stderr(exc.stderr)
         raise click.ClickException(
             f"Database restored but neutralization failed: {stderr}\n"
             f"Run `odoo-bin neutralize -d {db_name}` manually."

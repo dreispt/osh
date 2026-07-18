@@ -9,10 +9,13 @@ core and plugins.
 
 from __future__ import annotations
 
+import configparser
 import shutil
 from pathlib import Path
 
 import click
+
+DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
 
 
 def find_project_root(
@@ -81,3 +84,26 @@ def discover_module_names(base: Path) -> list[str]:
     or ``__openerp__.py`` file.
     """
     return [addon.name for addon in discover_addons_paths(base)]
+
+
+def get_odoo_data_dir(base: Path | None) -> Path | None:
+    """Return the Odoo data directory from ``.odoorc`` or the default location.
+
+    When *base* is None or ``.odoorc`` does not configure ``data_dir``, the
+    conventional default ``~/.local/share/Odoo`` is returned (only if it
+    exists, otherwise None).
+    """
+    if base is not None:
+        odoo_rc = get_odoo_config_path(base)
+        if odoo_rc.exists():
+            cfg = configparser.ConfigParser()
+            cfg.read(odoo_rc)
+            value = cfg.get("options", "data_dir", fallback=None)
+            if value:
+                return Path(value)
+    return DEFAULT_ODOO_DATA_DIR if DEFAULT_ODOO_DATA_DIR.exists() else None
+
+
+def decode_stderr(stderr: bytes | None) -> str:
+    """Decode subprocess stderr bytes to text, returning "" when None."""
+    return stderr.decode("utf-8", errors="replace") if stderr else ""
