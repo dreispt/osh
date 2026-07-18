@@ -14,6 +14,72 @@ from typing import Any
 import click
 
 
+class Backend(ABC):
+    """Unified base class for Osh init/run/restore/prune backends."""
+
+    backend_type = "backend"
+    name: str = ""
+    label: str = ""
+
+    def status(
+        self, ctx: click.Context, base: Path, *, verbose: bool = False
+    ) -> list[str]:
+        """Return diagnostic lines for ``osh doctor`` and the init plan."""
+        raise NotImplementedError
+
+    def init(
+        self,
+        ctx: click.Context,
+        target: Path,
+        *,
+        version: str = "",
+        edition: str = "ce",
+        dry_run: bool = False,
+        **options: Any,
+    ) -> bool:
+        """Set up the environment. Return ``True`` if ready for use."""
+        raise NotImplementedError
+
+    def run(
+        self,
+        ctx: click.Context,
+        base: Path,
+        args: list[str],
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        **options: Any,
+    ) -> None:
+        """Run Odoo with the supplied argv-style arguments."""
+        raise NotImplementedError
+
+    def restore(
+        self,
+        ctx: click.Context,
+        base: Path,
+        db_name: str,
+        dump_path: Path,
+        *,
+        filestore_path: Path | None = None,
+        no_neutralize: bool = False,
+        dry_run: bool = False,
+        **options: Any,
+    ) -> None:
+        """Restore a backup into the target database through this backend."""
+        raise NotImplementedError
+
+    def prune(
+        self,
+        ctx: click.Context,
+        base: Path,
+        *,
+        aggressive: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """Run target-specific housekeeping. Not all backends support this."""
+        raise NotImplementedError
+
+
 class InitBackend(ABC):
     """Base class for ``osh init`` environment setup backends."""
 
