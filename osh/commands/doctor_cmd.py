@@ -5,7 +5,7 @@ from __future__ import annotations
 import click
 
 from ..commons import find_project_root
-from ..db import load_osh_config
+from ..db import get_project_config
 from ..plugin_loader import load_backends
 from ..verbosity import get_verbosity
 
@@ -27,10 +27,20 @@ def doctor(ctx: click.Context, verbose: bool) -> None:  # noqa: D401
     # Show friendly header for new users
     echo.guidance("Checking your Osh setup...")
 
-    cfg = load_osh_config(base)
-    backend_name = cfg.get("run", "target", fallback="local")
+    backend_name = get_project_config(base, "init", "target") or get_project_config(
+        base, "run", "target"
+    )
 
     backends = load_backends()
+    if backend_name is None:
+        echo.essential(
+            "No installed targets. "
+            "Run 'osh init --target <local|docker> <version>' first."
+        )
+        return
+
+    echo.essential(f"Active target: {backend_name}")
+
     backend_cls = backends.get(backend_name)
     if backend_cls is None:
         raise click.ClickException(
