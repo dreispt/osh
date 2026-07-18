@@ -75,7 +75,7 @@ def _default_compose_content(version: str) -> str:
     template = importlib.resources.read_text(
         "osh.plugins.osh_docker.data", "docker-compose.yml"
     )
-    return template.format(image=image)
+    return template.replace("__IMAGE__", image)
 
 
 def _generate_compose_file(target: Path, version: str) -> None:

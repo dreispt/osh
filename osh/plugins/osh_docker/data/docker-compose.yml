@@ -1,6 +1,6 @@
 services:
   odoo:
-    image: { image }
+    image: __IMAGE__
     depends_on:
       - db
     ports:
