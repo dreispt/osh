@@ -183,6 +183,15 @@ def init(
     echo = get_verbosity(ctx, target)
     echo.guidance(f"Welcome to Osh! Let's set up your Odoo {version} project.")
 
+    if not (target / ".git").exists() and not dry_run:
+        echo.warning(
+            f"'{target}' is not a git repository. "
+            "It is recommended to initialise Osh inside a git project."
+        )
+        if not assume_yes:
+            if not click.confirm("Continue anyway?", default=False):
+                raise click.ClickException("Aborted.")
+
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         user_cfg = _load_user_init_config()
         edition = user_cfg.get("edition") or edition or "ce"

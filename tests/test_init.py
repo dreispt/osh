@@ -680,3 +680,31 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "design-themes").is_symlink()
+
+    def test_non_git_dir_warns_and_aborts(self, tmp_path: Path, monkeypatch) -> None:
+        """Init in a non-git directory warns and aborts without confirmation."""
+        target = tmp_path / "nogit"
+        target.mkdir()
+        runner = CliRunner()
+        result = runner.invoke(main, ["init", "19.0", str(target)], input="n\n")
+        assert result.exit_code != 0
+        assert "not a git repository" in result.output
+
+    def test_non_git_dir_proceeds_with_yes(
+        self, tmp_path: Path, tmp_project: Path, monkeypatch
+    ) -> None:
+        """Init in a non-git directory proceeds with --yes."""
+        target = tmp_path / "nogit"
+        target.mkdir()
+        odoo_src = target / "odoo"
+        odoo_src.mkdir()
+        (odoo_src / "odoo-bin").touch()
+        real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main, ["init", "19.0", str(target), "--yes", "-c", str(odoo_src)]
+        )
+        assert result.exit_code == 0
+        assert "not a git repository" in result.output
+        assert (target / ".osh" / "odoo").is_symlink()
