@@ -10,7 +10,6 @@ from . import config_cmd, doctor_cmd, init_cmd, odoo_cmd, plug_cmd, run_cmd, ver
 
 COMMANDS = [
     init_cmd.init,
-    init_cmd.init_local,
     doctor_cmd.doctor,
     run_cmd.run,
     odoo_cmd.odoo,

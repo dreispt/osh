@@ -59,7 +59,6 @@ class LocalBackend(Backend):
         from ...commands.init_cmd import init_local
 
         init_local.callback(
-            ctx,
             version,
             target,
             options.get("odoo_source"),

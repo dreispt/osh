@@ -43,10 +43,10 @@ DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
 SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
 
 
-@click.command(
-    name="init",
-    add_help_option=False,
-    context_settings=dict(ignore_unknown_options=True),
+@click.command(name="init")
+@click.argument("version", type=str)
+@click.argument(
+    "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
 )
 @click.option(
     "--target",
@@ -55,30 +55,144 @@ SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
     envvar="OSH_INIT_TARGET",
     help="Environment target to initialise: local virtualenv or a plugin backend.",
 )
-@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+@click.option(
+    "-c",
+    "--odoo-source",
+    help="Odoo source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
+@click.option(
+    "-e",
+    "--enterprise-source",
+    help="Enterprise source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
+@click.option(
+    "-t",
+    "--themes-source",
+    help="Design-themes source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
+@click.option(
+    "--edition",
+    type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
+    default=None,
+    envvar="OSH_INIT_EDITION",
+    help="Edition to initialize: ce (Community), ee (Enterprise), "
+    "sh (Odoo.sh with Enterprise + design-themes).",
+)
+@click.option(
+    "--ce",
+    "edition",
+    flag_value="ce",
+    help="Alias for --edition ce.",
+)
+@click.option(
+    "--ee",
+    "edition",
+    flag_value="ee",
+    help="Alias for --edition ee.",
+)
+@click.option(
+    "--sh",
+    "edition",
+    flag_value="sh",
+    help="Alias for --edition sh.",
+)
+@click.option(
+    "--save",
+    is_flag=True,
+    help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
+)
+@click.option(
+    "--yes",
+    "assume_yes",
+    is_flag=True,
+    help="Assume yes for interactive prompts; useful when a TTY is available but input is not desired.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show the planned actions without modifying anything.",
+)
+@click.option(
+    "--service",
+    help="Docker Compose service name (docker target only).",
+)
+@click.option(
+    "--command",
+    help="Command override for the docker target.",
+)
+@click.option(
+    "--compose-file",
+    help="Docker Compose file path (docker target only).",
+)
 @click.pass_context
-def init(ctx, backend_name, extra_args):
+def init(
+    ctx,
+    version,
+    directory,
+    backend_name,
+    odoo_source,
+    enterprise_source,
+    themes_source,
+    edition,
+    save,
+    assume_yes,
+    dry_run,
+    service,
+    command,
+    compose_file,
+):
     """Initialise a project for the chosen target.
 
-    ``osh init`` is a router that delegates to ``init-<target>`` commands
-    (e.g. ``init-local``, ``init-docker``). All extra arguments are forwarded.
-
-    Pass ``--help`` to see the options for the selected target, or run
-    ``osh init-local --help`` / ``osh init-<target> --help`` directly.
+    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
+    DIRECTORY: Project directory to initialise (defaults to current directory)
     """
-    if any(arg in ("-h", "--help") for arg in extra_args):
-        target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
-        if target_cmd is None:
-            click.echo(ctx.get_help(), err=False)
-            return
-        target_ctx = click.Context(target_cmd, info_name=target_cmd.name)
-        click.echo(target_cmd.get_help(target_ctx))
-        return
+    target = (directory or Path.cwd()).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
 
-    target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
-    if target_cmd is None:
+    if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
+        user_cfg = _load_user_init_config()
+        edition = user_cfg.get("edition") or edition or "ce"
+    edition = (edition or "ce").lower()
+    if save and edition:
+        _save_user_init_setting("edition", edition)
+
+    from ..plugin_loader import load_backends
+
+    backends = load_backends()
+    backend_cls = backends.get(backend_name)
+    if backend_cls is None:
         raise click.ClickException(f"Unknown init target: {backend_name}")
-    return target_cmd.main(list(extra_args), standalone_mode=False)
+
+    backend = backend_cls()
+    result = backend.init(
+        ctx,
+        target,
+        version=version,
+        edition=edition,
+        dry_run=dry_run,
+        odoo_source=odoo_source,
+        enterprise_source=enterprise_source,
+        themes_source=themes_source,
+        save=save,
+        assume_yes=assume_yes,
+        service=service,
+        command=command,
+        compose_file=compose_file,
+    )
+
+    if not dry_run:
+        _record_run_target(target, backend_name)
+
+    if result:
+        click.echo(f"Initialised project directory at {target}")
+    else:
+        click.echo(
+            f"Warning: project initialisation at {target} did not complete successfully.",
+            err=True,
+        )
 
 
 @click.command(name="init-local")
