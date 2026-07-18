@@ -9,15 +9,27 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 import click
 
-from ...commons import decode_stderr, get_odoo_data_dir
-from ...db import get_pg_credentials
-from .utils import _now_stamp, _safe_name
+from .commons import decode_stderr, get_odoo_data_dir
+from .db import get_pg_credentials
+
+
+def _now_stamp() -> str:
+    """Return an ISO-ish timestamp suitable for filenames."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _safe_name(value: str | Path) -> str:
+    """Return *value* with characters unsafe for filenames replaced."""
+    text = str(value)
+    # Keep a limited set of safe characters and collapse runs.
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", text).strip("_")
 
 
 class SourceError(click.ClickException):

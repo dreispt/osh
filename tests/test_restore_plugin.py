@@ -1,4 +1,4 @@
-"""Tests for the `osh restore` plugin."""
+"""Tests for the `osh restore` command."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osh.commands.restore_cmd import restore
 from osh.plugins.osh_local.backends import LocalBackend
-from osh.plugins.osh_restore.commands import restore
 
 
 def _setup_fake_db_config(project: Path, db_name: str = "testdb") -> None:

@@ -1,4 +1,4 @@
-"""Tests for the `osh backup` plugin."""
+"""Tests for the `osh backup` command."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from urllib.request import Request
 import pytest
 from click.testing import CliRunner
 
-from osh.plugins.osh_backup.commands import backup
-from osh.plugins.osh_backup.sources import OdooshSource, SourceError, SshSource
+from osh.backup_sources import OdooshSource, SourceError, SshSource
+from osh.commands.backup_cmd import backup
 
 
 def test_download_db_source_writes_to_cache(
@@ -88,7 +88,7 @@ def test_download_https_posts_payload(in_project: Path, monkeypatch) -> None:
         requests.append(req)
         return FakeResponse()
 
-    monkeypatch.setattr("osh.plugins.osh_backup.sources.urlopen", fake_urlopen)
+    monkeypatch.setattr("osh.backup_sources.urlopen", fake_urlopen)
 
     runner = CliRunner()
     result = runner.invoke(
