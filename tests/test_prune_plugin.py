@@ -7,7 +7,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from osh.plugins.osh_init_local.commands import prune
+from osh.plugins.osh_local.commands import prune
 
 
 def test_prune_outside_project_fails(tmp_path: Path, monkeypatch) -> None:
@@ -107,7 +107,7 @@ def test_prune_reports_missing_git_executable(in_project: Path, monkeypatch) -> 
         raise FileNotFoundError()
 
     monkeypatch.setattr(
-        "osh.plugins.osh_init_local.commands.subprocess.check_call",
+        "osh.plugins.osh_local.commands.subprocess.check_call",
         raise_file_not_found,
     )
 
@@ -127,7 +127,7 @@ def test_prune_reports_git_failure(in_project: Path, monkeypatch) -> None:
         raise subprocess_module.CalledProcessError(1, "git gc")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_init_local.commands.subprocess.check_call",
+        "osh.plugins.osh_local.commands.subprocess.check_call",
         raise_called_process_error,
     )
 
