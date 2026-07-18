@@ -99,19 +99,19 @@ osh backup list
 
 See `docs/odoo-sh-backup-howto.md` for detailed odoo.sh backup instructions.
 
-### `osh rebuild`
+### `osh restore`
 
 Restore a local backup file into the current branch's database and neutralize it.
 
 ```bash
 # Use the newest cached backup
-osh rebuild
+osh restore
 
 # Pick a specific cached entry
-osh rebuild cache:1
+osh restore cache:1
 
 # Restore an explicit file
-osh rebuild /path/to/backup.zip
+osh restore /path/to/backup.zip
 ```
 
 ### `osh test`

@@ -44,7 +44,7 @@ python -m osh version
 python -m osh plug list
 ```
 
-Commands such as `init`, `run`, `status`, `config`, and `test` need an
+Commands such as `init`, `run`, `doctor`, `config`, and `test` need an
 initialized Osh project. To exercise those, create a temporary project as
 described in `README.md`.
 

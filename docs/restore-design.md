@@ -1,13 +1,13 @@
-# Design: `osh backup` and `osh rebuild` plugins
+# Design: `osh backup` and `osh restore` plugins
 
 The rebuild feature is split into two built-in plugins:
 
 1. **`osh backup`** — fetches or dumps a backup and stores it in a project cache.
    - `osh backup download <source>` — saves a backup to `.osh/backups/`.
    - `osh backup list` — shows cached backups.
-2. **`osh rebuild`** — restores a cached or explicitly given backup file into the current branch's database and neutralizes it.
+2. **`osh restore`** — restores a cached or explicitly given backup file into the current branch's database and neutralizes it.
 
-Keeping the download step separate makes `osh rebuild` simpler and safer: it only touches the local filesystem and PostgreSQL, while remote/network concerns live in the backup plugin.
+Keeping the download step separate makes `osh restore` simpler and safer: it only touches the local filesystem and PostgreSQL, while remote/network concerns live in the backup plugin.
 
 > **Scope note:** Updating modules (`-u all`) is intentionally out of scope for the first version. Users run `osh run -u all` afterwards if they need to.
 
@@ -26,7 +26,7 @@ Each download creates two files:
 - `<filename>.<ext>` — the backup itself.
 - `<filename>.<ext>.meta.json` — metadata: source string, creation timestamp, original format, and output path.
 
-The cache is project-local and not committed. `osh backup list` reads the metadata files to display available backups. `osh rebuild` can pick the latest cache entry, a specific cache entry by identifier, or an arbitrary file path.
+The cache is project-local and not committed. `osh backup list` reads the metadata files to display available backups. `osh restore` can pick the latest cache entry, a specific cache entry by identifier, or an arbitrary file path.
 
 If the current directory is not inside an Osh project, `osh backup download` can still be used with `--output`, but there is no cache and `osh backup list` is unavailable.
 
@@ -87,7 +87,7 @@ When run inside an Osh project, the backup is stored in `.osh/backups/` and a me
 - Optional query parameter:
   - `backup=<filename>` — fetch a specific file from `/home/odoo/backup.daily`; otherwise the latest `*_daily.sql.gz` is selected.
 - Authentication uses the SSH key configured in the odoo.sh profile. The local machine must have the matching private key in `ssh-agent` or at a default path (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`). An explicit key can be passed with `--ssh-key`.
-- The daily backup files in `/home/odoo/backup.daily` contain only the SQL dump; the filestore is not included. If attachments are required, download the full `.zip` via the odoo.sh web UI and use it directly with `osh rebuild`.
+- The daily backup files in `/home/odoo/backup.daily` contain only the SQL dump; the filestore is not included. If attachments are required, download the full `.zip` via the odoo.sh web UI and use it directly with `osh restore`.
 
 > **No odoo.sh platform API:** odoo.sh does not publish an official HTTP/API-token endpoint for backups, so `odoosh://` uses SSH/scp. [^3]
 
@@ -114,7 +114,7 @@ Options:
 
 #### Output
 
-Backups are listed newest first so the most recent backup is always at the top and `osh rebuild` with no argument picks the first entry.
+Backups are listed newest first so the most recent backup is always at the top and `osh restore` with no argument picks the first entry.
 
 ```text
 #  Source                            Created              Filename
@@ -122,16 +122,16 @@ Backups are listed newest first so the most recent backup is always at the top a
 2  https://host?db=prod              2026-07-16 09:00     host_prod_20260716_090000.zip
 ```
 
-The `#` column is a transient cache ID that can be passed to `osh rebuild cache:<id>`. `cache:1` always refers to the newest entry unless `--reverse` is used.
+The `#` column is a transient cache ID that can be passed to `osh restore cache:<id>`. `cache:1` always refers to the newest entry unless `--reverse` is used.
 
 ---
 
-## `osh rebuild`
+## `osh restore`
 
 ### Command signature
 
 ```text
-osh rebuild [OPTIONS] [<dump>]
+osh restore [OPTIONS] [<dump>]
 ```
 
 - `<dump>` — optional. One of:
@@ -193,7 +193,7 @@ Neutralization is **never** skipped.
 
 `odoo-bin neutralize -d <database>` is available from Odoo 16.0 onward. It runs each installed module's `data/neutralize.sql` file and sets `database.is_neutralized` to `true`. [^4]
 
-When the installed Odoo version is 16.0 or newer, `osh rebuild` runs:
+When the installed Odoo version is 16.0 or newer, `osh restore` runs:
 
 ```bash
 odoo-bin --config .odoorc --addons-path <...> neutralize -d <target_db>
@@ -203,7 +203,7 @@ If this command fails, the rebuild fails with a message that the database was re
 
 #### Fallback strategy: bundled SQL script
 
-For Odoo versions before 16.0, or when `neutralize` is unavailable, `osh rebuild` applies a bundled fallback SQL script via `psql`. The script:
+For Odoo versions before 16.0, or when `neutralize` is unavailable, `osh restore` applies a bundled fallback SQL script via `psql`. The script:
 
 1. Resets the administrator password to a known value (embedded bcrypt hash of `admin`).
 2. Disables outgoing mail servers (`ir_mail_server`).
@@ -227,17 +227,17 @@ osh backup download odoosh://123456@my-project-master-123456.dev.odoo.com
 osh backup list
 
 # Rebuild the current branch's database from the newest cached backup
-osh rebuild
+osh restore
 
 # Rebuild from a specific cached entry
-osh rebuild cache:1
+osh restore cache:1
 
 # Fetch a remote backup explicitly and restore it
 osh backup download https://my.odoo.com?db=prod&format=zip
-osh rebuild cache:1
+osh restore cache:1
 
 # Restore a file outside the cache
-osh rebuild /tmp/prod.zip
+osh restore /tmp/prod.zip
 ```
 
 ---
@@ -251,7 +251,7 @@ All failures surface as `click.ClickException` with a concise, actionable messag
 | Not inside an Osh project                                       | “Not inside an Osh project. Run `osh init <version>` to create one.”                                         |
 | Odoo executable not found (for `rebuild`)                       | “Could not locate Odoo executable. Run `osh init <version>` to set up the project.”                          |
 | Source string not supported or empty (`backup download`)        | List supported formats.                                                                                      |
-| Cache is empty and `osh rebuild` is called without `<dump>`     | “No cached backup found. Run `osh backup download <source>` first.”                                          |
+| Cache is empty and `osh restore` is called without `<dump>`     | “No cached backup found. Run `osh backup download <source>` first.”                                          |
 | `cache:<id>` not found                                          | List valid cache IDs.                                                                                        |
 | `osh backup download` outside an Osh project without `--output` | “Not inside an Osh project. Use `--output PATH` to save the backup to a specific file.”                      |
 | Required external tool missing                                  | Name the missing tool and the step that needs it.                                                            |
@@ -288,7 +288,7 @@ All failures surface as `click.ClickException` with a concise, actionable messag
   - `_get_pg_args_and_env` (host/port/user/password from `.odoorc`)
   - `_run_psql_script`
 - `osh/plugins/osh_test/commands.py` — replace its private `_db_exists` and `_drop_db` with imports from `osh/db.py`.
-- `README.md` — add short sections for `osh backup` and `osh rebuild`.
+- `README.md` — add short sections for `osh backup` and `osh restore`.
 - `pyproject.toml` — no new runtime dependencies. `urllib.request` handles the HTTPS source. Ensure `include_package_data = true` so the fallback SQL file is installed.
 
 ### Dependencies
@@ -313,7 +313,7 @@ All failures surface as `click.ClickException` with a concise, actionable messag
   - Reads metadata sidecars and sorts newest first.
   - `--limit` truncates output.
   - `--reverse` flips the order to oldest first and reassigns IDs.
-- `osh rebuild`:
+- `osh restore`:
   - No `<dump>` picks the newest cache entry.
   - `cache:<id>` resolves to the correct entry.
   - Path-like arguments are used directly.
