@@ -127,7 +127,7 @@ def _load_commands_from_module(module: Any) -> list[click.Command]:
 
 def _load_backends_from_module(module: Any, backend_type: str) -> list[type]:
     """Return backend classes of *backend_type* exposed by a plugin module."""
-    from .backends import Backend, InitBackend, RunBackend
+    from .backends import Backend
 
     if hasattr(module, "get_backends"):
         backends = module.get_backends()
@@ -139,7 +139,7 @@ def _load_backends_from_module(module: Any, backend_type: str) -> list[type]:
     if not isinstance(backends, list):
         backends = [backends]
 
-    base_map = {"backend": Backend, "init": InitBackend, "run": RunBackend}
+    base_map = {"backend": Backend}
     base_cls = base_map.get(backend_type)
     if base_cls is None:
         return []
@@ -168,9 +168,8 @@ def load_plugins() -> list[tuple[str, click.Command]]:
 def load_backends(backend_type: str | None = None) -> dict[str, type]:
     """Return a mapping of backend name to class.
 
-    *backend_type* selects the base class: ``"backend"`` for the unified
-    ``Backend`` interface, or the legacy ``"init"`` / ``"run"`` types. When
-    omitted, the unified backend type is used.
+    *backend_type* is accepted for compatibility and is ignored; only the
+    unified ``Backend`` interface is loaded.
     """
     if backend_type is None:
         backend_type = "backend"

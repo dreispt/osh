@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.cli import main
-from osh.commands.init_cmd import (
+from osh.plugins.osh_local.utils import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
     _ensure_cache,
@@ -417,13 +417,13 @@ class TestInitCommand:
         ent_bare = _make_bare_repo(tmp_path, "enterprise")
         themes_bare = _make_bare_repo(tmp_path, "design-themes")
         monkeypatch.setattr(
-            "osh.commands.init_cmd.DEFAULT_ODOO_URL", f"file://{odoo_bare}"
+            "osh.plugins.osh_local.utils.DEFAULT_ODOO_URL", f"file://{odoo_bare}"
         )
         monkeypatch.setattr(
-            "osh.commands.init_cmd.DEFAULT_ENTERPRISE_URL", f"file://{ent_bare}"
+            "osh.plugins.osh_local.utils.DEFAULT_ENTERPRISE_URL", f"file://{ent_bare}"
         )
         monkeypatch.setattr(
-            "osh.commands.init_cmd.DEFAULT_THEMES_URL", f"file://{themes_bare}"
+            "osh.plugins.osh_local.utils.DEFAULT_THEMES_URL", f"file://{themes_bare}"
         )
         real_git_only_subprocess(monkeypatch)
 
@@ -462,7 +462,7 @@ class TestInitCommand:
             raise subprocess.CalledProcessError(1, cmd)
 
         monkeypatch.setattr(
-            "osh.commands.init_cmd.subprocess.check_call", failing_check_call
+            "osh.plugins.osh_local.utils.subprocess.check_call", failing_check_call
         )
 
         runner = CliRunner()
