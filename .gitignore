@@ -87,3 +87,6 @@ docs/_build/
 
 # OCA rules
 !static/lib/
+
+# Osh local project cache
+.osh/
