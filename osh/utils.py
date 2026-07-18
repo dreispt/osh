@@ -7,6 +7,7 @@ live in :mod:`osh.commons`.
 
 from __future__ import annotations
 
+import configparser
 import os
 import re
 import shutil
@@ -82,13 +83,34 @@ def _save_user_init_setting(key: str, value: Any, section: str = "init") -> None
     config_file.parent.mkdir(parents=True, exist_ok=True)
     formatted = _format_toml_value(value)
 
-    if config_file.exists():
-        lines = config_file.read_text().splitlines(keepends=True)
-    else:
-        lines = []
+    lines = (
+        config_file.read_text().splitlines(keepends=True)
+        if config_file.exists()
+        else []
+    )
 
+    key_line, section_start = _find_section_key(lines, section, key)
+
+    if key_line is not None:
+        lines[key_line] = f"{key} = {formatted}\n"
+    elif section_start is not None:
+        _insert_after_section_header(lines, section_start, f"{key} = {formatted}\n")
+    else:
+        _append_new_section(lines, section, f"{key} = {formatted}\n")
+
+    config_file.write_text("".join(lines))
+
+
+def _find_section_key(
+    lines: list[str], section: str, key: str
+) -> tuple[int | None, int | None]:
+    """Return ``(key_line, section_start)`` indices for *section* and *key*.
+
+    ``key_line`` is the line index where *key* is already defined inside the
+    target section, or None. ``section_start`` is the index of the section
+    header, or None when the section is absent.
+    """
     in_section = False
-    key_line: int | None = None
     section_start: int | None = None
     key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*.*$")
     for i, line in enumerate(lines):
@@ -101,27 +123,30 @@ def _save_user_init_setting(key: str, value: Any, section: str = "init") -> None
             in_section = False
             continue
         if in_section and key_pattern.match(line):
-            key_line = i
-            break
+            return i, section_start
+    return None, section_start if in_section else None
 
-    if key_line is not None:
-        lines[key_line] = f"{key} = {formatted}\n"
-    elif section_start is not None:
-        insert_pos = section_start + 1
-        while insert_pos < len(lines) and (
-            lines[insert_pos].strip() == "" or lines[insert_pos].strip().startswith("#")
-        ):
-            insert_pos += 1
-        lines.insert(insert_pos, f"{key} = {formatted}\n")
-    else:
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        if lines and lines[-1].strip() != "":
-            lines.append("\n")
-        lines.append(f"[{section}]\n")
-        lines.append(f"{key} = {formatted}\n")
 
-    config_file.write_text("".join(lines))
+def _insert_after_section_header(
+    lines: list[str], section_start: int, new_line: str
+) -> None:
+    """Insert *new_line* after the section header, skipping blank/comment lines."""
+    insert_pos = section_start + 1
+    while insert_pos < len(lines) and (
+        lines[insert_pos].strip() == "" or lines[insert_pos].strip().startswith("#")
+    ):
+        insert_pos += 1
+    lines.insert(insert_pos, new_line)
+
+
+def _append_new_section(lines: list[str], section: str, new_line: str) -> None:
+    """Append a new section header and *new_line* to the end of *lines*."""
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    if lines and lines[-1].strip() != "":
+        lines.append("\n")
+    lines.append(f"[{section}]\n")
+    lines.append(new_line)
 
 
 def save_user_preference(key: str, value: Any, section: str = "user") -> None:
@@ -147,8 +172,6 @@ def _detect_verbosity(base: Path | None) -> str:
     Returns:
         Appropriate verbosity level for the current context
     """
-    import configparser
-
     # Check global user config first
     user_cfg = _load_user_init_config()
     if "verbosity" in user_cfg:
@@ -178,8 +201,6 @@ def _detect_emoji_preference(base: Path | None) -> bool:
     Returns:
         True if emojis should be used, False otherwise
     """
-    import configparser
-
     if base is not None and (base / ".osh").exists():
         # Check project config first (highest priority)
         cfg = configparser.ConfigParser()
