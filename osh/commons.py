@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import configparser
 import shutil
+import subprocess
 from pathlib import Path
 
 import click
@@ -92,6 +93,41 @@ def ensure_tool(tool: str) -> None:
     """Raise a ClickException if *tool* is not available on PATH."""
     if not shutil.which(tool):
         raise click.ClickException(f"Required tool '{tool}' is not available on PATH.")
+
+
+def run_command(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool = False,
+    capture_output: bool = True,
+    text: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Run *args* and return the completed process.
+
+    When *check* is True, a non-zero exit code or a missing executable raises a
+    ``click.ClickException`` whose message includes the attempted command and
+    any captured output.
+    """
+    try:
+        return subprocess.run(
+            args,
+            cwd=cwd,
+            check=check,
+            capture_output=capture_output,
+            text=text,
+        )
+    except subprocess.CalledProcessError as exc:
+        cmd = " ".join(exc.cmd)
+        output = "\n".join(
+            part for part in [exc.stdout or "", exc.stderr or ""] if part
+        )
+        message = f"Command failed: {cmd}"
+        if output:
+            message += f"\n{output}"
+        raise click.ClickException(message) from exc
+    except FileNotFoundError as exc:
+        raise click.ClickException(f"Command not found: {' '.join(args)}") from exc
 
 
 def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
