@@ -71,6 +71,9 @@ def ensure_osh_sources(
             )
         )
 
+    if not source_defs:
+        return {"odoo": None, "enterprise": None, "design-themes": None}
+
     source_plans = {
         name: _resolve_source(
             name, version, flag, _find_local_source(base, names, files), osh_dir, url
