@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from ...db import _record_run_target
+from ...db import record_run_target
 from .backends import DockerBackend
 
 
@@ -30,9 +30,7 @@ from .backends import DockerBackend
     default=None,
     help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
 )
-@click.pass_context
 def init_docker(
-    ctx: click.Context,
     version: str | None,
     directory: Path | None,
     service: str | None,
@@ -42,7 +40,7 @@ def init_docker(
     """Initialise a project directory for use with Docker Compose.
 
     VERSION: Odoo version (optional; used to select the odoo image tag).
-    DIRECTORY: Project directory to initialise (defaults to current directory).
+    DIRECTORY: Project directory to initialise (defaults to the current directory).
     """
     target = (directory or Path.cwd()).expanduser().resolve()
     if not target.exists():
@@ -58,7 +56,6 @@ def init_docker(
 
     backend = DockerBackend()
     ok = backend.init(
-        ctx,
         target,
         version=version or "",
         edition="ce",
@@ -68,7 +65,7 @@ def init_docker(
         compose_file=compose_file,
     )
 
-    _record_run_target(target, "docker")
+    record_run_target(target, "docker")
 
     if not ok:
         click.echo(

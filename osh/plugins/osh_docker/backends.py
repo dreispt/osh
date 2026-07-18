@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -11,78 +10,16 @@ from typing import Any
 import click
 
 from ...backends import Backend
-from ...utils import _ensure_tool
-
-_DOCKER_TOML = Path(".osh") / "docker.toml"
-_COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
-
-
-def _load_docker_config(base: Path) -> dict[str, Any]:
-    """Load the Docker backend configuration from ``.osh/docker.toml``."""
-    config_path = base / _DOCKER_TOML
-    if not config_path.exists():
-        return {}
-    try:
-        import tomllib
-    except ImportError:  # pragma: no cover
-        import tomli as tomllib  # type: ignore[no-redef]
-    with config_path.open("rb") as f:
-        return tomllib.load(f)
-
-
-def _save_docker_config(
-    base: Path,
-    service: str | None,
-    command: str | None,
-    compose_file: str | None = None,
-) -> None:
-    """Write ``.osh/docker.toml`` with the selected service and command."""
-    config_path = base / _DOCKER_TOML
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    service = service or "odoo"
-    command = command or "odoo"
-    lines = [f"service = {service!r}", f"command = {command!r}"]
-    if compose_file:
-        lines.append(f"compose_file = {compose_file!r}")
-    config_path.write_text("\n".join(lines) + "\n")
-
-
-def _docker_command(service: str, command: str | list[str] | None) -> list[str]:
-    """Return the Odoo command inside the container as a list."""
-    if command is None:
-        command = "odoo"
-    if isinstance(command, list):
-        return list(command)
-    return shlex.split(str(command))
-
-
-def _compose_base_command(base: Path, ctx: click.Context | None) -> list[str]:
-    """Return the ``docker compose`` invocation, including any ``-f`` option."""
-    cfg = _load_docker_config(base)
-    cli_params = getattr(ctx, "params", {}) if ctx else {}
-    compose_file = cli_params.get("compose_file") or cfg.get("compose_file")
-    cmd = ["docker", "compose"]
-    if compose_file:
-        cmd.extend(["-f", str(compose_file)])
-    return cmd
-
-
-def _default_compose_content(version: str) -> str:
-    """Return a generated Docker Compose file for a standard Odoo stack."""
-    import importlib.resources
-
-    image = f"odoo:{version}" if version else "odoo:latest"
-    template = importlib.resources.read_text(
-        "osh.plugins.osh_docker.data", "docker-compose.yml"
-    )
-    return template.replace("__IMAGE__", image)
-
-
-def _generate_compose_file(target: Path, version: str) -> None:
-    """Write ``.osh/docker-compose.yml`` if it does not already exist."""
-    compose_path = target / _COMPOSE_FILE
-    compose_path.parent.mkdir(parents=True, exist_ok=True)
-    compose_path.write_text(_default_compose_content(version))
+from ...commons import ensure_tool
+from .utils import (
+    _COMPOSE_FILE,
+    _DOCKER_TOML,
+    _compose_base_command,
+    _docker_command,
+    _generate_compose_file,
+    _load_docker_config,
+    _save_docker_config,
+)
 
 
 class DockerBackend(Backend):
@@ -91,6 +28,38 @@ class DockerBackend(Backend):
     name = "docker"
     label = "Docker Compose"
     backend_type = "backend"
+    neutralize_supported = True
+    description = (
+        "Run Odoo inside a Docker Compose stack; generates a compose file if missing."
+    )
+    help_text = (
+        "Writes ``.osh/docker.toml`` with the service name, command, and optional "
+        "compose file path. If no compose file exists, generates ``.osh/docker-compose.yml`` "
+        "with a standard Odoo + PostgreSQL stack using the requested version as the "
+        "image tag.\n\n"
+        "Requires Docker and the Docker Compose plugin on PATH."
+    )
+
+    @classmethod
+    def get_init_options(cls) -> list[click.Option]:
+        opts = [
+            click.Option(
+                ["--service"],
+                help="Docker Compose service name for the Odoo container.",
+            ),
+            click.Option(
+                ["--command"],
+                help="Shell-quoted command to run inside the container "
+                "(e.g. 'odoo' or 'python3 -m odoo').",
+            ),
+            click.Option(
+                ["--compose-file"],
+                help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
+            ),
+        ]
+        for o in opts:
+            o.target_group = cls.name
+        return opts
 
     def status(
         self, ctx: click.Context, target: Path, *, verbose: bool = False
@@ -105,7 +74,6 @@ class DockerBackend(Backend):
 
     def init(
         self,
-        ctx: click.Context,
         target: Path,
         *,
         version: str = "",
@@ -114,19 +82,6 @@ class DockerBackend(Backend):
         **options: Any,
     ) -> bool:
         """Set up the project to run Odoo with Docker Compose."""
-        _ensure_tool("docker")
-        try:
-            subprocess.run(
-                ["docker", "compose", "version"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            raise click.ClickException(
-                "Docker Compose plugin is required for init-docker."
-            ) from exc
-
         service = options.get("service")
         command = options.get("command")
         compose_file = options.get("compose_file")
@@ -159,6 +114,19 @@ class DockerBackend(Backend):
             )
             return True
 
+        ensure_tool("docker")
+        try:
+            subprocess.run(
+                ["docker", "compose", "version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            raise click.ClickException(
+                "Docker Compose plugin is required for init-docker."
+            ) from exc
+
         _save_docker_config(target, service, command, compose_file)
         click.echo(
             f"Wrote Docker backend config to {target / _DOCKER_TOML}.",
@@ -182,7 +150,7 @@ class DockerBackend(Backend):
             return True
 
         click.echo("Running quick Odoo smoke test in container…", err=True)
-        compose_cmd = _compose_base_command(target, ctx)
+        compose_cmd = _compose_base_command(target, compose_file=compose_file)
         try:
             subprocess.run(
                 [*compose_cmd, "run", "--rm", svc, *cmd, "--version"],
@@ -234,7 +202,10 @@ class DockerBackend(Backend):
 
         odoo_args = args[1:]  # args[0] is the host executable placeholder
         odoo_command = _docker_command(service, command)
-        compose_cmd = _compose_base_command(base, ctx)
+        cli_params = getattr(ctx, "params", {}) or {}
+        compose_cmd = _compose_base_command(
+            base, compose_file=cli_params.get("compose_file")
+        )
         docker_args = [
             *compose_cmd,
             "run",
@@ -266,13 +237,30 @@ class DockerBackend(Backend):
         db_name: str,
         dump_path: Path,
         *,
-        filestore_path: Path | None = None,
+        force: bool = False,
         no_neutralize: bool = False,
         dry_run: bool = False,
         **options: Any,
     ) -> None:
         """Restore a backup into the target database through this backend."""
-        raise NotImplementedError("Docker restore is not implemented.")
+        raise click.ClickException("Docker restore is not yet implemented.")
+
+    def neutralize(
+        self,
+        ctx: click.Context,
+        base: Path,
+        db_name: str,
+        *,
+        dry_run: bool = False,
+    ) -> None:
+        """Neutralize *db_name* by running ``odoo-bin neutralize`` in the container."""
+        self.run(
+            ctx,
+            base,
+            ["odoo", "-d", db_name, "neutralize"],
+            dry_run=dry_run,
+            verbose=False,
+        )
 
     def prune(
         self,
@@ -284,4 +272,4 @@ class DockerBackend(Backend):
         **options: Any,
     ) -> None:
         """Run target-specific housekeeping."""
-        raise NotImplementedError("Docker prune is not implemented.")
+        raise click.ClickException("Docker prune is not yet implemented.")

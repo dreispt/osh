@@ -27,7 +27,7 @@ def test_docker_backends_are_registered() -> None:
 def _patch_docker_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make Docker tooling no-ops so tests do not require a Docker daemon."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.backends._ensure_tool", lambda _name: None
+        "osh.plugins.osh_docker.backends.ensure_tool", lambda _name: None
     )
 
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
@@ -152,7 +152,6 @@ def test_init_docker_dry_run_does_not_write(
     backend = DockerBackend()
 
     ok = backend.init(
-        None,
         tmp_project,
         version="19.0",
         edition="ce",
@@ -259,12 +258,12 @@ def test_docker_backend_compose_file_cli_override(
 def test_docker_backend_restore_not_implemented(tmp_project: Path) -> None:
     """``restore`` is not implemented for Docker."""
     backend = DockerBackend()
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(click.ClickException):
         backend.restore(None, tmp_project, "db", tmp_project / "dump.sql")
 
 
 def test_docker_backend_prune_not_implemented(tmp_project: Path) -> None:
     """``prune`` is not implemented for Docker."""
     backend = DockerBackend()
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(click.ClickException):
         backend.prune(None, tmp_project)

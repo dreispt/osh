@@ -1,4 +1,10 @@
-"""Database restore helpers for `osh restore`."""
+"""Database restore helpers.
+
+Restores database dumps (``.dump``, ``.sql``, ``.sql.gz``, ``.zip``) into a
+fresh PostgreSQL database using credentials from ``.odoorc``. These helpers
+are shared by the ``osh restore`` command and by backends that implement
+``restore()``.
+"""
 
 from __future__ import annotations
 
@@ -11,16 +17,16 @@ from pathlib import Path
 
 import click
 
-from ...db import _create_db, _drop_db, _get_pg_credentials
-from ...utils import _ensure_tool, _get_odoo_config_path
+from .commons import ensure_tool, get_odoo_config_path
+from .db import create_db, drop_db, get_pg_credentials
 
 
-def _restore_dump(
+def restore_dump(
     base: Path, dump_path: Path, target_db: str, *, dry_run: bool = False
 ) -> None:
     """Restore *dump_path* into a freshly created *target_db*."""
     suffix = _dump_suffix(dump_path)
-    conn_args, env = _get_pg_credentials(base)
+    conn_args, env = get_pg_credentials(base)
 
     if dry_run:
         click.echo(
@@ -29,11 +35,11 @@ def _restore_dump(
         )
         return
 
-    _drop_db(base, target_db)
-    _create_db(base, target_db)
+    drop_db(base, target_db)
+    create_db(base, target_db)
 
     if suffix == ".dump":
-        _ensure_tool("pg_restore")
+        ensure_tool("pg_restore")
         args = [
             "pg_restore",
             "--no-owner",
@@ -44,15 +50,15 @@ def _restore_dump(
         ]
         _run(args, env, "pg_restore")
     elif suffix == ".sql":
-        _ensure_tool("psql")
+        ensure_tool("psql")
         args = ["psql", "-d", target_db, "-f", str(dump_path), *conn_args]
         _run(args, env, "psql")
     elif suffix == ".sql.gz":
-        _ensure_tool("gunzip")
-        _ensure_tool("psql")
+        ensure_tool("gunzip")
+        ensure_tool("psql")
         _restore_sql_gz(dump_path, target_db, conn_args, env)
     elif suffix == ".zip":
-        _ensure_tool("psql")
+        ensure_tool("psql")
         _restore_zip(base, dump_path, target_db, conn_args, env)
     else:
         raise click.ClickException(f"Unsupported backup format: {suffix}")
@@ -138,7 +144,7 @@ def _restore_zip(
 
 def _data_dir(base: Path) -> Path | None:
     """Return the Odoo data directory from .odoorc or the default location."""
-    odoo_rc = _get_odoo_config_path(base)
+    odoo_rc = get_odoo_config_path(base)
     if odoo_rc.exists():
         import configparser
 

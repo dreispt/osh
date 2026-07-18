@@ -2,51 +2,13 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import click
 
-from ..backends import RunBackend
-from ..db import (
-    _record_db_name,
-    _record_run_target,
-    _resolve_db_name,
-    _resolve_run_target,
-)
+from ..commons import find_project_root
+from ..db import record_db_name, record_run_target, resolve_db_name, resolve_run_target
 from ..plugin_loader import load_backends
-from ..utils import _build_addons_paths, _find_odoo_executable, _find_project_root
-
-
-class LocalRunBackend(RunBackend):
-    """Default ``osh run`` backend: execute odoo-bin on the host."""
-
-    name = "local"
-    label = "Local virtualenv"
-
-    def run(
-        self,
-        ctx: click.Context,
-        base: Path,
-        args: list[str],
-        *,
-        dry_run: bool,
-        verbose: bool,
-    ) -> None:
-        """Replace the current process with the assembled odoo-bin command."""
-        if dry_run:
-            click.echo(f"Would run: {' '.join(args)}", err=True)
-            return
-
-        if verbose:
-            click.echo(f"Running: {' '.join(args)}", err=True)
-        else:
-            click.echo(f"Running {' '.join(args)}", err=True)
-
-        try:
-            os.execvp(args[0], args)
-        except Exception as exc:  # pragma: no cover
-            raise click.ClickException(str(exc))
+from ..utils import build_addons_paths, find_odoo_executable
+from ..verbosity import get_verbosity
 
 
 @click.command(name="run", context_settings=dict(ignore_unknown_options=True))
@@ -108,46 +70,46 @@ def run(
       osh run --target docker --compose-file devel.yaml
     """
 
-    base = _find_project_root(required=True)
+    base = find_project_root(required=True)
 
-    backend_name = _resolve_run_target(base, backend_name, ctx)
-    _record_run_target(base, backend_name)
+    echo = get_verbosity(ctx, base, verbose_override=verbose)
 
-    run_backends = load_backends()
-    backend_cls = run_backends.get(backend_name)
+    backend_name = resolve_run_target(base, backend_name, ctx)
+    record_run_target(base, backend_name)
+
+    backends = load_backends()
+    backend_cls = backends.get(backend_name)
     if backend_cls is None:
         raise click.ClickException(f"Unknown run target: {backend_name}")
     backend = backend_cls()
 
     explicit_db = _parse_explicit_db(extra_args)
-    db_name = explicit_db or _resolve_db_name(base, verbose)
+    db_name = explicit_db or resolve_db_name(base, echo.level == "verbose")
     if db_name and explicit_db:
-        _record_db_name(base, db_name)
+        record_db_name(base, db_name)
 
     db_args: list[str] = []
     if db_name:
-        if verbose:
-            click.echo(f"Using database: {db_name}", err=True)
+        echo.assumptions(f"Using database: {db_name}")
         if not explicit_db:
             db_args.extend(["-d", db_name])
         if not _has_arg(extra_args, "--db-filter"):
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
     if backend_name == "local":
-        exe = _find_odoo_executable(base, required=True)
+        exe = find_odoo_executable(base, required=True)
 
         has_explicit_config = _has_arg(extra_args, "--config", short="-c")
 
         if not _has_arg(extra_args, "--addons-path"):
-            addons_paths = _build_addons_paths(base, include_themes=True)
+            addons_paths = build_addons_paths(base, include_themes=True)
         else:
             addons_paths = []
 
         addons_path_args: list[str] = []
         if addons_paths:
             addons_path_str = ",".join(str(p) for p in addons_paths)
-            if verbose:
-                click.echo(f"Using addons path: {addons_path_str}", err=True)
+            echo.assumptions(f"Using addons path: {addons_path_str}")
             addons_path_args.extend(["--addons-path", addons_path_str])
 
         odoo_conf = base / ".osh" / "odoo.conf"
@@ -155,6 +117,7 @@ def run(
             odoo_conf.parent.mkdir(parents=True, exist_ok=True)
             if not dry_run and not odoo_conf.exists():
                 odoo_conf.touch()
+                echo.details(f"Created config file: {odoo_conf}")
 
         args: list[str] = [exe]
         args.extend(addons_path_args)
@@ -163,8 +126,6 @@ def run(
         if not has_explicit_config:
             args.extend(["--config", str(odoo_conf), "--save"])
     else:
-        # Non-local backends treat args[0] as a placeholder and use args[1:]
-        # as the Odoo command-line arguments.
         args = ["odoo"]
         args.extend(db_args)
         args.extend(extra_args)

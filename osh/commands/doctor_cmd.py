@@ -4,18 +4,30 @@ from __future__ import annotations
 
 import click
 
-from ..db import _load_osh_config
+from ..commons import find_project_root
+from ..db import load_osh_config
 from ..plugin_loader import load_backends
-from ..utils import _find_project_root
+from ..verbosity import get_verbosity
 
 
 @click.command(name="doctor")
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Show extra diagnostic details.",
+)
 @click.pass_context
-def doctor(ctx: click.Context) -> None:  # noqa: D401
+def doctor(ctx: click.Context, verbose: bool) -> None:  # noqa: D401
     """Show project diagnostics by delegating to the active backend."""
-    base = _find_project_root(required=True)
+    base = find_project_root(required=True)
 
-    cfg = _load_osh_config(base)
+    # Set up verbosity
+    echo = get_verbosity(ctx, base)
+
+    # Show friendly header for new users
+    echo.guidance("Checking your Osh setup...")
+
+    cfg = load_osh_config(base)
     backend_name = cfg.get("run", "target", fallback="local")
 
     backends = load_backends()
@@ -26,5 +38,8 @@ def doctor(ctx: click.Context) -> None:  # noqa: D401
             f"Available: {', '.join(backends)} or run 'osh init --target <backend>'."
         )
 
-    for line in backend_cls().status(ctx, base):
+    for line in backend_cls().status(ctx, base, verbose=verbose):
         click.echo(line)
+
+    # Show friendly footer for new users
+    echo.next_steps("Your setup looks good! Run 'osh run' to start Odoo.")

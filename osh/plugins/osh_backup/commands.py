@@ -6,8 +6,8 @@ from pathlib import Path
 
 import click
 
-from ...utils import _find_project_root
-from .cache import _ensure_cache_dir, _list_cache, _write_metadata
+from ...cache import ensure_cache_dir, list_cache, write_metadata
+from ...commons import find_project_root
 from .sources import parse_source
 
 
@@ -101,13 +101,13 @@ def download(
       osh backup download ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
 
-    base = _find_project_root()
+    base = find_project_root()
     output_path: Path | None = None
 
     if output:
         output_path = Path(output).expanduser().resolve()
     elif base is not None:
-        cache_dir = _ensure_cache_dir(base)
+        cache_dir = ensure_cache_dir(base)
         parsed = parse_source(
             source,
             base=base,
@@ -141,7 +141,7 @@ def download(
 
     # Write metadata only when the file landed in the project cache.
     if base is not None and _is_in_cache(base, output_path):
-        _write_metadata(
+        write_metadata(
             output_path,
             source=source,
             original_format=parsed.original_format,
@@ -153,7 +153,7 @@ def download(
 def _is_in_cache(base: Path, path: Path) -> bool:
     """Return True if *path* is inside the project's backup cache."""
     try:
-        path.relative_to(_ensure_cache_dir(base))
+        path.relative_to(ensure_cache_dir(base))
         return True
     except ValueError:
         return False
@@ -179,9 +179,9 @@ def list_backups(
 ) -> None:  # noqa: D401
     """List backups stored in the project cache."""
 
-    base = _find_project_root(required=True)
+    base = find_project_root(required=True)
 
-    entries = _list_cache(base, limit=limit, reverse=reverse)
+    entries = list_cache(base, limit=limit, reverse=reverse)
     if not entries:
         click.echo("No cached backups.", err=True)
         return

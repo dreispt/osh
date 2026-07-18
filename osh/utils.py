@@ -1,7 +1,8 @@
-"""Helper utility functions shared across Osh modules.
+"""Core utility functions for Osh.
 
-This module was extracted from `cli.py` to keep the command-line interface
-lean and focused on command definitions while grouping reusable helpers here.
+This module contains helpers used only by core commands and the local
+backend's filesystem logic. Backend-agnostic helpers shared across plugins
+live in :mod:`osh.commons`.
 """
 
 from __future__ import annotations
@@ -9,37 +10,17 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import click
 
+from .commons import discover_addons_paths
+
 try:
     import tomllib
 except ImportError:  # pragma: no cover (<3.11)
     import tomli as tomllib
-
-
-def _find_project_root(
-    start: Path | None = None, *, required: bool = False
-) -> Path | None:
-    """Return the nearest ancestor (including *start*) that contains a .osh file.
-
-    When *required* is True, raise a ClickException instead of returning None.
-    """
-    start = (start or Path.cwd()).resolve()
-    for p in [start] + list(start.parents):
-        if (p / ".osh").exists():
-            return p
-    if required:
-        raise click.ClickException(
-            "Not inside an Osh project. "
-            "Run 'osh init --target <local|docker> <version>' to create one."
-        )
-    return None
 
 
 def _load_user_init_config() -> dict[str, Any]:
@@ -52,7 +33,19 @@ def _load_user_init_config() -> dict[str, Any]:
             data = tomllib.load(f)
     except Exception:  # pragma: no cover
         return {}
-    return data.get("init", {}) if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    # Merge init and user sections, with user taking precedence
+    result = {}
+    if isinstance(data.get("init"), dict):
+        result.update(data["init"])
+    if isinstance(data.get("user"), dict):
+        result.update(data["user"])
+    # Convert string booleans to actual booleans
+    for key, value in result.items():
+        if isinstance(value, str) and value.lower() in ("true", "false"):
+            result[key] = value.lower() == "true"
+    return result
 
 
 def _format_toml_value(value: Any) -> str:
@@ -64,6 +57,9 @@ def _format_toml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
+        # Handle string representations of booleans
+        if value.lower() in ("true", "false"):
+            return value.lower()
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     if isinstance(value, (int, float)):
@@ -71,11 +67,16 @@ def _format_toml_value(value: Any) -> str:
     raise ValueError(f"Unsupported TOML value type: {type(value)}")
 
 
-def _save_user_init_setting(key: str, value: Any) -> None:
-    """Persist *key* = *value* in the ``[init]`` table of ``~/.config/osh/config.toml``.
+def _save_user_init_setting(key: str, value: Any, section: str = "init") -> None:
+    """Persist *key* = *value* in the specified section of ``~/.config/osh/config.toml``.
 
-    Existing content outside the ``[init]`` table is preserved. If the file
+    Existing content outside the specified section is preserved. If the file
     does not exist it is created.
+
+    Args:
+        key: Configuration key
+        value: Configuration value
+        section: TOML section name (default: "init")
     """
     config_file = Path.home() / ".config" / "osh" / "config.toml"
     config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -86,27 +87,27 @@ def _save_user_init_setting(key: str, value: Any) -> None:
     else:
         lines = []
 
-    in_init = False
+    in_section = False
     key_line: int | None = None
-    init_start: int | None = None
+    section_start: int | None = None
     key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*.*$")
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped == "[init]":
-            in_init = True
-            init_start = i
+        if stripped == f"[{section}]":
+            in_section = True
+            section_start = i
             continue
-        if in_init and stripped.startswith("[") and stripped.endswith("]"):
-            in_init = False
+        if in_section and stripped.startswith("[") and stripped.endswith("]"):
+            in_section = False
             continue
-        if in_init and key_pattern.match(line):
+        if in_section and key_pattern.match(line):
             key_line = i
             break
 
     if key_line is not None:
         lines[key_line] = f"{key} = {formatted}\n"
-    elif init_start is not None:
-        insert_pos = init_start + 1
+    elif section_start is not None:
+        insert_pos = section_start + 1
         while insert_pos < len(lines) and (
             lines[insert_pos].strip() == "" or lines[insert_pos].strip().startswith("#")
         ):
@@ -117,13 +118,87 @@ def _save_user_init_setting(key: str, value: Any) -> None:
             lines[-1] += "\n"
         if lines and lines[-1].strip() != "":
             lines.append("\n")
-        lines.append("[init]\n")
+        lines.append(f"[{section}]\n")
         lines.append(f"{key} = {formatted}\n")
 
     config_file.write_text("".join(lines))
 
 
-def _find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
+def save_user_preference(key: str, value: Any, section: str = "user") -> None:
+    """Save a user preference to the global config file.
+
+    This is a higher-level abstraction over _save_user_init_setting that
+    provides a cleaner API for commands to save user preferences.
+
+    Args:
+        key: Preference key
+        value: Preference value
+        section: TOML section name (default: "user")
+    """
+    _save_user_init_setting(key, value, section=section)
+
+
+def _detect_verbosity(base: Path | None) -> str:
+    """Detect appropriate verbosity level based on user experience and project state.
+
+    Args:
+        base: Project root directory, or None if no project found
+
+    Returns:
+        Appropriate verbosity level for the current context
+    """
+    import configparser
+
+    # Check global user config first
+    user_cfg = _load_user_init_config()
+    if "verbosity" in user_cfg:
+        return user_cfg["verbosity"]
+
+    if base is None or not (base / ".osh").exists():
+        return "friendly"  # New user, no project yet
+
+    # Check project config
+    cfg = configparser.ConfigParser()
+    config_path = base / ".osh" / "config"
+    if config_path.exists():
+        cfg.read(config_path)
+        if cfg.has_option("user", "verbosity"):
+            return cfg.get("user", "verbosity")
+
+    # If config exists but no explicit setting, assume normal (experienced user)
+    return "normal"
+
+
+def _detect_emoji_preference(base: Path | None) -> bool:
+    """Detect emoji preference based on user configuration.
+
+    Args:
+        base: Project root directory, or None if no project found
+
+    Returns:
+        True if emojis should be used, False otherwise
+    """
+    import configparser
+
+    if base is not None and (base / ".osh").exists():
+        # Check project config first (highest priority)
+        cfg = configparser.ConfigParser()
+        config_path = base / ".osh" / "config"
+        if config_path.exists():
+            cfg.read(config_path)
+            if cfg.has_option("user", "emoji"):
+                return cfg.get("user", "emoji").lower() == "true"
+
+    # Fall back to global user config
+    user_cfg = _load_user_init_config()
+    if "emoji" in user_cfg:
+        return user_cfg["emoji"]
+
+    # Default to emojis
+    return True
+
+
+def find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
     """Return path to Odoo executable.
 
     Search order:
@@ -149,7 +224,7 @@ def _find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
     return exe
 
 
-def _build_addons_paths(base: Path, *, include_themes: bool = False) -> list[Path]:
+def build_addons_paths(base: Path, *, include_themes: bool = False) -> list[Path]:
     """Return a list of addon paths for *base*.
 
     Includes the Odoo core addons directory, Enterprise, optionally
@@ -180,9 +255,9 @@ def _build_addons_paths(base: Path, *, include_themes: bool = False) -> list[Pat
     return addons_paths
 
 
-def _get_odoo_config_path(base: Path) -> Path:
-    """Return path to Odoo configuration file (.odoorc) in the project root."""
-    return base / ".odoorc"
+def _get_osh_config_path(base: Path) -> Path:
+    """Return path to the Osh project configuration file."""
+    return base / ".osh" / "config"
 
 
 def _get_odoo_base_dir(base: Path) -> Path | None:
@@ -199,128 +274,9 @@ def _get_odoo_base_dir(base: Path) -> Path | None:
 
     # If an executable is available, accept a plain .osh/odoo directory even
     # when it does not yet contain an addons/ subdirectory.
-    if _find_odoo_executable(base):
+    if find_odoo_executable(base):
         possible_odoo = base / ".osh" / "odoo"
         if possible_odoo.exists():
             return possible_odoo
 
     return None
-
-
-def _get_project_name(base: Path) -> str:
-    """Return the project name based on the folder name of the osh environment.
-
-    Args:
-        base: The project root directory (containing .osh)
-
-    Returns:
-        The name of the project directory
-    """
-    return base.name
-
-
-def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
-    """Return a list of addon directories under *base*.
-
-    An *addon* is recognised if the directory contains a ``__manifest__.py``
-    or legacy ``__openerp__.py`` file. The search walks sub-directories up to
-    *max_depth* levels deep to avoid scanning huge trees.
-
-    Directories starting with ``.`` or ``__`` are ignored.
-    """
-
-    addons: list[Path] = []
-
-    def _walk(current: Path, depth: int) -> None:
-        if depth > max_depth:
-            return
-        for child in current.iterdir():
-            if child.name.startswith(".") or child.name.startswith("__"):
-                continue
-            if child.is_dir():
-                if (child / "__manifest__.py").exists() or (
-                    child / "__openerp__.py"
-                ).exists():
-                    addons.append(child)
-                _walk(child, depth + 1)
-
-    _walk(base.resolve(), 0)
-    return sorted(addons)
-
-
-def discover_module_names(base: Path) -> list[str]:
-    """Return module names found in the project addons paths, excluding Odoo core."""
-    odoo_dir = _get_odoo_base_dir(base)
-    module_paths = discover_addons_paths(base)
-    names: list[str] = []
-    for path in module_paths:
-        if odoo_dir and (path == odoo_dir or odoo_dir in path.parents):
-            continue
-        if path.name.startswith(".") or path.name.startswith("__"):
-            continue
-        names.append(path.name)
-    return sorted(set(names))
-
-
-def _is_git_url(spec: str) -> bool:
-    """Return True if *spec* looks like a git URL rather than a local path."""
-    return (
-        spec.startswith("http://")
-        or spec.startswith("https://")
-        or spec.startswith("git@")
-        or spec.startswith("ssh://")
-        or spec.endswith(".git")
-    )
-
-
-def _git_shallow_clone(url: str, branch: str, target: Path) -> None:
-    """Clone *url* at *branch* into *target* with a shallow history."""
-    subprocess.check_call(
-        [
-            "git",
-            "clone",
-            "--progress",
-            "--depth",
-            "1",
-            "--branch",
-            branch,
-            url,
-            str(target),
-        ]
-    )
-
-
-def _get_venv_python(exe: str) -> Path | None:
-    """Return the Python interpreter associated with an Odoo executable."""
-    exe_path = Path(exe).resolve()
-    # Typical venv layout: .venv/bin/odoo or .venv/bin/odoo-bin
-    candidate = (
-        exe_path.parent.parent
-        / ("Scripts" if sys.platform == "win32" else "bin")
-        / "python"
-    )
-    if candidate.exists():
-        return candidate
-    # Fall back to sys.executable if it can import odoo.
-    return Path(sys.executable)
-
-
-def _tool_available(name: str) -> bool:
-    """Return True if *name* is available on PATH."""
-    return shutil.which(name) is not None
-
-
-def _ensure_tool(name: str) -> None:
-    """Raise a ClickException if *name* is not available on PATH."""
-    if not _tool_available(name):
-        raise click.ClickException(f"Required tool '{name}' is not available on PATH.")
-
-
-def _now_stamp() -> str:
-    """Return a filesystem-safe timestamp string."""
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-
-def _safe_name(value: str) -> str:
-    """Make a value safe to embed in a filename."""
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value).strip("._")

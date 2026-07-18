@@ -10,7 +10,7 @@ import subprocess
 
 import click
 
-from ...utils import _find_project_root
+from ...commons import find_project_root
 
 
 @click.command(name="prune")
@@ -38,7 +38,7 @@ def prune(aggressive: bool, dry_run: bool) -> None:  # noqa: D401
       osh prune --aggressive
       osh prune --dry-run
     """
-    base = _find_project_root(required=True)
+    base = find_project_root(required=True)
 
     osh_dir = base / ".osh"
     sources = ["odoo", "enterprise", "design-themes"]

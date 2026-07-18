@@ -6,11 +6,10 @@ from pathlib import Path
 
 import click
 
-from ...db import _create_db, _db_exists, _drop_db, _resolve_db_name
-from ...plugins.osh_backup.cache import _get_cache_dir, _list_cache, _resolve_cache_id
-from ...utils import _find_odoo_executable, _find_project_root
-from .neutralize import _neutralize_database
-from .restore import _restore_dump
+from ...cache import get_cache_dir, list_cache, resolve_cache_id
+from ...commons import find_project_root
+from ...db import resolve_db_name, resolve_run_target
+from ...plugin_loader import load_backends
 
 
 @click.command(name="restore")
@@ -52,37 +51,29 @@ def restore(
       osh restore /path/to/backup.sql.gz --force
     """
 
-    base = _find_project_root(required=True)
-    exe = _find_odoo_executable(base, required=True)
+    base = find_project_root(required=True)
 
     dump_path = _resolve_dump(base, dump)
 
-    db_name = _resolve_db_name(base, verbose=False)
+    db_name = resolve_db_name(base, verbose=False)
     if not db_name:
         raise click.ClickException("Could not resolve a target database name.")
 
-    if _db_exists(base, db_name):
-        if not force:
-            raise click.ClickException(
-                f"Database '{db_name}' already exists. Use --force to overwrite."
-            )
-        if dry_run:
-            click.echo(f"Would drop database '{db_name}'", err=True)
-        else:
-            _drop_db(base, db_name)
+    backend_name = resolve_run_target(base, "local", ctx)
+    backend_cls = load_backends().get(backend_name)
+    if backend_cls is None:
+        raise click.ClickException(f"Unknown restore target: {backend_name}")
+    backend = backend_cls()
 
-    if dry_run:
-        click.echo(f"Would create database '{db_name}'", err=True)
-    else:
-        try:
-            _create_db(base, db_name)
-        except RuntimeError as exc:
-            raise click.ClickException(str(exc)) from exc
-
-    _restore_dump(base, dump_path, db_name, dry_run=dry_run)
-
-    if not no_neutralize:
-        _neutralize_database(base, exe, db_name, dry_run=dry_run)
+    backend.restore(
+        ctx,
+        base,
+        db_name,
+        dump_path,
+        force=force,
+        no_neutralize=no_neutralize,
+        dry_run=dry_run,
+    )
 
     if dry_run:
         click.echo(f"Would restore '{db_name}' from {dump_path}", err=True)
@@ -92,10 +83,10 @@ def restore(
 
 def _resolve_dump(base: Path, dump: str | None) -> Path:
     """Resolve a dump argument to an existing file path."""
-    cache_dir = _get_cache_dir(base)
+    cache_dir = get_cache_dir(base)
 
     if dump is None:
-        entries = _list_cache(base, limit=1)
+        entries = list_cache(base, limit=1)
         if not entries:
             raise click.ClickException(
                 "No cached backup found. Run 'osh backup download <source>' first."
@@ -110,7 +101,7 @@ def _resolve_dump(base: Path, dump: str | None) -> Path:
                 f"Invalid cache reference: {dump}. Use cache:<number>."
             )
         try:
-            return _resolve_cache_id(base, cache_id)
+            return resolve_cache_id(base, cache_id)
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
 

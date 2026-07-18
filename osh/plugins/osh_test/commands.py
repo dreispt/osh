@@ -10,8 +10,8 @@ from __future__ import annotations
 import click
 
 from ...commands.run_cmd import run
-from ...db import _db_exists, _drop_db, _resolve_test_db_name
-from ...utils import _find_project_root, discover_module_names
+from ...commons import discover_module_names, find_project_root
+from ...db import db_exists, drop_db, resolve_test_db_name
 
 
 @click.command(name="test")
@@ -74,7 +74,7 @@ def test(
       osh test --dry-run
     """
 
-    base = _find_project_root(required=True)
+    base = find_project_root(required=True)
 
     if not modules:
         if not test_all:
@@ -86,15 +86,15 @@ def test(
             raise click.ClickException("No project modules found to test.")
 
     module_list = ",".join(modules)
-    db_name = _resolve_test_db_name(base, current_db, test_db)
+    db_name = resolve_test_db_name(base, current_db, test_db)
 
-    need_install = not _db_exists(base, db_name)
+    need_install = not db_exists(base, db_name)
     if need_install and current_db:
         raise click.ClickException(f"Current database '{db_name}' does not exist.")
 
     if dropdb and not current_db:
         if not dry_run:
-            _drop_db(base, db_name)
+            drop_db(base, db_name)
         need_install = True
 
     odoo_args = ["-d", db_name]

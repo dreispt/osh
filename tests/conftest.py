@@ -48,9 +48,9 @@ def osh_source_dirs(tmp_project: Path) -> Path:
 
 @pytest.fixture
 def patch_resolve_db_name(monkeypatch) -> None:
-    """Patch ``osh.commands.run_cmd._resolve_db_name`` to return ``testdb``."""
+    """Patch ``osh.commands.run_cmd.resolve_db_name`` to return ``testdb``."""
     monkeypatch.setattr(
-        "osh.commands.run_cmd._resolve_db_name", lambda base, verbose: "testdb"
+        "osh.commands.run_cmd.resolve_db_name", lambda base, verbose: "testdb"
     )
 
 
@@ -59,7 +59,7 @@ def capture_execvp(monkeypatch) -> list[tuple[str, list[str]]]:
     """Capture ``osh.commands.run_cmd.os.execvp`` calls and return them."""
     exec_calls: list[tuple[str, list[str]]] = []
     monkeypatch.setattr(
-        "osh.commands.run_cmd.os.execvp",
+        "osh.plugins.osh_local.backends.os.execvp",
         lambda exe, args: exec_calls.append((exe, args)),
     )
     return exec_calls
@@ -113,14 +113,14 @@ def subprocess_check_call_capture(monkeypatch):
 def patch_cache(monkeypatch, tmp_path: Path) -> Path:
     """Redirect the central source cache into a temporary directory."""
     cache = tmp_path / "cache"
-    monkeypatch.setattr("osh.commands.init_cmd.SOURCE_CACHE_DIR", cache)
+    monkeypatch.setattr("osh.plugins.osh_local.utils.SOURCE_CACHE_DIR", cache)
     return cache
 
 
 def real_git_only_subprocess(monkeypatch) -> list:
     """Run git commands for real; record/no-op everything else.
 
-    Patches ``osh.commands.init_cmd.subprocess.check_call`` so that calls
+    Patches ``osh.plugins.osh_local.utils.subprocess.check_call`` so that calls
     containing ``git`` are executed normally, while other calls are recorded in
     the returned list. Also disables ``venv.create``.
     """
@@ -134,6 +134,8 @@ def real_git_only_subprocess(monkeypatch) -> list:
         calls.append(cmd)
         return None
 
-    monkeypatch.setattr("osh.commands.init_cmd.subprocess.check_call", fake_check_call)
+    monkeypatch.setattr(
+        "osh.plugins.osh_local.utils.subprocess.check_call", fake_check_call
+    )
     monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls

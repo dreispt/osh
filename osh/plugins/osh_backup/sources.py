@@ -15,8 +15,9 @@ from urllib.request import Request, urlopen
 
 import click
 
-from ...db import _get_pg_credentials
-from ...utils import _get_odoo_config_path, _now_stamp, _safe_name
+from ...commons import get_odoo_config_path
+from ...db import get_pg_credentials
+from .utils import _now_stamp, _safe_name
 
 
 class SourceError(click.ClickException):
@@ -73,7 +74,7 @@ class DbSource(BackupSource):
     def _credentials(self) -> tuple[list[str], dict[str, str]]:
         if self.base is None:
             return [], dict(os.environ)
-        return _get_pg_credentials(self.base)
+        return get_pg_credentials(self.base)
 
     def _run_dump(self, args: list[str], env: dict[str, str], output: Path) -> None:
         try:
@@ -130,7 +131,7 @@ class DbSource(BackupSource):
     def _data_dir(self) -> Path | None:
         if self.base is None:
             return Path.home() / ".local" / "share" / "Odoo"
-        odoo_rc = _get_odoo_config_path(self.base)
+        odoo_rc = get_odoo_config_path(self.base)
         if odoo_rc.exists():
             import configparser
 

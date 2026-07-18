@@ -1,4 +1,9 @@
-"""Database neutralization helpers for `osh restore`."""
+"""Database neutralization helpers.
+
+Neutralizes a restored database either via ``odoo-bin neutralize`` (when
+available) or by applying a bundled fallback SQL script. Shared by the
+``osh restore`` command and by backends that implement ``neutralize()``.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +13,17 @@ from pathlib import Path
 
 import click
 
-from ...db import _run_psql_script
-from ...utils import _build_addons_paths, _get_venv_python
+from .db import run_psql_script
+from .utils import build_addons_paths
 
 
-def _neutralize_database(
-    base: Path, exe: str, db_name: str, *, dry_run: bool = False
+def neutralize_database(
+    base: Path,
+    exe: str,
+    db_name: str,
+    *,
+    python: Path | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Neutralize *db_name* using the best available strategy."""
     if dry_run:
@@ -23,16 +33,15 @@ def _neutralize_database(
         )
         return
 
-    if _neutralize_command_available(exe):
+    if _neutralize_command_available(exe, python):
         _neutralize_with_odoo(base, exe, db_name)
     else:
         _neutralize_with_sql(base, db_name)
 
 
-def _neutralize_command_available(exe: str) -> bool:
+def _neutralize_command_available(exe: str, python: Path | None = None) -> bool:
     """Return True if the installed Odoo provides `odoo-bin neutralize`."""
-    python = _get_venv_python(exe)
-    if not python:
+    if python is None:
         return False
     try:
         subprocess.run(
@@ -50,7 +59,7 @@ def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
     """Run ``odoo-bin neutralize`` against the target database."""
     args = [exe, "--config", str(base / ".odoorc")]
 
-    addons_paths = _build_addons_paths(base)
+    addons_paths = build_addons_paths(base)
     if addons_paths:
         unique_paths = sorted({str(p) for p in addons_paths})
         args.extend(["--addons-path", ",".join(unique_paths)])
@@ -72,9 +81,9 @@ def _neutralize_with_sql(base: Path, db_name: str) -> None:
     """Apply the bundled fallback neutralization SQL script."""
     try:
         with importlib.resources.path(
-            "osh.plugins.osh_restore.data", "neutralize_fallback.sql"
+            "osh.data", "neutralize_fallback.sql"
         ) as script_path:
-            _run_psql_script(base, db_name, script_path)
+            run_psql_script(base, db_name, script_path)
     except RuntimeError as exc:
         raise click.ClickException(
             f"Database restored but neutralization failed: {exc}\n"

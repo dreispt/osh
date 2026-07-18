@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osh.plugins.osh_local.backends import LocalBackend
 from osh.plugins.osh_restore.commands import restore
 
 
@@ -18,7 +19,7 @@ def _setup_fake_db_config(project: Path, db_name: str = "testdb") -> None:
 
 
 @pytest.fixture
-def patched_restore(monkeypatch, in_project: Path, fake_odoo_executable: Path):
+def patched_restore(monkeypatch, in_project: Path):
     """Patch external dependencies used by `osh restore` for isolated tests."""
     state = {
         "restore": None,
@@ -29,31 +30,19 @@ def patched_restore(monkeypatch, in_project: Path, fake_odoo_executable: Path):
 
     _setup_fake_db_config(in_project)
 
-    monkeypatch.setattr(
-        "osh.plugins.osh_restore.commands._db_exists", lambda base, db: False
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_restore.commands._drop_db",
-        lambda base, db: state["dropped"].append(db),
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_restore.commands._create_db",
-        lambda base, db: state["created"].append(db),
-    )
-
-    def capture_restore(base, dump_path, db_name, *, dry_run=False):
+    def capture_restore(
+        self, ctx, base, db_name, dump_path, *, dry_run=False, **options
+    ):
         state["restore"] = (dump_path, db_name, dry_run)
+        if not options.get("no_neutralize"):
+            self.neutralize(ctx, base, db_name, dry_run=dry_run)
 
-    monkeypatch.setattr(
-        "osh.plugins.osh_restore.commands._restore_dump", capture_restore
-    )
+    monkeypatch.setattr(LocalBackend, "restore", capture_restore)
 
-    def capture_neutralize(base, exe, db_name, *, dry_run=False):
-        state["neutralize"] = (exe, db_name, dry_run)
+    def capture_neutralize(self, ctx, base, db_name, *, dry_run=False):
+        state["neutralize"] = (base, db_name, dry_run)
 
-    monkeypatch.setattr(
-        "osh.plugins.osh_restore.commands._neutralize_database", capture_neutralize
-    )
+    monkeypatch.setattr(LocalBackend, "neutralize", capture_neutralize)
 
     return state
 
@@ -70,12 +59,11 @@ def test_restore_uses_latest_cache(patched_restore, in_project: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(restore, [])
 
-    exe = str(in_project / ".venv" / "bin" / "odoo")
     assert result.exit_code == 0
     assert patched_restore["restore"][0] == new
     assert patched_restore["restore"][1] == "testdb"
     assert patched_restore["restore"][2] is False
-    assert patched_restore["neutralize"] == (exe, "testdb", False)
+    assert patched_restore["neutralize"] == (in_project, "testdb", False)
 
 
 def test_restore_cache_id(patched_restore, in_project: Path) -> None:
@@ -107,7 +95,7 @@ def test_restore_explicit_file(patched_restore, in_project: Path) -> None:
     assert patched_restore["restore"][1] == "testdb"
 
 
-def test_restore_no_cache_error(in_project: Path, fake_odoo_executable: Path) -> None:
+def test_restore_no_cache_error(in_project: Path) -> None:
     """`osh restore` without an argument fails when the cache is empty."""
     _setup_fake_db_config(in_project)
 
@@ -135,16 +123,14 @@ def test_restore_dry_run(patched_restore, in_project: Path) -> None:
     assert patched_restore["created"] == []
 
 
-def test_restore_db_exists_no_force(
-    in_project: Path, fake_odoo_executable: Path, monkeypatch
-) -> None:
+def test_restore_db_exists_no_force(in_project: Path, monkeypatch) -> None:
     """`osh restore` fails non-interactively when the database exists without --force."""
     _setup_fake_db_config(in_project)
     dump = in_project / "dump.dump"
     dump.write_bytes(b"x")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_restore.commands._db_exists", lambda base, db: True
+        "osh.plugins.osh_local.backends.db_exists", lambda base, db: True
     )
 
     runner = CliRunner()

@@ -12,12 +12,8 @@ import os
 
 import click
 
-from ..utils import (
-    _build_addons_paths,
-    _find_odoo_executable,
-    _find_project_root,
-    _get_odoo_config_path,
-)
+from ..commons import find_project_root, get_odoo_config_path
+from ..utils import build_addons_paths, find_odoo_executable
 
 
 @click.command(name="odoo", context_settings=dict(ignore_unknown_options=True))
@@ -55,13 +51,13 @@ def odoo(
       osh odoo --dry-run -- shell -d mydb
     """
 
-    base = _find_project_root(required=True)
-    exe = _find_odoo_executable(base, required=True)
+    base = find_project_root(required=True)
+    exe = find_odoo_executable(base, required=True)
 
     args: list[str] = [exe]
 
     # Use .odoorc in the project root unless already specified.
-    odoo_rc = _get_odoo_config_path(base)
+    odoo_rc = get_odoo_config_path(base)
     if odoo_rc.exists() and not any(
         arg.startswith("--config") or arg.startswith("-c") for arg in extra_args
     ):
@@ -71,7 +67,7 @@ def odoo(
 
     # Discover addons path unless already specified.
     if not any(arg.startswith("--addons-path") for arg in extra_args):
-        addons_paths = _build_addons_paths(base)
+        addons_paths = build_addons_paths(base)
         if addons_paths:
             addons_path_str = ",".join(str(p) for p in addons_paths)
             if verbose:

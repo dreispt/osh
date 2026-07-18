@@ -163,14 +163,14 @@ def test_test_dropdb_dry_run_does_not_drop_database(
     monkeypatch,
     fake_odoo_executable: Path,
 ) -> None:
-    """``osh test --dropdb --dry-run`` does not call ``_drop_db``."""
+    """``osh test --dropdb --dry-run`` does not call ``drop_db``."""
     my_module = tmp_project / "my_module"
     my_module.mkdir()
     (my_module / "__manifest__.py").write_text("{}")
 
     dropped: list[object] = []
     monkeypatch.setattr(
-        "osh.plugins.osh_test.commands._drop_db", lambda *a, **k: dropped.append(True)
+        "osh.plugins.osh_test.commands.drop_db", lambda *a, **k: dropped.append(True)
     )
 
     monkeypatch.chdir(tmp_project)
@@ -178,5 +178,5 @@ def test_test_dropdb_dry_run_does_not_drop_database(
     result = runner.invoke(main, ["test", "--all", "--dropdb", "--dry-run"])
 
     assert result.exit_code == 0, result.output
-    assert not dropped, "_drop_db was called during dry-run"
+    assert not dropped, "drop_db was called during dry-run"
     assert "-i my_module" in result.output
