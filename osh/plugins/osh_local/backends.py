@@ -58,7 +58,8 @@ class LocalBackend(Backend):
     ) -> bool:
         from ...commands.init_cmd import init_local
 
-        init_local.callback(
+        return init_local(
+            ctx,
             version,
             target,
             options.get("odoo_source"),
@@ -67,8 +68,8 @@ class LocalBackend(Backend):
             edition,
             options.get("save", False),
             options.get("assume_yes", False),
+            dry_run=dry_run,
         )
-        return True
 
     def run(
         self,

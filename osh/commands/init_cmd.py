@@ -156,7 +156,7 @@ def init(
         user_cfg = _load_user_init_config()
         edition = user_cfg.get("edition") or edition or "ce"
     edition = (edition or "ce").lower()
-    if save and edition:
+    if save and edition and not dry_run:
         _save_user_init_setting("edition", edition)
 
     from ..plugin_loader import load_backends
@@ -186,7 +186,9 @@ def init(
     if not dry_run:
         _record_run_target(target, backend_name)
 
-    if result:
+    if dry_run:
+        click.echo(f"Dry run for project directory at {target}")
+    elif result:
         click.echo(f"Initialised project directory at {target}")
     else:
         click.echo(
@@ -195,68 +197,6 @@ def init(
         )
 
 
-@click.command(name="init-local")
-@click.argument("version", type=str)
-@click.argument(
-    "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
-)
-@click.option(
-    "-c",
-    "--odoo-source",
-    help="Odoo source: an existing local directory or a git URL. "
-    "Defaults to the central cache (populated from GitHub).",
-)
-@click.option(
-    "-e",
-    "--enterprise-source",
-    help="Enterprise source: an existing local directory or a git URL. "
-    "Defaults to the central cache (populated from GitHub).",
-)
-@click.option(
-    "-t",
-    "--themes-source",
-    help="Design-themes source: an existing local directory or a git URL. "
-    "Defaults to the central cache (populated from GitHub).",
-)
-@click.option(
-    "--edition",
-    type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
-    default=None,
-    envvar="OSH_INIT_EDITION",
-    help="Edition to initialize: ce (Community), ee (Enterprise), "
-    "sh (Odoo.sh with Enterprise + design-themes). "
-    "May also be set in ~/.config/osh/config.toml ([init] edition = ...).",
-)
-@click.option(
-    "--ce",
-    "edition",
-    flag_value="ce",
-    help="Alias for --edition ce.",
-)
-@click.option(
-    "--ee",
-    "edition",
-    flag_value="ee",
-    help="Alias for --edition ee.",
-)
-@click.option(
-    "--sh",
-    "edition",
-    flag_value="sh",
-    help="Alias for --edition sh.",
-)
-@click.option(
-    "--save",
-    is_flag=True,
-    help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
-)
-@click.option(
-    "--yes",
-    "assume_yes",
-    is_flag=True,
-    help="Assume yes for interactive prompts; useful when a TTY is available but input is not desired.",
-)
-@click.pass_context
 def init_local(
     ctx: click.Context,
     version: str,
@@ -267,7 +207,8 @@ def init_local(
     edition: str | None,
     save: bool,
     assume_yes: bool,
-) -> None:  # noqa: D401
+    dry_run: bool = False,
+) -> bool | None:  # noqa: D401
     """Initialise *directory* for an Odoo project.
 
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
@@ -359,7 +300,7 @@ def init_local(
         user_cfg = _load_user_init_config()
         edition = user_cfg.get("edition") or edition or "ce"
     edition = (edition or "ce").lower()
-    if save and edition:
+    if save and edition and not dry_run:
         _save_user_init_setting("edition", edition)
 
     backend.pre_init(
@@ -428,6 +369,10 @@ def init_local(
         err=True,
     )
 
+    if dry_run:
+        click.echo("Dry run: no changes made.", err=True)
+        return True
+
     if assume_yes:
         click.echo("Proceeding with --yes (skipping confirmation).", err=True)
     elif sys.stdin.isatty():
@@ -483,6 +428,7 @@ def init_local(
         )
     else:
         click.echo(f"Initialised project directory at {target}")
+    return True
 
 
 class LocalInitBackend(InitBackend):

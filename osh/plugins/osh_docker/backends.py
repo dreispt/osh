@@ -148,8 +148,7 @@ class DockerBackend(Backend):
                 else:
                     _generate_compose_file(target, version)
                     click.echo(f"Generated {osh_compose}.", err=True)
-            if not dry_run:
-                compose_file = str(_COMPOSE_FILE)
+            compose_file = str(_COMPOSE_FILE)
 
         if dry_run:
             click.echo(
