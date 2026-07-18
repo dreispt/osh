@@ -28,8 +28,10 @@ def _save_docker_config(
     service: str | None,
     command: str | None,
     compose_file: str | None = None,
+    version: str | None = None,
+    edition: str | None = None,
 ) -> None:
-    """Write ``.osh/docker.toml`` with the selected service and command."""
+    """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     config_path = base / _DOCKER_TOML
     config_path.parent.mkdir(parents=True, exist_ok=True)
     service = service or "odoo"
@@ -37,6 +39,10 @@ def _save_docker_config(
     lines = [f"service = {service!r}", f"command = {command!r}"]
     if compose_file:
         lines.append(f"compose_file = {compose_file!r}")
+    if version:
+        lines.append(f"version = {version!r}")
+    if edition:
+        lines.append(f"edition = {edition!r}")
     config_path.write_text("\n".join(lines) + "\n")
 
 

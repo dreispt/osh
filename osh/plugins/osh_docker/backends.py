@@ -232,6 +232,18 @@ class DockerBackend(Backend):
 
         edition = options.get("edition") or cfg.get("edition") or "ce"
         version = cfg.get("version", "")
+
+        if edition in ("ee", "sh") and not version:
+            required = ["enterprise"]
+            if edition == "sh":
+                required.append("design-themes")
+            missing = [name for name in required if not (base / ".osh" / name).exists()]
+            if missing:
+                raise click.ClickException(
+                    "Project is missing required source copies and no version is "
+                    "configured. Run 'osh init ...' first."
+                )
+
         ensure_osh_sources(
             base,
             version,
@@ -246,7 +258,9 @@ class DockerBackend(Backend):
         if "--addons-path" not in odoo_args:
             addons_paths = build_addons_paths(base, include_themes=True)
             container_paths = [
-                f"/mnt/extra-addons/{p.relative_to(base)}" for p in addons_paths
+                f"/mnt/extra-addons/{p.relative_to(base)}"
+                for p in addons_paths
+                if p.is_relative_to(base)
             ]
             if container_paths:
                 odoo_args.extend(["--addons-path", ",".join(container_paths)])

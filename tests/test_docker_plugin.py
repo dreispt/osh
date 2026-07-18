@@ -267,3 +267,65 @@ def test_docker_backend_prune_not_implemented(tmp_project: Path) -> None:
     backend = DockerBackend()
     with pytest.raises(click.ClickException):
         backend.prune(None, tmp_project)
+
+
+def test_init_docker_writes_version_and_edition(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``osh init --target docker`` persists the Odoo version and edition."""
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+
+    ent = tmp_project / "enterprise"
+    (ent / "web").mkdir(parents=True, exist_ok=True)
+    (ent / "web" / "__manifest__.py").touch()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "init",
+            "19.0",
+            "--target",
+            "docker",
+            "--service",
+            "odoo",
+            "--ee",
+            "--enterprise-source",
+            str(ent),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    text = docker_toml.read_text()
+    assert "version = '19.0'" in text
+    assert "edition = 'ee'" in text
+
+
+def test_docker_backend_run_appends_addons_path_for_sh(
+    tmp_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """``run`` includes the mounted container --addons-path for sh editions."""
+    _patch_docker_tools(monkeypatch)
+
+    osh_dir = tmp_project / ".osh"
+    (osh_dir / "enterprise" / "web").mkdir(parents=True, exist_ok=True)
+    (osh_dir / "design-themes" / "theme_buzzy").mkdir(parents=True, exist_ok=True)
+    docker_toml = osh_dir / "docker.toml"
+    docker_toml.write_text(
+        "service = 'odoo'\n"
+        'command = "odoo"\n'
+        "edition = 'sh'\n"
+        "version = '19.0'\n"
+    )
+
+    backend = DockerBackend()
+    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+
+    err = capsys.readouterr().err
+    assert "--addons-path" in err
+    assert "/mnt/extra-addons/.osh/enterprise" in err
+    assert "/mnt/extra-addons/.osh/design-themes" in err
