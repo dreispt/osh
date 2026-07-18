@@ -105,6 +105,13 @@ def _set_last_db(base: Path, db_name: str) -> None:
     _save_osh_config(base, cfg)
 
 
+def _record_db_name(base: Path, db_name: str) -> None:
+    """Store *db_name* as the preferred database for the current branch and as last used."""
+    branch = _get_current_branch(base) or "default"
+    _set_branch_db(base, branch, db_name)
+    _set_last_db(base, db_name)
+
+
 def _get_current_branch(base: Path) -> str | None:
     """Return the current git branch, or None if not in a git repo."""
     try:

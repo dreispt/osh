@@ -8,7 +8,12 @@ from pathlib import Path
 import click
 
 from ..backends import RunBackend
-from ..db import _record_run_target, _resolve_db_name, _resolve_run_target
+from ..db import (
+    _record_db_name,
+    _record_run_target,
+    _resolve_db_name,
+    _resolve_run_target,
+)
 from ..plugin_loader import load_backends
 from ..utils import _build_addons_paths, _find_odoo_executable, _find_project_root
 
@@ -89,7 +94,8 @@ def run(
       - If no explicit --config/-c is provided, creates ``.osh/odoo.conf`` and
         passes ``--config .osh/odoo.conf --save`` so Odoo persists the computed
         configuration for later manual use (local target only).
-      - Remembers the database name per git branch.
+      - Remembers the database name per git branch (including explicit ``-d``
+        / ``--database`` values for later runs).
       - Passes ``-d`` and ``--db-filter`` on the command line.
 
     Examples:
@@ -114,16 +120,10 @@ def run(
         raise click.ClickException(f"Unknown run target: {backend_name}")
     backend = backend_cls()
 
-    explicit_db: str | None = None
-    for i, arg in enumerate(extra_args):
-        if arg in ("-d", "--database"):
-            explicit_db = extra_args[i + 1] if i + 1 < len(extra_args) else None
-        elif arg.startswith("-d"):
-            explicit_db = arg[2:]
-        elif arg.startswith("--database="):
-            explicit_db = arg.split("=", 1)[1]
-
+    explicit_db = _parse_explicit_db(extra_args)
     db_name = explicit_db or _resolve_db_name(base, verbose)
+    if db_name and explicit_db:
+        _record_db_name(base, db_name)
 
     db_args: list[str] = []
     if db_name:
@@ -131,17 +131,15 @@ def run(
             click.echo(f"Using database: {db_name}", err=True)
         if not explicit_db:
             db_args.extend(["-d", db_name])
-        if not any(arg.startswith("--db-filter") for arg in extra_args):
+        if not _has_arg(extra_args, "--db-filter"):
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
     if backend_name == "local":
         exe = _find_odoo_executable(base, required=True)
 
-        has_explicit_config = any(
-            arg.startswith("--config") or arg.startswith("-c") for arg in extra_args
-        )
+        has_explicit_config = _has_arg(extra_args, "--config", short="-c")
 
-        if not any(arg.startswith("--addons-path") for arg in extra_args):
+        if not _has_arg(extra_args, "--addons-path"):
             addons_paths = _build_addons_paths(base, include_themes=True)
         else:
             addons_paths = []
@@ -173,3 +171,26 @@ def run(
         args.extend(extra_args)
 
     backend.run(ctx, base, args, dry_run=dry_run, verbose=verbose)
+
+
+def _parse_explicit_db(extra_args: tuple[str, ...]) -> str | None:
+    """Return the database name explicitly passed via -d/--database, if any."""
+    for i, arg in enumerate(extra_args):
+        if arg in ("-d", "--database"):
+            value = extra_args[i + 1] if i + 1 < len(extra_args) else ""
+            return value if value and not value.startswith("-") else None
+        if arg.startswith("-d") and len(arg) > 2:
+            return arg[2:]
+        if arg.startswith("--database="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def _has_arg(extra_args: tuple[str, ...], long: str, short: str | None = None) -> bool:
+    """Return True if *extra_args* contains the given long (and optional short) option."""
+    for arg in extra_args:
+        if arg == long or arg.startswith(f"{long}="):
+            return True
+        if short and (arg == short or arg.startswith(short)):
+            return True
+    return False

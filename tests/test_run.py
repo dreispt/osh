@@ -145,7 +145,7 @@ def test_test_wraps_run_with_install_and_test_enable(
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(main, ["test", "--dry-run"])
+    result = runner.invoke(main, ["test", "--all", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert "-i my_module" in result.output
@@ -175,7 +175,7 @@ def test_test_dropdb_dry_run_does_not_drop_database(
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(main, ["test", "--dropdb", "--dry-run"])
+    result = runner.invoke(main, ["test", "--all", "--dropdb", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert not dropped, "_drop_db was called during dry-run"
