@@ -16,7 +16,7 @@ def test_prune_outside_project_fails(tmp_path: Path, monkeypatch) -> None:
     runner = CliRunner()
     result = runner.invoke(prune, [])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 0
     assert "Not inside an Osh project" in result.output
 
 

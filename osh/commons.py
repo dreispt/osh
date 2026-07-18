@@ -43,7 +43,8 @@ def find_project_root(
     When not inside a git repository, falls back to walking up from *start*
     looking for a ``.osh`` directory.
 
-    When *required* is True, raise a ClickException instead of returning None.
+    When *required* is True, print an informational message and exit if no
+    project is found, instead of returning None.
     """
     start = (start or Path.cwd()).resolve()
 
@@ -56,10 +57,7 @@ def find_project_root(
         if parent != git_root and (parent / ".osh").exists():
             return parent
         if required:
-            raise click.ClickException(
-                "Not inside an Osh project. "
-                "Run 'osh init --target <local|docker> <version>' to create one."
-            )
+            _not_in_project()
         return None
 
     # No git repo: walk up looking for .osh (supports non-git projects).
@@ -67,11 +65,17 @@ def find_project_root(
         if (p / ".osh").exists():
             return p
     if required:
-        raise click.ClickException(
-            "Not inside an Osh project. "
-            "Run 'osh init --target <local|docker> <version>' to create one."
-        )
+        _not_in_project()
     return None
+
+
+def _not_in_project() -> None:
+    """Print a helpful message and exit when no Osh project is found."""
+    click.echo(
+        "Not inside an Osh project. "
+        "Run 'osh init --target <local|docker> <version>' to create one."
+    )
+    raise SystemExit(0)
 
 
 def get_odoo_config_path(base: Path) -> Path:

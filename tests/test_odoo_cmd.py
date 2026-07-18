@@ -58,5 +58,5 @@ def test_odoo_outside_project(monkeypatch, tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(odoo, ["--dry-run", "shell"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 0
     assert "Not inside an Osh project" in result.output
