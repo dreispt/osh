@@ -29,55 +29,11 @@ class InitCommand(click.Command):
 
     def format_options(self, ctx, formatter):
         """Write options grouped by target, then a Targets section."""
-        common_opts = []
-        target_groups: dict[str, list[click.Parameter]] = {}
+        common_opts, target_groups = _split_params_by_target(self.get_params(ctx))
 
-        for param in self.get_params(ctx):
-            if isinstance(param, click.Argument):
-                continue
-            group = getattr(param, "target_group", None)
-            if group:
-                target_groups.setdefault(group, []).append(param)
-            else:
-                common_opts.append(param)
-
-        # Common options
-        help_records: list[tuple[str, str]] = []
-        for param in common_opts:
-            record = param.get_help_record(ctx)
-            if record:
-                help_records.append(record)
-        if help_records:
-            with formatter.section("Options"):
-                formatter.write_dl(help_records)
-
-        # Target-specific option groups
-        backends = load_backends()
-        for target_name, opts in target_groups.items():
-            backend_cls = backends.get(target_name)
-            label = (
-                (getattr(backend_cls, "label", None) or target_name)
-                if backend_cls
-                else target_name
-            )
-            records: list[tuple[str, str]] = []
-            for param in opts:
-                record = param.get_help_record(ctx)
-                if record:
-                    records.append(record)
-            if records:
-                with formatter.section(f"{label} options (--target {target_name})"):
-                    formatter.write_dl(records)
-
-        # Targets section with descriptions
-        if backends:
-            target_records: list[tuple[str, str]] = []
-            for name in sorted(backends):
-                cls = backends[name]
-                desc = getattr(cls, "description", "") or ""
-                target_records.append((name, desc))
-            with formatter.section("Targets"):
-                formatter.write_dl(target_records)
+        _format_common_options(ctx, formatter, common_opts)
+        _format_target_options(ctx, formatter, target_groups)
+        _format_targets_section(formatter)
 
     def format_help_text(self, ctx, formatter):
         """Write the command docstring plus per-target help_text."""
@@ -96,6 +52,66 @@ class InitCommand(click.Command):
                 label = getattr(cls, "label", None) or name
                 with formatter.section(f"Target: {label}"):
                     formatter.write_text(help_text)
+
+
+def _split_params_by_target(
+    params: list[click.Parameter],
+) -> tuple[list[click.Parameter], dict[str, list[click.Parameter]]]:
+    """Separate common options from target-grouped options."""
+    common_opts: list[click.Parameter] = []
+    target_groups: dict[str, list[click.Parameter]] = {}
+    for param in params:
+        if isinstance(param, click.Argument):
+            continue
+        group = getattr(param, "target_group", None)
+        if group:
+            target_groups.setdefault(group, []).append(param)
+        else:
+            common_opts.append(param)
+    return common_opts, target_groups
+
+
+def _format_common_options(
+    ctx: click.Context, formatter: click.HelpFormatter, opts: list[click.Parameter]
+) -> None:
+    """Write the common (non-target) options section."""
+    records = [r for r in (p.get_help_record(ctx) for p in opts) if r]
+    if records:
+        with formatter.section("Options"):
+            formatter.write_dl(records)
+
+
+def _format_target_options(
+    ctx: click.Context,
+    formatter: click.HelpFormatter,
+    target_groups: dict[str, list[click.Parameter]],
+) -> None:
+    """Write one section per target with its target-specific options."""
+    backends = load_backends()
+    for target_name, opts in target_groups.items():
+        backend_cls = backends.get(target_name)
+        label = (
+            (getattr(backend_cls, "label", None) or target_name)
+            if backend_cls
+            else target_name
+        )
+        records = [r for r in (p.get_help_record(ctx) for p in opts) if r]
+        if records:
+            with formatter.section(f"{label} options (--target {target_name})"):
+                formatter.write_dl(records)
+
+
+def _format_targets_section(formatter: click.HelpFormatter) -> None:
+    """Write the Targets section listing each backend name and description."""
+    backends = load_backends()
+    if not backends:
+        return
+    records = [
+        (name, getattr(backends[name], "description", "") or "")
+        for name in sorted(backends)
+    ]
+    with formatter.section("Targets"):
+        formatter.write_dl(records)
 
 
 @click.command(name="init", cls=InitCommand)
