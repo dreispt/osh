@@ -122,6 +122,6 @@ class LocalBackend(Backend):
         aggressive: bool = False,
         dry_run: bool = False,
     ) -> None:
-        from ..osh_prune.commands import prune as prune_cmd
+        from .commands import prune as prune_cmd
 
         prune_cmd.callback(aggressive, dry_run)

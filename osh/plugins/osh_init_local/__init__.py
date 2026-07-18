@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .backends import LocalBackend
+from .commands import prune
 
 
 def get_backends() -> list[type]:
@@ -12,7 +13,7 @@ def get_backends() -> list[type]:
 
 def get_commands() -> list:
     """Return Click commands exposed by this plugin."""
-    return []
+    return [prune]
 
 
-__all__ = ["LocalBackend", "get_backends", "get_commands"]
+__all__ = ["LocalBackend", "prune", "get_backends", "get_commands"]
