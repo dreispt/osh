@@ -7,7 +7,7 @@ Initialises a project directory for Osh by:
 4. Detecting existing Odoo/Enterprise/design-themes source trees inside *target*;
    if found (and the selected edition allows it), creates symlinks in `.osh/`
    pointing to them.
-5. If no sources are found, asks to use a central cache. The cache is a git
+5. If no sources are found, the central cache is used. The cache is a git
    mirror of the upstream repository, stored in `~/.cache/osh`. The requested
    version is fetched if missing, and then a shallow clone is made into the
    project under `.osh/odoo` and, depending on the edition, `.osh/enterprise`
@@ -43,331 +43,42 @@ DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
 SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
 
 
-def _find_local_source(
-    base: Path,
-    names: tuple[str, ...],
-    files: tuple[str, ...],
-) -> Path | None:
-    """Detect a local source directory inside *base*.
+@click.command(
+    name="init",
+    add_help_option=False,
+    context_settings=dict(ignore_unknown_options=True),
+)
+@click.option(
+    "--target",
+    "backend_name",
+    default="local",
+    envvar="OSH_INIT_TARGET",
+    help="Environment target to initialise: local virtualenv or a plugin backend.",
+)
+@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def init(ctx, backend_name, extra_args):
+    """Initialise a project for the chosen target.
 
-    *names* are candidate directory names (an empty string means *base* itself).
-    *files* are glob patterns to look for inside the candidate directory.
+    ``osh init`` is a router that delegates to ``init-<target>`` commands
+    (e.g. ``init-local``, ``init-docker``). All extra arguments are forwarded.
+
+    Pass ``--help`` to see the options for the selected target, or run
+    ``osh init-local --help`` / ``osh init-<target> --help`` directly.
     """
-    candidates = [base] + [p for p in base.iterdir() if p.is_dir()]
-    for cand in candidates:
-        for name in names:
-            path = cand / name if name else cand
-            if not path.is_dir():
-                continue
-            if any(next(path.glob(pattern), None) is not None for pattern in files):
-                return path.resolve()
-    return None
+    if any(arg in ("-h", "--help") for arg in extra_args):
+        target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
+        if target_cmd is None:
+            click.echo(ctx.get_help(), err=False)
+            return
+        target_ctx = click.Context(target_cmd, info_name=target_cmd.name)
+        click.echo(target_cmd.get_help(target_ctx))
+        return
 
-
-def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
-    """Return the Odoo executable inside *venv_path*, or None if not found."""
-    bin_dir = venv_path / ("Scripts" if os.name == "nt" else "bin")
-    for name in ("odoo", "odoo-bin"):
-        exe = bin_dir / name
-        if exe.is_file():
-            return exe
-    return None
-
-
-def _cache_has_branch(cache: Path, version: str) -> bool:
-    """Return True if *cache* has a local ref for *version*."""
-    for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
-        res = subprocess.run(
-            ["git", "-C", str(cache), "show-ref", "--verify", "--quiet", ref],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if res.returncode == 0:
-            return True
-    return False
-
-
-def _ensure_cache(name: str, version: str, default_url: str) -> Path:
-    """Return the cached bare repo for *name*, creating or updating it as needed.
-
-    The cache is populated with shallow fetches: only the requested version/branch
-    is downloaded. Existing refs are never pruned.
-    """
-    cache = SOURCE_CACHE_DIR / f"{name}.git"
-    refspec = f"refs/heads/{version}:refs/heads/{version}"
-    if not cache.exists():
-        SOURCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        click.echo(f"Creating central {name} cache at {cache} (shallow)…", err=True)
-        subprocess.check_call(
-            [
-                "git",
-                "clone",
-                "--progress",
-                "--bare",
-                "--depth",
-                "1",
-                "--branch",
-                version,
-                default_url,
-                str(cache),
-            ]
-        )
-    if not _cache_has_branch(cache, version):
-        click.echo(f"Fetching {name} {version} into cache…", err=True)
-        subprocess.check_call(
-            [
-                "git",
-                "-C",
-                str(cache),
-                "fetch",
-                "--progress",
-                "--depth",
-                "1",
-                "origin",
-                refspec,
-            ]
-        )
-    return cache
-
-
-def _resolve_source(
-    name: str,
-    source_flag: str | None,
-    project_source: Path | None,
-    osh_dir: Path,
-    default_url: str,
-) -> tuple[str, str | Path]:
-    """Return the planned action and source spec for *name*.
-
-    Actions are ``existing``, ``symlink``, ``clone`` or ``cache``.
-    """
-    link = osh_dir / name
-    if link.exists() or link.is_symlink():
-        return "existing", link
-
-    if source_flag:
-        local_path = Path(source_flag).expanduser().resolve()
-        if not _is_git_url(source_flag) and local_path.is_dir():
-            return "symlink", local_path
-        return "clone", source_flag
-
-    if project_source:
-        return "symlink", project_source
-
-    return "cache", default_url
-
-
-def _describe_source_plan(name: str, action: str, spec: str | Path) -> str:
-    """Return a human-readable description of a source plan entry."""
-    if action == "existing":
-        return f"  {name}: use existing {spec}"
-    if action == "symlink":
-        return f"  {name}: symlink from {spec}"
-    if action == "clone":
-        return f"  {name}: clone from {spec}"
-    if action == "cache":
-        return f"  {name}: clone from central cache ({spec})"
-    return f"  {name}: (unknown action {action})"
-
-
-def _install_source_plan(
-    name: str,
-    version: str,
-    action: str,
-    spec: str | Path,
-    osh_dir: Path,
-) -> Path | None:
-    """Execute a source plan entry and return the installed link, if any."""
-    link = osh_dir / name
-    if action == "existing":
-        click.echo(f"Using existing {name} sources at {link}", err=True)
-        return link
-
-    if action == "symlink":
-        click.echo(f"Linking {name} → {spec}…", err=True)
-        os.symlink(spec, link, target_is_directory=True)
-        return link
-
-    if action == "clone":
-        click.echo(f"Cloning {name} from {spec} (shallow)…", err=True)
-        _git_shallow_clone(spec, version, link)
-        return link
-
-    if action == "cache":
-        cache = _ensure_cache(name, version, str(spec))
-        click.echo(f"Cloning {name} from cache into {link} (shallow)…", err=True)
-        _git_shallow_clone(f"file://{cache}", version, link)
-        return link
-
-    raise ValueError(f"Unknown source action: {action}")
-
-
-def _ensure_source(
-    name: str,
-    version: str,
-    source_flag: str | None,
-    project_source: Path | None,
-    osh_dir: Path,
-    default_url: str,
-) -> Path | None:
-    """Return the path to a usable *name* source inside *osh_dir*.
-
-    Resolution order:
-    1. Explicit ``--odoo-source`` / ``--enterprise-source`` flag.
-    2. Source tree already included in the project.
-    3. Central cache (cloned from the cache mirror if missing).
-    4. Interactive alternative (local path or git URL).
-    """
-    action, spec = _resolve_source(
-        name, source_flag, project_source, osh_dir, default_url
-    )
-
-    if action == "cache" and sys.stdin.isatty():
-        use_cache = click.confirm(
-            f"{name.capitalize()} sources not found in project. "
-            f"Use central cache (clone from {default_url} if missing)?",
-            default=True,
-            err=True,
-        )
-        if not use_cache:
-            if not sys.stdin.isatty():
-                return None
-            spec = click.prompt(
-                "Enter a local path or git URL for "
-                f"{name} sources (leave empty to skip)",
-                default="",
-                show_default=False,
-                err=True,
-            ).strip()
-            if not spec:
-                click.echo(f"Skipping {name} sources.", err=True)
-                return None
-            local_path = Path(spec).expanduser().resolve()
-            if not _is_git_url(spec) and local_path.is_dir():
-                action, spec = "symlink", local_path
-            else:
-                action, spec = "clone", spec
-
-    return _install_source_plan(name, version, action, spec, osh_dir)
-
-
-class LocalInitBackend(InitBackend):
-    """Default ``osh init`` backend: create a Python virtualenv and install Odoo."""
-
-    name = "local"
-    label = "Local virtualenv"
-
-    def pre_init(
-        self, ctx: click.Context, target: Path, version: str, **options: Any
-    ) -> None:
-        """No-op for the local backend."""
-
-    def setup_environment(
-        self,
-        ctx: click.Context,
-        target: Path,
-        osh_dir: Path,
-        sources: dict[str, Path | None],
-        version: str,
-        **options: Any,
-    ) -> bool:
-        """Create a virtualenv and pip-install Odoo sources."""
-        odoo_link = sources.get("odoo")
-        venv_path = target / ".venv"
-        if venv_path.exists():
-            click.echo(f"Using existing virtual environment at {venv_path}", err=True)
-        else:
-            click.echo(f"Creating virtual environment at {venv_path}…", err=True)
-            import venv
-
-            try:
-                venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
-            except AttributeError:  # pragma: no cover (py<3.9)
-                builder = venv.EnvBuilder(with_pip=True)
-                builder.create(str(venv_path))
-
-        pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
-        pip_failed = False
-        try:
-            requirements_file = odoo_link / "requirements.txt"
-            if requirements_file.exists():
-                click.echo(
-                    f"Installing requirements from {requirements_file}…", err=True
-                )
-                subprocess.check_call(
-                    [str(pip_exe), "install", "-r", str(requirements_file)]
-                )
-
-            project_requirements = target / "requirements.txt"
-            if project_requirements.exists():
-                click.echo(
-                    f"Installing project requirements from {project_requirements}…",
-                    err=True,
-                )
-                subprocess.check_call(
-                    [str(pip_exe), "install", "-r", str(project_requirements)]
-                )
-
-            click.echo(f"Installing Odoo from {odoo_link} into virtualenv…", err=True)
-            subprocess.check_call([str(pip_exe), "install", "-e", str(odoo_link)])
-
-        except subprocess.CalledProcessError as exc:
-            pip_failed = True
-            if isinstance(exc.cmd, (list, tuple)):
-                command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
-            else:
-                command = str(exc.cmd)
-            click.echo(
-                f"Warning: pip install failed (exit status {exc.returncode}).\n\n"
-                f"You can retry the command manually:\n\n  {command}\n",
-                err=True,
-            )
-
-        return not pip_failed
-
-    def smoke_test(
-        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
-    ) -> bool:
-        """Run ``odoo --version`` from the virtualenv."""
-        odoo_exe = _find_odoo_executable_in_venv(target / ".venv")
-        if odoo_exe is None:
-            click.echo(
-                "Warning: Odoo executable not found in virtualenv. "
-                "The environment is initialised but Odoo may not be usable.",
-                err=True,
-            )
-            return False
-
-        click.echo(f"Running quick Odoo smoke test ({odoo_exe})…", err=True)
-        try:
-            subprocess.run(
-                [str(odoo_exe), "--version"],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-            )
-        except subprocess.CalledProcessError as exc:
-            stdout = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
-            click.echo(
-                f"Warning: Odoo smoke test failed (exit status {exc.returncode}).\n"
-                f"{stdout}\n"
-                "The environment is initialised but Odoo may not be usable.",
-                err=True,
-            )
-            return False
-        except FileNotFoundError:
-            click.echo(
-                "Warning: Odoo executable could not be executed. "
-                "The environment is initialised but Odoo may not be usable.",
-                err=True,
-            )
-            return False
-        return True
-
-    def post_init(
-        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
-    ) -> None:
-        """No-op for the local backend."""
+    target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
+    if target_cmd is None:
+        raise click.ClickException(f"Unknown init target: {backend_name}")
+    return target_cmd.main(list(extra_args), standalone_mode=False)
 
 
 @click.command(name="init-local")
@@ -425,6 +136,12 @@ class LocalInitBackend(InitBackend):
     is_flag=True,
     help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
 )
+@click.option(
+    "--yes",
+    "assume_yes",
+    is_flag=True,
+    help="Assume yes for interactive prompts; useful when a TTY is available but input is not desired.",
+)
 @click.pass_context
 def init_local(
     ctx: click.Context,
@@ -435,6 +152,7 @@ def init_local(
     themes_source: str | None,
     edition: str | None,
     save: bool,
+    assume_yes: bool,
 ) -> None:  # noqa: D401
     """Initialise *directory* for an Odoo project.
 
@@ -458,8 +176,8 @@ def init_local(
       ee - Include Enterprise sources.
       sh - Include Enterprise and design-themes sources.
 
-    If no edition is supplied and stdin is a terminal, the user is prompted to
-    pick one; otherwise it defaults to ce.
+    If no edition is supplied, it defaults to the value from
+    ~/.config/osh/config.toml or OSH_INIT_EDITION, otherwise ce.
 
     Use --save to persist the resolved edition to ~/.config/osh/config.toml.
 
@@ -470,7 +188,10 @@ def init_local(
       1. Explicit --odoo-source / --enterprise-source / --themes-source flag.
       2. Source tree already included in the project (when the edition allows it).
       3. Central cache under ~/.cache/osh (shallow clone from GitHub by default).
-      4. Interactive prompt for a local path or git URL.
+
+    A diagnostic summary is printed before any work is done; in interactive mode
+    a single ``Proceed?`` prompt is shown. Sources are installed with enterprise
+    first so SSH credential prompts happen early.
 
     The central cache is a shallow bare clone of the upstream repository. osh
     init fetches the requested version if it is missing from the cache, then
@@ -541,82 +262,73 @@ def init_local(
     include_enterprise = edition in ("ee", "sh") or enterprise_source is not None
     include_themes = edition == "sh" or themes_source is not None
 
-    source_plans: list[tuple[str, str, str | Path]] = []
-    source_plans.append(
-        (
-            "odoo",
-            *_resolve_source(
-                "odoo",
-                odoo_source,
-                _find_local_source(target, ("",), ("odoo-bin",)),
-                osh_dir,
-                DEFAULT_ODOO_URL,
-            ),
-        )
-    )
+    source_defs = [
+        ("odoo", odoo_source, ("",), ("odoo-bin",), DEFAULT_ODOO_URL),
+    ]
     if include_enterprise:
-        source_plans.append(
+        source_defs.append(
             (
                 "enterprise",
-                *_resolve_source(
-                    "enterprise",
-                    enterprise_source,
-                    _find_local_source(
-                        target,
-                        ("enterprise",),
-                        ("*/__manifest__.py", "*/__openerp__.py"),
-                    ),
-                    osh_dir,
-                    DEFAULT_ENTERPRISE_URL,
-                ),
+                enterprise_source,
+                ("enterprise",),
+                ("*/__manifest__.py", "*/__openerp__.py"),
+                DEFAULT_ENTERPRISE_URL,
             )
         )
     if include_themes:
-        source_plans.append(
+        source_defs.append(
             (
                 "design-themes",
-                *_resolve_source(
-                    "design-themes",
-                    themes_source,
-                    _find_local_source(
-                        target,
-                        ("design-themes", "themes"),
-                        ("*/__manifest__.py", "*/__openerp__.py"),
-                    ),
-                    osh_dir,
-                    DEFAULT_THEMES_URL,
-                ),
+                themes_source,
+                ("design-themes", "themes"),
+                ("*/__manifest__.py", "*/__openerp__.py"),
+                DEFAULT_THEMES_URL,
             )
         )
+
+    source_plans = {
+        name: _resolve_source(
+            name, version, flag, _find_local_source(target, names, files), osh_dir, url
+        )
+        for name, flag, names, files, url in source_defs
+    }
 
     click.echo(
         f"Will initialise project at {target} with edition '{edition}':", err=True
     )
-    for name, action, spec in source_plans:
-        click.echo(_describe_source_plan(name, action, spec), err=True)
+    verbs = {
+        "existing": "use existing",
+        "symlink": "symlink from",
+        "clone": "clone from",
+        "cache": "clone from central cache",
+    }
+    for name, (action, spec, warning) in source_plans.items():
+        line = f"  {name}: {verbs[action]} {spec}"
+        if warning:
+            line += f"  [warning: {warning}]"
+        click.echo(line, err=True)
 
     venv_path = target / ".venv"
-    if venv_path.exists():
-        click.echo(f"  virtualenv: use existing {venv_path}", err=True)
-    else:
-        click.echo(f"  virtualenv: create at {venv_path}", err=True)
+    click.echo(
+        f"  virtualenv: {'use existing' if venv_path.exists() else 'create at'} {venv_path}",
+        err=True,
+    )
 
-    if sys.stdin.isatty():
+    if assume_yes:
+        click.echo("Proceeding with --yes (skipping confirmation).", err=True)
+    elif sys.stdin.isatty():
         if not click.confirm("Proceed?", default=True, abort=True):
             return
     else:
         click.echo("Proceeding in non-interactive mode.", err=True)
 
     # Install sources with enterprise first, so credential prompts happen early.
-    install_order = ["enterprise", "design-themes", "odoo"]
-    plan_by_name = {name: (action, spec) for name, action, spec in source_plans}
     sources: dict[str, Path | None] = {}
-    for name in install_order:
-        if name not in plan_by_name:
+    for name in ("enterprise", "design-themes", "odoo"):
+        if name not in source_plans:
             continue
-        action, spec = plan_by_name[name]
-        link = _install_source_plan(name, version, action, spec, osh_dir)
-        sources[name] = link
+        action, spec, _warning = source_plans[name]
+        sources[name] = _install_source_plan(name, version, action, spec, osh_dir)
 
     if not sources.get("odoo"):
         raise click.ClickException("Odoo sources are required.")
@@ -659,39 +371,327 @@ def init_local(
         click.echo(f"Initialised project directory at {target}")
 
 
-@click.command(
-    name="init",
-    add_help_option=False,
-    context_settings=dict(ignore_unknown_options=True),
-)
-@click.option(
-    "--target",
-    "backend_name",
-    default="local",
-    envvar="OSH_INIT_TARGET",
-    help="Environment target to initialise: local virtualenv or a plugin backend.",
-)
-@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
-@click.pass_context
-def init(ctx, backend_name, extra_args):
-    """Initialise a project for the chosen target.
+class LocalInitBackend(InitBackend):
+    """Default ``osh init`` backend: create a Python virtualenv and install Odoo."""
 
-    ``osh init`` is a router that delegates to ``init-<target>`` commands
-    (e.g. ``init-local``, ``init-docker``). All extra arguments are forwarded.
+    name = "local"
+    label = "Local virtualenv"
 
-    Pass ``--help`` to see the options for the selected target, or run
-    ``osh init-local --help`` / ``osh init-<target> --help`` directly.
+    def pre_init(
+        self, ctx: click.Context, target: Path, version: str, **options: Any
+    ) -> None:
+        """No-op for the local backend."""
+
+    def setup_environment(
+        self,
+        ctx: click.Context,
+        target: Path,
+        osh_dir: Path,
+        sources: dict[str, Path | None],
+        version: str,
+        **options: Any,
+    ) -> bool:
+        """Create a virtualenv and pip-install Odoo sources."""
+        odoo_link = sources.get("odoo")
+        venv_path = target / ".venv"
+        if venv_path.exists():
+            click.echo(f"Using existing virtual environment at {venv_path}", err=True)
+        else:
+            click.echo(f"Creating virtual environment at {venv_path}…", err=True)
+            import venv
+
+            try:
+                venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
+            except AttributeError:  # pragma: no cover (py<3.9)
+                builder = venv.EnvBuilder(with_pip=True)
+                builder.create(str(venv_path))
+
+        pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
+
+        requirements_file = odoo_link / "requirements.txt"
+        if requirements_file.exists():
+            click.echo(f"Installing requirements from {requirements_file}…", err=True)
+            if not _pip_install(pip_exe, "install", "-r", str(requirements_file)):
+                return False
+
+        project_requirements = target / "requirements.txt"
+        if project_requirements.exists():
+            click.echo(
+                f"Installing project requirements from {project_requirements}…",
+                err=True,
+            )
+            if not _pip_install(pip_exe, "install", "-r", str(project_requirements)):
+                return False
+
+        click.echo(f"Installing Odoo from {odoo_link} into virtualenv…", err=True)
+        return _pip_install(pip_exe, "install", "-e", str(odoo_link))
+
+    def smoke_test(
+        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
+    ) -> bool:
+        """Run ``odoo --version`` from the virtualenv."""
+        odoo_exe = _find_odoo_executable_in_venv(target / ".venv")
+        if odoo_exe is None:
+            click.echo(
+                "Warning: Odoo executable not found in virtualenv. "
+                "The environment is initialised but Odoo may not be usable.",
+                err=True,
+            )
+            return False
+
+        click.echo(f"Running quick Odoo smoke test ({odoo_exe})…", err=True)
+        return _run_smoke_test(odoo_exe)
+
+    def post_init(
+        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
+    ) -> None:
+        """No-op for the local backend."""
+
+
+def _pip_install(pip_exe: Path, *args: str) -> bool:
+    """Run pip with *args* and report failures; return True on success."""
+    try:
+        subprocess.check_call([str(pip_exe), *args])
+        return True
+    except subprocess.CalledProcessError as exc:
+        if isinstance(exc.cmd, (list, tuple)):
+            command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
+        else:
+            command = str(exc.cmd)
+        click.echo(
+            f"Warning: pip install failed (exit status {exc.returncode}).\n\n"
+            f"You can retry the command manually:\n\n  {command}\n",
+            err=True,
+        )
+        return False
+
+
+def _run_smoke_test(odoo_exe: Path) -> bool:
+    """Run ``odoo --version`` and return True if it succeeds."""
+    try:
+        subprocess.run(
+            [str(odoo_exe), "--version"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        return True
+    except subprocess.CalledProcessError as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
+        click.echo(
+            f"Warning: Odoo smoke test failed (exit status {exc.returncode}).\n"
+            f"{stdout}\n"
+            "The environment is initialised but Odoo may not be usable.",
+            err=True,
+        )
+        return False
+    except FileNotFoundError:
+        click.echo(
+            "Warning: Odoo executable could not be executed. "
+            "The environment is initialised but Odoo may not be usable.",
+            err=True,
+        )
+        return False
+
+
+def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
+    """Return the Odoo executable inside *venv_path*, or None if not found."""
+    bin_dir = venv_path / ("Scripts" if os.name == "nt" else "bin")
+    for name in ("odoo", "odoo-bin"):
+        exe = bin_dir / name
+        if exe.is_file():
+            return exe
+    return None
+
+
+def _resolve_source(
+    name: str,
+    version: str,
+    source_flag: str | None,
+    project_source: Path | None,
+    osh_dir: Path,
+    default_url: str,
+) -> tuple[str, str | Path, str | None]:
+    """Return the planned action, source spec and an optional mismatch warning."""
+    link = osh_dir / name
+    if link.exists() or link.is_symlink():
+        warning = _source_branch_warning(link.resolve(), version)
+        return "existing", link, warning
+
+    if source_flag:
+        local_path = Path(source_flag).expanduser().resolve()
+        if not _is_git_url(source_flag) and local_path.is_dir():
+            warning = _source_branch_warning(local_path, version)
+            return "symlink", local_path, warning
+        return "clone", source_flag, None
+
+    if project_source:
+        warning = _source_branch_warning(project_source, version)
+        return "symlink", project_source, warning
+
+    return "cache", default_url, None
+
+
+def _source_branch(path: Path) -> str | None:
+    """Return the git branch or tag for *path*, or None if not a git repo."""
+    resolved = path.resolve()
+    git_dir = resolved / ".git"
+    if not git_dir.exists() and not (
+        resolved.is_symlink() and (resolved.resolve() / ".git").exists()
+    ):
+        return None
+    try:
+        branch = subprocess.check_output(
+            ["git", "-C", str(resolved), "branch", "--show-current"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if branch:
+            return branch
+        tag = subprocess.check_output(
+            ["git", "-C", str(resolved), "describe", "--tags", "--exact-match"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if tag:
+            return tag
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return None
+
+
+def _version_matches(detected: str | None, version: str) -> bool:
+    """Return True if *detected* looks like it contains *version*."""
+    if not detected:
+        return True
+    detected = detected.lower().replace("~", "-").replace("_", "-")
+    version = version.lower().replace("~", "-").replace("_", "-")
+    return version in detected
+
+
+def _source_branch_warning(path: Path, version: str) -> str | None:
+    """Return a warning if *path* does not appear to match *version*."""
+    detected = _source_branch(path)
+    if detected and not _version_matches(detected, version):
+        return f"on branch '{detected}', expected '{version}'"
+    return None
+
+
+def _install_source_plan(
+    name: str,
+    version: str,
+    action: str,
+    spec: str | Path,
+    osh_dir: Path,
+) -> Path | None:
+    """Execute a source plan entry and return the installed link, if any."""
+    link = osh_dir / name
+    if action == "existing":
+        click.echo(f"Using existing {name} sources at {link}", err=True)
+        return link
+
+    if action == "symlink":
+        click.echo(f"Linking {name} → {spec}…", err=True)
+        os.symlink(spec, link, target_is_directory=True)
+        return link
+
+    if action == "clone":
+        click.echo(f"Cloning {name} from {spec} (shallow)…", err=True)
+        _git_shallow_clone(spec, version, link)
+        return link
+
+    if action == "cache":
+        cache = _ensure_cache(name, version, str(spec))
+        click.echo(f"Cloning {name} from cache into {link} (shallow)…", err=True)
+        _git_shallow_clone(f"file://{cache}", version, link)
+        return link
+
+    raise ValueError(f"Unknown source action: {action}")
+
+
+def _ensure_cache(name: str, version: str, default_url: str) -> Path:
+    """Return the cached bare repo for *name*, creating or updating it as needed.
+
+    The cache is populated with shallow fetches: only the requested version/branch
+    is downloaded. Existing refs are never pruned.
     """
-    if any(arg in ("-h", "--help") for arg in extra_args):
-        target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
-        if target_cmd is None:
-            click.echo(ctx.get_help(), err=False)
-            return
-        target_ctx = click.Context(target_cmd, info_name=target_cmd.name)
-        click.echo(target_cmd.get_help(target_ctx))
-        return
+    cache = SOURCE_CACHE_DIR / f"{name}.git"
+    if not cache.exists():
+        SOURCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        click.echo(f"Creating central {name} cache at {cache} (shallow)…", err=True)
+        subprocess.check_call(
+            [
+                "git",
+                "clone",
+                "--progress",
+                "--bare",
+                "--depth",
+                "1",
+                "--branch",
+                version,
+                default_url,
+                str(cache),
+            ]
+        )
+    if not _cache_has_branch(cache, version):
+        click.echo(f"Fetching {name} {version} into cache…", err=True)
+        refspecs = [
+            f"refs/heads/{version}:refs/heads/{version}",
+            f"refs/tags/{version}:refs/tags/{version}",
+        ]
+        for refspec in refspecs:
+            try:
+                subprocess.check_call(
+                    [
+                        "git",
+                        "-C",
+                        str(cache),
+                        "fetch",
+                        "--progress",
+                        "--depth",
+                        "1",
+                        "origin",
+                        refspec,
+                    ]
+                )
+                break
+            except subprocess.CalledProcessError as exc:
+                if refspec == refspecs[-1]:
+                    raise click.ClickException(
+                        f"Could not fetch {name} {version} from {default_url}"
+                    ) from exc
+    return cache
 
-    target_cmd = ctx.parent.command.commands.get(f"init-{backend_name}")
-    if target_cmd is None:
-        raise click.ClickException(f"Unknown init target: {backend_name}")
-    return target_cmd.main(list(extra_args), standalone_mode=False)
+
+def _cache_has_branch(cache: Path, version: str) -> bool:
+    """Return True if *cache* has a local ref for *version*."""
+    for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
+        res = subprocess.run(
+            ["git", "-C", str(cache), "show-ref", "--verify", "--quiet", ref],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if res.returncode == 0:
+            return True
+    return False
+
+
+def _find_local_source(
+    base: Path,
+    names: tuple[str, ...],
+    files: tuple[str, ...],
+) -> Path | None:
+    """Detect a local source directory inside *base*.
+
+    *names* are candidate directory names (an empty string means *base* itself).
+    *files* are glob patterns to look for inside the candidate directory.
+    """
+    candidates = [base] + [p for p in base.iterdir() if p.is_dir()]
+    for cand in candidates:
+        for name in names:
+            path = cand / name if name else cand
+            if not path.is_dir():
+                continue
+            if any(next(path.glob(pattern), None) is not None for pattern in files):
+                return path.resolve()
+    return None

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -13,9 +15,10 @@ from osh.commands.init_cmd import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
     _ensure_cache,
-    _ensure_source,
     _find_local_source,
+    _install_source_plan,
     _is_git_url,
+    _resolve_source,
 )
 
 from .conftest import real_git_only_subprocess
@@ -81,6 +84,44 @@ def _make_bare_repo(
         capture_output=True,
     )
     return bare
+
+
+def _ensure_source(
+    name: str,
+    version: str,
+    source_flag: str | None,
+    project_source: Path | None,
+    osh_dir: Path,
+    default_url: str,
+) -> Path | None:
+    """Resolve and install a source plan for tests."""
+    action, spec, _warning = _resolve_source(
+        name, version, source_flag, project_source, osh_dir, default_url
+    )
+
+    if action == "cache" and sys.stdin.isatty():
+        if not click.confirm(
+            f"{name.capitalize()} sources not found in project. "
+            f"Use central cache (clone from {default_url} if missing)?",
+            default=True,
+            err=True,
+        ):
+            spec = click.prompt(
+                "Enter a local path or git URL for "
+                f"{name} sources (leave empty to skip)",
+                default="",
+                show_default=False,
+                err=True,
+            ).strip()
+            if not spec:
+                return None
+            local_path = Path(spec).expanduser().resolve()
+            action = (
+                "symlink" if not _is_git_url(spec) and local_path.is_dir() else "clone"
+            )
+            spec = local_path if action == "symlink" else spec
+
+    return _install_source_plan(name, version, action, spec, osh_dir)
 
 
 class TestFindLocalSources:
@@ -270,11 +311,9 @@ class TestEnsureSource:
     ) -> None:
         osh_dir = tmp_project / ".osh"
         osh_dir.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("osh.commands.init_cmd.sys.stdin.isatty", lambda: True)
-        monkeypatch.setattr(
-            "osh.commands.init_cmd.click.confirm", lambda *a, **kw: False
-        )
-        monkeypatch.setattr("osh.commands.init_cmd.click.prompt", lambda *a, **kw: "")
+        monkeypatch.setattr("tests.test_init.sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr("tests.test_init.click.confirm", lambda *a, **kw: False)
+        monkeypatch.setattr("tests.test_init.click.prompt", lambda *a, **kw: "")
 
         result = _ensure_source(
             "odoo",
