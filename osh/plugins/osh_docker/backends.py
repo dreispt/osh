@@ -1,4 +1,4 @@
-"""Docker Compose backend implementations for ``osh init`` and ``osh run``."""
+"""Docker Compose backend implementation for ``osh init`` and ``osh run``."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from typing import Any
 
 import click
 
-from ...backends import InitBackend, RunBackend
+from ...backends import Backend
 from ...utils import _ensure_tool
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
+_COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
 
 
 def _load_docker_config(base: Path) -> dict[str, Any]:
@@ -66,16 +67,75 @@ def _compose_base_command(base: Path, ctx: click.Context | None) -> list[str]:
     return cmd
 
 
-class DockerInitBackend(InitBackend):
-    """Initialise a project for use with an existing Docker Compose stack."""
+def _default_compose_content(version: str) -> str:
+    """Return a generated Docker Compose file for a standard Odoo stack."""
+    image = f"odoo:{version}" if version else "odoo:latest"
+    return f"""services:
+  odoo:
+    image: {image}
+    depends_on:
+      - db
+    ports:
+      - "8069:8069"
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: myodoo
+      PORT: 5432
+    volumes:
+      - odoo-web-data:/var/lib/odoo
+      - ..:/mnt/extra-addons
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: myodoo
+      POSTGRES_DB: postgres
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+
+volumes:
+  odoo-web-data:
+  odoo-db-data:
+"""
+
+
+def _generate_compose_file(target: Path, version: str) -> None:
+    """Write ``.osh/docker-compose.yml`` if it does not already exist."""
+    compose_path = target / _COMPOSE_FILE
+    compose_path.parent.mkdir(parents=True, exist_ok=True)
+    compose_path.write_text(_default_compose_content(version))
+
+
+class DockerBackend(Backend):
+    """Unified Docker Compose backend for ``osh init`` and ``osh run``."""
 
     name = "docker"
     label = "Docker Compose"
+    backend_type = "backend"
 
-    def pre_init(
-        self, ctx: click.Context, target: Path, version: str, **options: Any
-    ) -> None:
-        """Check that the Docker tooling and requested compose file are available."""
+    def status(
+        self, ctx: click.Context, target: Path, *, verbose: bool = False
+    ) -> list[str]:
+        """Return diagnostic lines for ``osh doctor`` and the init plan."""
+        cfg = _load_docker_config(target)
+        return [
+            f"compose: {cfg.get('compose_file', '<none>')}",
+            f"service: {cfg.get('service', 'odoo')}",
+            f"command: {cfg.get('command', 'odoo')}",
+        ]
+
+    def init(
+        self,
+        ctx: click.Context,
+        target: Path,
+        *,
+        version: str = "",
+        edition: str = "ce",
+        dry_run: bool = False,
+        **options: Any,
+    ) -> bool:
+        """Set up the project to run Odoo with Docker Compose."""
         _ensure_tool("docker")
         try:
             subprocess.run(
@@ -89,27 +149,39 @@ class DockerInitBackend(InitBackend):
                 "Docker Compose plugin is required for init-docker."
             ) from exc
 
-        cli_params = getattr(ctx, "params", {}) if ctx else {}
-        compose_file = cli_params.get("compose_file") or options.get("compose_file")
+        service = options.get("service")
+        command = options.get("command")
+        compose_file = options.get("compose_file")
+
         if compose_file and not (target / compose_file).is_file():
             raise click.ClickException(
                 f"Compose file '{compose_file}' not found in {target}."
             )
 
-    def setup_environment(
-        self,
-        ctx: click.Context,
-        target: Path,
-        osh_dir: Path,
-        sources: dict[str, Path | None],
-        version: str,
-        **options: Any,
-    ) -> bool:
-        """Write ``.osh/docker.toml`` for the project."""
-        cli_params = getattr(ctx, "params", {}) if ctx else {}
-        service = cli_params.get("service") or options.get("service")
-        command = cli_params.get("command") or options.get("command")
-        compose_file = cli_params.get("compose_file") or options.get("compose_file")
+        if not compose_file:
+            osh_compose = target / _COMPOSE_FILE
+            if not osh_compose.is_file():
+                if dry_run:
+                    click.echo(
+                        f"Would generate {osh_compose} with "
+                        f"odoo/{version or 'latest'} and postgres:16 services.",
+                        err=True,
+                    )
+                else:
+                    _generate_compose_file(target, version)
+                    click.echo(f"Generated {osh_compose}.", err=True)
+            if not dry_run:
+                compose_file = str(_COMPOSE_FILE)
+
+        if dry_run:
+            click.echo(
+                f"Would write {target / _DOCKER_TOML}: "
+                f"service={service or 'odoo'}, command={command or 'odoo'}, "
+                f"compose_file={compose_file or '<none>'}.",
+                err=True,
+            )
+            return True
+
         _save_docker_config(target, service, command, compose_file)
         click.echo(
             f"Wrote Docker backend config to {target / _DOCKER_TOML}.",
@@ -121,26 +193,22 @@ class DockerInitBackend(InitBackend):
                 f"Edit {target / _DOCKER_TOML} if your compose service is named differently.",
                 err=True,
             )
-        return True
 
-    def smoke_test(
-        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
-    ) -> bool:
-        """Run the configured container command with ``--version`` as a smoke test."""
         cfg = _load_docker_config(target)
-        service = cfg.get("service")
-        command = _docker_command(service, cfg.get("command"))
-        if not service:
+        svc = cfg.get("service")
+        cmd = _docker_command(svc, cfg.get("command"))
+        if not svc:
             click.echo(
                 "Warning: no Docker service configured; skipping smoke test.",
                 err=True,
             )
             return True
+
         click.echo("Running quick Odoo smoke test in container…", err=True)
         compose_cmd = _compose_base_command(target, ctx)
         try:
             subprocess.run(
-                [*compose_cmd, "run", "--rm", service, *command, "--version"],
+                [*compose_cmd, "run", "--rm", svc, *cmd, "--version"],
                 cwd=target,
                 check=True,
                 stdout=subprocess.PIPE,
@@ -162,23 +230,9 @@ class DockerInitBackend(InitBackend):
                 err=True,
             )
             return False
+
+        click.echo(f"Run the project with: osh run (in {target})", err=True)
         return True
-
-    def post_init(
-        self, ctx: click.Context, target: Path, osh_dir: Path, **options: Any
-    ) -> None:
-        """Print post-initialisation hint for Docker users."""
-        click.echo(
-            f"Run the project with: osh run (in {target})",
-            err=True,
-        )
-
-
-class DockerRunBackend(RunBackend):
-    """Run Odoo commands through an existing Docker Compose stack."""
-
-    name = "docker"
-    label = "Docker Compose"
 
     def run(
         self,
@@ -186,8 +240,9 @@ class DockerRunBackend(RunBackend):
         base: Path,
         args: list[str],
         *,
-        dry_run: bool,
-        verbose: bool,
+        dry_run: bool = False,
+        verbose: bool = False,
+        **options: Any,
     ) -> None:
         """Translate host odoo-bin arguments into a Docker Compose invocation."""
         cfg = _load_docker_config(base)
@@ -226,3 +281,30 @@ class DockerRunBackend(RunBackend):
             os.execvp("docker", docker_args)
         except Exception as exc:  # pragma: no cover
             raise click.ClickException(str(exc))
+
+    def restore(
+        self,
+        ctx: click.Context,
+        base: Path,
+        db_name: str,
+        dump_path: Path,
+        *,
+        filestore_path: Path | None = None,
+        no_neutralize: bool = False,
+        dry_run: bool = False,
+        **options: Any,
+    ) -> None:
+        """Restore a backup into the target database through this backend."""
+        raise NotImplementedError("Docker restore is not implemented.")
+
+    def prune(
+        self,
+        ctx: click.Context,
+        base: Path,
+        *,
+        aggressive: bool = False,
+        dry_run: bool = False,
+        **options: Any,
+    ) -> None:
+        """Run target-specific housekeeping."""
+        raise NotImplementedError("Docker prune is not implemented.")

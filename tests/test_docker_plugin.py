@@ -4,44 +4,43 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
+import click
 import pytest
 from click.testing import CliRunner
 
 from osh.cli import main
-from osh.commands.run_cmd import run
 from osh.plugin_loader import load_backends
+from osh.plugins.osh_docker.backends import DockerBackend
+from osh.plugins.osh_docker.commands import init_docker
 
 
 def test_docker_backends_are_registered() -> None:
-    """The docker plugin registers init and run backends."""
-    init_backends = load_backends("init")
-    assert "docker" in init_backends
-    assert init_backends["docker"].name == "docker"
-
-    run_backends = load_backends("run")
-    assert "docker" in run_backends
-    assert run_backends["docker"].name == "docker"
+    """The docker plugin registers the unified Docker backend."""
+    backends = load_backends("backend")
+    assert "docker" in backends
+    assert backends["docker"].name == "docker"
+    assert backends["docker"].backend_type == "backend"
 
 
-def _patch_docker_tools(monkeypatch) -> None:
-    """Make Docker commands no-ops so tests do not require a Docker daemon."""
+def _patch_docker_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make Docker tooling no-ops so tests do not require a Docker daemon."""
     monkeypatch.setattr(
         "osh.plugins.osh_docker.backends._ensure_tool", lambda _name: None
     )
-    monkeypatch.setattr(
-        "osh.plugins.osh_docker.backends.subprocess.check_call", lambda *a, **k: None
-    )
 
-    def fake_run(*args, **kwargs):
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         cmd = args[0] if args else kwargs.get("args", [])
         return subprocess.CompletedProcess(cmd, returncode=0)
 
     monkeypatch.setattr("osh.plugins.osh_docker.backends.subprocess.run", fake_run)
 
 
-def test_init_target_docker_writes_docker_toml(tmp_project: Path, monkeypatch) -> None:
-    """``osh init --target docker`` writes ``.osh/docker.toml``."""
+def test_init_target_docker_via_main_writes_compose_file(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``osh init --target docker`` writes docker.toml and generates compose."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
@@ -56,177 +55,216 @@ def test_init_target_docker_writes_docker_toml(tmp_project: Path, monkeypatch) -
     text = docker_toml.read_text()
     assert "service = 'app'" in text
     assert "command = 'odoo'" in text
+    assert "compose_file = '.osh/docker-compose.yml'" in text
+
+    compose_file = tmp_project / ".osh" / "docker-compose.yml"
+    assert compose_file.exists()
+    compose_text = compose_file.read_text()
+    assert "image: odoo:19.0" in compose_text
+    assert "image: postgres:16" in compose_text
+    assert "..:/mnt/extra-addons" in compose_text
     assert not (tmp_project / "docker-compose.yml").exists()
     assert not (tmp_project / "Dockerfile").exists()
 
 
-def test_init_target_docker_no_compose_files_generated(
-    tmp_project: Path, monkeypatch
+def test_init_docker_command_writes_config_and_compose(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The docker backend does not overwrite an existing compose file."""
-    existing = tmp_project / "docker-compose.yml"
-    existing.write_text('version: "2"\nservices:\n  app:\n    image: odoo\n')
-
+    """``osh init-docker`` generates ``.osh/docker-compose.yml`` and config."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "19.0", "--target", "docker"])
+    result = runner.invoke(init_docker, ["19.0", "--service", "odoo"])
 
     assert result.exit_code == 0, result.output
-    assert existing.read_text() == (
-        'version: "2"\nservices:\n  app:\n    image: odoo\n'
-    )
-
-
-def test_run_target_docker_dry_run_uses_config(in_project: Path, monkeypatch) -> None:
-    """``osh run --target docker --dry-run`` uses the configured service/command."""
-    docker_toml = in_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text('service = "app"\ncommand = "odoo"\n')
-    (in_project / ".osh" / "config").touch()
-
-    monkeypatch.setattr(
-        "osh.commands.run_cmd._resolve_db_name", lambda _base, _verbose: "testdb"
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(run, ["--target", "docker", "--dry-run"])
-
-    assert result.exit_code == 0, result.output
-    assert "docker compose run --rm --service-ports app odoo" in result.output
-    assert "-d testdb" in result.output
-    assert "--db-filter ^testdb$" in result.output
-    assert "--config" not in result.output
-    assert "--addons-path" not in result.output
-
-
-def test_docker_run_backend_uses_container_executable(
-    tmp_project: Path, monkeypatch
-) -> None:
-    """The docker run backend invokes the configured command inside the container."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text('service = "odoo"\ncommand = "python3 -m odoo"\n')
-
-    monkeypatch.setattr("osh.plugins.osh_docker.backends.os.execvp", lambda *a: None)
-
-    from osh.plugins.osh_docker.backends import DockerRunBackend
-
-    backend = DockerRunBackend()
-    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+    assert docker_toml.exists()
+    assert "compose_file = '.osh/docker-compose.yml'" in docker_toml.read_text()
+    assert (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_docker_run_backend_requires_service(tmp_project: Path) -> None:
-    """The docker run backend fails when no service is configured."""
-    from osh.plugins.osh_docker.backends import DockerRunBackend
-
-    backend = DockerRunBackend()
-    with pytest.raises(Exception):
-        backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
-
-
-def test_doodba_compose_file_is_used(in_project: Path, monkeypatch) -> None:
-    """``--compose-file`` (or ``compose_file`` in config) passes ``-f`` to compose."""
-    docker_toml = in_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_file = "devel.yaml"\n'
-    )
-    (in_project / ".osh" / "config").touch()
-
-    monkeypatch.setattr(
-        "osh.commands.run_cmd._resolve_db_name", lambda _base, _verbose: "testdb"
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(run, ["--target", "docker", "--dry-run"])
-
-    assert result.exit_code == 0, result.output
-    assert "docker compose -f devel.yaml run" in result.output
-
-
-def test_doodba_compose_file_override(in_project: Path, monkeypatch) -> None:
-    """``--compose-file`` on the command line overrides the config file."""
-    docker_toml = in_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_file = "devel.yaml"\n'
-    )
-    (in_project / ".osh" / "config").touch()
-
-    monkeypatch.setattr(
-        "osh.commands.run_cmd._resolve_db_name", lambda _base, _verbose: "testdb"
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(
-        run,
-        ["--target", "docker", "--compose-file", "test.yaml", "--dry-run"],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "docker compose -f test.yaml run" in result.output
-
-
-def test_run_remembers_target_from_init(tmp_project: Path, monkeypatch) -> None:
-    """``osh run`` without ``--target`` uses the target from the last ``osh init``."""
+def test_init_docker_does_not_overwrite_existing_osh_compose(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An existing ``.osh/docker-compose.yml`` is left untouched."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
+    existing = tmp_project / ".osh" / "docker-compose.yml"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("existing: compose\n")
+
     runner = CliRunner()
-    init_result = runner.invoke(
-        main, ["init", "19.0", "--target", "docker", "--service", "odoo"]
+    result = runner.invoke(init_docker, ["19.0"])
+
+    assert result.exit_code == 0, result.output
+    assert existing.read_text() == "existing: compose\n"
+    assert (
+        "compose_file = '.osh/docker-compose.yml'"
+        in (tmp_project / ".osh" / "docker.toml").read_text()
     )
-    assert init_result.exit_code == 0, init_result.output
-
-    monkeypatch.setattr(
-        "osh.commands.run_cmd._resolve_db_name", lambda _base, _verbose: "testdb"
-    )
-    run_result = runner.invoke(run, ["--dry-run"])
-
-    assert run_result.exit_code == 0, run_result.output
-    assert "docker compose run" in run_result.output
 
 
-def test_run_explicit_target_overrides_init(tmp_project: Path, monkeypatch) -> None:
-    """An explicit ``--target`` on ``osh run`` overrides the saved init target."""
+def test_init_docker_persists_provided_compose_file(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A provided ``--compose-file`` is persisted into docker.toml."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
-    runner = CliRunner()
-    init_result = runner.invoke(
-        main, ["init", "19.0", "--target", "docker", "--service", "odoo"]
-    )
-    assert init_result.exit_code == 0, init_result.output
-
-    # The local target is missing a venv, so it should fail immediately.
-    run_result = runner.invoke(run, ["--target", "local", "--dry-run"])
-    assert run_result.exit_code != 0
-
-
-def test_init_target_docker_writes_compose_file(tmp_project: Path, monkeypatch) -> None:
-    """``--compose-file`` is persisted to ``.osh/docker.toml``."""
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n    image: odoo\n")
 
-    _patch_docker_tools(monkeypatch)
-    monkeypatch.chdir(tmp_project)
-
     runner = CliRunner()
     result = runner.invoke(
-        main,
-        [
-            "init",
-            "19.0",
-            "--target",
-            "docker",
-            "--service",
-            "odoo",
-            "--compose-file",
-            "devel.yaml",
-        ],
+        init_docker,
+        ["19.0", "--service", "odoo", "--compose-file", "devel.yaml"],
     )
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
     assert "compose_file = 'devel.yaml'" in docker_toml.read_text()
+    assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
+
+
+def test_init_docker_missing_compose_file_raises(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing explicit compose file raises an error."""
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        init_docker,
+        ["19.0", "--service", "odoo", "--compose-file", "missing.yaml"],
+    )
+
+    assert result.exit_code != 0
+    assert "missing.yaml" in result.output or "not found" in result.output
+
+
+def test_init_docker_dry_run_does_not_write(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dry-run ``init`` only reports what it would generate."""
+    _patch_docker_tools(monkeypatch)
+    backend = DockerBackend()
+
+    ok = backend.init(
+        None,
+        tmp_project,
+        version="19.0",
+        edition="ce",
+        dry_run=True,
+        service="odoo",
+    )
+
+    assert ok is True
+    assert not (tmp_project / ".osh" / "docker.toml").exists()
+    assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
+
+
+def test_docker_backend_status(tmp_project: Path) -> None:
+    """``status`` returns diagnostic lines for the configured stack."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        "service = 'odoo'\ncommand = 'odoo'\ncompose_file = 'devel.yaml'\n"
+    )
+
+    backend = DockerBackend()
+    lines = backend.status(None, tmp_project)
+
+    assert "compose: devel.yaml" in lines
+    assert "service: odoo" in lines
+    assert "command: odoo" in lines
+
+
+def test_docker_backend_run_dry_run(
+    tmp_project: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """``run`` builds and prints the docker compose command in dry-run mode."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text("service = 'app'\ncommand = 'odoo'\n")
+
+    backend = DockerBackend()
+    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+
+    err = capsys.readouterr().err
+    assert "Would run:" in err
+    assert "docker compose run --rm --service-ports app odoo" in err
+
+
+def test_docker_backend_uses_container_executable(
+    tmp_project: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """The configured command is invoked inside the container."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text('service = "odoo"\ncommand = "python3 -m odoo"\n')
+
+    backend = DockerBackend()
+    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+
+    err = capsys.readouterr().err
+    assert "python3 -m odoo" in err
+
+
+def test_docker_backend_requires_service(tmp_project: Path) -> None:
+    """``run`` fails when no service is configured."""
+    backend = DockerBackend()
+    with pytest.raises(click.ClickException):
+        backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+
+
+def test_docker_backend_compose_file_from_config(
+    tmp_project: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """The compose file from docker.toml is passed with ``-f``."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_file = "devel.yaml"\n'
+    )
+
+    backend = DockerBackend()
+    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+
+    err = capsys.readouterr().err
+    assert "docker compose -f devel.yaml run" in err
+
+
+def test_docker_backend_compose_file_cli_override(
+    tmp_project: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """A compose file passed in the click context overrides config."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_file = "devel.yaml"\n'
+    )
+
+    class FakeCtx:
+        params = {"compose_file": "test.yaml"}
+
+    backend = DockerBackend()
+    backend.run(FakeCtx(), tmp_project, ["odoo"], dry_run=True, verbose=False)
+
+    err = capsys.readouterr().err
+    assert "docker compose -f test.yaml run" in err
+
+
+def test_docker_backend_restore_not_implemented(tmp_project: Path) -> None:
+    """``restore`` is not implemented for Docker."""
+    backend = DockerBackend()
+    with pytest.raises(NotImplementedError):
+        backend.restore(None, tmp_project, "db", tmp_project / "dump.sql")
+
+
+def test_docker_backend_prune_not_implemented(tmp_project: Path) -> None:
+    """``prune`` is not implemented for Docker."""
+    backend = DockerBackend()
+    with pytest.raises(NotImplementedError):
+        backend.prune(None, tmp_project)

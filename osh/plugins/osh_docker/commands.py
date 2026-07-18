@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from ...db import _record_run_target
-from .backends import DockerInitBackend
+from .backends import DockerBackend
 
 
 @click.command(name="init-docker")
@@ -39,9 +39,9 @@ def init_docker(
     command: str | None,
     compose_file: str | None,
 ) -> None:  # noqa: D401
-    """Initialise a project directory for use with an existing Docker Compose stack.
+    """Initialise a project directory for use with Docker Compose.
 
-    VERSION: Odoo version (optional; not used by Docker, accepted for symmetry).
+    VERSION: Odoo version (optional; used to select the odoo image tag).
     DIRECTORY: Project directory to initialise (defaults to current directory).
     """
     target = (directory or Path.cwd()).expanduser().resolve()
@@ -56,39 +56,13 @@ def init_docker(
     if not config_path.exists():
         config_path.touch()
 
-    backend = DockerInitBackend()
-    backend.pre_init(
+    backend = DockerBackend()
+    ok = backend.init(
         ctx,
         target,
-        version or "",
-        service=service,
-        command=command,
-        compose_file=compose_file,
-    )
-    env_ready = backend.setup_environment(
-        ctx,
-        target,
-        osh_dir,
-        {},
-        version or "",
-        service=service,
-        command=command,
-        compose_file=compose_file,
-    )
-    smoke_ok = True
-    if env_ready:
-        smoke_ok = backend.smoke_test(
-            ctx,
-            target,
-            osh_dir,
-            service=service,
-            command=command,
-            compose_file=compose_file,
-        )
-    backend.post_init(
-        ctx,
-        target,
-        osh_dir,
+        version=version or "",
+        edition="ce",
+        dry_run=False,
         service=service,
         command=command,
         compose_file=compose_file,
@@ -96,7 +70,7 @@ def init_docker(
 
     _record_run_target(target, "docker")
 
-    if not env_ready or not smoke_ok:
+    if not ok:
         click.echo(
             f"Initialised project directory at {target} "
             "(Docker setup incomplete; see warnings above).",

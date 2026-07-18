@@ -6,13 +6,13 @@ an existing Docker Compose stack configuration from ``.osh/docker.toml``.
 
 from __future__ import annotations
 
-from .backends import DockerInitBackend, DockerRunBackend
+from .backends import DockerBackend
 from .commands import init_docker
 
 
 def get_backends() -> list[type]:
     """Return backend classes exposed by this plugin."""
-    return [DockerInitBackend, DockerRunBackend]
+    return [DockerBackend]
 
 
 def get_commands() -> list:
