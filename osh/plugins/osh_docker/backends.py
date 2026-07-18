@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
 import click
 
 from ...backends import Backend
-from ...commons import ensure_tool
+from ...commons import run_command
 from ...odoo_layout import build_addons_paths
 from ...sources import ensure_osh_sources
 from .utils import (
@@ -18,6 +17,7 @@ from .utils import (
     _DOCKER_TOML,
     _compose_base_command,
     _docker_command,
+    _find_compose_tool,
     _generate_compose_file,
     _load_docker_config,
     _save_docker_config,
@@ -127,26 +127,26 @@ class DockerBackend(Backend):
                 edition,
                 dry_run=True,
                 skip_odoo=True,
-                assume_yes=True,
+                assume_yes=options.get("assume_yes", False),
                 **source_kwargs,
             )
             return True
 
-        ensure_tool("docker")
-        try:
-            subprocess.run(
-                ["docker", "compose", "version"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        compose_tool = _find_compose_tool()
+        if compose_tool is None:
             raise click.ClickException(
-                "Docker Compose plugin is required for init-docker."
-            ) from exc
+                "No Docker Compose tool found. "
+                "Install 'docker compose' or 'docker-compose'."
+            )
 
         _save_docker_config(
-            target, service, command, compose_file, version=version, edition=edition
+            target,
+            service,
+            command,
+            compose_file,
+            version=version,
+            edition=edition,
+            compose_tool=" ".join(compose_tool),
         )
         click.echo(
             f"Wrote Docker backend config to {target / _DOCKER_TOML}.",
@@ -165,7 +165,7 @@ class DockerBackend(Backend):
             edition,
             dry_run=False,
             skip_odoo=True,
-            assume_yes=True,
+            assume_yes=options.get("assume_yes", False),
             **source_kwargs,
         )
 
@@ -182,25 +182,14 @@ class DockerBackend(Backend):
         click.echo("Running quick Odoo smoke test in container\u2026", err=True)
         compose_cmd = _compose_base_command(target, compose_file=compose_file)
         try:
-            subprocess.run(
+            run_command(
                 [*compose_cmd, "run", "--rm", svc, *cmd, "--version"],
                 cwd=target,
                 check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
             )
-        except subprocess.CalledProcessError as exc:
-            stdout = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
+        except click.ClickException as exc:
             click.echo(
-                f"Warning: Odoo smoke test failed (exit status {exc.returncode}).\n"
-                f"{stdout}\n"
-                "The project is initialised but Odoo may not be usable.",
-                err=True,
-            )
-            return False
-        except FileNotFoundError:
-            click.echo(
-                "Warning: Docker command could not be executed. "
+                f"Warning: {exc.format_message()}\n"
                 "The project is initialised but Odoo may not be usable.",
                 err=True,
             )

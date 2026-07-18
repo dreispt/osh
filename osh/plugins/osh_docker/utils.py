@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
+
+import click
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
@@ -30,6 +33,7 @@ def _save_docker_config(
     compose_file: str | None = None,
     version: str | None = None,
     edition: str | None = None,
+    compose_tool: str | None = None,
 ) -> None:
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     config_path = base / _DOCKER_TOML
@@ -43,6 +47,8 @@ def _save_docker_config(
         lines.append(f"version = {version!r}")
     if edition:
         lines.append(f"edition = {edition!r}")
+    if compose_tool:
+        lines.append(f"compose_tool = {compose_tool!r}")
     config_path.write_text("\n".join(lines) + "\n")
 
 
@@ -55,15 +61,43 @@ def _docker_command(service: str, command: str | list[str] | None) -> list[str]:
     return shlex.split(str(command))
 
 
+def _find_compose_tool() -> list[str] | None:
+    """Return the available Compose command, preferring ``docker compose``."""
+    for args in (["docker", "compose"], ["docker-compose"]):
+        try:
+            subprocess.run(
+                [*args, "version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+            return list(args)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+    return None
+
+
 def _compose_base_command(
     base: Path,
     compose_file: str | None = None,
 ) -> list[str]:
-    """Return the ``docker compose`` invocation, including any ``-f`` option."""
+    """Return the available Compose invocation, including any ``-f`` option."""
+    cfg = _load_docker_config(base)
     if not compose_file:
-        cfg = _load_docker_config(base)
         compose_file = cfg.get("compose_file")
-    cmd = ["docker", "compose"]
+    compose_tool = cfg.get("compose_tool")
+
+    if compose_tool:
+        cmd = shlex.split(compose_tool)
+    else:
+        tool = _find_compose_tool()
+        if tool is None:
+            raise click.ClickException(
+                "No Docker Compose tool found. "
+                "Install 'docker compose' or 'docker-compose'."
+            )
+        cmd = tool
+
     if compose_file:
         cmd.extend(["-f", str(compose_file)])
     return cmd

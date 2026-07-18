@@ -27,14 +27,15 @@ def test_docker_backends_are_registered() -> None:
 def _patch_docker_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make Docker tooling no-ops so tests do not require a Docker daemon."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.backends.ensure_tool", lambda _name: None
+        "osh.plugins.osh_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
     )
 
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         cmd = args[0] if args else kwargs.get("args", [])
         return subprocess.CompletedProcess(cmd, returncode=0)
 
-    monkeypatch.setattr("osh.plugins.osh_docker.backends.subprocess.run", fake_run)
+    monkeypatch.setattr("osh.plugins.osh_docker.backends.run_command", fake_run)
 
 
 def test_init_target_docker_via_main_writes_compose_file(
@@ -186,7 +187,9 @@ def test_docker_backend_run_dry_run(
     """``run`` builds and prints the docker compose command in dry-run mode."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text("service = 'app'\ncommand = 'odoo'\n")
+    docker_toml.write_text(
+        "service = 'app'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
+    )
 
     backend = DockerBackend()
     backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
@@ -202,7 +205,9 @@ def test_docker_backend_uses_container_executable(
     """The configured command is invoked inside the container."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text('service = "odoo"\ncommand = "python3 -m odoo"\n')
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "python3 -m odoo"\ncompose_tool = "docker compose"\n'
+    )
 
     backend = DockerBackend()
     backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
@@ -226,6 +231,7 @@ def test_docker_backend_compose_file_from_config(
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
         'service = "odoo"\ncommand = "odoo"\ncompose_file = "devel.yaml"\n'
+        'compose_tool = "docker compose"\n'
     )
 
     backend = DockerBackend()
@@ -243,6 +249,7 @@ def test_docker_backend_compose_file_cli_override(
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
         'service = "odoo"\ncommand = "odoo"\ncompose_file = "devel.yaml"\n'
+        'compose_tool = "docker compose"\n'
     )
 
     class FakeCtx:
