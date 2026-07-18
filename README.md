@@ -18,7 +18,7 @@ cd my-odoo-project
 osh init 19.0
 
 # Check the project status
-osh status
+osh doctor
 
 # Run Odoo
 osh run
@@ -62,7 +62,7 @@ Run Odoo with automatic configuration.
 osh run
 ```
 
-### `osh status`
+### `osh doctor`
 
 Show project information.
 

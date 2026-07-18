@@ -1,4 +1,4 @@
-"""`osh status` command implementation."""
+"""`osh doctor` command implementation."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from ..utils import (
 )
 
 
-@click.command(name="status")
+@click.command(name="doctor")
 @click.pass_context
-def status(ctx: click.Context) -> None:  # noqa: D401
+def doctor(ctx: click.Context) -> None:  # noqa: D401
     """Show project information.
 
     Displays:

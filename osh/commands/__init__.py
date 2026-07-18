@@ -6,12 +6,12 @@ with the root click group in `cli.py`.
 
 from __future__ import annotations
 
-from . import config_cmd, init_cmd, odoo_cmd, plug_cmd, run_cmd, status_cmd, version_cmd
+from . import config_cmd, doctor_cmd, init_cmd, odoo_cmd, plug_cmd, run_cmd, version_cmd
 
 COMMANDS = [
     init_cmd.init,
     init_cmd.init_local,
-    status_cmd.status,
+    doctor_cmd.doctor,
     run_cmd.run,
     odoo_cmd.odoo,
     config_cmd.config,
