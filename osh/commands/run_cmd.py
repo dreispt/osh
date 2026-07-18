@@ -5,7 +5,12 @@ from __future__ import annotations
 import click
 
 from ..commons import find_project_root
-from ..db import record_db_name, record_run_target, resolve_db_name, resolve_run_target
+from ..db import (
+    get_current_branch,
+    resolve_db_name,
+    resolve_run_target,
+    set_project_config,
+)
 from ..odoo_layout import find_odoo_executable
 from ..plugin_loader import load_backends
 from ..verbosity import get_verbosity
@@ -81,7 +86,7 @@ def run(
     echo = get_verbosity(ctx, base, verbose_override=verbose)
 
     backend_name = resolve_run_target(base, backend_name, ctx)
-    record_run_target(base, backend_name)
+    set_project_config(base, "run", "target", backend_name)
 
     backends = load_backends()
     backend_cls = backends.get(backend_name)
@@ -92,7 +97,8 @@ def run(
     explicit_db = _parse_explicit_db(extra_args)
     db_name = explicit_db or resolve_db_name(base, echo.level == "verbose")
     if db_name and explicit_db:
-        record_db_name(base, db_name)
+        branch = get_current_branch(base) or "default"
+        set_project_config(base, "db", values={branch: db_name, "last": db_name})
 
     db_args: list[str] = []
     if db_name:

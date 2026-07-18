@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from ..db import record_run_target
+from ..db import set_project_config
 from ..plugin_loader import load_backends
 from ..userconfig import _load_user_init_config, save_user_preference
 from ..verbosity import get_verbosity
@@ -226,7 +226,17 @@ def init(
     )
 
     if not dry_run:
-        record_run_target(target, backend_name)
+        set_project_config(target, "run", "target", backend_name)
+
+        init_values = {
+            "target": backend_name,
+            "version": version,
+            "edition": edition,
+        }
+        for key, value in {**kwargs, **docker_source_kwargs}.items():
+            if value is not None:
+                init_values[key] = str(value)
+        set_project_config(target, "init", values=init_values)
 
     if dry_run:
         echo.essential(f"Dry run for project directory at {target}")

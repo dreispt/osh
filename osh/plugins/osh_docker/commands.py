@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from ...db import record_run_target
+from ...db import set_project_config
 from .backends import DockerBackend
 
 
@@ -65,7 +65,7 @@ def init_docker(
         compose_file=compose_file,
     )
 
-    record_run_target(target, "docker")
+    set_project_config(target, "run", "target", "docker")
 
     if not ok:
         click.echo(

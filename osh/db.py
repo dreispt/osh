@@ -48,12 +48,35 @@ def save_osh_config(base: Path, cfg: configparser.ConfigParser) -> None:
         cfg.write(f)
 
 
-def record_run_target(base: Path, target: str) -> None:
-    """Store the most recently used run target in ``.osh/config``."""
+def get_project_config(
+    base: Path, section: str, option: str, fallback: str | None = None
+) -> str | None:
+    """Return a value from ``.osh/config``, or *fallback* if it is missing."""
     cfg = load_osh_config(base)
-    if not cfg.has_section("run"):
-        cfg.add_section("run")
-    cfg.set("run", "target", target)
+    if not cfg.has_option(section, option):
+        return fallback
+    return cfg.get(section, option)
+
+
+def set_project_config(
+    base: Path,
+    section: str,
+    option: str | None = None,
+    value: str | None = None,
+    *,
+    values: dict[str, str] | None = None,
+) -> None:
+    """Set one or more values in ``.osh/config``, creating the section if absent."""
+    cfg = load_osh_config(base)
+    if not cfg.has_section(section):
+        cfg.add_section(section)
+    if option is not None:
+        if value is None:
+            raise ValueError(f"value required for option {option!r}")
+        cfg.set(section, option, value)
+    if values is not None:
+        for opt, val in values.items():
+            cfg.set(section, opt, val)
     save_osh_config(base, cfg)
 
 
@@ -71,43 +94,7 @@ def resolve_run_target(base: Path, default_target: str, ctx: click.Context) -> s
     ):
         return default_target
 
-    cfg = load_osh_config(base)
-    if cfg.has_option("run", "target"):
-        return cfg.get("run", "target")
-    return default_target
-
-
-def _get_branch_db(base: Path, branch: str) -> str | None:
-    """Return the configured database for *branch*, or None."""
-    cfg = load_osh_config(base)
-    return cfg.get("db", branch, fallback=None)
-
-
-def set_branch_db(base: Path, branch: str, db_name: str) -> None:
-    """Store the preferred database for *branch*."""
-    cfg = load_osh_config(base)
-    cfg.set("db", branch, db_name)
-    save_osh_config(base, cfg)
-
-
-def _get_last_db(base: Path) -> str | None:
-    """Return the last used database, or None."""
-    cfg = load_osh_config(base)
-    return cfg.get("db", "last", fallback=None)
-
-
-def set_last_db(base: Path, db_name: str) -> None:
-    """Store the last used database."""
-    cfg = load_osh_config(base)
-    cfg.set("db", "last", db_name)
-    save_osh_config(base, cfg)
-
-
-def record_db_name(base: Path, db_name: str) -> None:
-    """Store *db_name* as the preferred database for the current branch and as last used."""
-    branch = get_current_branch(base) or "default"
-    set_branch_db(base, branch, db_name)
-    set_last_db(base, db_name)
+    return get_project_config(base, "run", "target", fallback=default_target)
 
 
 def get_current_branch(base: Path) -> str | None:
@@ -249,12 +236,12 @@ def resolve_db_name(base: Path, verbose: bool = False) -> str | None:
     database, or None if no database has been configured.
     """
     branch = get_current_branch(base) or "default"
-    db_name = _get_branch_db(base, branch)
+    db_name = get_project_config(base, "db", branch)
     if db_name:
         return db_name
 
     # Fall back to last used database
-    last_db = _get_last_db(base)
+    last_db = get_project_config(base, "db", "last")
     if last_db:
         if verbose:
             click.echo(f"Using last database: {last_db}", err=True)

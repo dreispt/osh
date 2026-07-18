@@ -10,8 +10,7 @@ from ..db import (
     load_osh_config,
     sanitize_db_name,
     save_osh_config,
-    set_branch_db,
-    set_last_db,
+    set_project_config,
 )
 from ..userconfig import save_user_preference
 
@@ -63,9 +62,9 @@ def db(
     if not db_name:
         raise click.ClickException("A database name is required.")
 
-    set_branch_db(base, branch, db_name)
+    set_project_config(base, "db", branch, db_name)
     if set_default:
-        set_last_db(base, db_name)
+        set_project_config(base, "db", "last", db_name)
 
     click.echo(f"Set database for branch '{branch}' to '{db_name}'")
 
