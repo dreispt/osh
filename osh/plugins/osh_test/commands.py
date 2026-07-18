@@ -66,7 +66,6 @@ def test(
     Examples:
 
     \b
-      osh test
       osh test my_module
       osh test --all
       osh test --tags :TestClass.method
@@ -78,6 +77,10 @@ def test(
     base = _find_project_root(required=True)
 
     if not modules:
+        if not test_all:
+            raise click.ClickException(
+                "No modules specified. Pass module names or use --all."
+            )
         modules = tuple(discover_module_names(base))
         if not modules:
             raise click.ClickException("No project modules found to test.")
