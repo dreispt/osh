@@ -8,6 +8,13 @@ picks a database name for you, and runs the right virtual environment.
 
 > **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
 
+## Design principles
+
+- **Unintrusive** – provides a thin layer on top of Odoo to make common dev workflow operations easier; it won't modify your project or force you into a particular deployment or project organization mode
+- **Pluggable** – can become a powerful toolbelt by creating and using additional plugins
+- **Transparent** – the user can see what is going on at any time, what actual commands or operations are being run, what defaults or assumptions are being used, and make choices or even manually run their own modified commands. No surprises, no black boxes
+- **Friendly** – commands are script-friendly, but interactive mode experience tries to be helpful and guide the user along the way, explaining options available and suggesting next steps
+
 ## Quick start
 
 ```bash
