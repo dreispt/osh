@@ -12,6 +12,30 @@ import click
 
 from .utils import _detect_emoji_preference, _detect_verbosity
 
+_EMOJI_PREFIXES = {
+    "error": "❌ ",
+    "warning": "⚠️ ",
+    "success": "✅ ",
+    "guidance": "💡 ",
+    "next_steps": "➡️ ",
+    "details": "📋 ",
+    "assumptions": "🔍 ",
+    "internal": "🔧 ",
+    "essential": "",
+}
+
+_TEXT_PREFIXES = {
+    "error": "ERROR: ",
+    "warning": "WARNING: ",
+    "success": "",
+    "guidance": "",
+    "next_steps": "Next: ",
+    "details": "",
+    "assumptions": "",
+    "internal": "",
+    "essential": "",
+}
+
 
 class Verbosity:
     """Verbosity level manager for consistent output behavior across Osh commands.
@@ -86,31 +110,8 @@ class Verbosity:
             Formatted message with prefix
         """
         if self.emoji:
-            prefixes = {
-                "error": "❌ ",
-                "warning": "⚠️ ",
-                "success": "✅ ",
-                "guidance": "💡 ",
-                "next_steps": "➡️ ",
-                "details": "📋 ",
-                "assumptions": "🔍 ",
-                "internal": "🔧 ",
-                "essential": "",
-            }
-        else:
-            prefixes = {
-                "error": "ERROR: ",
-                "warning": "WARNING: ",
-                "success": "",
-                "guidance": "",
-                "next_steps": "Next: ",
-                "details": "",
-                "assumptions": "",
-                "internal": "",
-                "essential": "",
-            }
-        prefix = prefixes.get(category, "")
-        return f"{prefix}{message}"
+            return f"{_EMOJI_PREFIXES.get(category, '')}{message}"
+        return f"{_TEXT_PREFIXES.get(category, '')}{message}"
 
     def _echo(self, category: str, message: str, err: bool = False) -> None:
         """Internal echo method that handles category checking and formatting.
