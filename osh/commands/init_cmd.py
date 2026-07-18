@@ -8,7 +8,7 @@ import click
 
 from ..db import record_run_target
 from ..plugin_loader import load_backends
-from ..utils import _load_user_init_config, save_user_preference
+from ..userconfig import _load_user_init_config, save_user_preference
 from ..verbosity import get_verbosity
 
 
@@ -199,6 +199,13 @@ def init(
         raise click.ClickException(f"Unknown init target: {backend_name}")
 
     backend = backend_cls()
+
+    docker_source_kwargs: dict[str, str | None] = {}
+    if backend_name == "docker":
+        for key in ("enterprise_source", "themes_source"):
+            if key in kwargs:
+                docker_source_kwargs[key] = kwargs.pop(key)
+
     result = backend.init(
         target,
         version=version,
@@ -206,6 +213,7 @@ def init(
         dry_run=dry_run,
         assume_yes=assume_yes,
         **kwargs,
+        **docker_source_kwargs,
     )
 
     if not dry_run:

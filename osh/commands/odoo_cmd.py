@@ -13,7 +13,7 @@ import os
 import click
 
 from ..commons import find_project_root, get_odoo_config_path
-from ..utils import build_addons_paths, find_odoo_executable
+from ..odoo_layout import build_addons_paths, find_odoo_executable
 
 
 @click.command(name="odoo", context_settings=dict(ignore_unknown_options=True))

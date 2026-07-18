@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.cli import main
-from osh.plugins.osh_local.utils import (
+from osh.sources import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
     _ensure_cache,
@@ -416,15 +416,9 @@ class TestInitCommand:
         odoo_bare = _make_bare_repo(tmp_path, "odoo")
         ent_bare = _make_bare_repo(tmp_path, "enterprise")
         themes_bare = _make_bare_repo(tmp_path, "design-themes")
-        monkeypatch.setattr(
-            "osh.plugins.osh_local.utils.DEFAULT_ODOO_URL", f"file://{odoo_bare}"
-        )
-        monkeypatch.setattr(
-            "osh.plugins.osh_local.utils.DEFAULT_ENTERPRISE_URL", f"file://{ent_bare}"
-        )
-        monkeypatch.setattr(
-            "osh.plugins.osh_local.utils.DEFAULT_THEMES_URL", f"file://{themes_bare}"
-        )
+        monkeypatch.setattr("osh.sources.DEFAULT_ODOO_URL", f"file://{odoo_bare}")
+        monkeypatch.setattr("osh.sources.DEFAULT_ENTERPRISE_URL", f"file://{ent_bare}")
+        monkeypatch.setattr("osh.sources.DEFAULT_THEMES_URL", f"file://{themes_bare}")
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
@@ -604,7 +598,7 @@ class TestInitEdition:
 
         fake_home = tmp_project / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("osh.utils.Path.home", lambda: fake_home)
+        monkeypatch.setattr("osh.userconfig.Path.home", lambda: fake_home)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -677,7 +671,7 @@ class TestInitEdition:
         config_dir = fake_home / ".config" / "osh"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "config.toml").write_text('[init]\nedition = "sh"\n')
-        monkeypatch.setattr("osh.utils.Path.home", lambda: fake_home)
+        monkeypatch.setattr("osh.userconfig.Path.home", lambda: fake_home)
 
         runner = CliRunner()
         result = runner.invoke(main, ["init", "19.0", str(tmp_project)])

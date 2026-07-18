@@ -42,6 +42,11 @@ def get_odoo_config_path(base: Path) -> Path:
     return base / ".odoorc"
 
 
+def get_osh_config_path(base: Path) -> Path:
+    """Return path to the Osh project configuration file (.osh/config)."""
+    return base / ".osh" / "config"
+
+
 def ensure_tool(tool: str) -> None:
     """Raise a ClickException if *tool* is not available on PATH."""
     if not shutil.which(tool):

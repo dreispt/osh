@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from ..commons import find_project_root
+from ..commons import find_project_root, get_osh_config_path
 from ..db import (
     get_current_branch,
     load_osh_config,
@@ -13,7 +13,7 @@ from ..db import (
     set_branch_db,
     set_last_db,
 )
-from ..utils import _get_osh_config_path, save_user_preference
+from ..userconfig import save_user_preference
 
 
 @click.group(name="config")
@@ -78,7 +78,7 @@ def show(ctx: click.Context) -> None:  # noqa: D401
     base = find_project_root(required=True)
 
     cfg = load_osh_config(base)
-    config_path = _get_osh_config_path(base)
+    config_path = get_osh_config_path(base)
     click.echo(f"Configuration file: {config_path}")
 
     if cfg.has_section("db"):

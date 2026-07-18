@@ -6,8 +6,8 @@ import click
 
 from ..commons import find_project_root
 from ..db import record_db_name, record_run_target, resolve_db_name, resolve_run_target
+from ..odoo_layout import build_addons_paths, find_odoo_executable
 from ..plugin_loader import load_backends
-from ..utils import build_addons_paths, find_odoo_executable
 from ..verbosity import get_verbosity
 
 

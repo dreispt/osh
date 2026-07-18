@@ -11,7 +11,7 @@ import click
 from ...backends import Backend
 from ...commons import discover_addons_paths, get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
-from ...utils import build_addons_paths, find_odoo_executable
+from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...verbosity import get_verbosity
 from .utils import _get_venv_python, init_project
 
@@ -110,6 +110,14 @@ class LocalBackend(Backend):
         verbose: bool = False,
         **options: Any,
     ) -> None:
+        if "--addons-path" not in args:
+            addons_paths = build_addons_paths(base, include_themes=True)
+            if addons_paths:
+                args = list(args) + [
+                    "--addons-path",
+                    ",".join(str(p) for p in addons_paths),
+                ]
+
         echo = get_verbosity(ctx, base, verbose_override=verbose)
         command = " ".join(args)
         if dry_run:

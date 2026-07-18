@@ -15,7 +15,7 @@ import click
 
 from .commons import decode_stderr
 from .db import run_psql_script
-from .utils import build_addons_paths
+from .odoo_layout import build_addons_paths
 
 
 def neutralize_database(

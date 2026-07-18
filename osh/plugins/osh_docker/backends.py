@@ -11,6 +11,8 @@ import click
 
 from ...backends import Backend
 from ...commons import ensure_tool
+from ...odoo_layout import build_addons_paths
+from ...sources import ensure_osh_sources
 from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
@@ -86,6 +88,12 @@ class DockerBackend(Backend):
         command = options.get("command")
         compose_file = options.get("compose_file")
 
+        source_kwargs = {
+            k: options[k]
+            for k in ("odoo_source", "enterprise_source", "themes_source")
+            if k in options
+        }
+
         if compose_file and not (target / compose_file).is_file():
             raise click.ClickException(
                 f"Compose file '{compose_file}' not found in {target}."
@@ -109,8 +117,18 @@ class DockerBackend(Backend):
             click.echo(
                 f"Would write {target / _DOCKER_TOML}: "
                 f"service={service or 'odoo'}, command={command or 'odoo'}, "
-                f"compose_file={compose_file or '<none>'}.",
+                f"compose_file={compose_file or '<none>'}, "
+                f"version={version!r}, edition={edition!r}.",
                 err=True,
+            )
+            ensure_osh_sources(
+                target,
+                version,
+                edition,
+                dry_run=True,
+                skip_odoo=True,
+                assume_yes=True,
+                **source_kwargs,
             )
             return True
 
@@ -127,7 +145,9 @@ class DockerBackend(Backend):
                 "Docker Compose plugin is required for init-docker."
             ) from exc
 
-        _save_docker_config(target, service, command, compose_file)
+        _save_docker_config(
+            target, service, command, compose_file, version=version, edition=edition
+        )
         click.echo(
             f"Wrote Docker backend config to {target / _DOCKER_TOML}.",
             err=True,
@@ -139,6 +159,16 @@ class DockerBackend(Backend):
                 err=True,
             )
 
+        ensure_osh_sources(
+            target,
+            version,
+            edition,
+            dry_run=False,
+            skip_odoo=True,
+            assume_yes=True,
+            **source_kwargs,
+        )
+
         cfg = _load_docker_config(target)
         svc = cfg.get("service")
         cmd = _docker_command(svc, cfg.get("command"))
@@ -149,7 +179,7 @@ class DockerBackend(Backend):
             )
             return True
 
-        click.echo("Running quick Odoo smoke test in container…", err=True)
+        click.echo("Running quick Odoo smoke test in container\u2026", err=True)
         compose_cmd = _compose_base_command(target, compose_file=compose_file)
         try:
             subprocess.run(
@@ -200,7 +230,27 @@ class DockerBackend(Backend):
                 f"{base / _DOCKER_TOML}."
             )
 
+        edition = options.get("edition") or cfg.get("edition") or "ce"
+        version = cfg.get("version", "")
+        ensure_osh_sources(
+            base,
+            version,
+            edition,
+            dry_run=dry_run,
+            skip_odoo=True,
+            assume_yes=True,
+        )
+
         odoo_args = args[1:]  # args[0] is the host executable placeholder
+
+        if "--addons-path" not in odoo_args:
+            addons_paths = build_addons_paths(base, include_themes=True)
+            container_paths = [
+                f"/mnt/extra-addons/{p.relative_to(base)}" for p in addons_paths
+            ]
+            if container_paths:
+                odoo_args.extend(["--addons-path", ",".join(container_paths)])
+
         odoo_command = _docker_command(service, command)
         cli_params = getattr(ctx, "params", {}) or {}
         compose_cmd = _compose_base_command(

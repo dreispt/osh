@@ -6,11 +6,12 @@ level and preferences, supporting multiple verbosity levels and emoji control.
 
 from __future__ import annotations
 
+import configparser
 from pathlib import Path
 
 import click
 
-from .utils import _detect_emoji_preference, _detect_verbosity
+from .userconfig import _load_user_init_config
 
 _EMOJI_PREFIXES = {
     "error": "❌ ",
@@ -191,6 +192,62 @@ class Verbosity:
             formatted = self.format_message(fallback, message)
             if formatted:
                 click.echo(formatted, err=err)
+
+
+def _detect_verbosity(base: Path | None) -> str:
+    """Detect appropriate verbosity level based on user experience and project state.
+
+    Args:
+        base: Project root directory, or None if no project found
+
+    Returns:
+        Appropriate verbosity level for the current context
+    """
+    # Check global user config first
+    user_cfg = _load_user_init_config()
+    if "verbosity" in user_cfg:
+        return user_cfg["verbosity"]
+
+    if base is None or not (base / ".osh").exists():
+        return "friendly"  # New user, no project yet
+
+    # Check project config
+    cfg = configparser.ConfigParser()
+    config_path = base / ".osh" / "config"
+    if config_path.exists():
+        cfg.read(config_path)
+        if cfg.has_option("user", "verbosity"):
+            return cfg.get("user", "verbosity")
+
+    # If config exists but no explicit setting, assume normal (experienced user)
+    return "normal"
+
+
+def _detect_emoji_preference(base: Path | None) -> bool:
+    """Detect emoji preference based on user configuration.
+
+    Args:
+        base: Project root directory, or None if no project found
+
+    Returns:
+        True if emojis should be used, False otherwise
+    """
+    if base is not None and (base / ".osh").exists():
+        # Check project config first (highest priority)
+        cfg = configparser.ConfigParser()
+        config_path = base / ".osh" / "config"
+        if config_path.exists():
+            cfg.read(config_path)
+            if cfg.has_option("user", "emoji"):
+                return cfg.get("user", "emoji").lower() == "true"
+
+    # Fall back to global user config
+    user_cfg = _load_user_init_config()
+    if "emoji" in user_cfg:
+        return user_cfg["emoji"]
+
+    # Default to emojis
+    return True
 
 
 def get_verbosity(

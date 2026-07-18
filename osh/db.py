@@ -14,8 +14,7 @@ from pathlib import Path
 
 import click
 
-from .commons import decode_stderr, get_odoo_config_path
-from .utils import _get_osh_config_path
+from .commons import decode_stderr, get_odoo_config_path, get_osh_config_path
 
 
 def sanitize_db_name(name: str) -> str:
@@ -31,7 +30,7 @@ def load_osh_config(base: Path) -> configparser.ConfigParser:
     cfg = configparser.ConfigParser()
     cfg.add_section("db")
     cfg.add_section("user")
-    config_path = _get_osh_config_path(base)
+    config_path = get_osh_config_path(base)
     if config_path.exists():
         cfg.read(config_path)
     if not cfg.has_section("db"):
@@ -43,7 +42,7 @@ def load_osh_config(base: Path) -> configparser.ConfigParser:
 
 def save_osh_config(base: Path, cfg: configparser.ConfigParser) -> None:
     """Write the Osh project configuration file."""
-    config_path = _get_osh_config_path(base)
+    config_path = get_osh_config_path(base)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w") as f:
         cfg.write(f)
