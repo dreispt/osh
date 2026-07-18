@@ -6,7 +6,7 @@ import click
 
 from ..commons import find_project_root
 from ..db import record_db_name, record_run_target, resolve_db_name, resolve_run_target
-from ..odoo_layout import build_addons_paths, find_odoo_executable
+from ..odoo_layout import find_odoo_executable
 from ..plugin_loader import load_backends
 from ..verbosity import get_verbosity
 
@@ -34,6 +34,11 @@ from ..verbosity import get_verbosity
     default=None,
     help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
 )
+@click.option(
+    "--edition",
+    default=None,
+    help="Odoo edition for addons path (ce/ee/sh).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def run(
@@ -42,6 +47,7 @@ def run(
     verbose: bool,
     backend_name: str,
     compose_file: str | None,
+    edition: str | None,
     extra_args: tuple[str, ...],
 ) -> None:  # noqa: D401
     """Run the project's Odoo executable.
@@ -52,7 +58,7 @@ def run(
 
     \b
       - Discovers --addons-path from project addon directories and passes it
-        on the odoo-bin command line (local target only).
+        on the odoo-bin command line (local host paths or container paths for Docker).
       - If no explicit --config/-c is provided, creates ``.osh/odoo.conf`` and
         passes ``--config .osh/odoo.conf --save`` so Odoo persists the computed
         configuration for later manual use (local target only).
@@ -101,17 +107,6 @@ def run(
 
         has_explicit_config = _has_arg(extra_args, "--config", short="-c")
 
-        if not _has_arg(extra_args, "--addons-path"):
-            addons_paths = build_addons_paths(base, include_themes=True)
-        else:
-            addons_paths = []
-
-        addons_path_args: list[str] = []
-        if addons_paths:
-            addons_path_str = ",".join(str(p) for p in addons_paths)
-            echo.assumptions(f"Using addons path: {addons_path_str}")
-            addons_path_args.extend(["--addons-path", addons_path_str])
-
         odoo_conf = base / ".osh" / "odoo.conf"
         if not has_explicit_config:
             odoo_conf.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +115,6 @@ def run(
                 echo.details(f"Created config file: {odoo_conf}")
 
         args: list[str] = [exe]
-        args.extend(addons_path_args)
         args.extend(db_args)
         args.extend(extra_args)
         if not has_explicit_config:
@@ -130,7 +124,7 @@ def run(
         args.extend(db_args)
         args.extend(extra_args)
 
-    backend.run(ctx, base, args, dry_run=dry_run, verbose=verbose)
+    backend.run(ctx, base, args, dry_run=dry_run, verbose=verbose, edition=edition)
 
 
 def _parse_explicit_db(extra_args: tuple[str, ...]) -> str | None:

@@ -113,10 +113,16 @@ class LocalBackend(Backend):
         if "--addons-path" not in args:
             addons_paths = build_addons_paths(base, include_themes=True)
             if addons_paths:
-                args = list(args) + [
+                addons_path_args = [
                     "--addons-path",
                     ",".join(str(p) for p in addons_paths),
                 ]
+                args = list(args)
+                if "--config" in args:
+                    idx = args.index("--config")
+                    args[idx:idx] = addons_path_args
+                else:
+                    args.extend(addons_path_args)
 
         echo = get_verbosity(ctx, base, verbose_override=verbose)
         command = " ".join(args)
