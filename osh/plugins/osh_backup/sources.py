@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 import click
 
-from ...commons import get_odoo_config_path
+from ...commons import decode_stderr, get_odoo_data_dir
 from ...db import get_pg_credentials
 from .utils import _now_stamp, _safe_name
 
@@ -24,8 +24,18 @@ class SourceError(click.ClickException):
     """Raised when a source cannot be fetched; Click will show the message and exit cleanly."""
 
 
+def _check_process_error(proc: subprocess.Popen, label: str) -> None:
+    """Raise a SourceError with the proc stderr if *proc* failed."""
+    if proc.returncode == 0:
+        return
+    stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+    raise SourceError(f"Failed to {label}: {stderr}")
+
+
 class BackupSource:
     """Base class for backup sources."""
+
+    ssh_key: Path | None = None
 
     def default_output_name(self) -> str:
         """Return the default filename for this source."""
@@ -34,6 +44,18 @@ class BackupSource:
     def fetch(self, output: Path, *, dry_run: bool = False) -> None:
         """Fetch the backup into *output*."""
         raise NotImplementedError
+
+    def _ssh_args(self) -> list[str]:
+        """Return SSH client args for the configured key, if any."""
+        args: list[str] = []
+        if self.ssh_key:
+            args.extend(["-i", str(self.ssh_key)])
+        return args
+
+    @staticmethod
+    def _first_or_none(values: list[str] | None) -> str | None:
+        """Return the first element of *values*, or None when empty/missing."""
+        return values[0] if values else None
 
 
 class DbSource(BackupSource):
@@ -83,7 +105,7 @@ class DbSource(BackupSource):
                     args, env=env, stdout=f, stderr=subprocess.PIPE, check=True
                 )
         except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+            stderr = decode_stderr(exc.stderr)
             raise SourceError(f"pg_dump failed: {stderr}") from exc
         except FileNotFoundError as exc:
             raise SourceError(
@@ -102,9 +124,7 @@ class DbSource(BackupSource):
                         dump_args, env=env, stdout=f, stderr=subprocess.PIPE, check=True
                     )
             except subprocess.CalledProcessError as exc:
-                stderr = (
-                    exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
-                )
+                stderr = decode_stderr(exc.stderr)
                 raise SourceError(f"pg_dump failed: {stderr}") from exc
             except FileNotFoundError as exc:
                 raise SourceError("Could not locate `pg_dump`.") from exc
@@ -129,18 +149,7 @@ class DbSource(BackupSource):
                     )
 
     def _data_dir(self) -> Path | None:
-        if self.base is None:
-            return Path.home() / ".local" / "share" / "Odoo"
-        odoo_rc = get_odoo_config_path(self.base)
-        if odoo_rc.exists():
-            import configparser
-
-            cfg = configparser.ConfigParser()
-            cfg.read(odoo_rc)
-            data_dir = cfg.get("options", "data_dir", fallback=None)
-            if data_dir:
-                return Path(data_dir)
-        return Path.home() / ".local" / "share" / "Odoo"
+        return get_odoo_data_dir(self.base)
 
 
 class HttpsSource(BackupSource):
@@ -156,8 +165,8 @@ class HttpsSource(BackupSource):
         self.host = parsed.netloc
         self.original_url = url
         query = parse_qs(parsed.query)
-        self.db_name = self._first(query.get("db"))
-        self.backup_format = self._first(query.get("format")) or "zip"
+        self.db_name = self._first_or_none(query.get("db"))
+        self.backup_format = self._first_or_none(query.get("format")) or "zip"
         self.original_format = self.backup_format
         self.master_password = master_password
 
@@ -165,10 +174,6 @@ class HttpsSource(BackupSource):
         if parsed.path and parsed.path != "/":
             base_url = base_url.rstrip("/") + parsed.path
         self.endpoint = base_url.rstrip("/") + "/web/database/backup"
-
-    @staticmethod
-    def _first(values: list[str] | None) -> str | None:
-        return values[0] if values else None
 
     def default_output_name(self) -> str:
         safe_host = _safe_name(self.host)
@@ -230,7 +235,7 @@ class OdooshSource(BackupSource):
         self.include_filestore = include_filestore
         self.original_format = "zip" if include_filestore else "sql.gz"
         query = parse_qs(parsed.query)
-        self.backup_name = self._first(query.get("backup"))
+        self.backup_name = self._first_or_none(query.get("backup"))
         self.domain = self._normalize_domain(parsed.netloc)
         self.build_id = self._resolve_build_id(parsed.username)
         if not self.build_id or not self.domain:
@@ -253,10 +258,6 @@ class OdooshSource(BackupSource):
         if match:
             return match.group(1)
         return None
-
-    @staticmethod
-    def _first(values: list[str] | None) -> str | None:
-        return values[0] if values else None
 
     @property
     def ssh_target(self) -> str:
@@ -377,20 +378,8 @@ class OdooshSource(BackupSource):
                     ssh_proc.stdout.close()
                 ssh_proc.wait()
                 tar_proc.wait()
-                if ssh_proc.returncode != 0:
-                    stderr = (
-                        ssh_proc.stderr.read().decode("utf-8", errors="replace")
-                        if ssh_proc.stderr
-                        else ""
-                    )
-                    raise SourceError(f"Failed to download filestore: {stderr}")
-                if tar_proc.returncode != 0:
-                    stderr = (
-                        tar_proc.stderr.read().decode("utf-8", errors="replace")
-                        if tar_proc.stderr
-                        else ""
-                    )
-                    raise SourceError(f"Failed to extract filestore: {stderr}")
+                _check_process_error(ssh_proc, "download filestore")
+                _check_process_error(tar_proc, "extract filestore")
         except FileNotFoundError as exc:
             raise SourceError("Could not locate `ssh` or `tar`.") from exc
 
@@ -402,18 +391,12 @@ class OdooshSource(BackupSource):
                     arcname = "filestore/" + path.relative_to(filestore_dir).as_posix()
                     zf.write(path, arcname)
 
-    def _ssh_args(self) -> list[str]:
-        args: list[str] = []
-        if self.ssh_key:
-            args.extend(["-i", str(self.ssh_key)])
-        return args
-
     def _scp(self, remote_path: str, output: Path) -> None:
         scp_args = ["scp", *self._ssh_args(), remote_path, str(output)]
         try:
             subprocess.run(scp_args, stderr=subprocess.PIPE, check=True)
         except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+            stderr = decode_stderr(exc.stderr)
             raise SourceError(f"scp failed: {stderr}") from exc
         except FileNotFoundError as exc:
             raise SourceError("Could not locate `scp`. Is OpenSSH installed?") from exc
@@ -468,16 +451,10 @@ class SshSource(BackupSource):
         try:
             subprocess.run(scp_args, stderr=subprocess.PIPE, check=True)
         except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+            stderr = decode_stderr(exc.stderr)
             raise SourceError(f"scp failed: {stderr}") from exc
         except FileNotFoundError as exc:
             raise SourceError("Could not locate `scp`. Is OpenSSH installed?") from exc
-
-    def _ssh_args(self) -> list[str]:
-        args: list[str] = []
-        if self.ssh_key:
-            args.extend(["-i", str(self.ssh_key)])
-        return args
 
 
 def parse_source(

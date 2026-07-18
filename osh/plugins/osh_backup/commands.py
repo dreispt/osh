@@ -10,6 +10,9 @@ from ...cache import ensure_cache_dir, list_cache, write_metadata
 from ...commons import find_project_root
 from .sources import parse_source
 
+SOURCE_COLUMN_WIDTH = 40
+SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")
+
 
 @click.group(name="backup")
 def backup() -> None:  # noqa: D401
@@ -102,26 +105,6 @@ def download(
     """
 
     base = find_project_root()
-    output_path: Path | None = None
-
-    if output:
-        output_path = Path(output).expanduser().resolve()
-    elif base is not None:
-        cache_dir = ensure_cache_dir(base)
-        parsed = parse_source(
-            source,
-            base=base,
-            output_format=output_format,
-            master_password=master_password,
-            ssh_key=ssh_key,
-            include_filestore=filestore,
-        )
-        output_path = cache_dir / parsed.default_output_name()
-    else:
-        raise click.ClickException(
-            "Not inside an Osh project. Use --output PATH to save the backup to a specific file."
-        )
-
     parsed = parse_source(
         source,
         base=base,
@@ -130,6 +113,16 @@ def download(
         ssh_key=ssh_key,
         include_filestore=filestore,
     )
+
+    if output:
+        output_path = Path(output).expanduser().resolve()
+    elif base is not None:
+        cache_dir = ensure_cache_dir(base)
+        output_path = cache_dir / parsed.default_output_name()
+    else:
+        raise click.ClickException(
+            "Not inside an Osh project. Use --output PATH to save the backup to a specific file."
+        )
 
     if dry_run:
         click.echo(f"Would download {source} to {output_path}", err=True)
@@ -186,11 +179,14 @@ def list_backups(
         click.echo("No cached backups.", err=True)
         return
 
-    click.echo(f"{'#':<4} {'Source':<40} {'Created':<20} {'Filename'}")
+    click.echo(
+        f"{'#':<4} {'Source':<{SOURCE_COLUMN_WIDTH}} {'Created':<20} {'Filename'}"
+    )
     for entry in entries:
         source = entry["source"]
-        if len(source) > 37:
-            source = source[:34] + "..."
+        if len(source) > SOURCE_TRUNCATE_AT + len("..."):
+            source = source[:SOURCE_TRUNCATE_AT] + "..."
         click.echo(
-            f"{entry['id']:<4} {source:<40} {entry['created_at']:<20} {entry['filename']}"
+            f"{entry['id']:<4} {source:<{SOURCE_COLUMN_WIDTH}} "
+            f"{entry['created_at']:<20} {entry['filename']}"
         )
