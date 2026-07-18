@@ -1,4 +1,4 @@
-"""`osh rebuild` command implementation."""
+"""`osh restore` command implementation."""
 
 from __future__ import annotations
 
@@ -13,12 +13,17 @@ from .neutralize import _neutralize_database
 from .restore import _restore_dump
 
 
-@click.command(name="rebuild")
+@click.command(name="restore")
 @click.argument("dump", required=False)
 @click.option(
     "--force",
     is_flag=True,
-    help="Drop the target database if it already exists without prompting.",
+    help="Overwrite the target database if it already exists.",
+)
+@click.option(
+    "--no-neutralize",
+    is_flag=True,
+    help="Skip neutralizing the database after restoring.",
 )
 @click.option(
     "--dry-run",
@@ -26,10 +31,11 @@ from .restore import _restore_dump
     help="Print the steps that would be executed without running them.",
 )
 @click.pass_context
-def rebuild(
+def restore(
     ctx: click.Context,
     dump: str | None,
     force: bool,
+    no_neutralize: bool,
     dry_run: bool,
 ) -> None:  # noqa: D401
     """Restore a backup into the current branch's database and neutralize it.
@@ -40,10 +46,10 @@ def rebuild(
     Examples:
 
     \b
-      osh rebuild
-      osh rebuild cache:1
-      osh rebuild /path/to/backup.zip
-      osh rebuild /path/to/backup.sql.gz --force
+      osh restore
+      osh restore cache:1
+      osh restore /path/to/backup.zip
+      osh restore /path/to/backup.sql.gz --force
     """
 
     base = _find_project_root(required=True)
@@ -57,14 +63,9 @@ def rebuild(
 
     if _db_exists(base, db_name):
         if not force:
-            if not dry_run:
-                confirm = click.confirm(
-                    f"Database '{db_name}' already exists. Drop and rebuild?",
-                    default=False,
-                    err=True,
-                )
-                if not confirm:
-                    raise click.ClickException("Rebuild aborted.")
+            raise click.ClickException(
+                f"Database '{db_name}' already exists. Use --force to overwrite."
+            )
         if dry_run:
             click.echo(f"Would drop database '{db_name}'", err=True)
         else:
@@ -80,12 +81,13 @@ def rebuild(
 
     _restore_dump(base, dump_path, db_name, dry_run=dry_run)
 
-    _neutralize_database(base, exe, db_name, dry_run=dry_run)
+    if not no_neutralize:
+        _neutralize_database(base, exe, db_name, dry_run=dry_run)
 
     if dry_run:
-        click.echo(f"Would rebuild '{db_name}' from {dump_path}", err=True)
+        click.echo(f"Would restore '{db_name}' from {dump_path}", err=True)
     else:
-        click.echo(f"Rebuilt database '{db_name}' from {dump_path}", err=True)
+        click.echo(f"Restored database '{db_name}' from {dump_path}", err=True)
 
 
 def _resolve_dump(base: Path, dump: str | None) -> Path:

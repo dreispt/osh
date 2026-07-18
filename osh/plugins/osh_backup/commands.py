@@ -76,7 +76,7 @@ def download(
 
     The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
     is optional. Add `--filestore` to also download the filestore over SSH and
-    produce a full `.zip` backup that `osh rebuild` can restore directly.
+    produce a full `.zip` backup that `osh restore` can restore directly.
 
     Generic SSH (VPS / disabled dbmanager):
 

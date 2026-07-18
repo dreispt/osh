@@ -1,4 +1,4 @@
-"""Database neutralization helpers for `osh rebuild`."""
+"""Database neutralization helpers for `osh restore`."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def _neutralize_with_sql(base: Path, db_name: str) -> None:
     """Apply the bundled fallback neutralization SQL script."""
     try:
         with importlib.resources.path(
-            "osh.plugins.osh_rebuild.data", "neutralize_fallback.sql"
+            "osh.plugins.osh_restore.data", "neutralize_fallback.sql"
         ) as script_path:
             _run_psql_script(base, db_name, script_path)
     except RuntimeError as exc:

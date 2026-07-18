@@ -1,4 +1,4 @@
-"""Database restore helpers for `osh rebuild`."""
+"""Database restore helpers for `osh restore`."""
 
 from __future__ import annotations
 
