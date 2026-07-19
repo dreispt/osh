@@ -2,6 +2,7 @@
 
 import click
 
+from ..backends import RunSpec
 from ..commons import find_project_root
 from ..db import (
     get_current_branch,
@@ -126,17 +127,26 @@ def run(
                 odoo_conf.touch()
                 echo.details(f"Created config file: {odoo_conf}")
 
-        args = [exe]
-        args.extend(db_args)
-        args.extend(extra_args)
-        if not has_explicit_config:
-            args.extend(["--config", str(odoo_conf), "--save"])
+        executable = exe
+        config_path = None if has_explicit_config else str(odoo_conf)
     else:
-        args = ["odoo"]
-        args.extend(db_args)
-        args.extend(extra_args)
+        executable = "odoo"
+        config_path = None
 
-    backend.run(ctx, base, args, dry_run=dry_run, verbose=verbose, edition=edition)
+    argv = [executable]
+    argv.extend(db_args)
+    argv.extend(extra_args)
+    if config_path:
+        argv.extend(["--config", config_path, "--save"])
+
+    run_spec = RunSpec(
+        argv=argv,
+        executable=executable,
+        db_name=db_name,
+        config_path=config_path,
+        extra_args=list(extra_args),
+    )
+    backend.run(ctx, base, run_spec, dry_run=dry_run, verbose=verbose, edition=edition)
 
 
 def _parse_explicit_db(extra_args):

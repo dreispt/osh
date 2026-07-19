@@ -193,10 +193,15 @@ A command plugin must expose one of the following:
 - `get_commands()` returning a list of `click.Command` objects, or
 - `COMMANDS` as a list of `click.Command` objects.
 
-Commands are loaded from built-in packages under `osh/plugins/<name>/` and from
-user-installed packages in `~/.config/osh/plugins/`. If a command name collides
-with an existing command, the plugin source is prefixed automatically, so both
-commands remain available.
+Commands are loaded from:
+
+1. Built-in packages under `osh/plugins/<name>/`.
+2. Third-party packages registered under the `osh.plugins` Python entry point
+   group.
+3. User-installed packages in `~/.config/osh/plugins/`.
+
+If a command name collides with an existing command, the plugin source is prefixed
+automatically, so both commands remain available.
 
 See the `Plugin conventions` section above for a minimal example.
 
@@ -226,9 +231,9 @@ class MyBackend(Backend):
 #### Backend class methods
 
 - `get_init_options(cls)`: return a list of `click.Option` instances that
-  `osh init --target <name>` should accept. Each option must set
-  `option.target_group = cls.name` so the help formatter groups it under the
-  right target heading.
+  `osh init --target <name>` should accept. Use `cls.make_init_option(...)` to
+  create options; it automatically sets the `target_group` attribute so the
+  help formatter groups the option under the right backend heading.
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
   Return a `Diagnostics` object. `osh doctor`, `osh init` and `osh run` all use
@@ -239,11 +244,12 @@ class MyBackend(Backend):
   prepare `target` for use and return `True` when ready. This is called by
   `osh init --target <name>`.
 
-- `run(self, ctx, base, args, *, dry_run=False, verbose=False, **options)`:
-  execute Odoo. `args` is an `argv`-style list built by `osh run`. For local
-  backends `args[0]` is the host executable path; for Docker backends it is a
-  placeholder (`"odoo"`) because the actual command is configured in the
-  compose stack. Extra Odoo CLI options are in `args[1:]`.
+- `run(self, ctx, base, run_spec, *, dry_run=False, verbose=False, **options)`:
+  execute Odoo. `run_spec` is a `RunSpec` instance (or an `argv`-style list for
+  backwards compatibility). For local backends `run_spec.argv[0]` is the host
+  executable path; for Docker backends it is a placeholder (`"odoo"`) because
+  the actual command is configured in the compose stack. Extra Odoo CLI
+  options are in `run_spec.argv[1:]`.
 
 - `supports_neutralize(self, base)`: return `True` if this backend can
   neutralize a database.
@@ -257,6 +263,20 @@ no_neutralize=False, dry_run=False, **options)`: restore `dump_path` into
 
 - `prune(self, ctx, base, *, aggressive=False, dry_run=False, **options)`:
   run target-specific housekeeping. Not all backends need to support this.
+
+### RunSpec
+
+`osh run` passes a `RunSpec` dataclass (from `osh/backends.py`) to
+`Backend.run()`. It carries the assembled `argv` list plus structured metadata:
+
+- `argv`: the full `odoo-bin` style argument list.
+- `executable`: the executable or placeholder (`odoo`).
+- `db_name`: the resolved Odoo database name, if any.
+- `config_path`: the `--config` file path for local targets, if any.
+- `extra_args`: the raw extra arguments supplied by the user.
+
+Backends should inspect `run_spec.argv` and may use the metadata fields to
+build a target-specific command.
 
 ### Diagnostics
 
@@ -277,7 +297,7 @@ happen; `osh doctor` reports everything via `report_diagnostics()`.
 ```python
 # ~/.config/osh/plugins/my_backend/__init__.py
 import click
-from osh.backends import Backend
+from osh.backends import Backend, RunSpec
 from osh.diagnostics import Diagnostics
 
 
@@ -288,7 +308,9 @@ class EchoBackend(Backend):
 
     @classmethod
     def get_init_options(cls):
-        return []
+        return [
+            cls.make_init_option(["--my-source"], help="Path to my source.")
+        ]
 
     def diagnose(self, base, ctx=None, **options):
         d = Diagnostics(self.name, project=base)
@@ -299,8 +321,8 @@ class EchoBackend(Backend):
         click.echo(f"Would initialise {target} for {edition} {version}")
         return True
 
-    def run(self, ctx, base, args, *, dry_run=False, verbose=False, **options):
-        click.echo(f"Would run: {' '.join(args)}")
+    def run(self, ctx, base, run_spec, *, dry_run=False, verbose=False, **options):
+        click.echo(f"Would run: {' '.join(run_spec.argv)}")
 
     def neutralize(self, ctx, base, db_name, *, dry_run=False):
         click.echo(f"Would neutralize {db_name}")
@@ -338,23 +360,9 @@ extension authors.
 
 ### Pain points
 
-- **Magic attributes**: `get_init_options` must manually set
-  `option.target_group = cls.name`. There is no helper for this, and forgetting
-  it silently breaks `osh init --help` grouping.
-- **Undocumented `args` contract**: `run()` receives an `argv`-style list whose
-  first element means different things for local and Docker backends. Authors
-  have to reverse-engineer the local vs Docker implementations to build a new
-  backend.
 - **Broad `**options`signatures**:`init`, `diagnose`, `run`and`restore`all
 accept`\*\*options`but do not document which keys are actually passed. The
 only way to know is to trace`init_cmd.py`, `run_cmd.py`and`restore_cmd.py`.
-- **No typed request object**: backend methods receive `ctx`, `base` and flat
-  options, but there is no structured object describing the Odoo invocation
-  (executable, database, addons paths, extra args). This makes the `run()`
-  method harder to implement robustly.
-- **Backend name collisions are silent**: `plugin_loader.load_backends()` skips
-  duplicate backend names without warning or namespacing. Two plugins cannot both
-  expose a backend called `docker`.
 - **No dependency mechanism**: `osh` does not declare or install plugin
   dependencies. Authors must document external packages and trust users to
   install them.
@@ -362,15 +370,19 @@ only way to know is to trace`init_cmd.py`, `run_cmd.py`and`restore_cmd.py`.
   use it only to read `ctx.params` for CLI overrides. The exact CLI options that
   are forwarded to each method differ between commands.
 
-### Suggestions for improvement
+### Improvements implemented
 
-- Introduce a `BackendOptions` or `RunSpec` dataclass with explicit fields for
-  executable, database name, addons paths, extra args and config path.
+- `Backend.make_init_option()` now sets `target_group` automatically.
+- `Backend.run()` receives a `RunSpec` dataclass with `argv`, `db_name`,
+  `config_path`, `extra_args` and `executable` fields.
+- `plugin_loader.load_backends()` warns when a backend name collision causes a
+  plugin backend to be skipped.
+- Plugins can be distributed via the `osh.plugins` Python entry point group in
+  addition to `~/.config/osh/plugins/`.
+
+### Remaining suggestions
+
 - Document the exact keys passed in `**options` for each lifecycle method, or
   replace `**options` with named keyword arguments.
-- Add a `register_init_option()` helper that sets `target_group` automatically.
-- Warn when a backend name collision causes a plugin backend to be skipped.
-- Provide a `Plugin` base class or entry-point based discovery so plugin authors
-  do not need to place files in a special `~/.config/osh/plugins/` directory.
 - Consider a plugin manifest (e.g. `pyproject.toml` `[tool.osh.plugins]`) so
   metadata such as dependencies and target names can be declared statically.

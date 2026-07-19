@@ -4,7 +4,7 @@ import os
 
 import click
 
-from ...backends import Backend
+from ...backends import Backend, RunSpec
 from ...commons import discover_addons_paths, get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
@@ -33,26 +33,23 @@ class LocalBackend(Backend):
 
     @classmethod
     def get_init_options(cls):
-        opts = [
-            click.Option(
+        return [
+            cls.make_init_option(
                 ["-c", "--odoo-source"],
                 help="Odoo source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
-            click.Option(
+            cls.make_init_option(
                 ["-e", "--enterprise-source"],
                 help="Enterprise source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
-            click.Option(
+            cls.make_init_option(
                 ["-t", "--themes-source"],
                 help="Design-themes source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
         ]
-        for o in opts:
-            o.target_group = cls.name
-        return opts
 
     def diagnose(
         self,
@@ -117,12 +114,16 @@ class LocalBackend(Backend):
         self,
         ctx,
         base,
-        args,
+        run_spec,
         *,
         dry_run=False,
         verbose=False,
         **options,
     ):
+        if not isinstance(run_spec, RunSpec):
+            run_spec = RunSpec(argv=list(run_spec))
+
+        args = list(run_spec.argv)
         if "--addons-path" not in args:
             addons_paths = build_addons_paths(base, include_themes=True)
             if addons_paths:
@@ -130,7 +131,6 @@ class LocalBackend(Backend):
                     "--addons-path",
                     ",".join(str(p) for p in addons_paths),
                 ]
-                args = list(args)
                 if "--config" in args:
                     idx = args.index("--config")
                     args[idx:idx] = addons_path_args

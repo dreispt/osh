@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from ...backends import Backend
+from ...backends import Backend, RunSpec
 from ...commons import run_command
 from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths
@@ -282,7 +282,7 @@ class DockerBackend(Backend):
         self,
         ctx,
         base,
-        args,
+        run_spec,
         *,
         dry_run=False,
         verbose=False,
@@ -322,9 +322,12 @@ class DockerBackend(Backend):
             assume_yes=True,
         )
 
-        if not args:
+        if not isinstance(run_spec, RunSpec):
+            run_spec = RunSpec(argv=list(run_spec))
+
+        if not run_spec.argv:
             raise click.ClickException("No command provided to run.")
-        odoo_args = args[1:]  # args[0] is the host executable placeholder
+        odoo_args = run_spec.argv[1:]  # argv[0] is the host executable placeholder
 
         def _is_relative_to(path, base):
             try:
@@ -399,7 +402,7 @@ class DockerBackend(Backend):
         self.run(
             ctx,
             base,
-            ["odoo", "-d", db_name, "neutralize"],
+            RunSpec(argv=["odoo", "-d", db_name, "neutralize"], db_name=db_name),
             dry_run=dry_run,
             verbose=False,
         )

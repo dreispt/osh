@@ -6,6 +6,26 @@ other targets, such as Docker or remote containers, while keeping the same
 """
 
 from abc import ABC
+from dataclasses import dataclass, field
+
+import click
+
+
+@dataclass
+class RunSpec:
+    """Structured Odoo invocation passed to ``Backend.run()``.
+
+    ``argv`` is the fully assembled argument list that a local backend would
+    execute directly. Backends may also read the individual fields (database,
+    config path, extra arguments, etc.) when translating the invocation for
+    another target such as Docker Compose.
+    """
+
+    argv: list
+    executable: str = None
+    db_name: str = None
+    config_path: str = None
+    extra_args: list = field(default_factory=list)
 
 
 class Backend(ABC):
@@ -16,6 +36,17 @@ class Backend(ABC):
     label = ""
     description = ""
     help_text = ""
+
+    @classmethod
+    def make_init_option(cls, param_decls, **attrs):
+        """Create a Click option tagged for this backend's init option group.
+
+        ``osh init`` uses the ``target_group`` attribute to group options by
+        backend in its ``--help`` output.
+        """
+        option = click.Option(param_decls, **attrs)
+        option.target_group = cls.name
+        return option
 
     @classmethod
     def get_init_options(cls):
@@ -57,13 +88,19 @@ class Backend(ABC):
         self,
         ctx,
         base,
-        args,
+        run_spec,
         *,
         dry_run=False,
         verbose=False,
         **options,
     ):
-        """Run Odoo with the supplied argv-style arguments."""
+        """Run Odoo using the supplied ``RunSpec``.
+
+        ``run_spec`` is either a ``RunSpec`` instance or an argv-style list for
+        backwards compatibility. New backends should accept a ``RunSpec`` and
+        inspect ``run_spec.argv`` plus the structured fields for the executable,
+        database name, config path and any extra Odoo arguments.
+        """
         raise NotImplementedError
 
     def supports_neutralize(self, base):

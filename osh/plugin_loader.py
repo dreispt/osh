@@ -1,7 +1,7 @@
 """Plugin loader for Osh.
 
-Loads built-in plugins from `osh.plugins` and user-installed plugins from
-`~/.config/osh/plugins/`.
+Loads built-in plugins from `osh.plugins`, third-party plugins registered as
+Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
 A plugin must expose a `get_commands()` function returning a list of Click
 commands, or a `COMMANDS` list. Plugins are expected to be Python packages
@@ -11,12 +11,18 @@ commands, or a `COMMANDS` list. Plugins are expected to be Python packages
 command-name collisions by prefixing the command with its plugin source.
 """
 
+import importlib
 import importlib.util
 import os
 import pkgutil
 import re
 import sys
 from pathlib import Path
+
+try:
+    import importlib.metadata as _metadata
+except ImportError:  # pragma: no cover
+    _metadata = None
 
 import click
 
@@ -73,8 +79,33 @@ def _plugin_source_name(name):
     return name.strip("-") or "plugin"
 
 
+def _iter_entry_point_modules(group="osh.plugins"):
+    """Yield ``(source, module)`` pairs from Python entry points.
+
+    Distributions can register plugins under the ``osh.plugins`` entry point
+    group. The entry point value must be an importable module path.
+    """
+    if _metadata is None:
+        return
+    try:
+        eps = _metadata.entry_points()
+    except Exception:
+        return
+    try:
+        selected = eps.select(group=group)
+    except AttributeError:
+        selected = eps.get(group, [])
+    for ep in selected:
+        try:
+            module = importlib.import_module(ep.value)
+            yield ep.name, module
+        except Exception:
+            # Skip broken entry-point plugins.
+            continue
+
+
 def _iter_plugin_modules():
-    """Yield ``(source, module)`` pairs for built-in and user plugins."""
+    """Yield ``(source, module)`` pairs for built-in, entry-point and user plugins."""
     try:
         import osh.plugins as plugins_pkg
 
@@ -90,6 +121,8 @@ def _iter_plugin_modules():
                 continue
     except ImportError:
         pass
+
+    yield from _iter_entry_point_modules()
 
     plugin_dir = _user_plugin_dir()
     if plugin_dir.is_dir():
@@ -169,10 +202,17 @@ def load_backends(backend_type=None):
     if backend_type is None:
         backend_type = "backend"
     result = {}
-    for _source, module in _iter_plugin_modules():
+    for source, module in _iter_plugin_modules():
         for backend in _load_backends_from_module(module, backend_type):
             name = getattr(backend, "name")
+            if not name:
+                continue
             if name in result:
+                click.echo(
+                    f"Warning: backend '{name}' from '{source}' conflicts with "
+                    f"an existing backend and is ignored.",
+                    err=True,
+                )
                 continue
             result[name] = backend
     return result

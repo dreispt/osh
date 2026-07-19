@@ -1,13 +1,16 @@
 """Tests for the built-in Docker backend plugin."""
 
 import subprocess
+import sys
+import types
 
 import click
 import pytest
 from click.testing import CliRunner
 
+from osh.backends import Backend, RunSpec
 from osh.cli import main
-from osh.plugin_loader import load_backends
+from osh.plugin_loader import load_backends, load_plugins
 from osh.plugins.osh_docker.backends import DockerBackend
 from osh.plugins.osh_docker.commands import init_docker
 
@@ -389,3 +392,84 @@ def test_docker_backend_run_appends_addons_path_for_sh(
     assert "--addons-path" in err
     assert "/mnt/extra-addons/.osh/enterprise" in err
     assert "/mnt/extra-addons/.osh/design-themes" in err
+
+
+def test_backend_make_init_option_sets_target_group():
+    """make_init_option attaches the backend name as the target_group."""
+    option = DockerBackend.make_init_option(["--my-opt"], help="An option.")
+    assert option.target_group == "docker"
+
+
+def test_docker_backend_run_accepts_runspec(tmp_project, capsys):
+    """Backend.run accepts a RunSpec as well as a raw argv list."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text(
+        "service = 'odoo'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
+    )
+
+    backend = DockerBackend()
+    spec = RunSpec(argv=["odoo", "-d", "mydb"], db_name="mydb")
+    backend.run(None, tmp_project, spec, dry_run=True, verbose=False)
+
+    err = capsys.readouterr().err
+    assert "-d mydb" in err
+
+
+def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
+    """A backend name collision is reported instead of silently ignored."""
+    from osh import plugin_loader
+
+    class FakeBackend(Backend):
+        name = "docker"
+        backend_type = "backend"
+
+    first = types.ModuleType("first")
+    first.BACKENDS = [FakeBackend]
+    second = types.ModuleType("second")
+    second.BACKENDS = [FakeBackend]
+
+    monkeypatch.setattr(
+        plugin_loader,
+        "_iter_plugin_modules",
+        lambda: [("first", first), ("second", second)],
+    )
+
+    backends = load_backends()
+    assert backends["docker"] is FakeBackend
+    err = capsys.readouterr().err
+    assert "Warning: backend 'docker' from 'second' conflicts" in err
+
+
+def test_entry_point_plugin_loading(monkeypatch):
+    """Plugins registered as Python entry points are loaded by load_plugins."""
+    from osh import plugin_loader
+
+    fake_cmd = click.Command(name="fake-cmd")
+
+    fake_module = types.ModuleType("fake_entry_plugin")
+    fake_module.get_commands = lambda: [fake_cmd]
+    monkeypatch.setitem(sys.modules, "fake_entry_plugin", fake_module)
+
+    class FakeEntryPoint:
+        def __init__(self, name, value, group="osh.plugins"):
+            self.name = name
+            self.value = value
+            self.group = group
+
+    class FakeEntryPoints:
+        def __init__(self, eps):
+            self._eps = eps
+
+        def select(self, **kwargs):
+            if kwargs.get("group") == "osh.plugins":
+                return self._eps
+            return []
+
+    fake_metadata = types.ModuleType("fake_metadata")
+    fake_metadata.entry_points = lambda: FakeEntryPoints(
+        [FakeEntryPoint("fake", "fake_entry_plugin")]
+    )
+    monkeypatch.setattr(plugin_loader, "_metadata", fake_metadata)
+
+    commands = [cmd for _, cmd in load_plugins()]
+    assert fake_cmd in commands
