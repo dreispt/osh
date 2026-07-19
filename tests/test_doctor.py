@@ -14,7 +14,7 @@ class TestDoctorVersionReporting:
         """``osh doctor`` (via LocalBackend.diagnose) reports the installed Odoo version."""
         backend = LocalBackend()
         diagnostics = backend.diagnose(tmp_project)
-        assert diagnostics.info["Project"]["odoo_version"] == "odoo 19.0"
+        assert diagnostics.info["local"]["odoo_version"] == "odoo 19.0"
 
     def test_doctor_reports_installed_odoo_version(
         self, tmp_project, fake_odoo_executable, monkeypatch

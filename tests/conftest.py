@@ -45,10 +45,8 @@ def osh_source_dirs(tmp_project):
 
 @pytest.fixture
 def patch_resolve_db_name(monkeypatch):
-    """Patch ``osh.commands.run_cmd.resolve_db_name`` to return ``testdb``."""
-    monkeypatch.setattr(
-        "osh.commands.run_cmd.resolve_db_name", lambda base, verbose: "testdb"
-    )
+    """Patch ``osh.db.resolve_db_name`` to return ``testdb``."""
+    monkeypatch.setattr("osh.db.resolve_db_name", lambda base, verbose: "testdb")
 
 
 @pytest.fixture

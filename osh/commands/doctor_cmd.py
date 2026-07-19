@@ -39,8 +39,6 @@ def doctor(ctx, verbose):  # noqa: D401
         )
         return
 
-    echo.essential(f"Active target: {backend_name}")
-
     backend_cls = backends.get(backend_name)
     if backend_cls is None:
         raise click.ClickException(

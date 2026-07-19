@@ -29,7 +29,7 @@ class Diagnostics:
 
     def _default_topic(self):
         """Return the default topic for info entries."""
-        return "Project"
+        return self.backend or "general"
 
     def add_error(self, message):
         """Record a blocking error and mark the project as not ready."""
@@ -72,8 +72,8 @@ class Diagnostics:
                 echo.essential(f"  - {item}")
 
         if include_info and self.info:
-            for topic in ("System", "Project") + tuple(
-                t for t in sorted(self.info) if t not in ("System", "Project")
+            for topic in ("Project", "System") + tuple(
+                t for t in sorted(self.info) if t not in ("Project", "System")
             ):
                 if topic not in self.info:
                     continue
@@ -86,22 +86,22 @@ class Diagnostics:
                         echo.essential(f"  {key}: {value}")
 
 
-def collect_diagnostics(base, backend, ctx=None, *, target=None, sections=None):
+def collect_diagnostics(
+    base, backend, ctx=None, *, target=None, sections=None, **options
+):
     """Collect core and backend-specific diagnostics for *base*."""
-    from .commons import discover_addons_paths
     from .db import get_current_branch, resolve_db_name
 
-    diagnostics = backend.diagnose(base, ctx, sections=sections)
+    diagnostics = backend.diagnose(base, ctx, sections=sections, **options)
     diagnostics.project = base
     diagnostics.target = target or backend.name
     branch = get_current_branch(base) or "default"
-    diagnostics.add_info("project", str(base))
-    diagnostics.add_info("git_branch", branch)
-    diagnostics.add_info("default_target", diagnostics.target)
-    diagnostics.add_info("dbname", resolve_db_name(base, verbose=False))
-    if "addons" not in diagnostics.info.get("Project", {}):
-        addons = [str(p.relative_to(base)) for p in discover_addons_paths(base)]
-        diagnostics.add_info("addons", addons)
+    diagnostics.add_info("project", str(base), topic="Project")
+    diagnostics.add_info("git_branch", branch, topic="Project")
+    diagnostics.add_info("active_target", diagnostics.target, topic="Project")
+    diagnostics.add_info(
+        "dbname", resolve_db_name(base, verbose=False), topic="Project"
+    )
     return diagnostics
 
 

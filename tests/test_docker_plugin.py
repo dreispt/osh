@@ -148,7 +148,7 @@ def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, monkeypa
 
     backend = DockerBackend()
     d = backend.diagnose(tmp_project)
-    assert d.info["Project"]["odoo_version"] == "21.0"
+    assert d.info["docker"]["odoo_version"] == "21.0"
 
 
 def test_docker_detect_odoo_version_from_compose_image(tmp_project):
@@ -209,9 +209,9 @@ def test_docker_backend_diagnose(tmp_project, monkeypatch):
     backend = DockerBackend()
     d = backend.diagnose(tmp_project)
 
-    assert d.info["Project"]["compose_file"] == "devel.yaml"
-    assert d.info["Project"]["service"] == "odoo"
-    assert d.info["Project"]["command"] == "odoo"
+    assert d.info["docker"]["compose_file"] == "devel.yaml"
+    assert d.info["docker"]["service"] == "odoo"
+    assert d.info["docker"]["command"] == "odoo"
 
 
 def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, monkeypatch):
@@ -232,10 +232,8 @@ def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, monkeyp
 
     assert d.ready
     assert not d.errors
-    assert "generated_compose_file" in d.info["Project"]
-    assert (
-        str(tmp_project / "devel.yaml") in d.info["Project"]["generated_compose_file"]
-    )
+    assert "generated_compose_file" in d.info["docker"]
+    assert str(tmp_project / "devel.yaml") in d.info["docker"]["generated_compose_file"]
 
 
 def test_docker_backend_diagnose_ee_sources_missing_with_version(

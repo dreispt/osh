@@ -10,7 +10,7 @@ from ...backends import Backend, RunSpec
 from ...commons import run_command
 from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths
-from ...sources import ensure_osh_sources
+from ...sources import _version_from_sources, ensure_osh_sources
 from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
@@ -85,7 +85,7 @@ class DockerBackend(Backend):
         First checks local sources, then falls back to reading the image tag from
         the generated ``docker-compose.yml`` file.
         """
-        version = super().detect_odoo_version(base)
+        version = _version_from_sources(base)
         if version:
             return version
 
@@ -156,7 +156,6 @@ class DockerBackend(Backend):
                 d.add_info("service", service or "odoo")
                 d.add_info("command", command or "odoo")
                 d.add_info("compose_file", compose_file or "<none>")
-                d.add_info("version", version)
                 d.add_info("edition", edition)
                 if cfg.get("compose_tool"):
                     d.add_info("configured_compose_tool", cfg["compose_tool"])

@@ -4,13 +4,8 @@ import click
 
 from ..backends import RunSpec
 from ..commons import find_project_root
-from ..db import (
-    get_current_branch,
-    resolve_db_name,
-    resolve_run_target,
-    set_project_config,
-)
-from ..odoo_layout import find_odoo_executable
+from ..db import resolve_run_target, set_project_config
+from ..diagnostics import collect_diagnostics
 from ..plugin_loader import load_backends
 from ..verbosity import get_verbosity
 
@@ -93,9 +88,11 @@ def run(
         raise click.ClickException(f"Unknown run target: {backend_name}")
     backend = backend_cls()
 
-    diagnostics = backend.diagnose(
+    diagnostics = collect_diagnostics(
         base,
+        backend,
         ctx,
+        target=backend_name,
         phase="run",
         compose_file=compose_file,
         edition=edition,
@@ -107,9 +104,9 @@ def run(
         raise click.ClickException("\n".join(diagnostics.errors))
 
     explicit_db = _parse_explicit_db(extra_args)
-    db_name = explicit_db or resolve_db_name(base, echo.level == "verbose")
+    db_name = explicit_db or diagnostics.info.get("Project", {}).get("dbname")
     if db_name and not dry_run:
-        branch = get_current_branch(base) or "default"
+        branch = diagnostics.info.get("Project", {}).get("git_branch", "default")
         set_project_config(base, "db", values={branch: db_name, "last": db_name})
 
     db_args = []
@@ -121,7 +118,7 @@ def run(
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
     if backend_name == "local":
-        exe = find_odoo_executable(base, required=True)
+        exe = diagnostics.info.get("local", {}).get("odoo_executable")
 
         has_explicit_config = _has_arg(extra_args, "--config", short="-c")
 

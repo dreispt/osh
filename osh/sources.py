@@ -6,6 +6,7 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,18 @@ DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
 DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
 SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
+
+
+def _version_from_sources(base):
+    """Return the version declared in ``.osh/odoo/odoo/release.py``, or None."""
+    release_file = base / ".osh" / "odoo" / "odoo" / "release.py"
+    if not release_file.is_file():
+        return None
+    text = release_file.read_text()
+    match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', text)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def ensure_osh_sources(

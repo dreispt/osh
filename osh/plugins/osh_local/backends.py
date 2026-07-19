@@ -1,6 +1,7 @@
 """Local init/run/restore/prune backend for Osh."""
 
 import os
+import subprocess
 
 import click
 
@@ -9,8 +10,26 @@ from ...commons import discover_addons_paths, get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths, find_odoo_executable
+from ...sources import _version_from_sources
 from ...verbosity import get_verbosity
 from .utils import _get_venv_python, init_project
+
+
+def _version_from_executable(exe):
+    """Return the version reported by an Odoo executable, or None."""
+    try:
+        result = subprocess.run(
+            [str(exe), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return None
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0 or not output:
+        return None
+    return output.splitlines()[0]
 
 
 class LocalBackend(Backend):
@@ -53,6 +72,15 @@ class LocalBackend(Backend):
 
     _DIAGNOSE_SECTIONS = ("odoo_executable", "odoo_version", "config", "addons")
 
+    def detect_odoo_version(self, base):
+        """Return the installed Odoo version for the local target, or None."""
+        exe = find_odoo_executable(base)
+        if exe:
+            version = _version_from_executable(exe)
+            if version:
+                return version
+        return _version_from_sources(base)
+
     def diagnose_sections_for_phase(self, phase):
         """Skip expensive version/addons checks in ``init`` and ``run`` phases."""
         if phase in ("init", "run"):
@@ -78,7 +106,7 @@ class LocalBackend(Backend):
         if need_exe:
             exe = find_odoo_executable(base)
             if "odoo_executable" in sections and exe:
-                d.add_info("odoo_executable", str(exe), topic="System")
+                d.add_info("odoo_executable", str(exe))
 
             if "odoo_version" in sections:
                 version = self.detect_odoo_version(base)
@@ -112,7 +140,6 @@ class LocalBackend(Backend):
             modules = discover_addons_paths(base)
             d.add_info("addons_directories", len(addons_paths))
             d.add_info("addon_modules", len(modules))
-            d.add_info("addons", [str(m.name) for m in modules])
 
         if phase == "init":
             d.add_plan("Resolve Odoo sources for the selected edition")
