@@ -364,7 +364,7 @@ def _git_shallow_clone(
         depth: Clone depth (default: 1 for shallow clone)
         single_branch: Clone only the specified branch (default: True)
     """
-    cmd = ["git", "clone", "--depth", str(depth)]
+    cmd = ["git", "clone", "--progress", "--depth", str(depth)]
     if single_branch:
         cmd.append("--single-branch")
     if branch:

@@ -265,6 +265,7 @@ class DockerBackend(Backend):
                 [*compose_cmd, "run", "--rm", svc, *cmd, "--version"],
                 cwd=target,
                 check=True,
+                stream=True,
             )
         except click.ClickException as exc:
             click.echo(

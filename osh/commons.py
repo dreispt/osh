@@ -8,8 +8,10 @@ core and plugins.
 """
 
 import configparser
+import shlex
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import click
@@ -91,6 +93,15 @@ def ensure_tool(tool):
         raise click.ClickException(f"Required tool '{tool}' is not available on PATH.")
 
 
+def _stream_output(pipe, err=False):
+    """Read *pipe* line-by-line and echo it to the user."""
+    for line in iter(pipe.readline, ""):
+        if not line:
+            break
+        click.echo(line.rstrip("\r\n"), err=err)
+    pipe.close()
+
+
 def run_command(
     args,
     *,
@@ -98,13 +109,52 @@ def run_command(
     check=False,
     capture_output=True,
     text=True,
+    stream=False,
 ):
     """Run *args* and return the completed process.
+
+    When *stream* is True the command's stdout and stderr are echoed to the
+    user as they are produced. This is useful for long-running commands such
+    as Docker builds or git clones.
 
     When *check* is True, a non-zero exit code or a missing executable raises a
     ``click.ClickException`` whose message includes the attempted command and
     any captured output.
     """
+    if stream:
+        if not text:
+            raise ValueError("stream=True requires text=True")
+        try:
+            proc = subprocess.Popen(
+                args,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=text,
+            )
+        except FileNotFoundError as exc:
+            cmd = " ".join(shlex.quote(str(a)) for a in args)
+            raise click.ClickException(f"Command not found: {cmd}") from exc
+
+        out_thread = threading.Thread(
+            target=_stream_output, args=(proc.stdout, False), daemon=True
+        )
+        err_thread = threading.Thread(
+            target=_stream_output, args=(proc.stderr, True), daemon=True
+        )
+        out_thread.start()
+        err_thread.start()
+
+        returncode = proc.wait()
+        out_thread.join()
+        err_thread.join()
+
+        result = subprocess.CompletedProcess(args=args, returncode=returncode)
+        if check and returncode:
+            cmd = " ".join(shlex.quote(str(a)) for a in args)
+            raise click.ClickException(f"Command failed (exit {returncode}): {cmd}")
+        return result
+
     try:
         return subprocess.run(
             args,
