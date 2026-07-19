@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from ..db import set_project_config
+from ..db import get_project_config, set_project_config
 from ..plugin_loader import load_backends
 from ..userconfig import _load_user_init_config, save_user_preference
 from ..verbosity import get_verbosity
@@ -119,7 +119,7 @@ def _format_targets_section(formatter):
 @click.option(
     "--target",
     "backend_name",
-    default="local",
+    default=None,
     envvar="OSH_INIT_TARGET",
     help="Environment target to initialise (see Targets below).",
 )
@@ -177,6 +177,13 @@ def init(
     target = (directory or Path.cwd()).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
 
+    if not backend_name:
+        backend_name = (
+            get_project_config(target, "init", "target")
+            or get_project_config(target, "run", "target")
+            or "local"
+        )
+
     echo = get_verbosity(ctx, target)
     echo.guidance(f"Welcome to Osh! Let's set up your Odoo {version} project.")
 
@@ -190,6 +197,7 @@ def init(
                 raise click.ClickException("Aborted.")
 
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
+        edition = get_project_config(target, "init", "edition") or edition
         user_cfg = _load_user_init_config()
         edition = user_cfg.get("edition") or edition
         if not edition and not dry_run and not assume_yes and sys.stdin.isatty():
@@ -222,7 +230,7 @@ def init(
         **kwargs,
     )
     if diagnostics.plan:
-        echo.essential("Planned actions:")
+        echo.essential(f"Planned actions for {backend_name}:")
         for item in diagnostics.plan:
             echo.essential(f"  - {item}")
     for warning in diagnostics.warnings:
