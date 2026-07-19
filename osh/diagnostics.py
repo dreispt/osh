@@ -69,8 +69,14 @@ class Diagnostics:
             for item in self.plan:
                 echo.essential(f"  - {item}")
 
+        odoo_version = self.info.get("odoo_version")
+        if odoo_version:
+            echo.essential(f"Odoo version: {odoo_version}")
+
         if include_info and self.info:
             for key, value in sorted(self.info.items()):
+                if key == "odoo_version":
+                    continue
                 echo.details(f"  {key}: {value}")
 
 
