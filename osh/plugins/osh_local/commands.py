@@ -1,16 +1,97 @@
-"""`osh prune` command implementation.
-
-Runs housekeeping Git commands on the project's local source clones to reclaim
-disk space accumulated by fetches, branch switches, and history growth.
-"""
+"""Local backend commands for Osh."""
 
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import click
 
+from ...commands import init_cmd  # noqa: F401
 from ...commons import find_project_root
+
+
+@click.command(name="init-local")
+@click.argument("version")
+@click.argument(
+    "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
+)
+@click.option(
+    "-c",
+    "--odoo-source",
+    help="Odoo source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
+@click.option(
+    "-e",
+    "--enterprise-source",
+    help="Enterprise source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
+@click.option(
+    "-t",
+    "--themes-source",
+    help="Design-themes source: an existing local directory or a git URL. "
+    "Defaults to the central cache (populated from GitHub).",
+)
+@click.option(
+    "--save",
+    is_flag=True,
+    help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="Assume yes for interactive prompts; useful when a TTY is available but input is not desired.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show the planned actions without modifying anything.",
+)
+@click.pass_context
+def init_local(
+    ctx: click.Context,
+    version: str | None,
+    directory: Path | None,
+    odoo_source: str | None,
+    enterprise_source: str | None,
+    themes_source: str | None,
+    save: bool,
+    yes: bool,
+    dry_run: bool,
+) -> None:  # noqa: D401
+    """Initialise a project for the local (virtualenv) target.
+
+    This is an alias for `osh init --target local`. See `osh init --help` for
+    full documentation.
+
+    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
+    DIRECTORY: Project directory to initialise (defaults to current directory)
+    """
+    # Get the init command from core commands
+    init_command = init_cmd.init
+
+    # Build kwargs for the init command
+    kwargs = {
+        "backend_name": "local",
+        "version": version,
+        "directory": directory,
+        "edition": None,
+        "save": save,
+        "assume_yes": yes,
+        "dry_run": dry_run,
+    }
+
+    # Add backend-specific options for local target
+    if odoo_source:
+        kwargs["odoo_source"] = odoo_source
+    if enterprise_source:
+        kwargs["enterprise_source"] = enterprise_source
+    if themes_source:
+        kwargs["themes_source"] = themes_source
+
+    ctx.invoke(init_command, **kwargs)
 
 
 @click.command(name="prune")
