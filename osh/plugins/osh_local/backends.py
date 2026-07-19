@@ -78,7 +78,7 @@ class LocalBackend(Backend):
         if need_exe:
             exe = find_odoo_executable(base)
             if "odoo_executable" in sections and exe:
-                d.add_info("odoo_executable", str(exe))
+                d.add_info("odoo_executable", str(exe), topic="System")
 
             if "odoo_version" in sections:
                 version = self.detect_odoo_version(base)
@@ -112,6 +112,7 @@ class LocalBackend(Backend):
             modules = discover_addons_paths(base)
             d.add_info("addons_directories", len(addons_paths))
             d.add_info("addon_modules", len(modules))
+            d.add_info("addons", [str(m.name) for m in modules])
 
         if phase == "init":
             d.add_plan("Resolve Odoo sources for the selected edition")

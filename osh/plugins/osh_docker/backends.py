@@ -144,7 +144,7 @@ class DockerBackend(Backend):
             else:
                 compose_tool = _find_compose_tool()
             if compose_tool:
-                d.add_info("compose_tool", " ".join(compose_tool))
+                d.add_info("compose_tool", " ".join(compose_tool), topic="System")
             else:
                 d.add_error(
                     "No Docker Compose tool found. "
