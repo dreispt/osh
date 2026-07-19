@@ -151,6 +151,16 @@ def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, monkeypa
     assert d.info["odoo_version"] == "21.0"
 
 
+def test_docker_detect_odoo_version_from_compose_image(tmp_project):
+    """DockerBackend.detect_odoo_version reads the image tag from docker-compose.yml."""
+    compose = tmp_project / ".osh" / "docker-compose.yml"
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text("services:\n  odoo:\n    image: odoo:17.0\n")
+
+    backend = DockerBackend()
+    assert backend.detect_odoo_version(tmp_project) == "odoo 17.0"
+
+
 def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
     """A missing explicit compose file raises an error."""
     _patch_docker_tools(monkeypatch)
