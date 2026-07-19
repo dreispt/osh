@@ -6,6 +6,7 @@ import click
 
 from ..commons import find_project_root
 from ..db import get_project_config
+from ..diagnostics import collect_diagnostics, report_diagnostics
 from ..plugin_loader import load_backends
 from ..verbosity import get_verbosity
 
@@ -22,7 +23,7 @@ def doctor(ctx: click.Context, verbose: bool) -> None:  # noqa: D401
     base = find_project_root(required=True)
 
     # Set up verbosity
-    echo = get_verbosity(ctx, base)
+    echo = get_verbosity(ctx, base, verbose_override=verbose)
 
     # Show friendly header for new users
     echo.guidance("Checking your Osh setup...")
@@ -48,8 +49,10 @@ def doctor(ctx: click.Context, verbose: bool) -> None:  # noqa: D401
             f"Available: {', '.join(backends)} or run 'osh init --target <backend>'."
         )
 
-    for line in backend_cls().status(ctx, base, verbose=verbose):
-        click.echo(line)
+    backend = backend_cls()
+    diagnostics = collect_diagnostics(base, backend, ctx, target=backend_name)
+    report_diagnostics(diagnostics, echo)
 
     # Show friendly footer for new users
-    echo.next_steps("Your setup looks good! Run 'osh run' to start Odoo.")
+    if diagnostics.ready:
+        echo.next_steps("Your setup looks good! Run 'osh run' to start Odoo.")

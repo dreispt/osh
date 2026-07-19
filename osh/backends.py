@@ -13,6 +13,8 @@ from typing import Any
 
 import click
 
+from .diagnostics import Diagnostics
+
 
 class Backend(ABC):
     """Unified base class for Osh init/run/restore/prune backends."""
@@ -33,10 +35,18 @@ class Backend(ABC):
         """
         return []
 
-    def status(
-        self, ctx: click.Context, base: Path, *, verbose: bool = False
-    ) -> list[str]:
-        """Return diagnostic lines for ``osh doctor`` and the init plan."""
+    def diagnose(
+        self,
+        base: Path,
+        ctx: click.Context | None = None,
+        **options: Any,
+    ) -> Diagnostics:
+        """Inspect the project and system for the active target.
+
+        Returns a ``Diagnostics`` object that ``osh doctor`` reports, ``osh init``
+        uses to plan actions and ask for confirmation, and ``osh run`` uses to
+        check prerequisites.
+        """
         raise NotImplementedError
 
     def init(

@@ -11,6 +11,7 @@ import click
 from ...backends import Backend
 from ...commons import discover_addons_paths, get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
+from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...verbosity import get_verbosity
 from .utils import _get_venv_python, init_project
@@ -57,27 +58,41 @@ class LocalBackend(Backend):
             o.target_group = cls.name
         return opts
 
-    def status(
-        self, ctx: click.Context, base: Path, *, verbose: bool = False
-    ) -> list[str]:
-        lines: list[str] = [f"Project directory: {base}"]
+    def diagnose(
+        self,
+        base: Path,
+        ctx: click.Context | None = None,
+        **options: Any,
+    ) -> Diagnostics:
+        phase = options.get("phase", "doctor")
+        d = Diagnostics(self.name, project=base)
+
         exe = find_odoo_executable(base)
         if exe:
-            lines.append(f"Odoo executable: {exe}")
+            d.add_info("odoo_executable", str(exe))
+        elif phase == "init":
+            d.add_warning("Odoo executable not found; it will be created during init.")
         else:
-            lines.append("Odoo executable not found")
+            d.add_error("Odoo executable not found. Run 'osh init' first.")
 
         odoo_rc = get_odoo_config_path(base)
         if odoo_rc.exists():
-            lines.append(f"Odoo config file: {odoo_rc}")
+            d.add_info("odoo_config", str(odoo_rc))
+        else:
+            d.add_warning(f"Odoo config file not found: {odoo_rc}")
 
-        paths = build_addons_paths(base, include_themes=True)
+        addons_paths = build_addons_paths(base, include_themes=True)
         modules = discover_addons_paths(base)
-        if paths or modules:
-            lines.append(
-                f"Addons paths: {len(paths)} directories, {len(modules)} modules"
-            )
-        return lines
+        d.add_info("addons_directories", len(addons_paths))
+        d.add_info("addon_modules", len(modules))
+
+        if phase == "init":
+            d.add_plan("Resolve Odoo sources for the selected edition")
+            d.add_plan("Create a Python virtualenv at .venv")
+            d.add_plan("Install Odoo and requirements into the virtualenv")
+            d.add_plan("Run an Odoo --version smoke test")
+
+        return d
 
     def init(
         self,

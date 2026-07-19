@@ -94,6 +94,12 @@ def run(
         raise click.ClickException(f"Unknown run target: {backend_name}")
     backend = backend_cls()
 
+    diagnostics = backend.diagnose(base, ctx, phase="run")
+    for warning in diagnostics.warnings:
+        echo.warning(warning)
+    if diagnostics.errors:
+        raise click.ClickException("\n".join(diagnostics.errors))
+
     explicit_db = _parse_explicit_db(extra_args)
     db_name = explicit_db or resolve_db_name(base, echo.level == "verbose")
     if db_name and explicit_db:

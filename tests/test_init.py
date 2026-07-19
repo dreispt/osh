@@ -641,7 +641,7 @@ class TestInitEdition:
         )
 
         assert result.exit_code == 0
-        assert "Proceed?" in result.output
+        assert "Proceed with initialization?" in result.output
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "design-themes").is_symlink()

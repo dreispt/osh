@@ -165,8 +165,14 @@ def test_init_docker_dry_run_does_not_write(
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_docker_backend_status(tmp_project: Path) -> None:
-    """``status`` returns diagnostic lines for the configured stack."""
+def test_docker_backend_diagnose(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``diagnose`` returns diagnostics for the configured stack."""
+    monkeypatch.setattr(
+        "osh.plugins.osh_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -174,11 +180,11 @@ def test_docker_backend_status(tmp_project: Path) -> None:
     )
 
     backend = DockerBackend()
-    lines = backend.status(None, tmp_project)
+    d = backend.diagnose(tmp_project)
 
-    assert "compose: devel.yaml" in lines
-    assert "service: odoo" in lines
-    assert "command: odoo" in lines
+    assert d.info["compose_file"] == "devel.yaml"
+    assert d.info["service"] == "odoo"
+    assert d.info["command"] == "odoo"
 
 
 def test_docker_backend_run_dry_run(

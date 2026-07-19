@@ -10,6 +10,7 @@ import click
 
 from ...backends import Backend
 from ...commons import run_command
+from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths
 from ...sources import ensure_osh_sources
 from .utils import (
@@ -63,16 +64,85 @@ class DockerBackend(Backend):
             o.target_group = cls.name
         return opts
 
-    def status(
-        self, ctx: click.Context, target: Path, *, verbose: bool = False
-    ) -> list[str]:
-        """Return diagnostic lines for ``osh doctor`` and the init plan."""
-        cfg = _load_docker_config(target)
-        return [
-            f"compose: {cfg.get('compose_file', '<none>')}",
-            f"service: {cfg.get('service', 'odoo')}",
-            f"command: {cfg.get('command', 'odoo')}",
-        ]
+    def diagnose(
+        self,
+        base: Path,
+        ctx: click.Context | None = None,
+        **options: Any,
+    ) -> Diagnostics:
+        """Inspect Docker Compose environment and project configuration."""
+        phase = options.get("phase", "doctor")
+        d = Diagnostics(self.name, project=base)
+
+        compose_tool = _find_compose_tool()
+        if compose_tool:
+            d.add_info("compose_tool", " ".join(compose_tool))
+        else:
+            d.add_error(
+                "No Docker Compose tool found. "
+                "Install 'docker compose' or 'docker-compose'."
+            )
+
+        cfg = _load_docker_config(base)
+        if cfg:
+            d.add_info("service", cfg.get("service", "odoo"))
+            d.add_info("command", cfg.get("command", "odoo"))
+            d.add_info("compose_file", cfg.get("compose_file", "<none>"))
+            d.add_info("version", cfg.get("version", ""))
+            d.add_info("edition", cfg.get("edition", "ce"))
+            if cfg.get("compose_tool"):
+                d.add_info("configured_compose_tool", cfg.get("compose_tool"))
+        elif phase == "init":
+            d.add_warning(
+                "Docker backend config not found; it will be created during init."
+            )
+        elif phase == "run":
+            d.add_error(
+                "Docker backend config not found. Run 'osh init --target docker' first."
+            )
+        else:
+            d.add_warning(
+                "Docker backend config not found. Run 'osh init --target docker'."
+            )
+
+        compose_path = base / _COMPOSE_FILE
+        if compose_path.exists():
+            d.add_info("generated_compose_file", str(compose_path))
+        elif phase == "init":
+            d.add_plan(f"Generate {compose_path} if it does not exist")
+        elif phase == "run":
+            d.add_error(f"Generated compose file not found: {compose_path}")
+        else:
+            d.add_warning(f"Generated compose file not found: {compose_path}")
+
+        service = cfg.get("service") if cfg else None
+        if not service:
+            if phase == "init":
+                d.add_warning("No --service provided; defaulting to 'odoo'.")
+            elif phase == "run":
+                d.add_error("No Docker service configured.")
+
+        if phase == "init":
+            d.add_plan("Write .osh/docker.toml with service and compose tool")
+            d.add_plan("Ensure Odoo sources for the selected edition")
+            d.add_plan("Run an Odoo --version smoke test")
+
+        if phase == "run":
+            edition = cfg.get("edition", "ce") if cfg else "ce"
+            if edition in ("ee", "sh"):
+                required = ["enterprise"]
+                if edition == "sh":
+                    required.append("design-themes")
+                missing = [
+                    name for name in required if not (base / ".osh" / name).exists()
+                ]
+                if missing:
+                    d.add_error(
+                        f"Project is missing required source copies: {', '.join(missing)}. "
+                        "Run 'osh init' first."
+                    )
+
+        return d
 
     def init(
         self,

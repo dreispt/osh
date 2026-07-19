@@ -216,6 +216,24 @@ def init(
 
     backend = backend_cls()
 
+    diagnostics = backend.diagnose(target, ctx, phase="init", plan=True)
+    if diagnostics.plan:
+        echo.essential("Planned actions:")
+        for item in diagnostics.plan:
+            echo.essential(f"  - {item}")
+    for warning in diagnostics.warnings:
+        echo.warning(warning)
+    for error in diagnostics.errors:
+        echo.error(error)
+    if diagnostics.errors and not dry_run:
+        raise click.ClickException("\n".join(diagnostics.errors))
+
+    confirmed = False
+    if not dry_run and not assume_yes and diagnostics.plan and sys.stdin.isatty():
+        if not click.confirm("Proceed with initialization?", default=True):
+            raise click.ClickException("Aborted.")
+        confirmed = True
+
     docker_source_kwargs: dict[str, str | None] = {}
     if backend_name == "docker":
         for key in ("enterprise_source", "themes_source"):
@@ -227,7 +245,7 @@ def init(
         version=version,
         edition=edition,
         dry_run=dry_run,
-        assume_yes=assume_yes,
+        assume_yes=assume_yes or confirmed,
         **kwargs,
         **docker_source_kwargs,
     )
