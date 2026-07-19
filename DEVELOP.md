@@ -178,3 +178,199 @@ To add a new built-in plugin:
 Python packages, document them and let users install them in the same
 environment as `osh` (typically the `osh` project virtual environment or the
 user's `osh` install environment).
+
+## Plugin API Reference
+
+Plugins can extend `osh` in two ways: **commands** and **backends**. Commands are
+Click commands added under `osh <command>`. Backends implement the lifecycle
+interface used by `osh init`, `osh run`, `osh restore`, `osh test` and
+`osh doctor` for a particular execution target (e.g. local virtualenv, Docker).
+
+### Command plugins
+
+A command plugin must expose one of the following:
+
+- `get_commands()` returning a list of `click.Command` objects, or
+- `COMMANDS` as a list of `click.Command` objects.
+
+Commands are loaded from built-in packages under `osh/plugins/<name>/` and from
+user-installed packages in `~/.config/osh/plugins/`. If a command name collides
+with an existing command, the plugin source is prefixed automatically, so both
+commands remain available.
+
+See the `Plugin conventions` section above for a minimal example.
+
+### Backend plugins
+
+A backend plugin must expose one of the following:
+
+- `get_backends()` returning a list of `Backend` subclasses, or
+- `BACKENDS` as a list of `Backend` subclasses.
+
+Backends are registered under `osh run --target <name>`. Built-in examples:
+
+- `osh/plugins/osh_local/backends.py` for local virtualenv execution.
+- `osh/plugins/osh_docker/backends.py` for Docker Compose execution.
+
+#### Backend class attributes
+
+```python
+class MyBackend(Backend):
+    backend_type = "backend"
+    name = "my-target"              # Used with --target my-target
+    label = "My Target"             # Short label shown to users
+    description = "Runs Odoo on my custom target."
+    help_text = "Long help text for --help."
+```
+
+#### Backend class methods
+
+- `get_init_options(cls)`: return a list of `click.Option` instances that
+  `osh init --target <name>` should accept. Each option must set
+  `option.target_group = cls.name` so the help formatter groups it under the
+  right target heading.
+
+- `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
+  Return a `Diagnostics` object. `osh doctor`, `osh init` and `osh run` all use
+  this. `options` may include `phase` (`"doctor"`, `"init"` or `"run"`) and any
+  CLI options passed by the command.
+
+- `init(self, target, *, version="", edition="ce", dry_run=False, **options)`:
+  prepare `target` for use and return `True` when ready. This is called by
+  `osh init --target <name>`.
+
+- `run(self, ctx, base, args, *, dry_run=False, verbose=False, **options)`:
+  execute Odoo. `args` is an `argv`-style list built by `osh run`. For local
+  backends `args[0]` is the host executable path; for Docker backends it is a
+  placeholder (`"odoo"`) because the actual command is configured in the
+  compose stack. Extra Odoo CLI options are in `args[1:]`.
+
+- `supports_neutralize(self, base)`: return `True` if this backend can
+  neutralize a database.
+
+- `neutralize(self, ctx, base, db_name, *, dry_run=False)`: run
+  `odoo-bin neutralize` against `db_name`.
+
+- `restore(self, ctx, base, db_name, dump_path, *, force=False,
+no_neutralize=False, dry_run=False, **options)`: restore `dump_path` into
+  `db_name` and neutralize it unless `no_neutralize` is true.
+
+- `prune(self, ctx, base, *, aggressive=False, dry_run=False, **options)`:
+  run target-specific housekeeping. Not all backends need to support this.
+
+### Diagnostics
+
+Backends return diagnostics via the `Diagnostics` dataclass in
+`osh/diagnostics.py`:
+
+- `backend`: backend name.
+- `ready`: `True` unless `add_error()` was called.
+- `errors`, `warnings`, `info`, `plan`: lists/dicts describing checks.
+- `add_error(msg)`, `add_warning(msg)`, `add_info(key, value)`,
+  `add_plan(item)`: helper methods.
+
+`osh run` aborts on `errors`; `osh init` uses `plan` to show the user what will
+happen; `osh doctor` reports everything via `report_diagnostics()`.
+
+### Minimal backend plugin example
+
+```python
+# ~/.config/osh/plugins/my_backend/__init__.py
+import click
+from osh.backends import Backend
+from osh.diagnostics import Diagnostics
+
+
+class EchoBackend(Backend):
+    name = "echo"
+    label = "Echo backend"
+    description = "Prints the Odoo command instead of running it."
+
+    @classmethod
+    def get_init_options(cls):
+        return []
+
+    def diagnose(self, base, ctx=None, **options):
+        d = Diagnostics(self.name, project=base)
+        d.add_plan("Print the assembled Odoo command.")
+        return d
+
+    def init(self, target, *, version="", edition="ce", dry_run=False, **options):
+        click.echo(f"Would initialise {target} for {edition} {version}")
+        return True
+
+    def run(self, ctx, base, args, *, dry_run=False, verbose=False, **options):
+        click.echo(f"Would run: {' '.join(args)}")
+
+    def neutralize(self, ctx, base, db_name, *, dry_run=False):
+        click.echo(f"Would neutralize {db_name}")
+
+    def restore(self, ctx, base, db_name, dump_path, *, force=False,
+                no_neutralize=False, dry_run=False, **options):
+        click.echo(f"Would restore {dump_path} into {db_name}")
+
+    def prune(self, ctx, base, *, aggressive=False, dry_run=False, **options):
+        click.echo("Would prune")
+```
+
+Register it with `osh --target echo` or `osh init --target echo` once the
+plugin is loaded.
+
+## Plugin API Critique
+
+This section evaluates how friendly the current plugin API is for third-party
+extension authors.
+
+### What works well
+
+- **Small surface area**: there are only two concepts to learn, commands and
+  backends, and both are simple Python objects.
+- **Familiar tools**: commands are standard Click commands; backends are plain
+  Python classes inheriting from `Backend`.
+- **Built-in examples**: `osh_local`, `osh_docker` and `osh_test` provide
+  realistic reference implementations.
+- **Automatic command namespacing**: command name collisions are resolved by
+  prefixing the plugin source, which keeps `osh` stable when multiple plugins are
+  installed.
+- **Reusable diagnostics**: the `Diagnostics` dataclass is reused by
+  `osh doctor`, `osh init` and `osh run`, so backend authors do not have to
+  write separate reporting code.
+
+### Pain points
+
+- **Magic attributes**: `get_init_options` must manually set
+  `option.target_group = cls.name`. There is no helper for this, and forgetting
+  it silently breaks `osh init --help` grouping.
+- **Undocumented `args` contract**: `run()` receives an `argv`-style list whose
+  first element means different things for local and Docker backends. Authors
+  have to reverse-engineer the local vs Docker implementations to build a new
+  backend.
+- **Broad `**options`signatures**:`init`, `diagnose`, `run`and`restore`all
+accept`\*\*options`but do not document which keys are actually passed. The
+only way to know is to trace`init_cmd.py`, `run_cmd.py`and`restore_cmd.py`.
+- **No typed request object**: backend methods receive `ctx`, `base` and flat
+  options, but there is no structured object describing the Odoo invocation
+  (executable, database, addons paths, extra args). This makes the `run()`
+  method harder to implement robustly.
+- **Backend name collisions are silent**: `plugin_loader.load_backends()` skips
+  duplicate backend names without warning or namespacing. Two plugins cannot both
+  expose a backend called `docker`.
+- **No dependency mechanism**: `osh` does not declare or install plugin
+  dependencies. Authors must document external packages and trust users to
+  install them.
+- **`ctx` usage is inconsistent**: `diagnose` receives `ctx` but most backends
+  use it only to read `ctx.params` for CLI overrides. The exact CLI options that
+  are forwarded to each method differ between commands.
+
+### Suggestions for improvement
+
+- Introduce a `BackendOptions` or `RunSpec` dataclass with explicit fields for
+  executable, database name, addons paths, extra args and config path.
+- Document the exact keys passed in `**options` for each lifecycle method, or
+  replace `**options` with named keyword arguments.
+- Add a `register_init_option()` helper that sets `target_group` automatically.
+- Warn when a backend name collision causes a plugin backend to be skipped.
+- Provide a `Plugin` base class or entry-point based discovery so plugin authors
+  do not need to place files in a special `~/.config/osh/plugins/` directory.
+- Consider a plugin manifest (e.g. `pyproject.toml` `[tool.osh.plugins]`) so
+  metadata such as dependencies and target names can be declared statically.
