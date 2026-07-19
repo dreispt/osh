@@ -187,6 +187,52 @@ def test_docker_backend_diagnose(
     assert d.info["command"] == "odoo"
 
 
+def test_docker_backend_diagnose_honors_custom_compose_file(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``diagnose`` resolves the effective compose file from config/options."""
+    monkeypatch.setattr(
+        "osh.plugins.osh_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        "service = 'odoo'\ncommand = 'odoo'\ncompose_file = 'devel.yaml'\n"
+    )
+    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
+
+    backend = DockerBackend()
+    d = backend.diagnose(tmp_project, phase="run")
+
+    assert d.ready
+    assert not d.errors
+    assert "generated_compose_file" in d.info
+    assert str(tmp_project / "devel.yaml") in d.info["generated_compose_file"]
+
+
+def test_docker_backend_diagnose_ee_sources_missing_with_version(
+    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``diagnose`` allows missing source copies when a version is configured."""
+    monkeypatch.setattr(
+        "osh.plugins.osh_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        "service = 'odoo'\ncommand = 'odoo'\nedition = 'sh'\nversion = '19.0'\n"
+    )
+    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+    backend = DockerBackend()
+    d = backend.diagnose(tmp_project, phase="run")
+
+    assert d.ready
+    assert not d.errors
+
+
 def test_docker_backend_run_dry_run(
     tmp_project: Path, capsys: pytest.CaptureFixture
 ) -> None:
