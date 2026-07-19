@@ -23,9 +23,13 @@ class Diagnostics:
     target: str | None = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-    info: dict[str, Any] = field(default_factory=dict)
+    info: dict[str, dict[str, Any]] = field(default_factory=dict)
     plan: list[str] = field(default_factory=list)
     command: list[str] | None = None
+
+    def _default_topic(self):
+        """Return the default topic for info entries."""
+        return self.backend or "general"
 
     def add_error(self, message):
         """Record a blocking error and mark the project as not ready."""
@@ -36,9 +40,10 @@ class Diagnostics:
         """Record a non-fatal warning."""
         self.warnings.append(message)
 
-    def add_info(self, key, value):
-        """Record a piece of information for verbose reporting."""
-        self.info[key] = value
+    def add_info(self, key, value, *, topic=None):
+        """Record a piece of information under a topic."""
+        topic = topic or self._default_topic()
+        self.info.setdefault(topic, {})[key] = value
 
     def add_plan(self, item):
         """Record a planned action, used by ``osh init``."""
@@ -54,9 +59,6 @@ class Diagnostics:
     ):
         """Print this diagnostics object using the current verbosity object."""
         if include_header:
-            echo.essential(f"Backend: {self.backend}")
-            if self.project:
-                echo.essential(f"Project: {self.project}")
             echo.essential(f"Ready: {'yes' if self.ready else 'no'}")
 
         for error in self.errors:
@@ -69,15 +71,15 @@ class Diagnostics:
             for item in self.plan:
                 echo.essential(f"  - {item}")
 
-        odoo_version = self.info.get("odoo_version")
-        if odoo_version:
-            echo.essential(f"Odoo version: {odoo_version}")
-
         if include_info and self.info:
-            for key, value in sorted(self.info.items()):
-                if key == "odoo_version":
-                    continue
-                echo.details(f"  {key}: {value}")
+            for topic in sorted(self.info):
+                echo.essential(f"{topic}:")
+                for key in sorted(self.info[topic]):
+                    value = self.info[topic][key]
+                    if key == "odoo_version":
+                        echo.essential(f"  Odoo version: {value}")
+                    else:
+                        echo.essential(f"  {key}: {value}")
 
 
 def collect_diagnostics(base, backend, ctx=None, *, target=None, sections=None):
@@ -88,7 +90,8 @@ def collect_diagnostics(base, backend, ctx=None, *, target=None, sections=None):
     diagnostics.project = base
     diagnostics.target = target or backend.name
     branch = get_current_branch(base) or "default"
-    diagnostics.add_info("git_branch", branch)
+    diagnostics.add_info("project", str(base), topic="System")
+    diagnostics.add_info("git_branch", branch, topic="System")
     return diagnostics
 
 
