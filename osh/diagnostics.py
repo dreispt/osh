@@ -44,6 +44,35 @@ class Diagnostics:
         """Record a planned action, used by ``osh init``."""
         self.plan.append(item)
 
+    def report(
+        self,
+        echo,
+        *,
+        include_header=True,
+        include_info=True,
+        include_plans=False,
+    ):
+        """Print this diagnostics object using the current verbosity object."""
+        if include_header:
+            echo.essential(f"Backend: {self.backend}")
+            if self.project:
+                echo.essential(f"Project: {self.project}")
+            echo.essential(f"Ready: {'yes' if self.ready else 'no'}")
+
+        for error in self.errors:
+            echo.error(error)
+        for warning in self.warnings:
+            echo.warning(warning)
+
+        if include_plans and self.plan:
+            echo.essential("Planned actions:")
+            for item in self.plan:
+                echo.essential(f"  - {item}")
+
+        if include_info and self.info:
+            for key, value in sorted(self.info.items()):
+                echo.details(f"  {key}: {value}")
+
 
 def collect_diagnostics(base, backend, ctx=None, *, target=None, sections=None):
     """Collect core and backend-specific diagnostics for *base*."""
@@ -59,16 +88,4 @@ def collect_diagnostics(base, backend, ctx=None, *, target=None, sections=None):
 
 def report_diagnostics(diagnostics, echo):
     """Print *diagnostics* using the current verbosity object."""
-    echo.essential(f"Backend: {diagnostics.backend}")
-    if diagnostics.project:
-        echo.essential(f"Project: {diagnostics.project}")
-    echo.essential(f"Ready: {'yes' if diagnostics.ready else 'no'}")
-
-    for error in diagnostics.errors:
-        echo.error(error)
-    for warning in diagnostics.warnings:
-        echo.warning(warning)
-
-    if diagnostics.info:
-        for key, value in sorted(diagnostics.info.items()):
-            echo.details(f"  {key}: {value}")
+    diagnostics.report(echo, include_plans=False, include_info=True)
