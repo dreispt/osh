@@ -57,7 +57,7 @@ class Diagnostics:
         include_info=True,
         include_plans=False,
     ):
-        """Print this diagnostics object using the current verbosity object."""
+        """Print this diagnostics object using the current echo object."""
         if include_header:
             echo.essential(f"Ready: {'yes' if self.ready else 'no'}")
 
@@ -106,5 +106,5 @@ def collect_diagnostics(
 
 
 def report_diagnostics(diagnostics, echo):
-    """Print *diagnostics* using the current verbosity object."""
+    """Print *diagnostics* using the current echo object."""
     diagnostics.report(echo, include_plans=False, include_info=True)

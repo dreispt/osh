@@ -1,4 +1,4 @@
-"""Verbosity system for Osh commands.
+"""Echo/output helper for Osh commands.
 
 This module provides a logging-style API for output that adapts to user experience
 level and preferences, supporting multiple verbosity levels and emoji control.
@@ -35,17 +35,17 @@ _TEXT_PREFIXES = {
 }
 
 
-class Verbosity:
-    """Verbosity level manager for consistent output behavior across Osh commands.
+class Echo:
+    """Output helper for consistent categorized echo behavior across Osh commands.
 
-    This class implements the verbosity level system that balances friendly
+    This helper implements the verbosity level system that balances friendly
     onboarding for new users with pragmatic output for seasoned developers.
     """
 
     LEVELS = ["quiet", "normal", "friendly", "verbose", "debug"]
 
     def __init__(self, level="normal", emoji=True):
-        """Initialize verbosity level.
+        """Initialize echo helper with the given verbosity level.
 
         Args:
             level: One of "quiet", "normal", "friendly", "verbose", "debug"
@@ -222,8 +222,8 @@ def _detect_emoji_preference(base):
     return True
 
 
-def get_verbosity(ctx, base, verbose_override=False):
-    """Get a configured Verbosity object for the current context.
+def get_echo(ctx, base, verbose_override=False):
+    """Get a configured Echo object for the current context.
 
     This encapsulates all the complexity of detecting verbosity level and emoji
     preference from CLI flags, environment variables, project config, and user config.
@@ -238,7 +238,7 @@ def get_verbosity(ctx, base, verbose_override=False):
         verbose_override: If True, force verbose level (for legacy --verbose flag)
 
     Returns:
-        Configured Verbosity object
+        Configured Echo object
     """
     # Determine verbosity level (intentionally separate from emoji detection below).
     cli_obj = ctx.obj or {}
@@ -251,4 +251,4 @@ def get_verbosity(ctx, base, verbose_override=False):
     no_emoji = cli_obj.get("no_emoji", False)
     use_emoji = not no_emoji and _detect_emoji_preference(base)
 
-    return Verbosity(verbosity, emoji=use_emoji)
+    return Echo(verbosity, emoji=use_emoji)

@@ -9,9 +9,9 @@ from ...backends import Backend, RunSpec
 from ...commons import discover_addons_paths, get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
+from ...echo import get_echo
 from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...sources import _version_from_sources
-from ...verbosity import get_verbosity
 from .utils import _get_venv_python, init_project
 
 
@@ -197,7 +197,7 @@ class LocalBackend(Backend):
                 else:
                     args.extend(addons_path_args)
 
-        echo = get_verbosity(ctx, base, verbose_override=verbose)
+        echo = get_echo(ctx, base, verbose_override=verbose)
         command = " ".join(args)
         if dry_run:
             echo.essential(f"Would run: {command}", err=True)

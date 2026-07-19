@@ -6,8 +6,8 @@ from ..backends import RunSpec
 from ..commons import find_project_root
 from ..db import resolve_run_target, set_project_config
 from ..diagnostics import collect_diagnostics
+from ..echo import get_echo
 from ..plugin_loader import load_backends
-from ..verbosity import get_verbosity
 
 
 @click.command(name="run", context_settings=dict(ignore_unknown_options=True))
@@ -77,7 +77,7 @@ def run(
 
     base = find_project_root(required=True)
 
-    echo = get_verbosity(ctx, base, verbose_override=verbose)
+    echo = get_echo(ctx, base, verbose_override=verbose)
 
     backend_name = resolve_run_target(base, backend_name, ctx)
     set_project_config(base, "run", "target", backend_name)

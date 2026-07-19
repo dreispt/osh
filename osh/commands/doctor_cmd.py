@@ -5,8 +5,8 @@ import click
 from ..commons import find_project_root
 from ..db import get_project_config
 from ..diagnostics import collect_diagnostics, report_diagnostics
+from ..echo import get_echo
 from ..plugin_loader import load_backends
-from ..verbosity import get_verbosity
 
 
 @click.command(name="doctor")
@@ -21,7 +21,7 @@ def doctor(ctx, verbose):  # noqa: D401
     base = find_project_root(required=True)
 
     # Set up verbosity
-    echo = get_verbosity(ctx, base, verbose_override=verbose)
+    echo = get_echo(ctx, base, verbose_override=verbose)
 
     # Show friendly header for new users
     echo.guidance("Checking your Osh setup...")

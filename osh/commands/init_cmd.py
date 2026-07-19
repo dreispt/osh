@@ -6,9 +6,9 @@ from pathlib import Path
 import click
 
 from ..db import get_project_config, set_project_config
+from ..echo import get_echo
 from ..plugin_loader import load_backends
 from ..userconfig import _load_user_init_config, save_user_preference
-from ..verbosity import get_verbosity
 
 
 def _collect_backend_options():
@@ -184,7 +184,7 @@ def init(
             or "local"
         )
 
-    echo = get_verbosity(ctx, target)
+    echo = get_echo(ctx, target)
     echo.guidance(f"Welcome to Osh! Let's set up your Odoo {version} project.")
 
     if not (target / ".git").exists() and not dry_run:
