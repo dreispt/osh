@@ -26,19 +26,3 @@ class TestDoctorVersionReporting:
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0, result.output
         assert "Odoo version: odoo 19.0" in result.output
-
-
-class TestDoctorBackendListing:
-    def test_doctor_lists_installed_backends_and_options(
-        self, tmp_project, monkeypatch
-    ):
-        """``osh doctor`` reports the installed backends and their init options."""
-        monkeypatch.chdir(tmp_project)
-        runner = CliRunner()
-        result = runner.invoke(main, ["doctor"])
-        assert result.exit_code == 0, result.output
-        assert "Installed backends:" in result.output
-        assert "local" in result.output
-        assert "docker" in result.output
-        assert "--odoo-source" in result.output
-        assert "--service" in result.output

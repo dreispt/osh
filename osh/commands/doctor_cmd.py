@@ -31,7 +31,6 @@ def doctor(ctx, verbose):  # noqa: D401
     )
 
     backends = load_backends()
-    _report_available_backends(backends, echo)
 
     if backend_name is None:
         echo.essential(
@@ -56,32 +55,3 @@ def doctor(ctx, verbose):  # noqa: D401
     # Show friendly footer for new users
     if diagnostics.ready:
         echo.next_steps("Your setup looks good! Run 'osh run' to start Odoo.")
-
-
-def _report_available_backends(backends, echo):
-    """List all installed backends and their target-specific options."""
-    if not backends:
-        echo.warning("No backends installed.")
-        return
-
-    echo.essential("Installed backends:")
-    for name in sorted(backends):
-        backend_cls = backends[name]
-        label = getattr(backend_cls, "label", None) or name
-        description = getattr(backend_cls, "description", "") or ""
-        echo.essential(f"  {name} - {label}")
-        if description:
-            echo.essential(f"    {description}")
-
-        options = backend_cls.get_init_options()
-        if not options:
-            echo.essential("    (no target-specific options)")
-            continue
-
-        for opt in options:
-            decls = ", ".join(getattr(opt, "opts", []))
-            help_text = getattr(opt, "help", "") or ""
-            if help_text:
-                echo.essential(f"    {decls}: {help_text}")
-            else:
-                echo.essential(f"    {decls}")
