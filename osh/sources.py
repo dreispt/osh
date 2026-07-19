@@ -6,6 +6,7 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 """
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -111,6 +112,7 @@ def _display_source_plan(
     )
     verbs = {
         "existing": "use existing",
+        "replace": "replace with",
         "symlink": "symlink from",
         "clone": "clone from",
         "cache": "clone from central cache",
@@ -144,7 +146,22 @@ def _resolve_source(
     """Return the planned action, source spec and an optional mismatch warning."""
     link = osh_dir / name
     if link.exists() or link.is_symlink():
-        warning = _source_branch_warning(link.resolve(), version)
+        resolved = link.resolve()
+        warning = _source_branch_warning(resolved, version)
+
+        # If the user supplied an explicit source, keep what they gave us and
+        # only warn about a branch mismatch. Otherwise a managed source is
+        # allowed to be replaced so ``osh init <new-version>`` can switch.
+        if source_flag or project_source:
+            return "existing", link, warning
+
+        detected = _source_branch(resolved)
+        if detected and not _version_matches(detected, version):
+            return (
+                "replace",
+                default_url,
+                f"on branch '{detected}', expected '{version}'",
+            )
         return "existing", link, warning
 
     if source_flag:
@@ -172,6 +189,21 @@ def _install_source_plan(
     link = osh_dir / name
     if action == "existing":
         click.echo(f"Using existing {name} sources at {link}", err=True)
+        return link
+
+    if action == "replace":
+        if link.is_symlink():
+            link.unlink()
+        elif link.is_dir():
+            shutil.rmtree(link)
+        elif link.exists():
+            link.unlink()
+        cache = _ensure_cache(name, version, str(spec))
+        click.echo(
+            f"Reinstalling {name} {version} from cache into {link} (shallow)\u2026",
+            err=True,
+        )
+        _git_shallow_clone(f"file://{cache}", link, branch=version)
         return link
 
     if action == "symlink":

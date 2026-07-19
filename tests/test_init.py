@@ -9,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.cli import main
+from osh.plugins.osh_local.backends import LocalBackend
 from osh.sources import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
@@ -17,6 +18,7 @@ from osh.sources import (
     _install_source_plan,
     _is_git_url,
     _resolve_source,
+    _source_branch,
 )
 
 from .conftest import real_git_only_subprocess
@@ -680,3 +682,45 @@ class TestInitEdition:
         assert result.exit_code == 0
         assert "not a git repository" in result.output
         assert (target / ".osh" / "odoo").is_symlink()
+
+
+class TestDoctorVersionReporting:
+    def test_local_diagnose_reports_installed_odoo_version(
+        self, tmp_project, fake_odoo_executable
+    ):
+        """``osh doctor`` (via LocalBackend.diagnose) reports the installed Odoo version."""
+        backend = LocalBackend()
+        diagnostics = backend.diagnose(tmp_project)
+        assert diagnostics.info["odoo_version"] == "odoo 19.0"
+
+
+class TestSourceVersionSwitching:
+    def test_managed_source_is_replaced_for_a_different_version(
+        self, tmp_path, tmp_project, patch_cache, monkeypatch
+    ):
+        """Re-running ``osh init`` with a different version replaces managed sources."""
+        bare = _make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
+        monkeypatch.setattr("osh.sources.DEFAULT_ODOO_URL", f"file://{bare}")
+
+        osh_dir = tmp_project / ".osh"
+        osh_dir.mkdir(parents=True, exist_ok=True)
+
+        _ensure_source(
+            "odoo",
+            "master",
+            None,
+            None,
+            osh_dir,
+            f"file://{bare}",
+        )
+        assert _source_branch(osh_dir / "odoo") == "master"
+
+        _ensure_source(
+            "odoo",
+            "19.0",
+            None,
+            None,
+            osh_dir,
+            f"file://{bare}",
+        )
+        assert _source_branch(osh_dir / "odoo") == "19.0"

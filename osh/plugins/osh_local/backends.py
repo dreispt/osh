@@ -1,6 +1,7 @@
 """Local init/run/restore/prune backend for Osh."""
 
 import os
+import subprocess
 
 import click
 
@@ -11,6 +12,23 @@ from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...verbosity import get_verbosity
 from .utils import _get_venv_python, init_project
+
+
+def _get_odoo_version(exe):
+    """Return the installed Odoo version string, or None if it cannot be read."""
+    try:
+        result = subprocess.run(
+            [str(exe), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return None
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0 or not output:
+        return None
+    return output.splitlines()[0] if output else None
 
 
 class LocalBackend(Backend):
@@ -63,6 +81,11 @@ class LocalBackend(Backend):
         exe = find_odoo_executable(base)
         if exe:
             d.add_info("odoo_executable", str(exe))
+            version = _get_odoo_version(exe)
+            if version:
+                d.add_info("odoo_version", version)
+            elif phase == "doctor":
+                d.add_warning("Could not determine installed Odoo version.")
         elif phase == "init":
             d.add_warning("Odoo executable not found; it will be created during init.")
         else:

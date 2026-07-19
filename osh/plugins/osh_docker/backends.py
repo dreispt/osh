@@ -180,15 +180,15 @@ class DockerBackend(Backend):
 
         if not compose_file:
             osh_compose = target / _COMPOSE_FILE
-            if not osh_compose.is_file():
-                if dry_run:
-                    click.echo(
-                        f"Would generate {osh_compose} with "
-                        f"odoo/{version or 'latest'} and postgres:16 services.",
-                        err=True,
-                    )
-                else:
-                    _generate_compose_file(target, version)
+            if dry_run:
+                click.echo(
+                    f"Would generate {osh_compose} with "
+                    f"odoo/{version or 'latest'} and postgres:16 services.",
+                    err=True,
+                )
+            else:
+                _generate_compose_file(target, version)
+                if osh_compose.is_file():
                     click.echo(f"Generated {osh_compose}.", err=True)
             compose_file = str(_COMPOSE_FILE)
 

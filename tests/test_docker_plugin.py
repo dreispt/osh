@@ -100,6 +100,23 @@ def test_init_docker_does_not_overwrite_existing_osh_compose(tmp_project, monkey
     )
 
 
+def test_init_docker_updates_compose_for_a_different_version(tmp_project, monkeypatch):
+    """Re-initialising Docker with a new version updates the generated compose file."""
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(init_docker, ["19.0", "--service", "odoo"])
+    assert result.exit_code == 0, result.output
+    compose = tmp_project / ".osh" / "docker-compose.yml"
+    assert "image: odoo:19.0" in compose.read_text()
+
+    result = runner.invoke(init_docker, ["20.0", "--service", "odoo"])
+    assert result.exit_code == 0, result.output
+    assert "image: odoo:20.0" in compose.read_text()
+    assert "version = '20.0'" in (tmp_project / ".osh" / "docker.toml").read_text()
+
+
 def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
     """A provided ``--compose-file`` is persisted into docker.toml."""
     _patch_docker_tools(monkeypatch)
