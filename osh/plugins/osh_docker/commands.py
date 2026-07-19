@@ -11,7 +11,7 @@ from .backends import DockerBackend
 
 
 @click.command(name="init-docker")
-@click.argument("version", required=False)
+@click.argument("version")
 @click.argument(
     "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
 )
@@ -39,7 +39,7 @@ def init_docker(
 ) -> None:  # noqa: D401
     """Initialise a project directory for use with Docker Compose.
 
-    VERSION: Odoo version (optional; used to select the odoo image tag).
+    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to the current directory).
     """
     target = (directory or Path.cwd()).expanduser().resolve()
