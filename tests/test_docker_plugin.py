@@ -332,6 +332,37 @@ def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
     assert "edition = 'ee'" in text
 
 
+def test_osh_run_docker_uses_branch_database(
+    tmp_project,
+    monkeypatch,
+):
+    """``osh run --target docker`` defaults to a branch-based database name."""
+    subprocess.run(["git", "init"], cwd=tmp_project, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "x@y"], cwd=tmp_project, check=True)
+    subprocess.run(["git", "config", "user.name", "x"], cwd=tmp_project, check=True)
+    (tmp_project / "README").write_text("x")
+    subprocess.run(["git", "add", "README"], cwd=tmp_project, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_project, check=True)
+    subprocess.run(["git", "checkout", "-b", "feature-x"], cwd=tmp_project, check=True)
+
+    osh_dir = tmp_project / ".osh"
+    docker_toml = osh_dir / "docker.toml"
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["run", "--target", "docker", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "-d project-feature-x" in result.output
+    assert "--db-filter ^project-feature-x$" in result.output
+
+
 def test_docker_backend_run_appends_addons_path_for_sh(
     tmp_project,
     monkeypatch,

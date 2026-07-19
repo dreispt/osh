@@ -102,7 +102,7 @@ def run(
 
     explicit_db = _parse_explicit_db(extra_args)
     db_name = explicit_db or resolve_db_name(base, echo.level == "verbose")
-    if db_name and explicit_db:
+    if db_name and not dry_run:
         branch = get_current_branch(base) or "default"
         set_project_config(base, "db", values={branch: db_name, "last": db_name})
 

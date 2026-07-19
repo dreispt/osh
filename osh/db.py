@@ -228,7 +228,8 @@ def resolve_db_name(base, verbose=False):
     """Resolve the database name for the current context.
 
     Returns the configured database for the current branch, or the last used
-    database, or None if no database has been configured.
+    database, or a sanitized ``<project>-<branch>`` default so runs on both
+    local and Docker targets consistently use the branch name.
     """
     branch = get_current_branch(base) or "default"
     db_name = get_project_config(base, "db", branch)
@@ -242,7 +243,7 @@ def resolve_db_name(base, verbose=False):
             click.echo(f"Using last database: {last_db}", err=True)
         return last_db
 
-    return None
+    return sanitize_db_name(f"{base.name}-{branch}")
 
 
 def resolve_test_db_name(base, current_db, test_db):
