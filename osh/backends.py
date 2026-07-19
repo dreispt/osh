@@ -70,13 +70,29 @@ class Backend(ABC):
 
         return get_odoo_version(base)
 
+    def diagnose_sections_for_phase(self, phase):
+        """Return the diagnose sections to run for *phase*.
+
+        ``None`` means "all sections". This is used by ``osh init`` and
+        ``osh run`` to skip expensive checks that are only useful for a full
+        ``osh doctor`` report.
+        """
+        return None
+
     def diagnose(
         self,
         base,
         ctx=None,
+        *,
+        sections=None,
         **options,
     ):
         """Inspect the project and system for the active target.
+
+        *sections* is an optional list of section names to detect. When omitted,
+        backends should detect everything. Callers such as ``osh init`` and
+        ``osh run`` can use it to avoid expensive checks that are not needed for
+        their phase.
 
         Returns a ``Diagnostics`` object that ``osh doctor`` reports, ``osh init``
         uses to plan actions and ask for confirmation, and ``osh run`` uses to

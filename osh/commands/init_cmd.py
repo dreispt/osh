@@ -213,7 +213,13 @@ def init(
     backend = backend_cls()
 
     diagnostics = backend.diagnose(
-        target, ctx, phase="init", version=version, edition=edition, **kwargs
+        target,
+        ctx,
+        phase="init",
+        version=version,
+        edition=edition,
+        sections=backend.diagnose_sections_for_phase("init"),
+        **kwargs,
     )
     if diagnostics.plan:
         echo.essential("Planned actions:")

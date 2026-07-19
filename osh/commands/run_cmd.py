@@ -94,7 +94,12 @@ def run(
     backend = backend_cls()
 
     diagnostics = backend.diagnose(
-        base, ctx, phase="run", compose_file=compose_file, edition=edition
+        base,
+        ctx,
+        phase="run",
+        compose_file=compose_file,
+        edition=edition,
+        sections=backend.diagnose_sections_for_phase("run"),
     )
     for warning in diagnostics.warnings:
         echo.warning(warning)

@@ -51,45 +51,67 @@ class LocalBackend(Backend):
             ),
         ]
 
+    _DIAGNOSE_SECTIONS = ("odoo_executable", "odoo_version", "config", "addons")
+
+    def diagnose_sections_for_phase(self, phase):
+        """Skip expensive version/addons checks in ``init`` and ``run`` phases."""
+        if phase in ("init", "run"):
+            return ["odoo_executable", "config"]
+        return list(self._DIAGNOSE_SECTIONS)
+
     def diagnose(
         self,
         base,
         ctx=None,
+        *,
+        sections=None,
         **options,
     ):
         phase = options.get("phase", "doctor")
         d = Diagnostics(self.name, project=base)
 
-        exe = find_odoo_executable(base)
-        if exe:
-            d.add_info("odoo_executable", str(exe))
+        if sections is None:
+            sections = self._DIAGNOSE_SECTIONS
+        sections = set(sections)
 
-        version = self.detect_odoo_version(base)
-        if version:
-            d.add_info("odoo_version", version)
-        else:
-            if exe and phase == "doctor":
-                d.add_warning("Could not determine installed Odoo version.")
-            elif not exe:
-                if phase == "init":
-                    d.add_warning(
-                        "Odoo executable not found; it will be created during init."
-                    )
+        need_exe = "odoo_executable" in sections or "odoo_version" in sections
+        if need_exe:
+            exe = find_odoo_executable(base)
+            if "odoo_executable" in sections and exe:
+                d.add_info("odoo_executable", str(exe))
+
+            if "odoo_version" in sections:
+                version = self.detect_odoo_version(base)
+                if version:
+                    d.add_info("odoo_version", version)
                 else:
-                    d.add_error("Odoo executable not found. Run 'osh init' first.")
+                    if exe and phase == "doctor":
+                        d.add_warning("Could not determine installed Odoo version.")
+                    elif not exe:
+                        if phase == "init":
+                            d.add_warning(
+                                "Odoo executable not found; "
+                                "it will be created during init."
+                            )
+                        else:
+                            d.add_error(
+                                "Odoo executable not found. Run 'osh init' first."
+                            )
 
-        odoo_rc = get_odoo_config_path(base)
-        osh_conf = base / ".osh" / "odoo.conf"
-        config = osh_conf if osh_conf.exists() else odoo_rc
-        if config.exists():
-            d.add_info("odoo_config", str(config))
-        else:
-            d.add_warning(f"Odoo config file not found: {config}")
+        if "config" in sections:
+            odoo_rc = get_odoo_config_path(base)
+            osh_conf = base / ".osh" / "odoo.conf"
+            config = osh_conf if osh_conf.exists() else odoo_rc
+            if config.exists():
+                d.add_info("odoo_config", str(config))
+            else:
+                d.add_warning(f"Odoo config file not found: {config}")
 
-        addons_paths = build_addons_paths(base, include_themes=True)
-        modules = discover_addons_paths(base)
-        d.add_info("addons_directories", len(addons_paths))
-        d.add_info("addon_modules", len(modules))
+        if "addons" in sections:
+            addons_paths = build_addons_paths(base, include_themes=True)
+            modules = discover_addons_paths(base)
+            d.add_info("addons_directories", len(addons_paths))
+            d.add_info("addon_modules", len(modules))
 
         if phase == "init":
             d.add_plan("Resolve Odoo sources for the selected edition")

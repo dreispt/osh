@@ -45,11 +45,11 @@ class Diagnostics:
         self.plan.append(item)
 
 
-def collect_diagnostics(base, backend, ctx=None, *, target=None):
+def collect_diagnostics(base, backend, ctx=None, *, target=None, sections=None):
     """Collect core and backend-specific diagnostics for *base*."""
     from .db import get_current_branch
 
-    diagnostics = backend.diagnose(base, ctx)
+    diagnostics = backend.diagnose(base, ctx, sections=sections)
     diagnostics.project = base
     diagnostics.target = target or backend.name
     branch = get_current_branch(base) or "default"
