@@ -76,10 +76,12 @@ class LocalBackend(Backend):
             d.add_error("Odoo executable not found. Run 'osh init' first.")
 
         odoo_rc = get_odoo_config_path(base)
-        if odoo_rc.exists():
-            d.add_info("odoo_config", str(odoo_rc))
+        osh_conf = base / ".osh" / "odoo.conf"
+        config = osh_conf if osh_conf.exists() else odoo_rc
+        if config.exists():
+            d.add_info("odoo_config", str(config))
         else:
-            d.add_warning(f"Odoo config file not found: {odoo_rc}")
+            d.add_warning(f"Odoo config file not found: {config}")
 
         addons_paths = build_addons_paths(base, include_themes=True)
         modules = discover_addons_paths(base)
