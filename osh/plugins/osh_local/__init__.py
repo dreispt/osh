@@ -1,7 +1,7 @@
 """Built-in local backend plugin for Osh."""
 
 from .backends import LocalBackend
-from .commands import prune
+from .commands import init_local, prune
 
 
 def get_backends():
@@ -11,7 +11,7 @@ def get_backends():
 
 def get_commands():
     """Return Click commands exposed by this plugin."""
-    return [prune]
+    return [init_local, prune]
 
 
-__all__ = ["LocalBackend", "prune", "get_backends", "get_commands"]
+__all__ = ["LocalBackend", "init_local", "prune", "get_backends", "get_commands"]

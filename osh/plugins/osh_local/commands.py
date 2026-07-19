@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from ...commands import init_cmd  # noqa: F401
+from ...commands import init_cmd
 from ...commons import find_project_root
 
 
@@ -67,10 +67,6 @@ def init_local(
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
     """
-    # Get the init command from core commands
-    init_command = init_cmd.init
-
-    # Build kwargs for the init command
     kwargs = {
         "backend_name": "local",
         "version": version,
@@ -80,8 +76,6 @@ def init_local(
         "assume_yes": yes,
         "dry_run": dry_run,
     }
-
-    # Add backend-specific options for local target
     if odoo_source:
         kwargs["odoo_source"] = odoo_source
     if enterprise_source:
@@ -89,7 +83,7 @@ def init_local(
     if themes_source:
         kwargs["themes_source"] = themes_source
 
-    ctx.invoke(init_command, **kwargs)
+    ctx.invoke(init_cmd.init, **kwargs)
 
 
 @click.command(name="prune")

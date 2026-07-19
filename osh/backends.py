@@ -128,10 +128,6 @@ class Backend(ABC):
         """
         raise NotImplementedError
 
-    def supports_neutralize(self, base):
-        """Return True if this backend can neutralize databases at *base*."""
-        return getattr(self, "neutralize_supported", False)
-
     def neutralize(
         self,
         ctx,

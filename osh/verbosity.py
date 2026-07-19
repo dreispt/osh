@@ -162,34 +162,6 @@ class Verbosity:
         """Log internal debugging information (shown at debug level only)."""
         self._echo("internal", message, err=err)
 
-    # Keep the old echo method for backward compatibility and fallback support
-    def echo(
-        self,
-        category,
-        message,
-        err=False,
-        fallback=None,
-    ):
-        """Echo a message if it should be shown at current level.
-
-        This method automatically checks if the message category should be shown
-        at the current verbosity level and only outputs if appropriate.
-
-        Args:
-            category: Message category (error, warning, success, essential, guidance, next_steps, details, assumptions, internal)
-            message: The message content
-            err: Whether to output to stderr
-            fallback: Fallback category to use if primary category shouldn't be shown
-        """
-        if self.should_show(category):
-            formatted = self.format_message(category, message)
-            if formatted:
-                click.echo(formatted, err=err)
-        elif fallback and self.should_show(fallback):
-            formatted = self.format_message(fallback, message)
-            if formatted:
-                click.echo(formatted, err=err)
-
 
 def _detect_verbosity(base):
     """Detect appropriate verbosity level based on user experience and project state.
@@ -223,6 +195,9 @@ def _detect_verbosity(base):
 def _detect_emoji_preference(base):
     """Detect emoji preference based on user configuration.
 
+    This intentionally mirrors ``_detect_verbosity`` because the two settings
+    are independent and use different config keys, precedence rules and defaults.
+
     Args:
         base: Project root directory, or None if no project found
 
@@ -253,6 +228,10 @@ def get_verbosity(ctx, base, verbose_override=False):
     This encapsulates all the complexity of detecting verbosity level and emoji
     preference from CLI flags, environment variables, project config, and user config.
 
+    The two detection blocks below look similar; this duplication is intentional
+    because verbosity and emoji are independent settings with different config keys,
+    precedence rules and defaults.
+
     Args:
         ctx: Click context containing CLI flags
         base: Project root directory, or None if no project found
@@ -261,14 +240,14 @@ def get_verbosity(ctx, base, verbose_override=False):
     Returns:
         Configured Verbosity object
     """
-    # Determine verbosity level
+    # Determine verbosity level (intentionally separate from emoji detection below).
     cli_obj = ctx.obj or {}
     cli_verbosity = cli_obj.get("verbosity")
     if verbose_override and not cli_verbosity:
         cli_verbosity = "verbose"
     verbosity = cli_verbosity or _detect_verbosity(base)
 
-    # Determine emoji preference
+    # Determine emoji preference (intentionally separate from verbosity detection above).
     no_emoji = cli_obj.get("no_emoji", False)
     use_emoji = not no_emoji and _detect_emoji_preference(base)
 
