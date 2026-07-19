@@ -83,3 +83,11 @@ def report_diagnostics(diagnostics: Diagnostics, echo: Any) -> None:
     if diagnostics.info:
         for key, value in sorted(diagnostics.info.items()):
             echo.details(f"  {key}: {value}")
+
+    if diagnostics.plan:
+        echo.essential("Planned actions:")
+        for item in diagnostics.plan:
+            echo.essential(f"  - {item}")
+
+    if diagnostics.command:
+        echo.details(f"command: {' '.join(diagnostics.command)}")
