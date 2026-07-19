@@ -80,8 +80,8 @@ def test_init_docker_command_writes_config_and_compose(tmp_project, monkeypatch)
     assert (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_init_docker_does_not_overwrite_existing_osh_compose(tmp_project, monkeypatch):
-    """An existing ``.osh/docker-compose.yml`` is left untouched."""
+def test_init_docker_overwrites_existing_osh_compose(tmp_project, monkeypatch):
+    """``.osh/docker-compose.yml`` is Osh-managed and regenerated on init."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
@@ -93,7 +93,7 @@ def test_init_docker_does_not_overwrite_existing_osh_compose(tmp_project, monkey
     result = runner.invoke(init_docker, ["19.0"])
 
     assert result.exit_code == 0, result.output
-    assert existing.read_text() == "existing: compose\n"
+    assert "image: odoo:19.0" in existing.read_text()
     assert (
         "compose_file = '.osh/docker-compose.yml'"
         in (tmp_project / ".osh" / "docker.toml").read_text()
