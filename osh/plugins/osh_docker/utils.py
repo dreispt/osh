@@ -1,11 +1,8 @@
 """Docker Compose utility helpers."""
 
-from __future__ import annotations
-
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -13,7 +10,7 @@ _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
 
 
-def _load_docker_config(base: Path) -> dict[str, Any]:
+def _load_docker_config(base):
     """Load the Docker backend configuration from ``.osh/docker.toml``."""
     config_path = base / _DOCKER_TOML
     if not config_path.exists():
@@ -27,14 +24,14 @@ def _load_docker_config(base: Path) -> dict[str, Any]:
 
 
 def _save_docker_config(
-    base: Path,
-    service: str | None,
-    command: str | None,
-    compose_file: str | None = None,
-    version: str | None = None,
-    edition: str | None = None,
-    compose_tool: str | None = None,
-) -> None:
+    base,
+    service,
+    command,
+    compose_file=None,
+    version=None,
+    edition=None,
+    compose_tool=None,
+):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     config_path = base / _DOCKER_TOML
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,7 +49,7 @@ def _save_docker_config(
     config_path.write_text("\n".join(lines) + "\n")
 
 
-def _docker_command(service: str, command: str | list[str] | None) -> list[str]:
+def _docker_command(service, command):
     """Return the Odoo command inside the container as a list."""
     if command is None:
         command = "odoo"
@@ -61,7 +58,7 @@ def _docker_command(service: str, command: str | list[str] | None) -> list[str]:
     return shlex.split(str(command))
 
 
-def _find_compose_tool() -> list[str] | None:
+def _find_compose_tool():
     """Return the available Compose command, preferring ``docker compose``."""
     for args in (["docker", "compose"], ["docker-compose"]):
         try:
@@ -78,9 +75,9 @@ def _find_compose_tool() -> list[str] | None:
 
 
 def _compose_base_command(
-    base: Path,
-    compose_file: str | None = None,
-) -> list[str]:
+    base,
+    compose_file=None,
+):
     """Return the available Compose invocation, including any ``-f`` option."""
     cfg = _load_docker_config(base)
     if not compose_file:
@@ -103,7 +100,7 @@ def _compose_base_command(
     return cmd
 
 
-def _default_compose_content(version: str) -> str:
+def _default_compose_content(version):
     """Return a generated Docker Compose file for a standard Odoo stack."""
     import importlib.resources
 
@@ -114,7 +111,7 @@ def _default_compose_content(version: str) -> str:
     return template.replace("__IMAGE__", image)
 
 
-def _generate_compose_file(target: Path, version: str) -> None:
+def _generate_compose_file(target, version):
     """Write ``.osh/docker-compose.yml`` if it does not already exist."""
     compose_path = target / _COMPOSE_FILE
     compose_path.parent.mkdir(parents=True, exist_ok=True)

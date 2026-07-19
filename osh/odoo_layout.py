@@ -4,18 +4,15 @@ Functions to locate the Odoo executable, the Odoo base source directory,
 and to assemble the ``--addons-path`` list for a project.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
-from pathlib import Path
 
 import click
 
 from .commons import discover_addons_paths
 
 
-def find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
+def find_odoo_executable(base, *, required=False):
     """Return path to Odoo executable.
 
     Search order:
@@ -41,13 +38,13 @@ def find_odoo_executable(base: Path, *, required: bool = False) -> str | None:
     return exe
 
 
-def build_addons_paths(base: Path, *, include_themes: bool = False) -> list[Path]:
+def build_addons_paths(base, *, include_themes=False):
     """Return a list of addon paths for *base*.
 
     Includes the Odoo core addons directory, Enterprise, optionally
     design-themes, and discovered project addon parent directories.
     """
-    addons_paths: list[Path] = []
+    addons_paths = []
 
     odoo_dir = _get_odoo_base_dir(base)
     if odoo_dir:
@@ -72,7 +69,7 @@ def build_addons_paths(base: Path, *, include_themes: bool = False) -> list[Path
     return addons_paths
 
 
-def _get_odoo_base_dir(base: Path) -> Path | None:
+def _get_odoo_base_dir(base):
     """Return path to Odoo base directory (containing addons).
 
     This locates the Odoo installation directory by checking:

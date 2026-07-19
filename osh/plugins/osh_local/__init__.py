@@ -1,17 +1,15 @@
 """Built-in local backend plugin for Osh."""
 
-from __future__ import annotations
-
 from .backends import LocalBackend
 from .commands import prune
 
 
-def get_backends() -> list[type]:
+def get_backends():
     """Return backend classes exposed by this plugin."""
     return [LocalBackend]
 
 
-def get_commands() -> list:
+def get_commands():
     """Return Click commands exposed by this plugin."""
     return [prune]
 

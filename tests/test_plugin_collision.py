@@ -1,16 +1,13 @@
 """Tests for plugin command name collision handling."""
 
-from __future__ import annotations
-
 import importlib
-from pathlib import Path
 
 import click
 import pytest
 from click.testing import CliRunner
 
 
-def _write_fake_plugin(plugin_dir: Path, name: str, command_name: str) -> None:
+def _write_fake_plugin(plugin_dir, name, command_name):
     """Create a minimal plugin package that exposes one Click command."""
     plugin_path = plugin_dir / name
     plugin_path.mkdir(parents=True)
@@ -24,7 +21,7 @@ def _write_fake_plugin(plugin_dir: Path, name: str, command_name: str) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_cli() -> None:
+def _reset_cli():
     """Reload osh.cli after each test so imports return to the default state."""
     yield
     from osh import cli
@@ -32,7 +29,7 @@ def _reset_cli() -> None:
     importlib.reload(cli)
 
 
-def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path: Path) -> None:
+def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path):
     """A user plugin command with the same name as a core command is prefixed."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
@@ -49,15 +46,15 @@ def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path: Path) -> 
     assert cli.main.commands["fake-init"].callback.__module__ == "osh_user_plugin_fake"
 
 
-def test_collision_between_plugins_is_renamed(monkeypatch, tmp_path: Path) -> None:
+def test_collision_between_plugins_is_renamed(monkeypatch, tmp_path):
     """When two plugins register the same name, the second one is prefixed."""
 
     @click.command(name="custom")
-    def first_custom() -> None:
+    def first_custom():
         click.echo("first custom")
 
     @click.command(name="custom")
-    def second_custom() -> None:
+    def second_custom():
         click.echo("second custom")
 
     monkeypatch.setattr(
@@ -73,7 +70,7 @@ def test_collision_between_plugins_is_renamed(monkeypatch, tmp_path: Path) -> No
     assert cli.main.commands["second-custom"].callback is second_custom.callback
 
 
-def test_no_collision_registers_plugin_command(monkeypatch, tmp_path: Path) -> None:
+def test_no_collision_registers_plugin_command(monkeypatch, tmp_path):
     """A plugin command with a unique name is registered normally."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
@@ -88,7 +85,7 @@ def test_no_collision_registers_plugin_command(monkeypatch, tmp_path: Path) -> N
     assert "unique" in cli.main.commands
 
 
-def test_renamed_command_appears_in_help(monkeypatch, tmp_path: Path) -> None:
+def test_renamed_command_appears_in_help(monkeypatch, tmp_path):
     """The derived command name is visible in `osh --help`."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
@@ -107,15 +104,15 @@ def test_renamed_command_appears_in_help(monkeypatch, tmp_path: Path) -> None:
     assert "fake-init" in result.output
 
 
-def test_double_collision_is_ignored(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_double_collision_is_ignored(monkeypatch, tmp_path, capsys):
     """If even the prefixed name collides, the plugin command is skipped."""
 
     @click.command(name="custom")
-    def first_custom() -> None:
+    def first_custom():
         click.echo("first custom")
 
     @click.command(name="custom")
-    def second_custom() -> None:
+    def second_custom():
         click.echo("second custom")
 
     monkeypatch.setattr(

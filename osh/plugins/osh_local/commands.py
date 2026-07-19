@@ -1,7 +1,5 @@
 """Local backend commands for Osh."""
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 
@@ -51,16 +49,16 @@ from ...commons import find_project_root
 )
 @click.pass_context
 def init_local(
-    ctx: click.Context,
-    version: str | None,
-    directory: Path | None,
-    odoo_source: str | None,
-    enterprise_source: str | None,
-    themes_source: str | None,
-    save: bool,
-    yes: bool,
-    dry_run: bool,
-) -> None:  # noqa: D401
+    ctx,
+    version,
+    directory,
+    odoo_source,
+    enterprise_source,
+    themes_source,
+    save,
+    yes,
+    dry_run,
+):  # noqa: D401
     """Initialise a project for the local (virtualenv) target.
 
     This is an alias for `osh init --target local`. See `osh init --help` for
@@ -105,7 +103,7 @@ def init_local(
     is_flag=True,
     help="Print the commands that would be run without executing them.",
 )
-def prune(aggressive: bool, dry_run: bool) -> None:  # noqa: D401
+def prune(aggressive, dry_run):  # noqa: D401
     """Run git gc on the current project's Odoo source clones.
 
     Targets the `.osh/odoo`, `.osh/enterprise`, and `.osh/design-themes`

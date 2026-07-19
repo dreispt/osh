@@ -5,11 +5,8 @@ file that stores init defaults and user preferences (verbosity, emoji,
 edition, etc.).
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
-from typing import Any
 
 try:
     import tomllib
@@ -17,7 +14,7 @@ except ImportError:  # pragma: no cover (<3.11)
     import tomli as tomllib
 
 
-def _load_user_init_config() -> dict[str, Any]:
+def _load_user_init_config():
     """Load optional user-level init defaults from ``~/.config/osh/config.toml``."""
     config_file = Path.home() / ".config" / "osh" / "config.toml"
     if not config_file.exists():
@@ -42,7 +39,7 @@ def _load_user_init_config() -> dict[str, Any]:
     return result
 
 
-def _format_toml_value(value: Any) -> str:
+def _format_toml_value(value):
     """Return a simple TOML representation of *value*.
 
     Supports strings, booleans, integers, and floats. This is intentionally
@@ -61,7 +58,7 @@ def _format_toml_value(value: Any) -> str:
     raise ValueError(f"Unsupported TOML value type: {type(value)}")
 
 
-def _save_user_init_setting(key: str, value: Any, section: str = "init") -> None:
+def _save_user_init_setting(key, value, section="init"):
     """Persist *key* = *value* in the specified section of ``~/.config/osh/config.toml``.
 
     Existing content outside the specified section is preserved. If the file
@@ -94,9 +91,7 @@ def _save_user_init_setting(key: str, value: Any, section: str = "init") -> None
     config_file.write_text("".join(lines))
 
 
-def _find_section_key(
-    lines: list[str], section: str, key: str
-) -> tuple[int | None, int | None]:
+def _find_section_key(lines, section, key):
     """Return ``(key_line, section_start)`` indices for *section* and *key*.
 
     ``key_line`` is the line index where *key* is already defined inside the
@@ -104,7 +99,7 @@ def _find_section_key(
     header, or None when the section is absent.
     """
     in_section = False
-    section_start: int | None = None
+    section_start = None
     key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*.*$")
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -120,9 +115,7 @@ def _find_section_key(
     return None, section_start if in_section else None
 
 
-def _insert_after_section_header(
-    lines: list[str], section_start: int, new_line: str
-) -> None:
+def _insert_after_section_header(lines, section_start, new_line):
     """Insert *new_line* after the section header, skipping blank/comment lines."""
     insert_pos = section_start + 1
     while insert_pos < len(lines) and (
@@ -132,7 +125,7 @@ def _insert_after_section_header(
     lines.insert(insert_pos, new_line)
 
 
-def _append_new_section(lines: list[str], section: str, new_line: str) -> None:
+def _append_new_section(lines, section, new_line):
     """Append a new section header and *new_line* to the end of *lines*."""
     if lines and not lines[-1].endswith("\n"):
         lines[-1] += "\n"
@@ -142,7 +135,7 @@ def _append_new_section(lines: list[str], section: str, new_line: str) -> None:
     lines.append(new_line)
 
 
-def save_user_preference(key: str, value: Any, section: str = "user") -> None:
+def save_user_preference(key, value, section="user"):
     """Save a user preference to the global config file.
 
     This is a higher-level abstraction over _save_user_init_setting that

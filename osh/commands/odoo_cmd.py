@@ -6,8 +6,6 @@ it does not inject a database name or `--db-filter`. This makes it suitable for
 any `odoo-bin` subcommand such as `shell`, `neutralize`, `scaffold`, `cloc`, etc.
 """
 
-from __future__ import annotations
-
 import os
 
 import click
@@ -30,11 +28,11 @@ from ..odoo_layout import build_addons_paths, find_odoo_executable
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def odoo(
-    ctx: click.Context,
-    dry_run: bool,
-    verbose: bool,
-    extra_args: tuple[str, ...],
-) -> None:  # noqa: D401
+    ctx,
+    dry_run,
+    verbose,
+    extra_args,
+):  # noqa: D401
     """Run the project's Odoo executable with any subcommand or arguments.
 
     This is a general-purpose wrapper around `odoo-bin`. It discovers the
@@ -54,7 +52,7 @@ def odoo(
     base = find_project_root(required=True)
     exe = find_odoo_executable(base, required=True)
 
-    args: list[str] = [exe]
+    args = [exe]
 
     # Use .odoorc in the project root unless already specified.
     odoo_rc = get_odoo_config_path(base)

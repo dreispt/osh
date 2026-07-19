@@ -1,10 +1,6 @@
 """Local init/run/restore/prune backend for Osh."""
 
-from __future__ import annotations
-
 import os
-from pathlib import Path
-from typing import Any
 
 import click
 
@@ -36,7 +32,7 @@ class LocalBackend(Backend):
     )
 
     @classmethod
-    def get_init_options(cls) -> list[click.Option]:
+    def get_init_options(cls):
         opts = [
             click.Option(
                 ["-c", "--odoo-source"],
@@ -60,10 +56,10 @@ class LocalBackend(Backend):
 
     def diagnose(
         self,
-        base: Path,
-        ctx: click.Context | None = None,
-        **options: Any,
-    ) -> Diagnostics:
+        base,
+        ctx=None,
+        **options,
+    ):
         phase = options.get("phase", "doctor")
         d = Diagnostics(self.name, project=base)
 
@@ -98,13 +94,13 @@ class LocalBackend(Backend):
 
     def init(
         self,
-        target: Path,
+        target,
         *,
-        version: str = "",
-        edition: str = "ce",
-        dry_run: bool = False,
-        **options: Any,
-    ) -> bool:
+        version="",
+        edition="ce",
+        dry_run=False,
+        **options,
+    ):
         init_project(
             target,
             version=version,
@@ -119,14 +115,14 @@ class LocalBackend(Backend):
 
     def run(
         self,
-        ctx: click.Context,
-        base: Path,
-        args: list[str],
+        ctx,
+        base,
+        args,
         *,
-        dry_run: bool = False,
-        verbose: bool = False,
-        **options: Any,
-    ) -> None:
+        dry_run=False,
+        verbose=False,
+        **options,
+    ):
         if "--addons-path" not in args:
             addons_paths = build_addons_paths(base, include_themes=True)
             if addons_paths:
@@ -154,12 +150,12 @@ class LocalBackend(Backend):
 
     def neutralize(
         self,
-        ctx: click.Context,
-        base: Path,
-        db_name: str,
+        ctx,
+        base,
+        db_name,
         *,
-        dry_run: bool = False,
-    ) -> None:
+        dry_run=False,
+    ):
         from ...neutralize import neutralize_database
 
         exe = find_odoo_executable(base, required=True)
@@ -168,16 +164,16 @@ class LocalBackend(Backend):
 
     def restore(
         self,
-        ctx: click.Context,
-        base: Path,
-        db_name: str,
-        dump_path: Path,
+        ctx,
+        base,
+        db_name,
+        dump_path,
         *,
-        force: bool = False,
-        no_neutralize: bool = False,
-        dry_run: bool = False,
-        **options: Any,
-    ) -> None:
+        force=False,
+        no_neutralize=False,
+        dry_run=False,
+        **options,
+    ):
         from ...restore import restore_dump
 
         if db_exists(base, db_name):
@@ -201,12 +197,12 @@ class LocalBackend(Backend):
 
     def prune(
         self,
-        ctx: click.Context,
-        base: Path,
+        ctx,
+        base,
         *,
-        aggressive: bool = False,
-        dry_run: bool = False,
-    ) -> None:
+        aggressive=False,
+        dry_run=False,
+    ):
         from .commands import prune as prune_cmd
 
         prune_cmd.callback(aggressive, dry_run)

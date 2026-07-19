@@ -5,8 +5,6 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 ``.osh/``.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import sys
@@ -21,17 +19,17 @@ SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
 
 
 def ensure_osh_sources(
-    base: Path,
-    version: str,
-    edition: str,
+    base,
+    version,
+    edition,
     *,
-    dry_run: bool = False,
-    skip_odoo: bool = False,
-    assume_yes: bool = False,
-    odoo_source: str | None = None,
-    enterprise_source: str | None = None,
-    themes_source: str | None = None,
-) -> dict[str, Path | None]:
+    dry_run=False,
+    skip_odoo=False,
+    assume_yes=False,
+    odoo_source=None,
+    enterprise_source=None,
+    themes_source=None,
+):
     """Resolve, plan and install the required Odoo source copies.
 
     Sources are installed as links under ``base / ".osh"``.  The returned
@@ -43,9 +41,7 @@ def ensure_osh_sources(
     include_enterprise = edition in ("ee", "sh") or enterprise_source is not None
     include_themes = edition == "sh" or themes_source is not None
 
-    source_defs: list[tuple[str, str | None, tuple[str, ...], tuple[str, ...], str]] = (
-        []
-    )
+    source_defs = []
     if not skip_odoo:
         source_defs.append(
             ("odoo", odoo_source, ("",), ("odoo-bin",), DEFAULT_ODOO_URL)
@@ -94,7 +90,7 @@ def ensure_osh_sources(
     _confirm_sources(assume_yes)
 
     osh_dir.mkdir(parents=True, exist_ok=True)
-    sources: dict[str, Path | None] = {}
+    sources = {}
     for name, (action, spec, _warning) in source_plans.items():
         sources[name] = _install_source_plan(name, version, action, spec, osh_dir)
 
@@ -104,10 +100,10 @@ def ensure_osh_sources(
 
 
 def _display_source_plan(
-    osh_dir: Path,
-    edition: str,
-    source_plans: dict[str, tuple[str, str | Path, str | None]],
-) -> None:
+    osh_dir,
+    edition,
+    source_plans,
+):
     """Print the planned source-install actions for review."""
     click.echo(
         f"Will install Odoo sources under {osh_dir} for edition '{edition}':",
@@ -126,7 +122,7 @@ def _display_source_plan(
         click.echo(line, err=True)
 
 
-def _confirm_sources(assume_yes: bool) -> None:
+def _confirm_sources(assume_yes):
     """Ask the user to confirm the source plan, or proceed automatically."""
     if assume_yes:
         click.echo("Proceeding with --yes (skipping confirmation).", err=True)
@@ -138,13 +134,13 @@ def _confirm_sources(assume_yes: bool) -> None:
 
 
 def _resolve_source(
-    name: str,
-    version: str,
-    source_flag: str | None,
-    project_source: Path | None,
-    osh_dir: Path,
-    default_url: str,
-) -> tuple[str, str | Path, str | None]:
+    name,
+    version,
+    source_flag,
+    project_source,
+    osh_dir,
+    default_url,
+):
     """Return the planned action, source spec and an optional mismatch warning."""
     link = osh_dir / name
     if link.exists() or link.is_symlink():
@@ -166,12 +162,12 @@ def _resolve_source(
 
 
 def _install_source_plan(
-    name: str,
-    version: str,
-    action: str,
-    spec: str | Path,
-    osh_dir: Path,
-) -> Path | None:
+    name,
+    version,
+    action,
+    spec,
+    osh_dir,
+):
     """Execute a source plan entry and return the installed link, if any."""
     link = osh_dir / name
     if action == "existing":
@@ -197,7 +193,7 @@ def _install_source_plan(
     raise ValueError(f"Unknown source action: {action}")
 
 
-def _ensure_cache(name: str, version: str, default_url: str) -> Path:
+def _ensure_cache(name, version, default_url):
     """Return the cached bare repo for *name*, creating or updating it as needed.
 
     The cache is populated with shallow fetches: only the requested version/branch
@@ -229,9 +225,7 @@ def _ensure_cache(name: str, version: str, default_url: str) -> Path:
     return cache
 
 
-def _fetch_refspec_into_cache(
-    cache: Path, name: str, version: str, default_url: str
-) -> None:
+def _fetch_refspec_into_cache(cache, name, version, default_url):
     """Shallow-fetch *version* into *cache*, trying branch then tag refspecs."""
     refspecs = [
         f"refs/heads/{version}:refs/heads/{version}",
@@ -260,7 +254,7 @@ def _fetch_refspec_into_cache(
                 ) from exc
 
 
-def _cache_has_branch(cache: Path, version: str) -> bool:
+def _cache_has_branch(cache, version):
     """Return True if *cache* has a local ref for *version*."""
     for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
         res = subprocess.run(
@@ -274,10 +268,10 @@ def _cache_has_branch(cache: Path, version: str) -> bool:
 
 
 def _find_local_source(
-    base: Path,
-    names: tuple[str, ...],
-    files: tuple[str, ...],
-) -> Path | None:
+    base,
+    names,
+    files,
+):
     """Detect a local source directory inside *base*.
 
     *names* are candidate directory names (an empty string means *base* itself).
@@ -292,12 +286,12 @@ def _find_local_source(
     return None
 
 
-def _has_manifest_file(path: Path, patterns: tuple[str, ...]) -> bool:
+def _has_manifest_file(path, patterns):
     """Return True if *path* contains any file matching one of *patterns*."""
     return any(next(path.glob(pattern), None) is not None for pattern in patterns)
 
 
-def _source_branch(path: Path) -> str | None:
+def _source_branch(path):
     """Return the git branch or tag for *path*, or None if not a git repo."""
     resolved = path.resolve()
     if not _is_git_repo(resolved):
@@ -322,14 +316,14 @@ def _source_branch(path: Path) -> str | None:
     return None
 
 
-def _is_git_repo(path: Path) -> bool:
+def _is_git_repo(path):
     """Return True if *path* contains a ``.git`` directory (following symlinks)."""
     if (path / ".git").exists():
         return True
     return path.is_symlink() and (path.resolve() / ".git").exists()
 
 
-def _version_matches(detected: str | None, version: str) -> bool:
+def _version_matches(detected, version):
     """Return True if *detected* looks like it contains *version*."""
     if not detected:
         return True
@@ -338,7 +332,7 @@ def _version_matches(detected: str | None, version: str) -> bool:
     return version in detected
 
 
-def _source_branch_warning(path: Path, version: str) -> str | None:
+def _source_branch_warning(path, version):
     """Return a warning if *path* does not appear to match *version*."""
     detected = _source_branch(path)
     if detected and not _version_matches(detected, version):
@@ -346,7 +340,7 @@ def _source_branch_warning(path: Path, version: str) -> str | None:
     return None
 
 
-def _is_git_url(path: str) -> bool:
+def _is_git_url(path):
     """Return True if *path* appears to be a git URL."""
     return path.startswith(
         ("git@", "git://", "https://", "http://", "ssh://", "file://")
@@ -354,13 +348,13 @@ def _is_git_url(path: str) -> bool:
 
 
 def _git_shallow_clone(
-    url: str,
-    target: Path,
+    url,
+    target,
     *,
-    branch: str | None = None,
-    depth: int = 1,
-    single_branch: bool = True,
-) -> None:
+    branch=None,
+    depth=1,
+    single_branch=True,
+):
     """Clone a git repository with shallow history.
 
     Args:

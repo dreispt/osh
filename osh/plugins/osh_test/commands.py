@@ -5,8 +5,6 @@ that adds the test-specific arguments (`--test-enable`, `-u`/`-i`, etc.) and
 lets `osh run` handle the target backend.
 """
 
-from __future__ import annotations
-
 import click
 
 from ...commands.run_cmd import run
@@ -44,17 +42,17 @@ from ...db import db_exists, drop_db, resolve_test_db_name
 )
 @click.pass_context
 def test(
-    ctx: click.Context,
-    modules: tuple[str, ...],
-    test_db: str | None,
-    current_db: bool,
-    test_all: bool,
-    tags: str | None,
-    dropdb: bool,
-    http: bool,
-    no_stop_after_init: bool,
-    dry_run: bool,
-) -> None:  # noqa: D401
+    ctx,
+    modules,
+    test_db,
+    current_db,
+    test_all,
+    tags,
+    dropdb,
+    http,
+    no_stop_after_init,
+    dry_run,
+):  # noqa: D401
     """Run Odoo tests for project modules.
 
     The test database is `<project>-<branch>-test` by default. If it does not
@@ -110,7 +108,7 @@ def test(
     if tags:
         odoo_args.extend(["--test-tags", tags])
 
-    run_args: list[str] = []
+    run_args = []
     if dry_run:
         run_args.append("--dry-run")
     run_args.extend(odoo_args)

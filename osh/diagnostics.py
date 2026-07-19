@@ -10,12 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-import click
-
-if TYPE_CHECKING:
-    from .backends import Backend
+from typing import Any
 
 
 @dataclass
@@ -32,31 +27,25 @@ class Diagnostics:
     plan: list[str] = field(default_factory=list)
     command: list[str] | None = None
 
-    def add_error(self, message: str) -> None:
+    def add_error(self, message):
         """Record a blocking error and mark the project as not ready."""
         self.errors.append(message)
         self.ready = False
 
-    def add_warning(self, message: str) -> None:
+    def add_warning(self, message):
         """Record a non-fatal warning."""
         self.warnings.append(message)
 
-    def add_info(self, key: str, value: Any) -> None:
+    def add_info(self, key, value):
         """Record a piece of information for verbose reporting."""
         self.info[key] = value
 
-    def add_plan(self, item: str) -> None:
+    def add_plan(self, item):
         """Record a planned action, used by ``osh init``."""
         self.plan.append(item)
 
 
-def collect_diagnostics(
-    base: Path,
-    backend: Backend,
-    ctx: click.Context | None = None,
-    *,
-    target: str | None = None,
-) -> Diagnostics:
+def collect_diagnostics(base, backend, ctx=None, *, target=None):
     """Collect core and backend-specific diagnostics for *base*."""
     from .db import get_current_branch
 
@@ -68,7 +57,7 @@ def collect_diagnostics(
     return diagnostics
 
 
-def report_diagnostics(diagnostics: Diagnostics, echo: Any) -> None:
+def report_diagnostics(diagnostics, echo):
     """Print *diagnostics* using the current verbosity object."""
     echo.essential(f"Backend: {diagnostics.backend}")
     if diagnostics.project:
@@ -83,11 +72,3 @@ def report_diagnostics(diagnostics: Diagnostics, echo: Any) -> None:
     if diagnostics.info:
         for key, value in sorted(diagnostics.info.items()):
             echo.details(f"  {key}: {value}")
-
-    if diagnostics.plan:
-        echo.essential("Planned actions:")
-        for item in diagnostics.plan:
-            echo.essential(f"  - {item}")
-
-    if diagnostics.command:
-        echo.details(f"command: {' '.join(diagnostics.command)}")

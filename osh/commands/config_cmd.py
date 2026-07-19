@@ -1,7 +1,5 @@
 """`osh config` command group for managing project settings."""
 
-from __future__ import annotations
-
 import click
 
 from ..commons import find_project_root, get_osh_config_path
@@ -17,7 +15,7 @@ from ..userconfig import save_user_preference
 
 @click.group(name="config")
 @click.pass_context
-def config(ctx: click.Context) -> None:  # noqa: D401
+def config(ctx):  # noqa: D401
     """Manage Osh project settings stored in `.osh/config`."""
 
 
@@ -35,11 +33,11 @@ def config(ctx: click.Context) -> None:  # noqa: D401
 )
 @click.pass_context
 def db(
-    ctx: click.Context,
-    db_name: str,
-    branch: str | None,
-    set_default: bool,
-) -> None:  # noqa: D401
+    ctx,
+    db_name,
+    branch,
+    set_default,
+):  # noqa: D401
     """Set the preferred database for a branch.
 
     By default the current git branch is used. Use --branch to target another
@@ -71,7 +69,7 @@ def db(
 
 @config.command(name="show")
 @click.pass_context
-def show(ctx: click.Context) -> None:  # noqa: D401
+def show(ctx):  # noqa: D401
     """Show the current Osh project configuration."""
 
     base = find_project_root(required=True)
@@ -102,7 +100,7 @@ def show(ctx: click.Context) -> None:  # noqa: D401
 
 @config.group(name="user")
 @click.pass_context
-def user(ctx: click.Context) -> None:  # noqa: D401
+def user(ctx):  # noqa: D401
     """Manage user preferences for this project."""
 
 
@@ -118,10 +116,10 @@ def user(ctx: click.Context) -> None:  # noqa: D401
 )
 @click.pass_context
 def verbosity(
-    ctx: click.Context,
-    level: str,
-    global_setting: bool,
-) -> None:  # noqa: D401
+    ctx,
+    level,
+    global_setting,
+):  # noqa: D401
     """Set the verbosity level for Osh commands.
 
     Levels:
@@ -160,10 +158,10 @@ def verbosity(
 )
 @click.pass_context
 def emoji(
-    ctx: click.Context,
-    enabled: str,
-    global_setting: bool,
-) -> None:  # noqa: D401
+    ctx,
+    enabled,
+    global_setting,
+):  # noqa: D401
     """Enable or disable emoji prefixes in output.
 
     For those who prefer a more serious terminal experience.

@@ -1,7 +1,5 @@
 """`osh restore` command implementation."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import click
@@ -31,12 +29,12 @@ from ..plugin_loader import load_backends
 )
 @click.pass_context
 def restore(
-    ctx: click.Context,
-    dump: str | None,
-    force: bool,
-    no_neutralize: bool,
-    dry_run: bool,
-) -> None:  # noqa: D401
+    ctx,
+    dump,
+    force,
+    no_neutralize,
+    dry_run,
+):  # noqa: D401
     """Restore a backup into the current branch's database and neutralize it.
 
     With no DUMP argument, the newest backup from the project cache is used.
@@ -81,7 +79,7 @@ def restore(
         click.echo(f"Restored database '{db_name}' from {dump_path}", err=True)
 
 
-def _resolve_dump(base: Path, dump: str | None) -> Path:
+def _resolve_dump(base, dump):
     """Resolve a dump argument to an existing file path."""
     cache_dir = get_cache_dir(base)
 

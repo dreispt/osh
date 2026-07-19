@@ -6,8 +6,6 @@ are shared by the ``osh restore`` command and by backends that implement
 ``restore()``.
 """
 
-from __future__ import annotations
-
 import gzip
 import shutil
 import subprocess
@@ -21,9 +19,7 @@ from .commons import decode_stderr, ensure_tool, get_odoo_data_dir
 from .db import create_db, drop_db, get_pg_credentials
 
 
-def restore_dump(
-    base: Path, dump_path: Path, target_db: str, *, dry_run: bool = False
-) -> None:
+def restore_dump(base, dump_path, target_db, *, dry_run=False):
     """Restore *dump_path* into a freshly created *target_db*."""
     suffix = _dump_suffix(dump_path)
     conn_args, env = get_pg_credentials(base)
@@ -64,7 +60,7 @@ def restore_dump(
         raise click.ClickException(f"Unsupported backup format: {suffix}")
 
 
-def _dump_suffix(path: Path) -> str:
+def _dump_suffix(path):
     """Return the normalized dump extension (e.g. .sql.gz, .zip, .dump)."""
     name = path.name
     if name.endswith(".sql.gz"):
@@ -72,7 +68,7 @@ def _dump_suffix(path: Path) -> str:
     return path.suffix
 
 
-def _run(args: list[str], env: dict[str, str], label: str) -> None:
+def _run(args, env, label):
     try:
         subprocess.run(args, env=env, check=True, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as exc:
@@ -83,11 +79,11 @@ def _run(args: list[str], env: dict[str, str], label: str) -> None:
 
 
 def _restore_sql_gz(
-    dump_path: Path,
-    target_db: str,
-    conn_args: list[str],
-    env: dict[str, str],
-) -> None:
+    dump_path,
+    target_db,
+    conn_args,
+    env,
+):
     """Stream a gzipped SQL dump into psql."""
     try:
         with gzip.open(dump_path, "rb") as gz, subprocess.Popen(
@@ -107,12 +103,12 @@ def _restore_sql_gz(
 
 
 def _restore_zip(
-    base: Path,
-    dump_path: Path,
-    target_db: str,
-    conn_args: list[str],
-    env: dict[str, str],
-) -> None:
+    base,
+    dump_path,
+    target_db,
+    conn_args,
+    env,
+):
     """Restore an Odoo backup zip (dump.sql + filestore/)."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)

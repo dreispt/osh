@@ -5,37 +5,35 @@ The backup cache lives under ``.osh/backups`` and is shared by the
 core so that both plugins can use them without depending on each other.
 """
 
-from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-def get_cache_dir(base: Path) -> Path:
+def get_cache_dir(base):
     """Return the backup cache directory for an Osh project."""
     return base / ".osh" / "backups"
 
 
-def ensure_cache_dir(base: Path) -> Path:
+def ensure_cache_dir(base):
     """Create the backup cache directory if it does not exist."""
     cache_dir = get_cache_dir(base)
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
 
-def _metadata_path(backup_path: Path) -> Path:
+def _metadata_path(backup_path):
     """Return the sidecar metadata path for a cached backup."""
     return Path(str(backup_path) + ".meta.json")
 
 
 def write_metadata(
-    backup_path: Path,
+    backup_path,
     *,
-    source: str,
-    original_format: str,
-    created_at: str | None = None,
-) -> None:
+    source,
+    original_format,
+    created_at=None,
+):
     """Write the metadata sidecar next to a cached backup."""
     created_at = created_at or datetime.now(timezone.utc).isoformat()
     meta = {
@@ -47,7 +45,7 @@ def write_metadata(
     _metadata_path(backup_path).write_text(json.dumps(meta, indent=2))
 
 
-def read_metadata(backup_path: Path) -> dict:
+def read_metadata(backup_path):
     """Read metadata for a cached backup, falling back to file metadata."""
     meta_path = _metadata_path(backup_path)
     if meta_path.exists():
@@ -66,20 +64,20 @@ def read_metadata(backup_path: Path) -> dict:
     }
 
 
-def list_cache(base: Path, *, limit: int = 20, reverse: bool = False) -> list[dict]:
+def list_cache(base, *, limit=20, reverse=False):
     """Return cached backups sorted newest first by default."""
     cache_dir = get_cache_dir(base)
     if not cache_dir.exists():
         return []
 
-    backups: list[Path] = []
+    backups = []
     for path in cache_dir.iterdir():
         if path.is_file() and not path.name.endswith(".meta.json"):
             backups.append(path)
 
     backups.sort(key=lambda p: p.stat().st_mtime, reverse=not reverse)
 
-    result: list[dict] = []
+    result = []
     for idx, path in enumerate(backups[:limit], start=1):
         meta = read_metadata(path)
         result.append(
@@ -94,7 +92,7 @@ def list_cache(base: Path, *, limit: int = 20, reverse: bool = False) -> list[di
     return result
 
 
-def resolve_cache_id(base: Path, cache_id: int, *, limit: int = 20) -> Path:
+def resolve_cache_id(base, cache_id, *, limit=20):
     """Return the cached backup path for a 1-based cache ID."""
     entries = list_cache(base, limit=limit)
     for entry in entries:

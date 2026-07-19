@@ -1,7 +1,5 @@
 """`osh doctor` command implementation."""
 
-from __future__ import annotations
-
 import click
 
 from ..commons import find_project_root
@@ -18,7 +16,7 @@ from ..verbosity import get_verbosity
     help="Show extra diagnostic details.",
 )
 @click.pass_context
-def doctor(ctx: click.Context, verbose: bool) -> None:  # noqa: D401
+def doctor(ctx, verbose):  # noqa: D401
     """Show project diagnostics by delegating to the active backend."""
     base = find_project_root(required=True)
 

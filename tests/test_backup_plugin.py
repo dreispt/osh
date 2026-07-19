@@ -1,11 +1,8 @@
 """Tests for the `osh backup` command."""
 
-from __future__ import annotations
-
 import json
 import subprocess
 from pathlib import Path
-from urllib.request import Request
 
 import pytest
 from click.testing import CliRunner
@@ -14,9 +11,7 @@ from osh.backup_sources import OdooshSource, SourceError, SshSource
 from osh.commands.backup_cmd import backup
 
 
-def test_download_db_source_writes_to_cache(
-    in_project: Path, subprocess_run_capture
-) -> None:
+def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
     """Downloading a db:// source writes the dump and metadata into the cache."""
     subprocess_run_capture.stdout = b"pg_dump output"
 
@@ -37,7 +32,7 @@ def test_download_db_source_writes_to_cache(
     assert meta["format"] == "dump"
 
 
-def test_download_requires_output_outside_project(monkeypatch, tmp_path: Path) -> None:
+def test_download_requires_output_outside_project(monkeypatch, tmp_path):
     """Outside a project, `backup download` requires --output."""
     monkeypatch.chdir(tmp_path)
 
@@ -49,8 +44,8 @@ def test_download_requires_output_outside_project(monkeypatch, tmp_path: Path) -
 
 
 def test_download_with_output_outside_project(
-    monkeypatch, tmp_path: Path, subprocess_run_capture
-) -> None:
+    monkeypatch, tmp_path, subprocess_run_capture
+):
     """With --output, `backup download` works outside a project."""
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "sourcedb.dump"
@@ -66,15 +61,15 @@ def test_download_with_output_outside_project(
     assert not Path(str(output) + ".meta.json").exists()
 
 
-def test_download_https_posts_payload(in_project: Path, monkeypatch) -> None:
+def test_download_https_posts_payload(in_project, monkeypatch):
     """The HTTPS source POSTs the expected payload and streams the response."""
-    requests: list[Request] = []
+    requests = []
 
     class FakeResponse:
-        def __init__(self) -> None:
+        def __init__(self):
             self._data = b"zip content"
 
-        def read(self, size: int = -1) -> bytes:
+        def read(self, size=-1):
             data, self._data = self._data, b""
             return data
 
@@ -115,7 +110,7 @@ def test_download_https_posts_payload(in_project: Path, monkeypatch) -> None:
     assert zip_file.read_bytes() == b"zip content"
 
 
-def test_download_odoosh_dry_run(in_project: Path) -> None:
+def test_download_odoosh_dry_run(in_project):
     """odoosh:// dry-run prints the expected ssh and scp commands."""
     runner = CliRunner()
     result = runner.invoke(
@@ -133,7 +128,7 @@ def test_download_odoosh_dry_run(in_project: Path) -> None:
     assert "123456@my-project-master-123456.dev.odoo.com" in result.output
 
 
-def test_download_odoosh_dry_run_without_build_id(in_project: Path) -> None:
+def test_download_odoosh_dry_run_without_build_id(in_project):
     """odoosh:// dry-run infers the build id from the domain suffix."""
     runner = CliRunner()
     result = runner.invoke(
@@ -151,7 +146,7 @@ def test_download_odoosh_dry_run_without_build_id(in_project: Path) -> None:
     assert "123456@my-project-master-123456.dev.odoo.com" in result.output
 
 
-def test_odoosh_source_extracts_build_id_from_domain() -> None:
+def test_odoosh_source_extracts_build_id_from_domain():
     """When the username is omitted, the build id is parsed from the domain."""
     source = OdooshSource("odoosh://my-project-master-123456.dev.odoo.com")
 
@@ -160,7 +155,7 @@ def test_odoosh_source_extracts_build_id_from_domain() -> None:
     assert source.ssh_target == "123456@my-project-master-123456.dev.odoo.com"
 
 
-def test_odoosh_source_expands_shorthand_domain() -> None:
+def test_odoosh_source_expands_shorthand_domain():
     """A slug without the .dev.odoo.com suffix is expanded automatically."""
     source = OdooshSource("odoosh://osi-sh-barberhood-main-29869268")
 
@@ -169,14 +164,14 @@ def test_odoosh_source_expands_shorthand_domain() -> None:
     assert source.ssh_target == "29869268@osi-sh-barberhood-main-29869268.dev.odoo.com"
 
 
-def test_odoosh_source_prefers_explicit_build_id() -> None:
+def test_odoosh_source_prefers_explicit_build_id():
     """An explicit username overrides the build id parsed from the domain."""
     source = OdooshSource("odoosh://999999@my-project-master-123456.dev.odoo.com")
 
     assert source.build_id == "999999"
 
 
-def test_odoosh_source_parses_db_name_from_backup_filename() -> None:
+def test_odoosh_source_parses_db_name_from_backup_filename():
     """The database name is extracted from the daily backup filename."""
     source = OdooshSource(
         "odoosh://my-project-master-123456.dev.odoo.com"
@@ -187,7 +182,7 @@ def test_odoosh_source_parses_db_name_from_backup_filename() -> None:
     assert source.db_name == "my-project-prod"
 
 
-def test_odoosh_source_include_filestore_changes_format() -> None:
+def test_odoosh_source_include_filestore_changes_format():
     """With include_filestore, the output becomes a .zip backup."""
     source = OdooshSource(
         "odoosh://my-project-master-123456.dev.odoo.com",
@@ -198,7 +193,7 @@ def test_odoosh_source_include_filestore_changes_format() -> None:
     assert source.default_output_name().endswith(".zip")
 
 
-def test_download_odoosh_with_filestore_dry_run(in_project: Path) -> None:
+def test_download_odoosh_with_filestore_dry_run(in_project):
     """--filestore dry-run reports the full backup download."""
     runner = CliRunner()
     result = runner.invoke(
@@ -218,8 +213,8 @@ def test_download_odoosh_with_filestore_dry_run(in_project: Path) -> None:
 
 
 def test_download_odoosh_with_filestore_creates_zip(
-    in_project: Path, monkeypatch, tmp_path: Path, subprocess_run_capture
-) -> None:
+    in_project, monkeypatch, tmp_path, subprocess_run_capture
+):
     """--filestream fetches the dump and filestore and packages them as a zip."""
     import gzip
     import io
@@ -290,13 +285,13 @@ def test_download_odoosh_with_filestore_creates_zip(
         assert "filestore/myfile.txt" in names
 
 
-def test_odoosh_source_without_build_id_raises() -> None:
+def test_odoosh_source_without_build_id_raises():
     """A domain without a numeric odoo.sh build suffix is rejected."""
     with pytest.raises(SourceError):
         OdooshSource("odoosh://my-project-master.dev.odoo.com")
 
 
-def test_list_cached_backups(in_project: Path) -> None:
+def test_list_cached_backups(in_project):
     """`osh backup list` shows cached backups newest first."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -326,7 +321,7 @@ def test_list_cached_backups(in_project: Path) -> None:
     assert "https://host?db=prod" in result.output
 
 
-def test_list_outside_project(monkeypatch, tmp_path: Path) -> None:
+def test_list_outside_project(monkeypatch, tmp_path):
     """`osh backup list` fails outside an Osh project."""
     monkeypatch.chdir(tmp_path)
 
@@ -337,7 +332,7 @@ def test_list_outside_project(monkeypatch, tmp_path: Path) -> None:
     assert "Not inside an Osh project" in result.output
 
 
-def test_ssh_source_parses_url_components() -> None:
+def test_ssh_source_parses_url_components():
     """An ssh:// source extracts user, host, port and remote path."""
     source = SshSource("ssh://admin@myhost:2222/var/backups/odoo.sql.gz")
 
@@ -348,7 +343,7 @@ def test_ssh_source_parses_url_components() -> None:
     assert source.original_format == "sql.gz"
 
 
-def test_ssh_source_default_output_name_uses_host_and_file() -> None:
+def test_ssh_source_default_output_name_uses_host_and_file():
     """The default output name contains the host and remote filename."""
     source = SshSource("ssh://myhost/var/backups/odoo.sql.gz")
 
@@ -357,7 +352,7 @@ def test_ssh_source_default_output_name_uses_host_and_file() -> None:
     assert name.endswith(".sql.gz")
 
 
-def test_ssh_source_dry_run_shows_scp_command(capsys) -> None:
+def test_ssh_source_dry_run_shows_scp_command(capsys):
     """A dry run prints the scp command that would be run."""
     source = SshSource("ssh://user@myhost/var/backups/odoo.sql.gz")
 
@@ -368,7 +363,7 @@ def test_ssh_source_dry_run_shows_scp_command(capsys) -> None:
     assert "user@myhost:/var/backups/odoo.sql.gz" in captured.err
 
 
-def test_ssh_source_runs_scp(tmp_path: Path, subprocess_run_capture) -> None:
+def test_ssh_source_runs_scp(tmp_path, subprocess_run_capture):
     """Fetching an ssh:// source runs scp with the expected arguments."""
 
     def _scp_write(args, **kwargs):
@@ -396,9 +391,7 @@ def test_ssh_source_runs_scp(tmp_path: Path, subprocess_run_capture) -> None:
     assert subprocess_run_capture.calls[0][-1] == str(output)
 
 
-def test_ssh_source_with_port_includes_p_flag(
-    tmp_path: Path, subprocess_run_capture
-) -> None:
+def test_ssh_source_with_port_includes_p_flag(tmp_path, subprocess_run_capture):
     """A non-standard SSH port is passed to scp with -P."""
     output = tmp_path / "dump.sql.gz"
     source = SshSource("ssh://user@myhost:2222/var/backups/odoo.sql.gz")
@@ -408,15 +401,15 @@ def test_ssh_source_with_port_includes_p_flag(
     assert "2222" in subprocess_run_capture.calls[0]
 
 
-def test_ssh_source_missing_host_or_path_raises() -> None:
+def test_ssh_source_missing_host_or_path_raises():
     """An ssh:// source without host or path is rejected."""
     with pytest.raises(SourceError):
         SshSource("ssh:///var/backups/odoo.sql.gz")
 
 
 def test_download_ssh_source_invokes_fetch(
-    monkeypatch, tmp_project: Path, subprocess_run_capture
-) -> None:
+    monkeypatch, tmp_project, subprocess_run_capture
+):
     """`osh backup download ssh://...` copies the remote file into the cache."""
     monkeypatch.chdir(tmp_project)
 

@@ -4,20 +4,17 @@ Tracks the preferred database per git branch in `.osh/config` and provides
 shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 """
 
-from __future__ import annotations
-
 import configparser
 import os
 import re
 import subprocess
-from pathlib import Path
 
 import click
 
 from .commons import decode_stderr, get_odoo_config_path, get_osh_config_path
 
 
-def sanitize_db_name(name: str) -> str:
+def sanitize_db_name(name):
     """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
     name = name.lower()
     name = re.sub(r"[^a-z0-9_]+", "-", name)
@@ -25,7 +22,7 @@ def sanitize_db_name(name: str) -> str:
     return name or "db"
 
 
-def load_osh_config(base: Path) -> configparser.ConfigParser:
+def load_osh_config(base):
     """Load or create an Osh project configuration."""
     cfg = configparser.ConfigParser()
     cfg.add_section("db")
@@ -40,7 +37,7 @@ def load_osh_config(base: Path) -> configparser.ConfigParser:
     return cfg
 
 
-def save_osh_config(base: Path, cfg: configparser.ConfigParser) -> None:
+def save_osh_config(base, cfg):
     """Write the Osh project configuration file."""
     config_path = get_osh_config_path(base)
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,9 +45,7 @@ def save_osh_config(base: Path, cfg: configparser.ConfigParser) -> None:
         cfg.write(f)
 
 
-def get_project_config(
-    base: Path, section: str, option: str, fallback: str | None = None
-) -> str | None:
+def get_project_config(base, section, option, fallback=None):
     """Return a value from ``.osh/config``, or *fallback* if it is missing."""
     cfg = load_osh_config(base)
     if not cfg.has_option(section, option):
@@ -59,13 +54,13 @@ def get_project_config(
 
 
 def set_project_config(
-    base: Path,
-    section: str,
-    option: str | None = None,
-    value: str | None = None,
+    base,
+    section,
+    option=None,
+    value=None,
     *,
-    values: dict[str, str] | None = None,
-) -> None:
+    values=None,
+):
     """Set one or more values in ``.osh/config``, creating the section if absent."""
     cfg = load_osh_config(base)
     if not cfg.has_section(section):
@@ -80,7 +75,7 @@ def set_project_config(
     save_osh_config(base, cfg)
 
 
-def resolve_run_target(base: Path, default_target: str, ctx: click.Context) -> str:
+def resolve_run_target(base, default_target, ctx):
     """Resolve the effective run/init target, remembering explicit choices.
 
     Explicit ``--target`` or the corresponding env var take precedence. Otherwise
@@ -97,7 +92,7 @@ def resolve_run_target(base: Path, default_target: str, ctx: click.Context) -> s
     return get_project_config(base, "run", "target", fallback=default_target)
 
 
-def get_current_branch(base: Path) -> str | None:
+def get_current_branch(base):
     """Return the current git branch, or None if not in a git repo."""
     try:
         return subprocess.check_output(
@@ -110,7 +105,7 @@ def get_current_branch(base: Path) -> str | None:
         return None
 
 
-def get_pg_credentials(base: Path) -> tuple[list[str], dict[str, str]]:
+def get_pg_credentials(base):
     """Return PostgreSQL connection args and an environment dict.
 
     The returned tuple is ``(args, env)`` where ``args`` can be inserted
@@ -119,8 +114,8 @@ def get_pg_credentials(base: Path) -> tuple[list[str], dict[str, str]]:
     ``PGPASSWORD`` when a password is configured.
     """
     odoo_rc = get_odoo_config_path(base)
-    args: list[str] = []
-    env: dict[str, str] = dict(os.environ)
+    args = []
+    env = dict(os.environ)
 
     if not odoo_rc.exists():
         return args, env
@@ -147,7 +142,7 @@ def get_pg_credentials(base: Path) -> tuple[list[str], dict[str, str]]:
     return args, env
 
 
-def db_exists(base: Path, db_name: str) -> bool:
+def db_exists(base, db_name):
     """Return True if the PostgreSQL database exists."""
     conn_args, env = get_pg_credentials(base)
     pg_args = ["psql", "-d", db_name, "-c", "SELECT 1", *conn_args]
@@ -166,7 +161,7 @@ def db_exists(base: Path, db_name: str) -> bool:
         return False
 
 
-def drop_db(base: Path, db_name: str) -> None:
+def drop_db(base, db_name):
     """Drop a PostgreSQL database if it exists."""
     conn_args, env = get_pg_credentials(base)
     drop_args = ["dropdb", *conn_args, db_name]
@@ -187,7 +182,7 @@ def drop_db(base: Path, db_name: str) -> None:
         pass
 
 
-def create_db(base: Path, db_name: str) -> None:
+def create_db(base, db_name):
     """Create a fresh PostgreSQL database."""
     conn_args, env = get_pg_credentials(base)
     create_args = ["createdb", *conn_args, db_name]
@@ -208,7 +203,7 @@ def create_db(base: Path, db_name: str) -> None:
         ) from exc
 
 
-def run_psql_script(base: Path, db_name: str, script_path: Path) -> None:
+def run_psql_script(base, db_name, script_path):
     """Execute a SQL script against *db_name* using psql."""
     conn_args, env = get_pg_credentials(base)
     psql_args = ["psql", "-d", db_name, "-f", str(script_path), *conn_args]
@@ -229,7 +224,7 @@ def run_psql_script(base: Path, db_name: str, script_path: Path) -> None:
         raise RuntimeError("Could not locate `psql`. Is PostgreSQL installed?") from exc
 
 
-def resolve_db_name(base: Path, verbose: bool = False) -> str | None:
+def resolve_db_name(base, verbose=False):
     """Resolve the database name for the current context.
 
     Returns the configured database for the current branch, or the last used
@@ -250,7 +245,7 @@ def resolve_db_name(base: Path, verbose: bool = False) -> str | None:
     return None
 
 
-def resolve_test_db_name(base: Path, current_db: bool, test_db: str | None) -> str:
+def resolve_test_db_name(base, current_db, test_db):
     """Return the test database name to use.
 
     If *test_db* is provided, it wins. If *current_db* is True, the current

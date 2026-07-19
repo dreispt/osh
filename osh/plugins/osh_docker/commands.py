@@ -1,7 +1,5 @@
 """`osh init-docker` command implementation."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import click
@@ -31,12 +29,12 @@ from .backends import DockerBackend
     help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
 )
 def init_docker(
-    version: str | None,
-    directory: Path | None,
-    service: str | None,
-    command: str | None,
-    compose_file: str | None,
-) -> None:  # noqa: D401
+    version,
+    directory,
+    service,
+    command,
+    compose_file,
+):  # noqa: D401
     """Initialise a project directory for use with Docker Compose.
 
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')

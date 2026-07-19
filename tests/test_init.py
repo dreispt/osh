@@ -1,7 +1,5 @@
 """Tests for ``osh init`` source resolution."""
 
-from __future__ import annotations
-
 import subprocess
 import sys
 from pathlib import Path
@@ -24,9 +22,7 @@ from osh.sources import (
 from .conftest import real_git_only_subprocess
 
 
-def _make_bare_repo(
-    tmp_path: Path, name: str, branches: tuple[str, ...] = ("master",)
-) -> Path:
+def _make_bare_repo(tmp_path, name, branches=("master",)):
     """Create a bare git repository with commits on the requested branches."""
     repo = tmp_path / name
     repo.mkdir(parents=True, exist_ok=True)
@@ -87,13 +83,13 @@ def _make_bare_repo(
 
 
 def _ensure_source(
-    name: str,
-    version: str,
-    source_flag: str | None,
-    project_source: Path | None,
-    osh_dir: Path,
-    default_url: str,
-) -> Path | None:
+    name,
+    version,
+    source_flag,
+    project_source,
+    osh_dir,
+    default_url,
+):
     """Resolve and install a source plan for tests."""
     action, spec, _warning = _resolve_source(
         name, version, source_flag, project_source, osh_dir, default_url
@@ -125,20 +121,20 @@ def _ensure_source(
 
 
 class TestFindLocalSources:
-    def test_find_odoo_in_root(self, tmp_project: Path) -> None:
+    def test_find_odoo_in_root(self, tmp_project):
         (tmp_project / "odoo-bin").touch()
         assert (
             _find_local_source(tmp_project, ("",), ("odoo-bin",))
             == tmp_project.resolve()
         )
 
-    def test_find_odoo_in_subdirectory(self, tmp_project: Path) -> None:
+    def test_find_odoo_in_subdirectory(self, tmp_project):
         sub = tmp_project / "odoo"
         sub.mkdir(parents=True, exist_ok=True)
         (sub / "odoo-bin").touch()
         assert _find_local_source(tmp_project, ("",), ("odoo-bin",)) == sub.resolve()
 
-    def test_find_enterprise_with_manifest(self, tmp_project: Path) -> None:
+    def test_find_enterprise_with_manifest(self, tmp_project):
         ent = tmp_project / "enterprise"
         web = ent / "web"
         web.mkdir(parents=True, exist_ok=True)
@@ -150,7 +146,7 @@ class TestFindLocalSources:
             == ent.resolve()
         )
 
-    def test_find_themes_with_manifest(self, tmp_project: Path) -> None:
+    def test_find_themes_with_manifest(self, tmp_project):
         themes = tmp_project / "design-themes"
         theme_buzzy = themes / "theme_buzzy"
         theme_buzzy.mkdir(parents=True, exist_ok=True)
@@ -178,12 +174,12 @@ class TestIsGitUrl:
             ("C:\\odoo", False),
         ],
     )
-    def test_is_git_url(self, spec: str, expected: bool) -> None:
+    def test_is_git_url(self, spec, expected):
         assert _is_git_url(spec) is expected
 
 
 class TestEnsureCache:
-    def test_creates_mirror(self, tmp_path: Path, patch_cache: Path) -> None:
+    def test_creates_mirror(self, tmp_path, patch_cache):
         bare = _make_bare_repo(tmp_path, "odoo")
         cache = _ensure_cache("odoo", "master", f"file://{bare}")
 
@@ -192,7 +188,7 @@ class TestEnsureCache:
         assert (cache / "config").exists()
         assert _cache_has_branch(cache, "master")
 
-    def test_fetches_missing_version(self, tmp_path: Path, patch_cache: Path) -> None:
+    def test_fetches_missing_version(self, tmp_path, patch_cache):
         bare = _make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
         _ensure_cache("odoo", "master", f"file://{bare}")
         cache = _ensure_cache("odoo", "19.0", f"file://{bare}")
@@ -201,7 +197,7 @@ class TestEnsureCache:
 
 
 class TestEnsureSource:
-    def test_uses_project_source(self, tmp_project: Path, patch_cache: Path) -> None:
+    def test_uses_project_source(self, tmp_project, patch_cache):
         src = tmp_project / "odoo"
         src.mkdir(parents=True, exist_ok=True)
         (src / "odoo-bin").touch()
@@ -221,9 +217,7 @@ class TestEnsureSource:
         assert (osh_dir / "odoo").is_symlink()
         assert (osh_dir / "odoo").resolve() == src.resolve()
 
-    def test_uses_explicit_local_source(
-        self, tmp_project: Path, patch_cache: Path
-    ) -> None:
+    def test_uses_explicit_local_source(self, tmp_project, patch_cache):
         src = tmp_project / "my-odoo"
         src.mkdir(parents=True, exist_ok=True)
         (src / "odoo-bin").touch()
@@ -243,9 +237,7 @@ class TestEnsureSource:
         assert (osh_dir / "odoo").is_symlink()
         assert (osh_dir / "odoo").resolve() == src.resolve()
 
-    def test_clones_explicit_git_url(
-        self, tmp_path: Path, tmp_project: Path, patch_cache: Path
-    ) -> None:
+    def test_clones_explicit_git_url(self, tmp_path, tmp_project, patch_cache):
         bare = _make_bare_repo(tmp_path, "odoo")
         osh_dir = tmp_project / ".osh"
         osh_dir.mkdir(parents=True, exist_ok=True)
@@ -263,9 +255,7 @@ class TestEnsureSource:
         assert (osh_dir / "odoo" / ".git").is_dir()
         assert (osh_dir / "odoo" / "README").exists()
 
-    def test_clones_from_cache(
-        self, tmp_path: Path, tmp_project: Path, patch_cache: Path
-    ) -> None:
+    def test_clones_from_cache(self, tmp_path, tmp_project, patch_cache):
         bare = _make_bare_repo(tmp_path, "odoo")
         osh_dir = tmp_project / ".osh"
         osh_dir.mkdir(parents=True, exist_ok=True)
@@ -285,9 +275,7 @@ class TestEnsureSource:
         assert (osh_dir / "odoo" / ".git").is_dir()
         assert (osh_dir / "odoo" / "README").exists()
 
-    def test_existing_link_takes_precedence(
-        self, tmp_project: Path, patch_cache: Path
-    ) -> None:
+    def test_existing_link_takes_precedence(self, tmp_project, patch_cache):
         existing = tmp_project / "odoo"
         existing.mkdir(parents=True, exist_ok=True)
         osh_dir = tmp_project / ".osh"
@@ -306,9 +294,7 @@ class TestEnsureSource:
         assert result == osh_dir / "odoo"
         assert (osh_dir / "odoo").resolve() == existing.resolve()
 
-    def test_skip_when_user_declines(
-        self, tmp_project: Path, patch_cache: Path, monkeypatch
-    ) -> None:
+    def test_skip_when_user_declines(self, tmp_project, patch_cache, monkeypatch):
         osh_dir = tmp_project / ".osh"
         osh_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr("tests.test_init.sys.stdin.isatty", lambda: True)
@@ -329,7 +315,7 @@ class TestEnsureSource:
 
 
 class TestInitCommand:
-    def test_with_project_sources(self, tmp_project: Path, monkeypatch) -> None:
+    def test_with_project_sources(self, tmp_project, monkeypatch):
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
@@ -348,7 +334,7 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "config").exists()
 
-    def test_with_source_flags(self, tmp_project: Path, monkeypatch) -> None:
+    def test_with_source_flags(self, tmp_project, monkeypatch):
         odoo_src = tmp_project / "my-odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
@@ -376,7 +362,7 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "odoo").resolve() == odoo_src.resolve()
         assert (tmp_project / ".osh" / "enterprise").resolve() == ent_src.resolve()
 
-    def test_with_themes_source_flag(self, tmp_project: Path, monkeypatch) -> None:
+    def test_with_themes_source_flag(self, tmp_project, monkeypatch):
         odoo_src = tmp_project / "my-odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
         (odoo_src / "odoo-bin").touch()
@@ -408,11 +394,11 @@ class TestInitCommand:
 
     def test_cache_first_non_interactive(
         self,
-        tmp_path: Path,
-        tmp_project: Path,
-        patch_cache: Path,
+        tmp_path,
+        tmp_project,
+        patch_cache,
         monkeypatch,
-    ) -> None:
+    ):
         odoo_bare = _make_bare_repo(tmp_path, "odoo")
         ent_bare = _make_bare_repo(tmp_path, "enterprise")
         themes_bare = _make_bare_repo(tmp_path, "design-themes")
@@ -432,9 +418,7 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "enterprise" / ".git").is_dir()
         assert (tmp_project / ".osh" / "design-themes" / ".git").is_dir()
 
-    def test_pip_install_failure_still_initializes(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_pip_install_failure_still_initializes(self, tmp_project, monkeypatch):
         """If pip install fails, the project environment is still created."""
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
@@ -471,9 +455,7 @@ class TestInitCommand:
         assert (tmp_project / ".osh" / "config").exists()
         assert "pip install failed" in result.output
 
-    def test_installs_project_requirements(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_installs_project_requirements(self, tmp_project, monkeypatch):
         """A top-level requirements.txt is installed into the virtualenv."""
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
@@ -493,8 +475,8 @@ class TestInitCommand:
         assert any(call[2:5] == ["-r", *project_req_arg] for call in calls)
 
     def test_smoke_test_succeeds_when_odoo_executable_works(
-        self, tmp_project: Path, monkeypatch, fake_odoo_executable: Path
-    ) -> None:
+        self, tmp_project, monkeypatch, fake_odoo_executable
+    ):
         """After pip install, a working Odoo executable passes the smoke test."""
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
@@ -513,8 +495,8 @@ class TestInitCommand:
         assert "Odoo setup incomplete" not in result.output
 
     def test_smoke_test_failure_still_initializes(
-        self, tmp_project: Path, monkeypatch, fake_odoo_executable: Path
-    ) -> None:
+        self, tmp_project, monkeypatch, fake_odoo_executable
+    ):
         """A failing smoke test keeps the project initialised and warns."""
         odoo_src = tmp_project / "odoo"
         odoo_src.mkdir(parents=True, exist_ok=True)
@@ -536,7 +518,7 @@ class TestInitCommand:
 
 
 class TestInitEdition:
-    def _make_local_sources(self, tmp_project: Path) -> None:
+    def _make_local_sources(self, tmp_project):
         """Create odoo, enterprise and design-themes source trees in project."""
         odoo = tmp_project / "odoo"
         odoo.mkdir(parents=True, exist_ok=True)
@@ -550,9 +532,7 @@ class TestInitEdition:
         theme.mkdir(parents=True, exist_ok=True)
         (theme / "__manifest__.py").touch()
 
-    def test_ce_skips_enterprise_and_themes(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_ce_skips_enterprise_and_themes(self, tmp_project, monkeypatch):
         """Default --edition ce only links Odoo sources."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -565,7 +545,7 @@ class TestInitEdition:
         assert not (tmp_project / ".osh" / "enterprise").exists()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
-    def test_ee_alias_includes_enterprise(self, tmp_project: Path, monkeypatch) -> None:
+    def test_ee_alias_includes_enterprise(self, tmp_project, monkeypatch):
         """--ee links Odoo and Enterprise but not design-themes."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -578,7 +558,7 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
-    def test_sh_alias_includes_themes(self, tmp_project: Path, monkeypatch) -> None:
+    def test_sh_alias_includes_themes(self, tmp_project, monkeypatch):
         """--sh links Odoo, Enterprise and design-themes."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -591,7 +571,7 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "design-themes").is_symlink()
 
-    def test_save_writes_user_config(self, tmp_project: Path, monkeypatch) -> None:
+    def test_save_writes_user_config(self, tmp_project, monkeypatch):
         """--save persists the resolved edition to ~/.config/osh/config.toml."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -610,9 +590,7 @@ class TestInitEdition:
         assert config_file.exists()
         assert 'edition = "sh"' in config_file.read_text()
 
-    def test_ce_alias_skips_optional_sources(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_ce_alias_skips_optional_sources(self, tmp_project, monkeypatch):
         """--ce explicitly selects Community only."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -625,9 +603,7 @@ class TestInitEdition:
         assert not (tmp_project / ".osh" / "enterprise").exists()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
-    def test_interactive_confirm_prompt_uses_default(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_interactive_confirm_prompt_uses_default(self, tmp_project, monkeypatch):
         """When stdin is a tty, a single confirmation prompt is shown."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -646,7 +622,7 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "design-themes").is_symlink()
 
-    def test_env_var_sets_default_edition(self, tmp_project: Path, monkeypatch) -> None:
+    def test_env_var_sets_default_edition(self, tmp_project, monkeypatch):
         """OSH_INIT_EDITION sets the default edition when no CLI flag is given."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -659,9 +635,7 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
-    def test_user_config_sets_default_edition(
-        self, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_user_config_sets_default_edition(self, tmp_project, monkeypatch):
         """~/.config/osh/config.toml sets the default edition."""
         self._make_local_sources(tmp_project)
         real_git_only_subprocess(monkeypatch)
@@ -681,7 +655,7 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "design-themes").is_symlink()
 
-    def test_non_git_dir_warns_and_aborts(self, tmp_path: Path, monkeypatch) -> None:
+    def test_non_git_dir_warns_and_aborts(self, tmp_path, monkeypatch):
         """Init in a non-git directory warns and aborts without confirmation."""
         target = tmp_path / "nogit"
         target.mkdir()
@@ -690,9 +664,7 @@ class TestInitEdition:
         assert result.exit_code != 0
         assert "not a git repository" in result.output
 
-    def test_non_git_dir_proceeds_with_yes(
-        self, tmp_path: Path, tmp_project: Path, monkeypatch
-    ) -> None:
+    def test_non_git_dir_proceeds_with_yes(self, tmp_path, tmp_project, monkeypatch):
         """Init in a non-git directory proceeds with --yes."""
         target = tmp_path / "nogit"
         target.mkdir()

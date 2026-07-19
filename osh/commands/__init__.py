@@ -4,8 +4,6 @@ Importing this package provides the list `COMMANDS` that can be registered
 with the root click group in `cli.py`.
 """
 
-from __future__ import annotations
-
 from . import (
     backup_cmd,
     config_cmd,

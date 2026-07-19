@@ -11,20 +11,17 @@ commands, or a `COMMANDS` list. Plugins are expected to be Python packages
 command-name collisions by prefixing the command with its plugin source.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import os
 import pkgutil
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 import click
 
 
-def _user_plugin_dir() -> Path:
+def _user_plugin_dir():
     """Return the directory where user plugins are installed."""
     config_home = os.environ.get("XDG_CONFIG_HOME")
     if config_home:
@@ -34,7 +31,7 @@ def _user_plugin_dir() -> Path:
     return base / "osh" / "plugins"
 
 
-def _plugin_name_from_path(path: Path) -> str:
+def _plugin_name_from_path(path):
     """Return a valid Python module name for a plugin directory."""
     name = path.name
     name = re.sub(r"[^a-zA-Z0-9_]+", "_", name)
@@ -44,9 +41,7 @@ def _plugin_name_from_path(path: Path) -> str:
     return name or "plugin"
 
 
-def _import_plugin_from_dir(
-    plugin_dir: Path, prefix: str = "osh_user_plugin"
-) -> Any | None:
+def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
     """Import a plugin package or `osh_plugin.py` from a directory."""
     if not plugin_dir.is_dir():
         return None
@@ -71,7 +66,7 @@ def _import_plugin_from_dir(
     return module
 
 
-def _plugin_source_name(name: str) -> str:
+def _plugin_source_name(name):
     """Return a CLI-friendly source identifier from a plugin module/directory name."""
     name = re.sub(r"^osh\.plugins\.", "", name)
     name = re.sub(r"[^a-zA-Z0-9]+", "-", name)
@@ -111,7 +106,7 @@ def _iter_plugin_modules():
                 continue
 
 
-def _load_commands_from_module(module: Any) -> list[click.Command]:
+def _load_commands_from_module(module):
     """Return Click commands exposed by a plugin module."""
     if hasattr(module, "get_commands"):
         commands = module.get_commands()
@@ -125,7 +120,7 @@ def _load_commands_from_module(module: Any) -> list[click.Command]:
     return [cmd for cmd in commands if isinstance(cmd, click.Command)]
 
 
-def _load_backends_from_module(module: Any, backend_type: str) -> list[type]:
+def _load_backends_from_module(module, backend_type):
     """Return backend classes of *backend_type* exposed by a plugin module."""
     from .backends import Backend
 
@@ -144,7 +139,7 @@ def _load_backends_from_module(module: Any, backend_type: str) -> list[type]:
     if base_cls is None:
         return []
 
-    valid: list[type] = []
+    valid = []
     for backend in backends:
         if (
             isinstance(backend, type)
@@ -157,15 +152,15 @@ def _load_backends_from_module(module: Any, backend_type: str) -> list[type]:
     return valid
 
 
-def load_plugins() -> list[tuple[str, click.Command]]:
+def load_plugins():
     """Return ``(source, command)`` pairs for all loaded plugins."""
-    commands: list[tuple[str, click.Command]] = []
+    commands = []
     for source, module in _iter_plugin_modules():
         commands.extend((source, cmd) for cmd in _load_commands_from_module(module))
     return commands
 
 
-def load_backends(backend_type: str | None = None) -> dict[str, type]:
+def load_backends(backend_type=None):
     """Return a mapping of backend name to class.
 
     *backend_type* is accepted for compatibility and is ignored; only the
@@ -173,7 +168,7 @@ def load_backends(backend_type: str | None = None) -> dict[str, type]:
     """
     if backend_type is None:
         backend_type = "backend"
-    result: dict[str, type] = {}
+    result = {}
     for _source, module in _iter_plugin_modules():
         for backend in _load_backends_from_module(module, backend_type):
             name = getattr(backend, "name")

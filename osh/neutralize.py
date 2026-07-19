@@ -5,11 +5,8 @@ available) or by applying a bundled fallback SQL script. Shared by the
 ``osh restore`` command and by backends that implement ``neutralize()``.
 """
 
-from __future__ import annotations
-
 import importlib.resources
 import subprocess
-from pathlib import Path
 
 import click
 
@@ -19,13 +16,13 @@ from .odoo_layout import build_addons_paths
 
 
 def neutralize_database(
-    base: Path,
-    exe: str,
-    db_name: str,
+    base,
+    exe,
+    db_name,
     *,
-    python: Path | None = None,
-    dry_run: bool = False,
-) -> None:
+    python=None,
+    dry_run=False,
+):
     """Neutralize *db_name* using the best available strategy."""
     if dry_run:
         click.echo(
@@ -40,7 +37,7 @@ def neutralize_database(
         _neutralize_with_sql(base, db_name)
 
 
-def _neutralize_command_available(exe: str, python: Path | None = None) -> bool:
+def _neutralize_command_available(exe, python=None):
     """Return True if the installed Odoo provides `odoo-bin neutralize`."""
     if python is None:
         return False
@@ -56,7 +53,7 @@ def _neutralize_command_available(exe: str, python: Path | None = None) -> bool:
         return False
 
 
-def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
+def _neutralize_with_odoo(base, exe, db_name):
     """Run ``odoo-bin neutralize`` against the target database."""
     args = [exe, "--config", str(base / ".odoorc")]
 
@@ -78,7 +75,7 @@ def _neutralize_with_odoo(base: Path, exe: str, db_name: str) -> None:
         raise click.ClickException("Could not locate Odoo executable.") from exc
 
 
-def _neutralize_with_sql(base: Path, db_name: str) -> None:
+def _neutralize_with_sql(base, db_name):
     """Apply the bundled fallback neutralization SQL script."""
     try:
         with importlib.resources.path(

@@ -1,7 +1,5 @@
 """`osh run` command implementation."""
 
-from __future__ import annotations
-
 import click
 
 from ..commons import find_project_root
@@ -47,14 +45,14 @@ from ..verbosity import get_verbosity
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def run(
-    ctx: click.Context,
-    dry_run: bool,
-    verbose: bool,
-    backend_name: str,
-    compose_file: str | None,
-    edition: str | None,
-    extra_args: tuple[str, ...],
-) -> None:  # noqa: D401
+    ctx,
+    dry_run,
+    verbose,
+    backend_name,
+    compose_file,
+    edition,
+    extra_args,
+):  # noqa: D401
     """Run the project's Odoo executable.
 
     Extra arguments are passed through to odoo-bin.
@@ -108,7 +106,7 @@ def run(
         branch = get_current_branch(base) or "default"
         set_project_config(base, "db", values={branch: db_name, "last": db_name})
 
-    db_args: list[str] = []
+    db_args = []
     if db_name:
         echo.assumptions(f"Using database: {db_name}")
         if not explicit_db:
@@ -128,7 +126,7 @@ def run(
                 odoo_conf.touch()
                 echo.details(f"Created config file: {odoo_conf}")
 
-        args: list[str] = [exe]
+        args = [exe]
         args.extend(db_args)
         args.extend(extra_args)
         if not has_explicit_config:
@@ -141,7 +139,7 @@ def run(
     backend.run(ctx, base, args, dry_run=dry_run, verbose=verbose, edition=edition)
 
 
-def _parse_explicit_db(extra_args: tuple[str, ...]) -> str | None:
+def _parse_explicit_db(extra_args):
     """Return the database name explicitly passed via -d/--database, if any."""
     for i, arg in enumerate(extra_args):
         if arg in ("-d", "--database"):
@@ -154,7 +152,7 @@ def _parse_explicit_db(extra_args: tuple[str, ...]) -> str | None:
     return None
 
 
-def _has_arg(extra_args: tuple[str, ...], long: str, short: str | None = None) -> bool:
+def _has_arg(extra_args, long, short=None):
     """Return True if *extra_args* contains the given long (and optional short) option."""
     for arg in extra_args:
         if arg == long or arg.startswith(f"{long}="):

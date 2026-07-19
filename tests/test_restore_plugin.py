@@ -1,9 +1,5 @@
 """Tests for the `osh restore` command."""
 
-from __future__ import annotations
-
-from pathlib import Path
-
 import pytest
 from click.testing import CliRunner
 
@@ -11,7 +7,7 @@ from osh.commands.restore_cmd import restore
 from osh.plugins.osh_local.backends import LocalBackend
 
 
-def _setup_fake_db_config(project: Path, db_name: str = "testdb") -> None:
+def _setup_fake_db_config(project, db_name="testdb"):
     """Write a branch database mapping into the project config."""
     osh_dir = project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
@@ -19,7 +15,7 @@ def _setup_fake_db_config(project: Path, db_name: str = "testdb") -> None:
 
 
 @pytest.fixture
-def patched_restore(monkeypatch, in_project: Path):
+def patched_restore(monkeypatch, in_project):
     """Patch external dependencies used by `osh restore` for isolated tests."""
     state = {
         "restore": None,
@@ -47,7 +43,7 @@ def patched_restore(monkeypatch, in_project: Path):
     return state
 
 
-def test_restore_uses_latest_cache(patched_restore, in_project: Path) -> None:
+def test_restore_uses_latest_cache(patched_restore, in_project):
     """`osh restore` with no argument uses the newest cached backup."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -66,7 +62,7 @@ def test_restore_uses_latest_cache(patched_restore, in_project: Path) -> None:
     assert patched_restore["neutralize"] == (in_project, "testdb", False)
 
 
-def test_restore_cache_id(patched_restore, in_project: Path) -> None:
+def test_restore_cache_id(patched_restore, in_project):
     """`osh restore cache:<id>` selects the correct cached backup."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -82,7 +78,7 @@ def test_restore_cache_id(patched_restore, in_project: Path) -> None:
     assert patched_restore["restore"][0] == first
 
 
-def test_restore_explicit_file(patched_restore, in_project: Path) -> None:
+def test_restore_explicit_file(patched_restore, in_project):
     """`osh restore <path>` restores an explicit file outside the cache."""
     dump = in_project / "custom.sql"
     dump.write_text("SELECT 1;")
@@ -95,7 +91,7 @@ def test_restore_explicit_file(patched_restore, in_project: Path) -> None:
     assert patched_restore["restore"][1] == "testdb"
 
 
-def test_restore_no_cache_error(in_project: Path) -> None:
+def test_restore_no_cache_error(in_project):
     """`osh restore` without an argument fails when the cache is empty."""
     _setup_fake_db_config(in_project)
 
@@ -106,7 +102,7 @@ def test_restore_no_cache_error(in_project: Path) -> None:
     assert "No cached backup found" in result.output
 
 
-def test_restore_dry_run(patched_restore, in_project: Path) -> None:
+def test_restore_dry_run(patched_restore, in_project):
     """`osh restore --dry-run` does not execute subprocesses."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -123,7 +119,7 @@ def test_restore_dry_run(patched_restore, in_project: Path) -> None:
     assert patched_restore["created"] == []
 
 
-def test_restore_db_exists_no_force(in_project: Path, monkeypatch) -> None:
+def test_restore_db_exists_no_force(in_project, monkeypatch):
     """`osh restore` fails non-interactively when the database exists without --force."""
     _setup_fake_db_config(in_project)
     dump = in_project / "dump.dump"
@@ -141,7 +137,7 @@ def test_restore_db_exists_no_force(in_project: Path, monkeypatch) -> None:
     assert "--force" in result.output
 
 
-def test_restore_no_neutralize(patched_restore, in_project: Path) -> None:
+def test_restore_no_neutralize(patched_restore, in_project):
     """`osh restore --no-neutralize` skips neutralization."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)

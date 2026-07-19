@@ -1,16 +1,12 @@
 """Shared fixtures for the Osh test suite."""
 
-from __future__ import annotations
-
 import subprocess
-from pathlib import Path
-from typing import Any, Callable
 
 import pytest
 
 
 @pytest.fixture
-def tmp_project(tmp_path: Path) -> Path:
+def tmp_project(tmp_path):
     """Return a temporary project directory with a .osh marker and .git."""
     project = tmp_path / "project"
     project.mkdir(parents=True, exist_ok=True)
@@ -20,14 +16,14 @@ def tmp_project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def in_project(monkeypatch, tmp_project: Path) -> Path:
+def in_project(monkeypatch, tmp_project):
     """Switch into the temporary project for project-aware commands."""
     monkeypatch.chdir(tmp_project)
     return tmp_project
 
 
 @pytest.fixture
-def fake_odoo_executable(tmp_project: Path) -> Path:
+def fake_odoo_executable(tmp_project):
     """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``."""
     venv_bin = tmp_project / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
@@ -38,7 +34,7 @@ def fake_odoo_executable(tmp_project: Path) -> Path:
 
 
 @pytest.fixture
-def osh_source_dirs(tmp_project: Path) -> Path:
+def osh_source_dirs(tmp_project):
     """Create ``.osh/{odoo/addons, enterprise, design-themes}`` source dirs."""
     osh_dir = tmp_project / ".osh"
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
@@ -48,7 +44,7 @@ def osh_source_dirs(tmp_project: Path) -> Path:
 
 
 @pytest.fixture
-def patch_resolve_db_name(monkeypatch) -> None:
+def patch_resolve_db_name(monkeypatch):
     """Patch ``osh.commands.run_cmd.resolve_db_name`` to return ``testdb``."""
     monkeypatch.setattr(
         "osh.commands.run_cmd.resolve_db_name", lambda base, verbose: "testdb"
@@ -56,9 +52,9 @@ def patch_resolve_db_name(monkeypatch) -> None:
 
 
 @pytest.fixture
-def capture_execvp(monkeypatch) -> list[tuple[str, list[str]]]:
+def capture_execvp(monkeypatch):
     """Capture ``osh.commands.run_cmd.os.execvp`` calls and return them."""
-    exec_calls: list[tuple[str, list[str]]] = []
+    exec_calls = []
     monkeypatch.setattr(
         "osh.plugins.osh_local.backends.os.execvp",
         lambda exe, args: exec_calls.append((exe, args)),
@@ -79,10 +75,10 @@ def subprocess_run_capture(monkeypatch):
     """
 
     class _Capture:
-        def __init__(self) -> None:
-            self.calls: list[list[str]] = []
-            self.stdout: bytes = b""
-            self.side_effect: Callable[..., Any] | None = None
+        def __init__(self):
+            self.calls = []
+            self.stdout = b""
+            self.side_effect = None
 
         def fake_run(self, args, **kwargs):
             self.calls.append(list(args))
@@ -100,7 +96,7 @@ def subprocess_run_capture(monkeypatch):
 @pytest.fixture
 def subprocess_check_call_capture(monkeypatch):
     """Capture ``subprocess.check_call`` calls in a list and return it."""
-    calls: list[list[str]] = []
+    calls = []
 
     def fake_check_call(cmd, *args, **kwargs):
         calls.append(list(cmd) if isinstance(cmd, (list, tuple)) else [cmd])
@@ -111,21 +107,21 @@ def subprocess_check_call_capture(monkeypatch):
 
 
 @pytest.fixture
-def patch_cache(monkeypatch, tmp_path: Path) -> Path:
+def patch_cache(monkeypatch, tmp_path):
     """Redirect the central source cache into a temporary directory."""
     cache = tmp_path / "cache"
     monkeypatch.setattr("osh.sources.SOURCE_CACHE_DIR", cache)
     return cache
 
 
-def real_git_only_subprocess(monkeypatch) -> list:
+def real_git_only_subprocess(monkeypatch):
     """Run git commands for real; record/no-op everything else.
 
     Patches ``subprocess.check_call`` in the source-acquisition modules so that
     calls containing ``git`` are executed normally, while other calls are
     recorded in the returned list. Also disables ``venv.create``.
     """
-    calls: list = []
+    calls = []
     real_check_call = subprocess.check_call
 
     def fake_check_call(*args, **kwargs):

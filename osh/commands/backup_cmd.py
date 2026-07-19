@@ -1,7 +1,5 @@
 """`osh backup` command implementation."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import click
@@ -15,7 +13,7 @@ SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")
 
 
 @click.group(name="backup")
-def backup() -> None:  # noqa: D401
+def backup():  # noqa: D401
     """Manage backups in the project cache."""
 
 
@@ -50,15 +48,15 @@ def backup() -> None:  # noqa: D401
 )
 @click.pass_context
 def download(
-    ctx: click.Context,
-    source: str,
-    output: str | None,
-    output_format: str,
-    master_password: str | None,
-    ssh_key: Path | None,
-    filestore: bool,
-    dry_run: bool,
-) -> None:  # noqa: D401
+    ctx,
+    source,
+    output,
+    output_format,
+    master_password,
+    ssh_key,
+    filestore,
+    dry_run,
+):  # noqa: D401
     """Download or dump a backup source to the project cache.
 
     Supported source schemes:
@@ -143,7 +141,7 @@ def download(
     click.echo(str(output_path))
 
 
-def _is_in_cache(base: Path, path: Path) -> bool:
+def _is_in_cache(base, path):
     """Return True if *path* is inside the project's backup cache."""
     try:
         path.relative_to(ensure_cache_dir(base))
@@ -166,10 +164,10 @@ def _is_in_cache(base: Path, path: Path) -> bool:
 )
 @click.pass_context
 def list_backups(
-    ctx: click.Context,
-    limit: int,
-    reverse: bool,
-) -> None:  # noqa: D401
+    ctx,
+    limit,
+    reverse,
+):  # noqa: D401
     """List backups stored in the project cache."""
 
     base = find_project_root(required=True)

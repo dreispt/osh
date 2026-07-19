@@ -4,10 +4,7 @@ This module provides a logging-style API for output that adapts to user experien
 level and preferences, supporting multiple verbosity levels and emoji control.
 """
 
-from __future__ import annotations
-
 import configparser
-from pathlib import Path
 
 import click
 
@@ -47,7 +44,7 @@ class Verbosity:
 
     LEVELS = ["quiet", "normal", "friendly", "verbose", "debug"]
 
-    def __init__(self, level: str = "normal", emoji: bool = True):
+    def __init__(self, level="normal", emoji=True):
         """Initialize verbosity level.
 
         Args:
@@ -57,7 +54,7 @@ class Verbosity:
         self.level = level if level in self.LEVELS else "normal"
         self.emoji = emoji
 
-    def should_show(self, category: str) -> bool:
+    def should_show(self, category):
         """Return True if message category should be shown at current level.
 
         Args:
@@ -100,7 +97,7 @@ class Verbosity:
         }
         return category in rules.get(self.level, [])
 
-    def format_message(self, category: str, message: str) -> str:
+    def format_message(self, category, message):
         """Format message based on category and current level.
 
         Args:
@@ -114,7 +111,7 @@ class Verbosity:
             return f"{_EMOJI_PREFIXES.get(category, '')}{message}"
         return f"{_TEXT_PREFIXES.get(category, '')}{message}"
 
-    def _echo(self, category: str, message: str, err: bool = False) -> None:
+    def _echo(self, category, message, err=False):
         """Internal echo method that handles category checking and formatting.
 
         Args:
@@ -129,50 +126,50 @@ class Verbosity:
             click.echo(formatted, err=err)
 
     # Convenience methods matching logging API
-    def error(self, message: str, err: bool = True) -> None:
+    def error(self, message, err=True):
         """Log an error message."""
         self._echo("error", message, err=err)
 
-    def warning(self, message: str, err: bool = False) -> None:
+    def warning(self, message, err=False):
         """Log a warning message."""
         self._echo("warning", message, err=err)
 
-    def success(self, message: str, err: bool = False) -> None:
+    def success(self, message, err=False):
         """Log a success message."""
         self._echo("success", message, err=err)
 
-    def essential(self, message: str, err: bool = False) -> None:
+    def essential(self, message, err=False):
         """Log an essential message (shown at normal level and above)."""
         self._echo("essential", message, err=err)
 
-    def guidance(self, message: str, err: bool = False) -> None:
+    def guidance(self, message, err=False):
         """Log a guidance message (shown at friendly level and above)."""
         self._echo("guidance", message, err=err)
 
-    def next_steps(self, message: str, err: bool = False) -> None:
+    def next_steps(self, message, err=False):
         """Log next steps message (shown at friendly level and above)."""
         self._echo("next_steps", message, err=err)
 
-    def details(self, message: str, err: bool = False) -> None:
+    def details(self, message, err=False):
         """Log detailed information (shown at verbose level and above)."""
         self._echo("details", message, err=err)
 
-    def assumptions(self, message: str, err: bool = False) -> None:
+    def assumptions(self, message, err=False):
         """Log assumptions being made (shown at verbose level and above)."""
         self._echo("assumptions", message, err=err)
 
-    def internal(self, message: str, err: bool = False) -> None:
+    def internal(self, message, err=False):
         """Log internal debugging information (shown at debug level only)."""
         self._echo("internal", message, err=err)
 
     # Keep the old echo method for backward compatibility and fallback support
     def echo(
         self,
-        category: str,
-        message: str,
-        err: bool = False,
-        fallback: str | None = None,
-    ) -> None:
+        category,
+        message,
+        err=False,
+        fallback=None,
+    ):
         """Echo a message if it should be shown at current level.
 
         This method automatically checks if the message category should be shown
@@ -194,7 +191,7 @@ class Verbosity:
                 click.echo(formatted, err=err)
 
 
-def _detect_verbosity(base: Path | None) -> str:
+def _detect_verbosity(base):
     """Detect appropriate verbosity level based on user experience and project state.
 
     Args:
@@ -223,7 +220,7 @@ def _detect_verbosity(base: Path | None) -> str:
     return "normal"
 
 
-def _detect_emoji_preference(base: Path | None) -> bool:
+def _detect_emoji_preference(base):
     """Detect emoji preference based on user configuration.
 
     Args:
@@ -250,9 +247,7 @@ def _detect_emoji_preference(base: Path | None) -> bool:
     return True
 
 
-def get_verbosity(
-    ctx: click.Context, base: Path | None, verbose_override: bool = False
-) -> Verbosity:
+def get_verbosity(ctx, base, verbose_override=False):
     """Get a configured Verbosity object for the current context.
 
     This encapsulates all the complexity of detecting verbosity level and emoji

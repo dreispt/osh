@@ -5,28 +5,20 @@ other targets, such as Docker or remote containers, while keeping the same
 ``osh init`` and ``osh run`` user interface.
 """
 
-from __future__ import annotations
-
 from abc import ABC
-from pathlib import Path
-from typing import Any
-
-import click
-
-from .diagnostics import Diagnostics
 
 
 class Backend(ABC):
     """Unified base class for Osh init/run/restore/prune backends."""
 
     backend_type = "backend"
-    name: str = ""
-    label: str = ""
-    description: str = ""
-    help_text: str = ""
+    name = ""
+    label = ""
+    description = ""
+    help_text = ""
 
     @classmethod
-    def get_init_options(cls) -> list[click.Option]:
+    def get_init_options(cls):
         """Return target-specific ``osh init`` options.
 
         Each option must carry a ``target_group`` attribute set to
@@ -37,10 +29,10 @@ class Backend(ABC):
 
     def diagnose(
         self,
-        base: Path,
-        ctx: click.Context | None = None,
-        **options: Any,
-    ) -> Diagnostics:
+        base,
+        ctx=None,
+        **options,
+    ):
         """Inspect the project and system for the active target.
 
         Returns a ``Diagnostics`` object that ``osh doctor`` reports, ``osh init``
@@ -51,56 +43,56 @@ class Backend(ABC):
 
     def init(
         self,
-        target: Path,
+        target,
         *,
-        version: str = "",
-        edition: str = "ce",
-        dry_run: bool = False,
-        **options: Any,
-    ) -> bool:
+        version="",
+        edition="ce",
+        dry_run=False,
+        **options,
+    ):
         """Set up the environment. Return ``True`` if ready for use."""
         raise NotImplementedError
 
     def run(
         self,
-        ctx: click.Context,
-        base: Path,
-        args: list[str],
+        ctx,
+        base,
+        args,
         *,
-        dry_run: bool = False,
-        verbose: bool = False,
-        **options: Any,
-    ) -> None:
+        dry_run=False,
+        verbose=False,
+        **options,
+    ):
         """Run Odoo with the supplied argv-style arguments."""
         raise NotImplementedError
 
-    def supports_neutralize(self, base: Path) -> bool:
+    def supports_neutralize(self, base):
         """Return True if this backend can neutralize databases at *base*."""
         return getattr(self, "neutralize_supported", False)
 
     def neutralize(
         self,
-        ctx: click.Context,
-        base: Path,
-        db_name: str,
+        ctx,
+        base,
+        db_name,
         *,
-        dry_run: bool = False,
-    ) -> None:
+        dry_run=False,
+    ):
         """Neutralize *db_name* after it has been restored through this backend."""
         raise NotImplementedError
 
     def restore(
         self,
-        ctx: click.Context,
-        base: Path,
-        db_name: str,
-        dump_path: Path,
+        ctx,
+        base,
+        db_name,
+        dump_path,
         *,
-        force: bool = False,
-        no_neutralize: bool = False,
-        dry_run: bool = False,
-        **options: Any,
-    ) -> None:
+        force=False,
+        no_neutralize=False,
+        dry_run=False,
+        **options,
+    ):
         """Restore *dump_path* into *db_name* through this backend.
 
         If the database already exists and *force* is False, raise an error.
@@ -111,11 +103,11 @@ class Backend(ABC):
 
     def prune(
         self,
-        ctx: click.Context,
-        base: Path,
+        ctx,
+        base,
         *,
-        aggressive: bool = False,
-        dry_run: bool = False,
-    ) -> None:
+        aggressive=False,
+        dry_run=False,
+    ):
         """Run target-specific housekeeping. Not all backends support this."""
         raise NotImplementedError

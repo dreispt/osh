@@ -1,6 +1,6 @@
 """Top-level package for Osh (Odoo Shell)."""
 
-__all__: list[str] = []
+__all__ = []
 
 __author__ = "Daniel Reis"
 __email__ = "dreis.pt@gmail.com"

@@ -1,10 +1,7 @@
 """Docker Compose backend implementation for ``osh init`` and ``osh run``."""
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -44,7 +41,7 @@ class DockerBackend(Backend):
     )
 
     @classmethod
-    def get_init_options(cls) -> list[click.Option]:
+    def get_init_options(cls):
         opts = [
             click.Option(
                 ["--service"],
@@ -66,10 +63,10 @@ class DockerBackend(Backend):
 
     def diagnose(
         self,
-        base: Path,
-        ctx: click.Context | None = None,
-        **options: Any,
-    ) -> Diagnostics:
+        base,
+        ctx=None,
+        **options,
+    ):
         """Inspect Docker Compose environment and project configuration."""
         phase = options.get("phase", "doctor")
         d = Diagnostics(self.name, project=base)
@@ -85,7 +82,7 @@ class DockerBackend(Backend):
 
         cfg = _load_docker_config(base)
 
-        def _cfg_value(key: str, default: Any = None) -> Any:
+        def _cfg_value(key, default=None):
             return cfg.get(key, default) if cfg else default
 
         # Resolve effective values from CLI options and saved config.
@@ -158,13 +155,13 @@ class DockerBackend(Backend):
 
     def init(
         self,
-        target: Path,
+        target,
         *,
-        version: str = "",
-        edition: str = "ce",
-        dry_run: bool = False,
-        **options: Any,
-    ) -> bool:
+        version="",
+        edition="ce",
+        dry_run=False,
+        **options,
+    ):
         """Set up the project to run Odoo with Docker Compose."""
         service = options.get("service")
         command = options.get("command")
@@ -282,14 +279,14 @@ class DockerBackend(Backend):
 
     def run(
         self,
-        ctx: click.Context,
-        base: Path,
-        args: list[str],
+        ctx,
+        base,
+        args,
         *,
-        dry_run: bool = False,
-        verbose: bool = False,
-        **options: Any,
-    ) -> None:
+        dry_run=False,
+        verbose=False,
+        **options,
+    ):
         """Translate host odoo-bin arguments into a Docker Compose invocation."""
         cfg = _load_docker_config(base)
         service = cfg.get("service")
@@ -328,7 +325,7 @@ class DockerBackend(Backend):
             raise click.ClickException("No command provided to run.")
         odoo_args = args[1:]  # args[0] is the host executable placeholder
 
-        def _is_relative_to(path: Path, base: Path) -> bool:
+        def _is_relative_to(path, base):
             try:
                 path.relative_to(base)
                 return True
@@ -376,27 +373,27 @@ class DockerBackend(Backend):
 
     def restore(
         self,
-        ctx: click.Context,
-        base: Path,
-        db_name: str,
-        dump_path: Path,
+        ctx,
+        base,
+        db_name,
+        dump_path,
         *,
-        force: bool = False,
-        no_neutralize: bool = False,
-        dry_run: bool = False,
-        **options: Any,
-    ) -> None:
+        force=False,
+        no_neutralize=False,
+        dry_run=False,
+        **options,
+    ):
         """Restore a backup into the target database through this backend."""
         raise click.ClickException("Docker restore is not yet implemented.")
 
     def neutralize(
         self,
-        ctx: click.Context,
-        base: Path,
-        db_name: str,
+        ctx,
+        base,
+        db_name,
         *,
-        dry_run: bool = False,
-    ) -> None:
+        dry_run=False,
+    ):
         """Neutralize *db_name* by running ``odoo-bin neutralize`` in the container."""
         self.run(
             ctx,
@@ -408,12 +405,12 @@ class DockerBackend(Backend):
 
     def prune(
         self,
-        ctx: click.Context,
-        base: Path,
+        ctx,
+        base,
         *,
-        aggressive: bool = False,
-        dry_run: bool = False,
-        **options: Any,
-    ) -> None:
+        aggressive=False,
+        dry_run=False,
+        **options,
+    ):
         """Run target-specific housekeeping."""
         raise click.ClickException("Docker prune is not yet implemented.")

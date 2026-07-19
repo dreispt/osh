@@ -1,7 +1,5 @@
 """`osh plug` command for managing user-installed plugins."""
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 
@@ -10,7 +8,7 @@ import click
 from ..plugin_loader import _user_plugin_dir
 
 
-def _repo_name_from_url(url: str) -> str:
+def _repo_name_from_url(url):
     """Derive a plugin directory name from a git URL."""
     name = url.rstrip("/").split("/")[-1]
     if name.endswith(".git"):
@@ -20,7 +18,7 @@ def _repo_name_from_url(url: str) -> str:
 
 @click.group(name="plug")
 @click.pass_context
-def plug(ctx: click.Context) -> None:  # noqa: D401
+def plug(ctx):  # noqa: D401
     """Install, list, and remove Osh plugins from git repositories.
 
     Plugins are installed into ~/.config/osh/plugins/ and add new commands to the
@@ -36,7 +34,7 @@ def plug(ctx: click.Context) -> None:  # noqa: D401
     help="Skip the security warning and install without confirmation.",
 )
 @click.pass_context
-def install(ctx: click.Context, url: str, trust: bool) -> None:  # noqa: D401
+def install(ctx, url, trust):  # noqa: D401
     """Install a plugin from a git URL.
 
     The repository must expose a `get_commands()` function or a `COMMANDS` list.
@@ -73,7 +71,7 @@ def install(ctx: click.Context, url: str, trust: bool) -> None:  # noqa: D401
 
 @plug.command(name="list")
 @click.pass_context
-def list_(ctx: click.Context) -> None:  # noqa: D401
+def list_(ctx):  # noqa: D401
     """List installed user plugins.
 
     Plugins are located in ~/.config/osh/plugins/.
@@ -104,7 +102,7 @@ def list_(ctx: click.Context) -> None:  # noqa: D401
     help="Do not ask for confirmation before removing.",
 )
 @click.pass_context
-def uninstall(ctx: click.Context, name: str, yes: bool) -> None:  # noqa: D401
+def uninstall(ctx, name, yes):  # noqa: D401
     """Remove an installed plugin by name.
 
     Use --yes to skip the confirmation prompt.

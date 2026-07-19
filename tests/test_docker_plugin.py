@@ -1,10 +1,6 @@
 """Tests for the built-in Docker backend plugin."""
 
-from __future__ import annotations
-
 import subprocess
-from pathlib import Path
-from typing import Any
 
 import click
 import pytest
@@ -16,7 +12,7 @@ from osh.plugins.osh_docker.backends import DockerBackend
 from osh.plugins.osh_docker.commands import init_docker
 
 
-def test_docker_backends_are_registered() -> None:
+def test_docker_backends_are_registered():
     """The docker plugin registers the unified Docker backend."""
     backends = load_backends("backend")
     assert "docker" in backends
@@ -24,23 +20,21 @@ def test_docker_backends_are_registered() -> None:
     assert backends["docker"].backend_type == "backend"
 
 
-def _patch_docker_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_docker_tools(monkeypatch):
     """Make Docker tooling no-ops so tests do not require a Docker daemon."""
     monkeypatch.setattr(
         "osh.plugins.osh_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
 
-    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+    def fake_run(*args, **kwargs):
         cmd = args[0] if args else kwargs.get("args", [])
         return subprocess.CompletedProcess(cmd, returncode=0)
 
     monkeypatch.setattr("osh.plugins.osh_docker.backends.run_command", fake_run)
 
 
-def test_init_target_docker_via_main_writes_compose_file(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatch):
     """``osh init --target docker`` writes docker.toml and generates compose."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
@@ -68,9 +62,7 @@ def test_init_target_docker_via_main_writes_compose_file(
     assert not (tmp_project / "Dockerfile").exists()
 
 
-def test_init_docker_command_writes_config_and_compose(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_docker_command_writes_config_and_compose(tmp_project, monkeypatch):
     """``osh init-docker`` generates ``.osh/docker-compose.yml`` and config."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
@@ -85,9 +77,7 @@ def test_init_docker_command_writes_config_and_compose(
     assert (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_init_docker_does_not_overwrite_existing_osh_compose(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_docker_does_not_overwrite_existing_osh_compose(tmp_project, monkeypatch):
     """An existing ``.osh/docker-compose.yml`` is left untouched."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
@@ -107,9 +97,7 @@ def test_init_docker_does_not_overwrite_existing_osh_compose(
     )
 
 
-def test_init_docker_persists_provided_compose_file(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
     """A provided ``--compose-file`` is persisted into docker.toml."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
@@ -128,9 +116,7 @@ def test_init_docker_persists_provided_compose_file(
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_init_docker_missing_compose_file_raises(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
     """A missing explicit compose file raises an error."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
@@ -145,9 +131,7 @@ def test_init_docker_missing_compose_file_raises(
     assert "missing.yaml" in result.output or "not found" in result.output
 
 
-def test_init_docker_dry_run_does_not_write(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_docker_dry_run_does_not_write(tmp_project, monkeypatch):
     """A dry-run ``init`` only reports what it would generate."""
     _patch_docker_tools(monkeypatch)
     backend = DockerBackend()
@@ -165,9 +149,7 @@ def test_init_docker_dry_run_does_not_write(
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_docker_backend_diagnose(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_docker_backend_diagnose(tmp_project, monkeypatch):
     """``diagnose`` returns diagnostics for the configured stack."""
     monkeypatch.setattr(
         "osh.plugins.osh_docker.utils._find_compose_tool",
@@ -187,9 +169,7 @@ def test_docker_backend_diagnose(
     assert d.info["command"] == "odoo"
 
 
-def test_docker_backend_diagnose_honors_custom_compose_file(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, monkeypatch):
     """``diagnose`` resolves the effective compose file from config/options."""
     monkeypatch.setattr(
         "osh.plugins.osh_docker.utils._find_compose_tool",
@@ -212,8 +192,8 @@ def test_docker_backend_diagnose_honors_custom_compose_file(
 
 
 def test_docker_backend_diagnose_ee_sources_missing_with_version(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_project, monkeypatch
+):
     """``diagnose`` allows missing source copies when a version is configured."""
     monkeypatch.setattr(
         "osh.plugins.osh_docker.utils._find_compose_tool",
@@ -233,9 +213,7 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
     assert not d.errors
 
 
-def test_docker_backend_run_dry_run(
-    tmp_project: Path, capsys: pytest.CaptureFixture
-) -> None:
+def test_docker_backend_run_dry_run(tmp_project, capsys):
     """``run`` builds and prints the docker compose command in dry-run mode."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -251,9 +229,7 @@ def test_docker_backend_run_dry_run(
     assert "docker compose run --rm --service-ports app odoo" in err
 
 
-def test_docker_backend_uses_container_executable(
-    tmp_project: Path, capsys: pytest.CaptureFixture
-) -> None:
+def test_docker_backend_uses_container_executable(tmp_project, capsys):
     """The configured command is invoked inside the container."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -268,16 +244,14 @@ def test_docker_backend_uses_container_executable(
     assert "python3 -m odoo" in err
 
 
-def test_docker_backend_requires_service(tmp_project: Path) -> None:
+def test_docker_backend_requires_service(tmp_project):
     """``run`` fails when no service is configured."""
     backend = DockerBackend()
     with pytest.raises(click.ClickException):
         backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
 
 
-def test_docker_backend_compose_file_from_config(
-    tmp_project: Path, capsys: pytest.CaptureFixture
-) -> None:
+def test_docker_backend_compose_file_from_config(tmp_project, capsys):
     """The compose file from docker.toml is passed with ``-f``."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -293,9 +267,7 @@ def test_docker_backend_compose_file_from_config(
     assert "docker compose -f devel.yaml run" in err
 
 
-def test_docker_backend_compose_file_cli_override(
-    tmp_project: Path, capsys: pytest.CaptureFixture
-) -> None:
+def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
     """A compose file passed in the click context overrides config."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -314,23 +286,21 @@ def test_docker_backend_compose_file_cli_override(
     assert "docker compose -f test.yaml run" in err
 
 
-def test_docker_backend_restore_not_implemented(tmp_project: Path) -> None:
+def test_docker_backend_restore_not_implemented(tmp_project):
     """``restore`` is not implemented for Docker."""
     backend = DockerBackend()
     with pytest.raises(click.ClickException):
         backend.restore(None, tmp_project, "db", tmp_project / "dump.sql")
 
 
-def test_docker_backend_prune_not_implemented(tmp_project: Path) -> None:
+def test_docker_backend_prune_not_implemented(tmp_project):
     """``prune`` is not implemented for Docker."""
     backend = DockerBackend()
     with pytest.raises(click.ClickException):
         backend.prune(None, tmp_project)
 
 
-def test_init_docker_writes_version_and_edition(
-    tmp_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
     """``osh init --target docker`` persists the Odoo version and edition."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
@@ -363,10 +333,10 @@ def test_init_docker_writes_version_and_edition(
 
 
 def test_docker_backend_run_appends_addons_path_for_sh(
-    tmp_project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture,
-) -> None:
+    tmp_project,
+    monkeypatch,
+    capsys,
+):
     """``run`` includes the mounted container --addons-path for sh editions."""
     _patch_docker_tools(monkeypatch)
 

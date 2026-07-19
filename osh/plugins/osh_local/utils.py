@@ -1,7 +1,5 @@
 """Local ``osh init`` implementation helpers."""
 
-from __future__ import annotations
-
 import os
 import shlex
 import subprocess
@@ -14,15 +12,15 @@ from ...sources import ensure_osh_sources
 
 
 def init_project(
-    target: Path,
-    version: str,
-    edition: str,
-    dry_run: bool,
-    assume_yes: bool,
-    odoo_source: str | None,
-    enterprise_source: str | None,
-    themes_source: str | None,
-) -> bool | None:
+    target,
+    version,
+    edition,
+    dry_run,
+    assume_yes,
+    odoo_source,
+    enterprise_source,
+    themes_source,
+):
     """Initialise *target* for an Odoo project using local sources."""
     _prepare_target_dir(target)
 
@@ -57,7 +55,7 @@ def init_project(
     return True
 
 
-def _prepare_target_dir(target: Path) -> None:
+def _prepare_target_dir(target):
     """Ensure *target* and its ``.osh`` subdirectory exist with a config file."""
     if not target.exists():
         click.echo(f"Creating directory {target}\u2026", err=True)
@@ -71,7 +69,7 @@ def _prepare_target_dir(target: Path) -> None:
         config_path.touch()
 
 
-def _run_init_smoke_test(target: Path, env_ready: bool) -> bool:
+def _run_init_smoke_test(target, env_ready):
     """Run the Odoo smoke test when the environment is ready."""
     if not env_ready:
         return True
@@ -88,9 +86,9 @@ def _run_init_smoke_test(target: Path, env_ready: bool) -> bool:
 
 
 def _setup_environment(
-    target: Path,
-    sources: dict[str, Path | None],
-) -> bool:
+    target,
+    sources,
+):
     """Create a virtualenv and pip-install Odoo sources."""
     odoo_link = sources.get("odoo")
     venv_path = target / ".venv"
@@ -125,7 +123,7 @@ def _setup_environment(
     return _pip_install(pip_exe, "install", "-e", str(odoo_link))
 
 
-def _pip_install(pip_exe: Path, *args: str) -> bool:
+def _pip_install(pip_exe, *args):
     """Run pip with *args* and report failures; return True on success."""
     try:
         subprocess.check_call([str(pip_exe), *args])
@@ -143,7 +141,7 @@ def _pip_install(pip_exe: Path, *args: str) -> bool:
         return False
 
 
-def _run_smoke_test(odoo_exe: Path) -> bool:
+def _run_smoke_test(odoo_exe):
     """Run ``odoo --version`` and return True if it succeeds."""
     try:
         subprocess.run(
@@ -171,7 +169,7 @@ def _run_smoke_test(odoo_exe: Path) -> bool:
         return False
 
 
-def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
+def _find_odoo_executable_in_venv(venv_path):
     """Return the Odoo executable inside *venv_path*, or None if not found."""
     bin_dir = venv_path / ("Scripts" if os.name == "nt" else "bin")
     for name in ("odoo", "odoo-bin"):
@@ -181,7 +179,7 @@ def _find_odoo_executable_in_venv(venv_path: Path) -> Path | None:
     return None
 
 
-def _get_venv_python(exe: str) -> Path | None:
+def _get_venv_python(exe):
     """Return the Python interpreter for the virtualenv containing *exe*.
 
     *exe* is expected to be an odoo or odoo-bin executable inside a

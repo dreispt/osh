@@ -7,8 +7,6 @@ leading underscore) since they form the shared library contract between
 core and plugins.
 """
 
-from __future__ import annotations
-
 import configparser
 import shutil
 import subprocess
@@ -19,7 +17,7 @@ import click
 DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
 
 
-def _find_git_root(start: Path) -> Path | None:
+def _find_git_root(start):
     """Return the nearest ancestor (including *start*) that is a git repo root.
 
     A git repo root is a directory containing a ``.git`` entry (directory for
@@ -31,9 +29,7 @@ def _find_git_root(start: Path) -> Path | None:
     return None
 
 
-def find_project_root(
-    start: Path | None = None, *, required: bool = False
-) -> Path | None:
+def find_project_root(start=None, *, required=False):
     """Return the project root containing a ``.osh`` directory.
 
     When inside a git repository, the ``.osh`` directory is expected at the
@@ -70,7 +66,7 @@ def find_project_root(
     return None
 
 
-def _not_in_project() -> None:
+def _not_in_project():
     """Print a helpful message and exit when no Osh project is found."""
     click.echo(
         "Not inside an Osh project. "
@@ -79,30 +75,30 @@ def _not_in_project() -> None:
     raise SystemExit(0)
 
 
-def get_odoo_config_path(base: Path) -> Path:
+def get_odoo_config_path(base):
     """Return path to the Odoo configuration file (.odoorc) in the project root."""
     return base / ".odoorc"
 
 
-def get_osh_config_path(base: Path) -> Path:
+def get_osh_config_path(base):
     """Return path to the Osh project configuration file (.osh/config)."""
     return base / ".osh" / "config"
 
 
-def ensure_tool(tool: str) -> None:
+def ensure_tool(tool):
     """Raise a ClickException if *tool* is not available on PATH."""
     if not shutil.which(tool):
         raise click.ClickException(f"Required tool '{tool}' is not available on PATH.")
 
 
 def run_command(
-    args: list[str],
+    args,
     *,
-    cwd: Path | None = None,
-    check: bool = False,
-    capture_output: bool = True,
-    text: bool = True,
-) -> subprocess.CompletedProcess[str]:
+    cwd=None,
+    check=False,
+    capture_output=True,
+    text=True,
+):
     """Run *args* and return the completed process.
 
     When *check* is True, a non-zero exit code or a missing executable raises a
@@ -130,7 +126,7 @@ def run_command(
         raise click.ClickException(f"Command not found: {' '.join(args)}") from exc
 
 
-def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
+def discover_addons_paths(base, *, max_depth=3):
     """Return a list of addon directories under *base*.
 
     An *addon* is recognised if the directory contains a ``__manifest__.py``
@@ -140,9 +136,9 @@ def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
     Directories starting with ``.`` or ``__`` are ignored.
     """
 
-    addons: list[Path] = []
+    addons = []
 
-    def _walk(current: Path, depth: int) -> None:
+    def _walk(current, depth):
         if depth > max_depth:
             return
         for child in current.iterdir():
@@ -159,7 +155,7 @@ def discover_addons_paths(base: Path, *, max_depth: int = 3) -> list[Path]:
     return sorted(addons)
 
 
-def discover_module_names(base: Path) -> list[str]:
+def discover_module_names(base):
     """Return module names found in *base*.
 
     Returns a sorted list of module names that contain a ``__manifest__.py``
@@ -168,7 +164,7 @@ def discover_module_names(base: Path) -> list[str]:
     return [addon.name for addon in discover_addons_paths(base)]
 
 
-def get_odoo_data_dir(base: Path | None) -> Path | None:
+def get_odoo_data_dir(base):
     """Return the Odoo data directory from ``.odoorc`` or the default location.
 
     When *base* is None or ``.odoorc`` does not configure ``data_dir``, the
@@ -186,6 +182,6 @@ def get_odoo_data_dir(base: Path | None) -> Path | None:
     return DEFAULT_ODOO_DATA_DIR if DEFAULT_ODOO_DATA_DIR.exists() else None
 
 
-def decode_stderr(stderr: bytes | None) -> str:
+def decode_stderr(stderr):
     """Decode subprocess stderr bytes to text, returning "" when None."""
     return stderr.decode("utf-8", errors="replace") if stderr else ""

@@ -1,20 +1,16 @@
 """Tests for ``osh odoo`` command assembly."""
 
-from __future__ import annotations
-
-from pathlib import Path
-
 from click.testing import CliRunner
 
 from osh.commands.odoo_cmd import odoo
 
 
 def test_odoo_includes_addons_path(
-    tmp_project: Path,
+    tmp_project,
     monkeypatch,
-    fake_odoo_executable: Path,
-    osh_source_dirs: Path,
-) -> None:
+    fake_odoo_executable,
+    osh_source_dirs,
+):
     """``osh odoo`` adds --addons-path and --config like ``osh run``."""
     # Create .odoorc so the command uses it.
     (tmp_project / ".odoorc").write_text("[options]\n")
@@ -33,11 +29,11 @@ def test_odoo_includes_addons_path(
 
 
 def test_odoo_respects_explicit_config(
-    tmp_project: Path,
+    tmp_project,
     monkeypatch,
-    fake_odoo_executable: Path,
-    osh_source_dirs: Path,
-) -> None:
+    fake_odoo_executable,
+    osh_source_dirs,
+):
     """``osh odoo`` does not add --config if the user already provides -c."""
     (tmp_project / ".odoorc").write_text("[options]\n")
 
@@ -52,7 +48,7 @@ def test_odoo_respects_explicit_config(
     assert "-c /other/odoo.conf" in result.output
 
 
-def test_odoo_outside_project(monkeypatch, tmp_path: Path) -> None:
+def test_odoo_outside_project(monkeypatch, tmp_path):
     """``osh odoo`` fails when not inside an Osh project."""
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()

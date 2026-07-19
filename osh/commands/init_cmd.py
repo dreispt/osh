@@ -1,7 +1,5 @@
 """`osh init` command implementation."""
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 
@@ -13,13 +11,13 @@ from ..userconfig import _load_user_init_config, save_user_preference
 from ..verbosity import get_verbosity
 
 
-def _collect_backend_options() -> list[click.Option]:
+def _collect_backend_options():
     """Load target-specific options from all registered backends.
 
     Each option is tagged with a ``target_group`` attribute so the help
     formatter can group it under the right target heading.
     """
-    options: list[click.Option] = []
+    options = []
     for backend_cls in load_backends().values():
         options.extend(backend_cls.get_init_options())
     return options
@@ -56,11 +54,11 @@ class InitCommand(click.Command):
 
 
 def _split_params_by_target(
-    params: list[click.Parameter],
-) -> tuple[list[click.Parameter], dict[str, list[click.Parameter]]]:
+    params,
+):
     """Separate common options from target-grouped options."""
-    common_opts: list[click.Parameter] = []
-    target_groups: dict[str, list[click.Parameter]] = {}
+    common_opts = []
+    target_groups = {}
     for param in params:
         if isinstance(param, click.Argument):
             continue
@@ -72,9 +70,7 @@ def _split_params_by_target(
     return common_opts, target_groups
 
 
-def _format_common_options(
-    ctx: click.Context, formatter: click.HelpFormatter, opts: list[click.Parameter]
-) -> None:
+def _format_common_options(ctx, formatter, opts):
     """Write the common (non-target) options section."""
     records = [r for r in (p.get_help_record(ctx) for p in opts) if r]
     if records:
@@ -83,10 +79,10 @@ def _format_common_options(
 
 
 def _format_target_options(
-    ctx: click.Context,
-    formatter: click.HelpFormatter,
-    target_groups: dict[str, list[click.Parameter]],
-) -> None:
+    ctx,
+    formatter,
+    target_groups,
+):
     """Write one section per target with its target-specific options."""
     backends = load_backends()
     for target_name, opts in target_groups.items():
@@ -102,7 +98,7 @@ def _format_target_options(
                 formatter.write_dl(records)
 
 
-def _format_targets_section(formatter: click.HelpFormatter) -> None:
+def _format_targets_section(formatter):
     """Write the Targets section listing each backend name and description."""
     backends = load_backends()
     if not backends:
@@ -236,7 +232,7 @@ def init(
             raise click.ClickException("Aborted.")
         confirmed = True
 
-    docker_source_kwargs: dict[str, str | None] = {}
+    docker_source_kwargs = {}
     if backend_name == "docker":
         for key in ("enterprise_source", "themes_source"):
             if key in kwargs:

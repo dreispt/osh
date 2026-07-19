@@ -4,8 +4,6 @@ Provides the root Click group and attaches sub-commands that live in
 `osh.commands`.
 """
 
-from __future__ import annotations
-
 import click
 
 from . import __version__
@@ -16,7 +14,7 @@ from .plugin_loader import load_plugins
 class NaturalOrderGroup(click.Group):
     """Click group subclass that prints commands in the order declared."""
 
-    def list_commands(self, ctx: click.Context) -> list[str]:  # noqa: D401
+    def list_commands(self, ctx):  # noqa: D401
         return list(self.commands)  # retain insertion order
 
 
@@ -40,9 +38,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     help="Disable emoji prefixes in output (for the emoji-averse)",
 )
 @click.pass_context
-def main(
-    ctx: click.Context, verbosity: str | None, no_emoji: bool
-) -> None:  # noqa: D401
+def main(ctx, verbosity, no_emoji):  # noqa: D401
     """
     Odoo Shell – your toolkit for Odoo environments
     to accelerate your development and staging workflows.
