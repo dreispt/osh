@@ -8,7 +8,7 @@ from ...backends import Backend, RunSpec
 from ...commons import discover_addons_paths, get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
-from ...odoo_layout import build_addons_paths, find_odoo_executable, get_odoo_version
+from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...verbosity import get_verbosity
 from .utils import _get_venv_python, init_project
 
@@ -64,7 +64,7 @@ class LocalBackend(Backend):
         if exe:
             d.add_info("odoo_executable", str(exe))
 
-        version = get_odoo_version(base)
+        version = self.detect_odoo_version(base)
         if version:
             d.add_info("odoo_version", version)
         else:

@@ -8,7 +8,7 @@ import click
 from ...backends import Backend, RunSpec
 from ...commons import run_command
 from ...diagnostics import Diagnostics
-from ...odoo_layout import build_addons_paths, get_odoo_version
+from ...odoo_layout import build_addons_paths
 from ...sources import ensure_osh_sources
 from .utils import (
     _COMPOSE_FILE,
@@ -129,7 +129,7 @@ class DockerBackend(Backend):
         else:
             d.add_warning(f"Compose file not found: {compose_path}")
 
-        odoo_version = get_odoo_version(base)
+        odoo_version = self.detect_odoo_version(base)
         if odoo_version:
             d.add_info("odoo_version", odoo_version)
         elif phase == "doctor":

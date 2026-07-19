@@ -58,6 +58,18 @@ class Backend(ABC):
         """
         return []
 
+    def detect_odoo_version(self, base):
+        """Return the installed Odoo version for *base*, or None if unknown.
+
+        The default implementation locates a runnable Odoo executable or reads
+        the Odoo source ``release.py`` file. Backends may override this hook
+        when version detection depends on the target runtime (e.g. a container
+        image).
+        """
+        from .odoo_layout import get_odoo_version
+
+        return get_odoo_version(base)
+
     def diagnose(
         self,
         base,
