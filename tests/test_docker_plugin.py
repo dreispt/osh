@@ -136,6 +136,21 @@ def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
+def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, monkeypatch):
+    """DockerBackend.diagnose reports the Odoo version from .osh/odoo sources."""
+    monkeypatch.setattr(
+        "osh.plugins.osh_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
+    release = tmp_project / ".osh" / "odoo" / "odoo" / "release.py"
+    release.parent.mkdir(parents=True, exist_ok=True)
+    release.write_text('version = "21.0"\n')
+
+    backend = DockerBackend()
+    d = backend.diagnose(tmp_project)
+    assert d.info["odoo_version"] == "21.0"
+
+
 def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
     """A missing explicit compose file raises an error."""
     _patch_docker_tools(monkeypatch)

@@ -5,7 +5,9 @@ and to assemble the ``--addons-path`` list for a project.
 """
 
 import os
+import re
 import shutil
+import subprocess
 
 import click
 
@@ -89,3 +91,46 @@ def _get_odoo_base_dir(base):
             return possible_odoo
 
     return None
+
+
+def _version_from_executable(exe):
+    """Return the version reported by an Odoo executable, or None."""
+    try:
+        result = subprocess.run(
+            [str(exe), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return None
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0 or not output:
+        return None
+    return output.splitlines()[0]
+
+
+def _version_from_sources(base):
+    """Return the version declared in ``.osh/odoo/odoo/release.py``, or None."""
+    release_file = base / ".osh" / "odoo" / "odoo" / "release.py"
+    if not release_file.is_file():
+        return None
+    text = release_file.read_text()
+    match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', text)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def get_odoo_version(base):
+    """Return the installed Odoo version for *base*, or None if unknown.
+
+    Prefers running the executable, falling back to reading the Odoo source
+    ``release.py`` for backends (such as Docker) that do not create a venv.
+    """
+    exe = find_odoo_executable(base)
+    if exe:
+        version = _version_from_executable(exe)
+        if version:
+            return version
+    return _version_from_sources(base)
