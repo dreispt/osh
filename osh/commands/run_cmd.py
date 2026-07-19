@@ -94,7 +94,9 @@ def run(
         raise click.ClickException(f"Unknown run target: {backend_name}")
     backend = backend_cls()
 
-    diagnostics = backend.diagnose(base, ctx, phase="run")
+    diagnostics = backend.diagnose(
+        base, ctx, phase="run", compose_file=compose_file, edition=edition
+    )
     for warning in diagnostics.warnings:
         echo.warning(warning)
     if diagnostics.errors:
