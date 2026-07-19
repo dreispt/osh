@@ -84,14 +84,25 @@ class DockerBackend(Backend):
             )
 
         cfg = _load_docker_config(base)
+
+        def _cfg_value(key: str, default: Any = None) -> Any:
+            return cfg.get(key, default) if cfg else default
+
+        # Resolve effective values from CLI options and saved config.
+        service = options.get("service") or _cfg_value("service")
+        command = options.get("command") or _cfg_value("command")
+        compose_file = options.get("compose_file") or _cfg_value("compose_file")
+        edition = (options.get("edition") or _cfg_value("edition") or "ce").lower()
+        version = options.get("version") or _cfg_value("version") or ""
+
         if cfg:
-            d.add_info("service", cfg.get("service", "odoo"))
-            d.add_info("command", cfg.get("command", "odoo"))
-            d.add_info("compose_file", cfg.get("compose_file", "<none>"))
-            d.add_info("version", cfg.get("version", ""))
-            d.add_info("edition", cfg.get("edition", "ce"))
+            d.add_info("service", service or "odoo")
+            d.add_info("command", command or "odoo")
+            d.add_info("compose_file", compose_file or "<none>")
+            d.add_info("version", version)
+            d.add_info("edition", edition)
             if cfg.get("compose_tool"):
-                d.add_info("configured_compose_tool", cfg.get("compose_tool"))
+                d.add_info("configured_compose_tool", cfg["compose_tool"])
         elif phase == "init":
             d.add_warning(
                 "Docker backend config not found; it will be created during init."
@@ -105,17 +116,22 @@ class DockerBackend(Backend):
                 "Docker backend config not found. Run 'osh init --target docker'."
             )
 
-        compose_path = base / _COMPOSE_FILE
+        # Use the effective compose file (custom path, saved config, or default).
+        compose_path = (
+            base / Path(compose_file) if compose_file else base / _COMPOSE_FILE
+        )
         if compose_path.exists():
             d.add_info("generated_compose_file", str(compose_path))
         elif phase == "init":
-            d.add_plan(f"Generate {compose_path} if it does not exist")
+            if compose_file:
+                d.add_error(f"Compose file not found: {compose_path}")
+            else:
+                d.add_plan(f"Generate {compose_path}")
         elif phase == "run":
-            d.add_error(f"Generated compose file not found: {compose_path}")
+            d.add_error(f"Compose file not found: {compose_path}")
         else:
-            d.add_warning(f"Generated compose file not found: {compose_path}")
+            d.add_warning(f"Compose file not found: {compose_path}")
 
-        service = cfg.get("service") if cfg else None
         if not service:
             if phase == "init":
                 d.add_warning("No --service provided; defaulting to 'odoo'.")
@@ -127,20 +143,16 @@ class DockerBackend(Backend):
             d.add_plan("Ensure Odoo sources for the selected edition")
             d.add_plan("Run an Odoo --version smoke test")
 
-        if phase == "run":
-            edition = cfg.get("edition", "ce") if cfg else "ce"
-            if edition in ("ee", "sh"):
-                required = ["enterprise"]
-                if edition == "sh":
-                    required.append("design-themes")
-                missing = [
-                    name for name in required if not (base / ".osh" / name).exists()
-                ]
-                if missing:
-                    d.add_error(
-                        f"Project is missing required source copies: {', '.join(missing)}. "
-                        "Run 'osh init' first."
-                    )
+        if phase == "run" and edition in ("ee", "sh") and not version:
+            required = ["enterprise"]
+            if edition == "sh":
+                required.append("design-themes")
+            missing = [name for name in required if not (base / ".osh" / name).exists()]
+            if missing:
+                d.add_error(
+                    f"Project is missing required source copies: {', '.join(missing)}. "
+                    "Run 'osh init' first."
+                )
 
         return d
 
@@ -312,14 +324,23 @@ class DockerBackend(Backend):
             assume_yes=True,
         )
 
+        if not args:
+            raise click.ClickException("No command provided to run.")
         odoo_args = args[1:]  # args[0] is the host executable placeholder
+
+        def _is_relative_to(path: Path, base: Path) -> bool:
+            try:
+                path.relative_to(base)
+                return True
+            except ValueError:
+                return False
 
         if "--addons-path" not in odoo_args:
             addons_paths = build_addons_paths(base, include_themes=True)
             container_paths = [
                 f"/mnt/extra-addons/{p.relative_to(base)}"
                 for p in addons_paths
-                if p.is_relative_to(base)
+                if _is_relative_to(p, base)
             ]
             if container_paths:
                 odoo_args.extend(["--addons-path", ",".join(container_paths)])
