@@ -218,7 +218,7 @@ class LocalBackend(Backend):
         *,
         dry_run=False,
     ):
-        from ...neutralize import neutralize_database
+        from ...db import neutralize_database
 
         exe = find_odoo_executable(base, required=True)
         python = _get_venv_python(exe)
