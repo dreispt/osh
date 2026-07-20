@@ -13,6 +13,7 @@ from . import (
     plug_cmd,
     restore_cmd,
     run_cmd,
+    venv_cmd,
     version_cmd,
 )
 
@@ -21,6 +22,8 @@ COMMANDS = [
     doctor_cmd.doctor,
     run_cmd.run,
     odoo_cmd.odoo,
+    venv_cmd.python,
+    venv_cmd.pip,
     restore_cmd.restore,
     backup_cmd.backup,
     config_cmd.config,
