@@ -59,14 +59,14 @@ def _neutralize_with_odoo(base, exe, db_name):
     config_path = resolve_config_file(base, [])
 
     if config_path:
-        args = [exe, "--config", str(config_path)]
+        args = [exe, f"--config={config_path}"]
     else:
         args = [exe]
 
     addons_paths = build_addons_paths(base)
     if addons_paths:
         unique_paths = sorted({str(p) for p in addons_paths})
-        args.extend(["--addons-path", ",".join(unique_paths)])
+        args.append(f"--addons-path={','.join(unique_paths)}")
 
     args.extend(["neutralize", "-d", db_name])
     try:

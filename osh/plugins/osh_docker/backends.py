@@ -437,7 +437,7 @@ class DockerBackend(Backend):
         if config_path:
             # Convert local path to container path
             container_config = str(config_path).replace(str(base), "/mnt/extra-addons")
-            odoo_args.extend(["--config", container_config])
+            odoo_args.append(f"--config={container_config}")
 
         odoo_command = _docker_command(service, command)
         cli_params = getattr(ctx, "params", {}) or {}

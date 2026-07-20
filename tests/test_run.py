@@ -25,8 +25,9 @@ def test_run_dry_run_shows_addons_path_and_save(
     assert str(osh_source_dirs / "odoo" / "addons") in joined
     assert str(osh_source_dirs / "enterprise") in joined
     assert str(osh_source_dirs / "design-themes") in joined
-    assert f"--config {odoo_conf}" in joined
-    assert "--save" in joined
+    # No config file exists yet, so --config should not be present
+    assert "--config" not in joined
+    assert "--save" not in joined
     assert "-d testdb" in joined
     assert "--db-filter ^testdb$" in joined
     assert not odoo_conf.exists()
@@ -53,7 +54,7 @@ def test_run_creates_empty_config_and_adds_save_flag(
     _, final_args = capture_execvp[0]
     joined = " ".join(final_args)
     assert "--addons-path" in joined
-    assert f"--config {odoo_conf}" in joined
+    assert f"--config={odoo_conf}" in joined
     assert "--save" in joined
     assert "-d testdb" in joined
 
@@ -100,6 +101,7 @@ def test_run_uses_explicit_config_without_save(
     assert len(capture_execvp) == 1
     _, final_args = capture_execvp[0]
     joined = " ".join(final_args)
+    # User provided space format, so it should be preserved
     assert "--config /other/odoo.conf" in joined
     assert "--save" not in joined
 
@@ -150,8 +152,8 @@ def test_test_wraps_run_with_install_and_test_enable(
     assert "--stop-after-init" in result.output
     assert "-d project-default-test" in result.output
     assert "--db-filter ^project-default-test$" in result.output
-    assert f"--config {osh_source_dirs / 'odoo.conf'}" in result.output
-    assert "--save" in result.output
+    # Test command doesn't create config file, so --config should not be present
+    assert "--config" not in result.output
 
 
 def test_test_dropdb_dry_run_does_not_drop_database(

@@ -101,7 +101,7 @@ def test_odoo_default_command_adds_defaults(
 
     assert result.exit_code == 0
     # Config and addons-path should be used when no subcommand is provided
-    assert "--config" in result.output
+    assert "--config=" in result.output
     assert str(osh_conf) in result.output
     assert "--addons-path=" in result.output
 

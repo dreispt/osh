@@ -96,7 +96,7 @@ def odoo(
         if config_path:
             if verbose:
                 click.echo(f"Using config: {config_path}", err=True)
-            args.extend(["--config", str(config_path)])
+            args.append(f"--config={config_path}")
 
         if not any(arg.startswith("--addons-path") for arg in extra_args):
             addons_paths = build_addons_paths(base)

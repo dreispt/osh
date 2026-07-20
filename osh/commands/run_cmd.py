@@ -129,7 +129,8 @@ def run(
 
     argv = [executable]
     if config_path:
-        argv.extend(["--config", config_path, "--save"])
+        argv.append(f"--config={config_path}")
+        argv.append("--save")
     argv.extend(db_args)
     argv.extend(extra_args)
 
