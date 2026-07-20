@@ -63,7 +63,7 @@ Odoo in editable mode.
 
 ### `osh run`
 
-Run Odoo with automatic configuration. Runs the Odoo server on the active target backend (local, docker or other), injecting some default options detected from the current environment and branch: config, addons-path, dbname and dbfilter.
+Run Odoo with automatic configuration. Runs the Odoo server on the active target backend (local, docker or other), injecting some default options detected from the current environment and branch: config, addons-path, dbname and dbfilter. If specifically provided, then the defaults will be overridden.
 
 ```bash
 osh run
