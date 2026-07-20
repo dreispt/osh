@@ -6,8 +6,8 @@ from pathlib import Path
 
 import click
 
-from ...backends import Backend, RunSpec
-from ...commons import copy_odoo_rc_to_osh_conf, run_command
+from ...backends import Backend, RunSpec, copy_odoo_rc_to_osh_conf
+from ...commons import run_command
 from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths
 from ...sources import _version_from_sources, ensure_osh_sources

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from ...commons import copy_odoo_rc_to_osh_conf
+from ...backends import copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 
 
