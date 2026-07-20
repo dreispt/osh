@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 
+from ...commons import copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 
 
@@ -73,14 +74,7 @@ def _prepare_target_dir(target):
     if not config_path.exists():
         config_path.touch()
 
-    # Copy .odoorc to .osh/odoo.conf if it exists
-    odoo_rc = target / ".odoorc"
-    osh_odoo_conf = osh_dir / "odoo.conf"
-    if odoo_rc.exists() and not osh_odoo_conf.exists():
-        import shutil
-
-        shutil.copy(odoo_rc, osh_odoo_conf)
-        click.echo("Copied .odoorc to .osh/odoo.conf", err=True)
+    copy_odoo_rc_to_osh_conf(target)
 
 
 def _run_init_smoke_test(target, env_ready):

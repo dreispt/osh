@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from ...backends import Backend, RunSpec
-from ...commons import run_command
+from ...commons import copy_odoo_rc_to_osh_conf, run_command
 from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths
 from ...sources import _version_from_sources, ensure_osh_sources
@@ -269,14 +269,7 @@ class DockerBackend(Backend):
                     click.echo(f"Generated {osh_compose}.", err=True)
             compose_file = str(_COMPOSE_FILE)
 
-        # Copy .odoorc to .osh/odoo.conf if it exists
-        odoo_rc = target / ".odoorc"
-        osh_odoo_conf = target / ".osh" / "odoo.conf"
-        if odoo_rc.exists() and not osh_odoo_conf.exists():
-            import shutil
-
-            shutil.copy(odoo_rc, osh_odoo_conf)
-            click.echo("Copied .odoorc to .osh/odoo.conf", err=True)
+        copy_odoo_rc_to_osh_conf(target)
 
         if dry_run:
             click.echo(

@@ -87,6 +87,15 @@ def get_osh_config_path(base):
     return base / ".osh" / "config"
 
 
+def copy_odoo_rc_to_osh_conf(base):
+    """Copy .odoorc to .osh/odoo.conf if .odoorc exists and .osh/odoo.conf doesn't."""
+    odoo_rc = base / ".odoorc"
+    osh_odoo_conf = base / ".osh" / "odoo.conf"
+    if odoo_rc.exists() and not osh_odoo_conf.exists():
+        shutil.copy(odoo_rc, osh_odoo_conf)
+        click.echo("Copied .odoorc to .osh/odoo.conf", err=True)
+
+
 def ensure_tool(tool):
     """Raise a ClickException if *tool* is not available on PATH."""
     if not shutil.which(tool):
