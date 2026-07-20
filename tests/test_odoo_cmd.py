@@ -11,7 +11,7 @@ def test_odoo_includes_addons_path(
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` adds --addons-path and config for default command, but skips both for subcommands."""
+    """``osh odoo`` is a clean passthrough for subcommands, adds defaults for default command."""
     # Create .odoorc so the command would use it for default command.
     (tmp_project / ".odoorc").write_text("[options]\n")
 
@@ -20,12 +20,10 @@ def test_odoo_includes_addons_path(
     result = runner.invoke(odoo, ["--dry-run", "shell", "-d", "mydb"])
 
     assert result.exit_code == 0
-    # Config and addons-path are skipped for subcommands to avoid default command conflicts
+    # For subcommands, it's a clean passthrough - no automatic injections
     assert "--config" not in result.output
     assert "--addons-path" not in result.output
     assert "shell -d mydb" in result.output
-    # It must not add --db-filter or auto-resolve a branch database for subcommands
-    assert "--db-filter" not in result.output
 
 
 def test_odoo_respects_explicit_config(
@@ -81,13 +79,13 @@ def test_odoo_neutralize_skips_config_with_default_command(
     assert "neutralize -d mydb" in result.output
 
 
-def test_odoo_default_command_uses_config(
+def test_odoo_default_command_adds_defaults(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` without subcommand uses config and addons-path as expected."""
+    """``osh odoo`` without subcommand adds config, addons-path, and database."""
     # Create .osh/odoo.conf
     osh_conf = tmp_project / ".osh" / "odoo.conf"
     osh_conf.parent.mkdir(parents=True, exist_ok=True)

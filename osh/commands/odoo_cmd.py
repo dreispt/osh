@@ -58,19 +58,17 @@ def odoo(
     args = [exe]
 
     # Check if we're running a subcommand (not the default server command)
-    # If so, skip config to avoid default command conflicts
+    # If so, skip all automatic injections to be a clean passthrough
     has_subcommand = extra_args and not extra_args[0].startswith("-")
 
     if not has_subcommand:
+        # Only add defaults for the default server command
         config_path = resolve_config_file(base, extra_args)
         if config_path:
             if verbose:
                 click.echo(f"Using config: {config_path}", err=True)
             args.extend(["--config", str(config_path)])
 
-    # Discover addons path unless already specified.
-    # For subcommands, skip this to avoid default command conflicts
-    if not has_subcommand:
         if not any(arg.startswith("--addons-path") for arg in extra_args):
             addons_paths = build_addons_paths(base)
             if addons_paths:
@@ -79,9 +77,6 @@ def odoo(
                     click.echo(f"Using addons path: {addons_path_str}", err=True)
                 args.extend(["--addons-path", addons_path_str])
 
-    # Inject database name from osh config unless already specified.
-    # Only inject for default command, not for subcommands (subcommands handle their own -d)
-    if not has_subcommand:
         if not any(
             arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
         ):
