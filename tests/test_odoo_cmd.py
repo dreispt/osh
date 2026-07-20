@@ -20,10 +20,10 @@ def test_odoo_includes_addons_path(
     result = runner.invoke(odoo, ["--dry-run", "shell", "-d", "mydb"])
 
     assert result.exit_code == 0
-    # For subcommands, addons-path is added after the subcommand name
+    # For subcommands, addons-path is added after the subcommand name with equals sign
     assert "--config" not in result.output
-    assert "--addons-path" in result.output
-    assert "shell --addons-path" in result.output
+    assert "--addons-path=" in result.output
+    assert "shell --addons-path=" in result.output
     assert "-d mydb" in result.output
 
 
@@ -77,9 +77,9 @@ def test_odoo_neutralize_skips_config_with_default_command(
     assert result.exit_code == 0
     # Config should be skipped for subcommands to avoid conflicts
     assert "--config" not in result.output
-    # But addons-path should be added after the subcommand
-    assert "--addons-path" in result.output
-    assert "neutralize --addons-path" in result.output
+    # But addons-path should be added after the subcommand with equals sign
+    assert "--addons-path=" in result.output
+    assert "neutralize --addons-path=" in result.output
     assert "-d mydb" in result.output
 
 
@@ -103,7 +103,7 @@ def test_odoo_default_command_adds_defaults(
     # Config and addons-path should be used when no subcommand is provided
     assert "--config" in result.output
     assert str(osh_conf) in result.output
-    assert "--addons-path" in result.output
+    assert "--addons-path=" in result.output
 
 
 def test_odoo_subcommand_does_not_auto_inject_db(
@@ -120,10 +120,10 @@ def test_odoo_subcommand_does_not_auto_inject_db(
     assert result.exit_code == 0
     # Database name should not be auto-injected for subcommands
     # (subcommands handle their own -d parameter)
-    # The command should end with neutralize or neutralize --addons-path ... (no -d)
+    # The command should end with neutralize or neutralize --addons-path=... (no -d)
     assert (
         result.output.strip().endswith("neutralize")
-        or "neutralize --addons-path" in result.output
+        or "neutralize --addons-path=" in result.output
     )
     # Check that there's no standalone -d parameter (not part of --addons-path)
     parts = result.output.split()

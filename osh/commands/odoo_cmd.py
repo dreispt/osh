@@ -80,13 +80,14 @@ def odoo(
         remaining_args = extra_args[1:]
 
         # Inject addons-path after the subcommand (before other args)
+        # Use equals sign format: --addons-path=PATH to avoid command parsing issues
         if not any(arg.startswith("--addons-path") for arg in remaining_args):
             addons_paths = build_addons_paths(base)
             if addons_paths:
                 addons_path_str = ",".join(str(p) for p in addons_paths)
                 if verbose:
                     click.echo(f"Using addons path: {addons_path_str}", err=True)
-                args.extend(["--addons-path", addons_path_str])
+                args.append(f"--addons-path={addons_path_str}")
 
         args.extend(remaining_args)
     else:
@@ -103,7 +104,7 @@ def odoo(
                 addons_path_str = ",".join(str(p) for p in addons_paths)
                 if verbose:
                     click.echo(f"Using addons path: {addons_path_str}", err=True)
-                args.extend(["--addons-path", addons_path_str])
+                args.append(f"--addons-path={addons_path_str}")
 
         if not any(
             arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
