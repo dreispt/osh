@@ -5,6 +5,7 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 ``.osh/``.
 """
 
+import fnmatch
 import os
 import re
 import shutil
@@ -83,7 +84,7 @@ def ensure_osh_sources(
             (
                 "enterprise",
                 enterprise_source,
-                ("enterprise", "enterprise-copy"),
+                ("enterprise", "enterprise-copy", "*enterprise*"),
                 ("*/__manifest__.py", "*/__openerp__.py"),
                 DEFAULT_ENTERPRISE_URL,
             )
@@ -102,12 +103,16 @@ def ensure_osh_sources(
     if not source_defs:
         return {"odoo": None, "enterprise": None, "design-themes": None}
 
-    source_plans = {
-        name: _resolve_source(
-            name, version, flag, _find_local_source(base, names, files), osh_dir, url
+    source_plans = {}
+    for name, flag, names, files, url in source_defs:
+        project_source, requires_confirmation = _find_local_source(base, names, files)
+        if requires_confirmation and not assume_yes:
+            if not _confirm_pattern_match(name, project_source):
+                # User declined, fall back to default URL
+                project_source = None
+        source_plans[name] = _resolve_source(
+            name, version, flag, project_source, osh_dir, url
         )
-        for name, flag, names, files, url in source_defs
-    }
 
     _display_source_plan(osh_dir, edition, source_plans)
 
@@ -166,6 +171,23 @@ def _confirm_sources(assume_yes):
         click.echo("Proceeding in non-interactive mode.", err=True)
 
 
+def _confirm_pattern_match(source_name, source_path):
+    """Ask the user to confirm a pattern-matched source directory."""
+    if not source_path:
+        return False
+    if not sys.stdin.isatty():
+        click.echo(
+            f"Found {source_name} source via pattern match: {source_path}",
+            err=True,
+        )
+        return True
+    click.echo(
+        f"Found {source_name} source via pattern match: {source_path}",
+        err=True,
+    )
+    return click.confirm(f"Use this directory for {source_name}?", default=True)
+
+
 def _resolve_source(
     name,
     version,
@@ -175,6 +197,10 @@ def _resolve_source(
     default_url,
 ):
     """Return the planned action, source spec and an optional mismatch warning."""
+    # Handle tuple return from _find_local_source
+    if project_source and isinstance(project_source, tuple):
+        project_source = project_source[0]  # Extract path, ignore confirmation flag
+
     link = osh_dir / name
     if link.exists() or link.is_symlink():
         resolved = link.resolve()
@@ -339,28 +365,50 @@ def _find_local_source(
 
     *names* are candidate directory names (an empty string means *base* itself).
     *files* are glob patterns to look for inside the candidate directory.
+    Returns a tuple of (path, requires_confirmation) where requires_confirmation is True
+    if the source was found via a glob pattern match rather than exact name match.
     """
+
     # Check base directory itself
     for name in names:
         path = base / name if name else base
         if path.is_dir() and _has_manifest_file(path, files):
-            return path.resolve()
+            return path.resolve(), False
 
     # Search recursively up to 9 levels deep for candidate directories
     # Only search subdirectories (not base itself, which was already checked)
     non_empty_names = [n for n in names if n]  # Filter out empty strings
 
     if non_empty_names:
-        # Search for specific directory names
+        # Separate exact names from glob patterns
+        exact_names = [n for n in non_empty_names if not n.startswith("*")]
+        glob_patterns = [n for n in non_empty_names if n.startswith("*")]
+
+        # Search for exact directory names first
         for cand in base.rglob("*"):
             # Limit depth to 9 levels
             if len(cand.relative_to(base).parts) > 9:
                 continue
             if not cand.is_dir():
                 continue
-            for name in non_empty_names:
+            for name in exact_names:
                 if cand.name == name and _has_manifest_file(cand, files):
-                    return cand.resolve()
+                    return cand.resolve(), False
+
+        # Search for glob pattern matches (requires confirmation)
+        if glob_patterns:
+            for cand in base.rglob("*"):
+                # Limit depth to 9 levels
+                if len(cand.relative_to(base).parts) > 9:
+                    continue
+                if not cand.is_dir():
+                    continue
+                for pattern in glob_patterns:
+                    # Pattern like "*enterprise*" should match directory names containing "enterprise"
+                    if fnmatch.fnmatch(cand.name, pattern) and _has_manifest_file(
+                        cand, files
+                    ):
+                        return cand.resolve(), True
     else:
         # If no specific names, search for any directory with manifest files
         for cand in base.rglob("*"):
@@ -370,8 +418,8 @@ def _find_local_source(
             if not cand.is_dir():
                 continue
             if _has_manifest_file(cand, files):
-                return cand.resolve()
-    return None
+                return cand.resolve(), False
+    return None, False
 
 
 def _has_manifest_file(path, patterns):

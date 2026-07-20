@@ -124,42 +124,67 @@ def _ensure_source(
 class TestFindLocalSources:
     def test_find_odoo_in_root(self, tmp_project):
         (tmp_project / "odoo-bin").touch()
-        assert (
-            _find_local_source(tmp_project, ("",), ("odoo-bin",))
-            == tmp_project.resolve()
+        assert _find_local_source(tmp_project, ("",), ("odoo-bin",)) == (
+            tmp_project.resolve(),
+            False,
         )
 
     def test_find_odoo_in_subdirectory(self, tmp_project):
         sub = tmp_project / "odoo"
         sub.mkdir(parents=True, exist_ok=True)
         (sub / "odoo-bin").touch()
-        assert _find_local_source(tmp_project, ("",), ("odoo-bin",)) == sub.resolve()
+        assert _find_local_source(tmp_project, ("",), ("odoo-bin",)) == (
+            sub.resolve(),
+            False,
+        )
 
     def test_find_enterprise_with_manifest(self, tmp_project):
         ent = tmp_project / "enterprise"
         web = ent / "web"
         web.mkdir(parents=True, exist_ok=True)
         (web / "__manifest__.py").touch()
-        assert (
-            _find_local_source(
-                tmp_project, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
-            )
-            == ent.resolve()
-        )
+        assert _find_local_source(
+            tmp_project, ("enterprise",), ("*/__manifest__.py", "*/__openerp__.py")
+        ) == (ent.resolve(), False)
 
     def test_find_themes_with_manifest(self, tmp_project):
         themes = tmp_project / "design-themes"
         theme_buzzy = themes / "theme_buzzy"
         theme_buzzy.mkdir(parents=True, exist_ok=True)
         (theme_buzzy / "__manifest__.py").touch()
-        assert (
-            _find_local_source(
-                tmp_project,
-                ("design-themes", "themes"),
-                ("*/__manifest__.py", "*/__openerp__.py"),
-            )
-            == themes.resolve()
+        assert _find_local_source(
+            tmp_project,
+            ("design-themes", "themes"),
+            ("*/__manifest__.py", "*/__openerp__.py"),
+        ) == (themes.resolve(), False)
+
+    def test_find_enterprise_with_pattern(self, tmp_project):
+        ent_copy = tmp_project / "my-enterprise-dir"
+        web = ent_copy / "web"
+        web.mkdir(parents=True, exist_ok=True)
+        (web / "__manifest__.py").touch()
+        path, requires_confirmation = _find_local_source(
+            tmp_project,
+            ("enterprise", "enterprise-copy", "*enterprise*"),
+            ("*/__manifest__.py", "*/__openerp__.py"),
         )
+        assert path == ent_copy.resolve()
+        # Should require confirmation since it was found via glob pattern
+        assert requires_confirmation
+
+    def test_find_enterprise_exact_copy_no_confirmation(self, tmp_project):
+        ent_copy = tmp_project / "enterprise-copy"
+        web = ent_copy / "web"
+        web.mkdir(parents=True, exist_ok=True)
+        (web / "__manifest__.py").touch()
+        path, requires_confirmation = _find_local_source(
+            tmp_project,
+            ("enterprise", "enterprise-copy", "*enterprise*"),
+            ("*/__manifest__.py", "*/__openerp__.py"),
+        )
+        assert path == ent_copy.resolve()
+        # Should NOT require confirmation since it's an exact name match
+        assert not requires_confirmation
 
 
 class TestIsGitUrl:
