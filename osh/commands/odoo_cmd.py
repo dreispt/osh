@@ -7,7 +7,7 @@ to avoid default command conflicts. This makes it suitable for any `odoo-bin`
 subcommand such as `shell`, `neutralize`, `scaffold`, `cloc`, etc.
 """
 
-import os
+import subprocess
 
 import click
 
@@ -69,13 +69,15 @@ def odoo(
             args.extend(["--config", str(config_path)])
 
     # Discover addons path unless already specified.
-    if not any(arg.startswith("--addons-path") for arg in extra_args):
-        addons_paths = build_addons_paths(base)
-        if addons_paths:
-            addons_path_str = ",".join(str(p) for p in addons_paths)
-            if verbose:
-                click.echo(f"Using addons path: {addons_path_str}", err=True)
-            args.extend(["--addons-path", addons_path_str])
+    # For subcommands, skip this to avoid default command conflicts
+    if not has_subcommand:
+        if not any(arg.startswith("--addons-path") for arg in extra_args):
+            addons_paths = build_addons_paths(base)
+            if addons_paths:
+                addons_path_str = ",".join(str(p) for p in addons_paths)
+                if verbose:
+                    click.echo(f"Using addons path: {addons_path_str}", err=True)
+                args.extend(["--addons-path", addons_path_str])
 
     # Inject database name from osh config unless already specified.
     # Only inject for default command, not for subcommands (subcommands handle their own -d)
@@ -99,6 +101,12 @@ def odoo(
         click.echo(f"Running: {' '.join(args)}", err=True)
 
     try:
-        os.execvp(exe, args)
+        # Use subprocess.run instead of os.execvp for better compatibility
+        result = subprocess.run(args, check=True)
+        return result.returncode
+    except subprocess.CalledProcessError as exc:
+        raise click.ClickException(
+            f"Command failed with exit code {exc.returncode}"
+        ) from exc
     except Exception as exc:  # pragma: no cover
         raise click.ClickException(str(exc))
