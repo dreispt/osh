@@ -12,7 +12,7 @@ from ...diagnostics import Diagnostics
 from ...echo import get_echo
 from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...sources import _version_from_sources
-from .utils import _get_venv_python, init_project
+from .utils import init_project
 
 
 def _version_from_executable(exe):
@@ -221,8 +221,7 @@ class LocalBackend(Backend):
         from ...db import neutralize_database
 
         exe = find_odoo_executable(base, required=True)
-        python = _get_venv_python(exe)
-        neutralize_database(base, exe, db_name, python=python, dry_run=dry_run)
+        neutralize_database(base, exe, db_name, dry_run=dry_run)
 
     def restore(
         self,

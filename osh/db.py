@@ -270,42 +270,46 @@ def resolve_test_db_name(base, current_db, test_db):
     return sanitize_db_name(f"{base.name}-{branch}-test")
 
 
+_MIN_NEUTRALIZE_VERSION = (16, 0)
+
+
 def neutralize_database(
     base,
     exe,
     db_name,
     *,
-    python=None,
     dry_run=False,
 ):
     """Neutralize *db_name* using the best available strategy."""
     if dry_run:
-        click.echo(
-            f"Would neutralize database '{db_name}' (odoo-bin neutralize if available)",
-            err=True,
-        )
+        click.echo(f"Would neutralize database '{db_name}'", err=True)
         return
 
-    if _neutralize_command_available(exe, python):
+    version = _get_odoo_version(exe)
+    if version is not None and version >= _MIN_NEUTRALIZE_VERSION:
         _neutralize_with_odoo(base, exe, db_name)
     else:
         _neutralize_with_sql(base, db_name)
 
 
-def _neutralize_command_available(exe, python=None):
-    """Return True if the installed Odoo provides `odoo-bin neutralize`."""
-    if python is None:
-        return False
+def _get_odoo_version(exe):
+    """Return the installed Odoo version as a (major, minor) tuple, or None."""
     try:
-        subprocess.run(
-            [str(python), "-c", "import odoo.cli.neutralize"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
+        result = subprocess.run(
+            [str(exe), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+    except (OSError, ValueError):
+        return None
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0 or not output:
+        return None
+    match = re.search(r"(\d+)\.(\d+)", output.splitlines()[0])
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
 
 
 def _neutralize_with_odoo(base, exe, db_name):
