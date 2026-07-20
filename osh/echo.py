@@ -162,6 +162,25 @@ class Echo:
         """Log internal debugging information (shown at debug level only)."""
         self._echo("internal", message, err=err)
 
+    def confirm(self, message, default=True, abort=False):
+        """Ask the user for confirmation.
+
+        Args:
+            message: The confirmation message
+            default: Default value if user doesn't respond (default: True)
+            abort: If True, abort on negative response (default: False)
+
+        Returns:
+            True if user confirms, False otherwise
+        """
+        import sys
+
+        if not sys.stdin.isatty():
+            # Non-interactive mode, return default
+            return default
+
+        return click.confirm(message, default=default, abort=abort)
+
 
 def _detect_verbosity(base):
     """Detect appropriate verbosity level based on user experience and project state.

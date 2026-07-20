@@ -62,6 +62,7 @@ def ensure_osh_sources(
     odoo_source=None,
     enterprise_source=None,
     themes_source=None,
+    echo=None,
 ):
     """Resolve, plan and install the required Odoo source copies.
 
@@ -106,8 +107,8 @@ def ensure_osh_sources(
     source_plans = {}
     for name, flag, names, files, url in source_defs:
         project_source, requires_confirmation = _find_local_source(base, names, files)
-        if requires_confirmation and not assume_yes:
-            if not _confirm_pattern_match(name, project_source):
+        if requires_confirmation and not assume_yes and echo:
+            if not echo.confirm(f"Use {project_source} for {name}?", default=True):
                 # User declined, fall back to default URL
                 project_source = None
         source_plans[name] = _resolve_source(
@@ -169,23 +170,6 @@ def _confirm_sources(assume_yes):
         click.confirm("Proceed?", default=True, abort=True)
     else:
         click.echo("Proceeding in non-interactive mode.", err=True)
-
-
-def _confirm_pattern_match(source_name, source_path):
-    """Ask the user to confirm a pattern-matched source directory."""
-    if not source_path:
-        return False
-    if not sys.stdin.isatty():
-        click.echo(
-            f"Found {source_name} source via pattern match: {source_path}",
-            err=True,
-        )
-        return True
-    click.echo(
-        f"Found {source_name} source via pattern match: {source_path}",
-        err=True,
-    )
-    return click.confirm(f"Use this directory for {source_name}?", default=True)
 
 
 def _resolve_source(

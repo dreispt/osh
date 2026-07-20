@@ -156,6 +156,7 @@ class LocalBackend(Backend):
         version="",
         edition="ce",
         dry_run=False,
+        echo=None,
         **options,
     ):
         init_project(
@@ -167,6 +168,7 @@ class LocalBackend(Backend):
             odoo_source=options.get("odoo_source"),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
+            echo=echo,
         )
         return True
 

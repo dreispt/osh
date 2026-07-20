@@ -114,6 +114,7 @@ class Backend(ABC):
         version="",
         edition="ce",
         dry_run=False,
+        echo=None,
         **options,
     ):
         """Set up the environment. Return ``True`` if ready for use."""

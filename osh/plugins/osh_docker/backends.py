@@ -234,6 +234,7 @@ class DockerBackend(Backend):
         version="",
         edition="ce",
         dry_run=False,
+        echo=None,
         **options,
     ):
         """Set up the project to run Odoo with Docker Compose."""
@@ -328,6 +329,7 @@ class DockerBackend(Backend):
             dry_run=False,
             skip_odoo=True,
             assume_yes=options.get("assume_yes", False),
+            echo=echo,
             **source_kwargs,
         )
 

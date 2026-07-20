@@ -280,6 +280,7 @@ def init(
         dry_run=dry_run,
         assume_yes=assume_yes or confirmed,
         todo=todo,
+        echo=echo,
         **kwargs,
         **docker_source_kwargs,
     )
