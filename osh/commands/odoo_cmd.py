@@ -55,14 +55,27 @@ def odoo(
 
     args = [exe]
 
-    # Use .odoorc in the project root unless already specified.
-    odoo_rc = get_odoo_config_path(base)
-    if odoo_rc.exists() and not any(
-        arg.startswith("--config") or arg.startswith("-c") for arg in extra_args
-    ):
-        if verbose:
-            click.echo(f"Using config: {odoo_rc}", err=True)
-        args.extend(["--config", str(odoo_rc)])
+    # Check if we're running a subcommand (not the default server command)
+    # If so, skip config to avoid default command conflicts
+    has_subcommand = extra_args and not extra_args[0].startswith("-")
+
+    if not has_subcommand:
+        # Use .osh/odoo.conf if it exists, otherwise fall back to .odoorc
+        osh_odoo_conf = base / ".osh" / "odoo.conf"
+        odoo_rc = get_odoo_config_path(base)
+
+        config_to_use = None
+        if osh_odoo_conf.exists():
+            config_to_use = osh_odoo_conf
+        elif odoo_rc.exists():
+            config_to_use = odoo_rc
+
+        if config_to_use and not any(
+            arg.startswith("--config") or arg.startswith("-c") for arg in extra_args
+        ):
+            if verbose:
+                click.echo(f"Using config: {config_to_use}", err=True)
+            args.extend(["--config", str(config_to_use)])
 
     # Discover addons path unless already specified.
     if not any(arg.startswith("--addons-path") for arg in extra_args):

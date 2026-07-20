@@ -432,13 +432,20 @@ class DockerBackend(Backend):
             if container_paths:
                 odoo_args.extend(["--addons-path", ",".join(container_paths)])
 
-        # Inject .osh/odoo.conf if it exists and no explicit config is provided
-        if not any(
+        # Inject .osh/odoo.conf if it exists, otherwise fall back to .odoorc
+        osh_odoo_conf = base / ".osh" / "odoo.conf"
+        odoo_rc = base / ".odoorc"
+
+        config_to_use = None
+        if osh_odoo_conf.exists():
+            config_to_use = "/mnt/extra-addons/.osh/odoo.conf"
+        elif odoo_rc.exists():
+            config_to_use = "/mnt/extra-addons/.odoorc"
+
+        if config_to_use and not any(
             arg.startswith("--config") or arg.startswith("-c") for arg in odoo_args
         ):
-            osh_odoo_conf = base / ".osh" / "odoo.conf"
-            if osh_odoo_conf.exists():
-                odoo_args.extend(["--config", "/mnt/extra-addons/.osh/odoo.conf"])
+            odoo_args.extend(["--config", config_to_use])
 
         odoo_command = _docker_command(service, command)
         cli_params = getattr(ctx, "params", {}) or {}

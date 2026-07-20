@@ -55,7 +55,20 @@ def _neutralize_command_available(exe, python=None):
 
 def _neutralize_with_odoo(base, exe, db_name):
     """Run ``odoo-bin neutralize`` against the target database."""
-    args = [exe, "--config", str(base / ".odoorc")]
+    # Use .osh/odoo.conf if it exists, otherwise fall back to .odoorc
+    osh_odoo_conf = base / ".osh" / "odoo.conf"
+    odoo_rc = base / ".odoorc"
+
+    config_to_use = None
+    if osh_odoo_conf.exists():
+        config_to_use = osh_odoo_conf
+    elif odoo_rc.exists():
+        config_to_use = odoo_rc
+
+    if config_to_use:
+        args = [exe, "--config", str(config_to_use)]
+    else:
+        args = [exe]
 
     addons_paths = build_addons_paths(base)
     if addons_paths:
