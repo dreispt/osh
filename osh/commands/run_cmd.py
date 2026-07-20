@@ -3,7 +3,7 @@
 import click
 
 from ..backends import RunSpec
-from ..commons import find_project_root
+from ..commons import find_project_root, resolve_config_file
 from ..db import resolve_run_target, set_project_config
 from ..diagnostics import collect_diagnostics
 from ..echo import get_echo
@@ -118,28 +118,18 @@ def run(
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
     if backend_name == "local":
-        exe = diagnostics.info.get("local", {}).get("odoo_executable")
-
-        has_explicit_config = _has_arg(extra_args, "--config", short="-c")
-
-        odoo_conf = base / ".osh" / "odoo.conf"
-        if not has_explicit_config:
-            odoo_conf.parent.mkdir(parents=True, exist_ok=True)
-            if not dry_run and not odoo_conf.exists():
-                odoo_conf.touch()
-                echo.details(f"Created config file: {odoo_conf}")
-
-        executable = exe
-        config_path = None if has_explicit_config else str(odoo_conf)
+        config_path = resolve_config_file(base, extra_args, for_run=not dry_run)
+        if config_path:
+            echo.details(f"Using config: {config_path}")
     else:
         executable = "odoo"
         config_path = None
 
     argv = [executable]
-    argv.extend(db_args)
-    argv.extend(extra_args)
     if config_path:
         argv.extend(["--config", config_path, "--save"])
+    argv.extend(db_args)
+    argv.extend(extra_args)
 
     run_spec = RunSpec(
         argv=argv,

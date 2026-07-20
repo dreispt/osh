@@ -10,7 +10,7 @@ import os
 
 import click
 
-from ..commons import find_project_root, get_odoo_config_path
+from ..commons import find_project_root, resolve_config_file
 from ..db import resolve_db_name
 from ..odoo_layout import build_addons_paths, find_odoo_executable
 
@@ -60,22 +60,11 @@ def odoo(
     has_subcommand = extra_args and not extra_args[0].startswith("-")
 
     if not has_subcommand:
-        # Use .osh/odoo.conf if it exists, otherwise fall back to .odoorc
-        osh_odoo_conf = base / ".osh" / "odoo.conf"
-        odoo_rc = get_odoo_config_path(base)
-
-        config_to_use = None
-        if osh_odoo_conf.exists():
-            config_to_use = osh_odoo_conf
-        elif odoo_rc.exists():
-            config_to_use = odoo_rc
-
-        if config_to_use and not any(
-            arg.startswith("--config") or arg.startswith("-c") for arg in extra_args
-        ):
+        config_path = resolve_config_file(base, extra_args)
+        if config_path:
             if verbose:
-                click.echo(f"Using config: {config_to_use}", err=True)
-            args.extend(["--config", str(config_to_use)])
+                click.echo(f"Using config: {config_path}", err=True)
+            args.extend(["--config", str(config_path)])
 
     # Discover addons path unless already specified.
     if not any(arg.startswith("--addons-path") for arg in extra_args):

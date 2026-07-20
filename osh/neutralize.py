@@ -10,7 +10,7 @@ import subprocess
 
 import click
 
-from .commons import decode_stderr
+from .commons import decode_stderr, resolve_config_file
 from .db import run_psql_script
 from .odoo_layout import build_addons_paths
 
@@ -55,18 +55,11 @@ def _neutralize_command_available(exe, python=None):
 
 def _neutralize_with_odoo(base, exe, db_name):
     """Run ``odoo-bin neutralize`` against the target database."""
-    # Use .osh/odoo.conf if it exists, otherwise fall back to .odoorc
-    osh_odoo_conf = base / ".osh" / "odoo.conf"
-    odoo_rc = base / ".odoorc"
+    # Use centralized config resolution
+    config_path = resolve_config_file(base, [])
 
-    config_to_use = None
-    if osh_odoo_conf.exists():
-        config_to_use = osh_odoo_conf
-    elif odoo_rc.exists():
-        config_to_use = odoo_rc
-
-    if config_to_use:
-        args = [exe, "--config", str(config_to_use)]
+    if config_path:
+        args = [exe, "--config", str(config_path)]
     else:
         args = [exe]
 

@@ -87,6 +87,50 @@ def get_osh_config_path(base):
     return base / ".osh" / "config"
 
 
+def _has_arg(args, long, short=None):
+    """Return True if *args* contains the given long (and optional short) option."""
+    for arg in args:
+        if arg == long or arg.startswith(f"{long}="):
+            return True
+        if short and (arg == short or arg.startswith(short)):
+            return True
+    return False
+
+
+def resolve_config_file(base, extra_args, *, for_run=False):
+    """Return the appropriate Odoo config file path to use.
+
+    Args:
+        base: Project root directory
+        extra_args: Command line arguments to check for explicit config
+        for_run: If True, create .osh/odoo.conf if it doesn't exist (for run command)
+
+    Returns:
+        Path to config file to use, or None if no config should be used
+    """
+    has_explicit_config = _has_arg(extra_args, "--config", short="-c")
+    if has_explicit_config:
+        return None
+
+    osh_odoo_conf = base / ".osh" / "odoo.conf"
+    odoo_rc = get_odoo_config_path(base)
+
+    # Prefer .osh/odoo.conf, fall back to .odoorc
+    config_to_use = None
+    if osh_odoo_conf.exists():
+        config_to_use = osh_odoo_conf
+    elif odoo_rc.exists():
+        config_to_use = odoo_rc
+
+    # For run command, create .osh/odoo.conf if it doesn't exist
+    if for_run and config_to_use is None:
+        osh_odoo_conf.parent.mkdir(parents=True, exist_ok=True)
+        osh_odoo_conf.touch()
+        config_to_use = osh_odoo_conf
+
+    return config_to_use
+
+
 def ensure_tool(tool):
     """Raise a ClickException if *tool* is not available on PATH."""
     if not shutil.which(tool):

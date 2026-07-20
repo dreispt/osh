@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from ...backends import Backend, RunSpec, copy_odoo_rc_to_osh_conf
-from ...commons import run_command
+from ...commons import resolve_config_file, run_command
 from ...diagnostics import Diagnostics
 from ...odoo_layout import build_addons_paths
 from ...sources import _version_from_sources, ensure_osh_sources
@@ -433,19 +433,11 @@ class DockerBackend(Backend):
                 odoo_args.extend(["--addons-path", ",".join(container_paths)])
 
         # Inject .osh/odoo.conf if it exists, otherwise fall back to .odoorc
-        osh_odoo_conf = base / ".osh" / "odoo.conf"
-        odoo_rc = base / ".odoorc"
-
-        config_to_use = None
-        if osh_odoo_conf.exists():
-            config_to_use = "/mnt/extra-addons/.osh/odoo.conf"
-        elif odoo_rc.exists():
-            config_to_use = "/mnt/extra-addons/.odoorc"
-
-        if config_to_use and not any(
-            arg.startswith("--config") or arg.startswith("-c") for arg in odoo_args
-        ):
-            odoo_args.extend(["--config", config_to_use])
+        config_path = resolve_config_file(base, odoo_args)
+        if config_path:
+            # Convert local path to container path
+            container_config = str(config_path).replace(str(base), "/mnt/extra-addons")
+            odoo_args.extend(["--config", container_config])
 
         odoo_command = _docker_command(service, command)
         cli_params = getattr(ctx, "params", {}) or {}
