@@ -7,7 +7,7 @@ to avoid default command conflicts. This makes it suitable for any `odoo-bin`
 subcommand such as `shell`, `neutralize`, `scaffold`, `cloc`, etc.
 """
 
-import subprocess
+import os
 
 import click
 
@@ -16,7 +16,10 @@ from ..db import resolve_db_name
 from ..odoo_layout import build_addons_paths, find_odoo_executable
 
 
-@click.command(name="odoo", context_settings=dict(ignore_unknown_options=True))
+@click.command(
+    name="odoo",
+    context_settings=dict(ignore_unknown_options=True, help_option_names=[]),
+)
 @click.option(
     "--dry-run",
     is_flag=True,
@@ -54,6 +57,17 @@ def odoo(
 
     base = find_project_root(required=True)
     exe = find_odoo_executable(base, required=True)
+
+    # If --help is requested, just pass it through to odoo
+    if "--help" in extra_args or "-h" in extra_args:
+        args = [exe] + list(extra_args)
+        if dry_run:
+            click.echo(f"Would run: {' '.join(args)}", err=True)
+            return
+        try:
+            os.execvp(args[0], args)
+        except Exception as exc:  # pragma: no cover
+            raise click.ClickException(str(exc))
 
     args = [exe]
 
@@ -96,12 +110,6 @@ def odoo(
         click.echo(f"Running: {' '.join(args)}", err=True)
 
     try:
-        # Use subprocess.run instead of os.execvp for better compatibility
-        result = subprocess.run(args, check=True)
-        return result.returncode
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(
-            f"Command failed with exit code {exc.returncode}"
-        ) from exc
+        os.execvp(args[0], args)
     except Exception as exc:  # pragma: no cover
         raise click.ClickException(str(exc))
