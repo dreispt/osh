@@ -85,7 +85,7 @@ def ensure_osh_sources(
             (
                 "enterprise",
                 enterprise_source,
-                ("enterprise", "enterprise-copy", "*enterprise*"),
+                ("enterprise", "*enterprise*"),
                 ("*/__manifest__.py", "*/__openerp__.py"),
                 DEFAULT_ENTERPRISE_URL,
             )

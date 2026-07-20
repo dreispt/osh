@@ -172,20 +172,6 @@ class TestFindLocalSources:
         # Should require confirmation since it was found via glob pattern
         assert requires_confirmation
 
-    def test_find_enterprise_exact_copy_no_confirmation(self, tmp_project):
-        ent_copy = tmp_project / "enterprise-copy"
-        web = ent_copy / "web"
-        web.mkdir(parents=True, exist_ok=True)
-        (web / "__manifest__.py").touch()
-        path, requires_confirmation = _find_local_source(
-            tmp_project,
-            ("enterprise", "enterprise-copy", "*enterprise*"),
-            ("*/__manifest__.py", "*/__openerp__.py"),
-        )
-        assert path == ent_copy.resolve()
-        # Should NOT require confirmation since it's an exact name match
-        assert not requires_confirmation
-
 
 class TestIsGitUrl:
     @pytest.mark.parametrize(
