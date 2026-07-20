@@ -63,7 +63,7 @@ Odoo in editable mode.
 
 ### `osh run`
 
-Run Odoo with automatic configuration.
+Run Odoo with automatic configuration. Runs the Odoo server on the active target backend (local, docker or other), injecting some default options detected from the current environment and branch: config, addons-path, dbname and dbfilter.
 
 ```bash
 osh run
@@ -158,8 +158,7 @@ those modules are added to `--addons-path`.
 
 ### Configuration file
 
-If a `.odoorc` file exists in the project root, `osh run` passes it as
-`--config .odoorc` unless you already provide `--config` or `-c`.
+The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init.
 
 ## Help
 

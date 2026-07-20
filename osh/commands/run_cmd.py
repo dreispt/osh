@@ -58,9 +58,9 @@ def run(
     \b
       - Discovers --addons-path from project addon directories and passes it
         on the odoo-bin command line (local host paths or container paths for Docker).
-      - If no explicit --config/-c is provided, creates ``.osh/odoo.conf`` and
-        passes ``--config .osh/odoo.conf --save`` so Odoo persists the computed
-        configuration for later manual use (local target only).
+      - Uses the config file in ``.osh/odoo.conf``. If the project root has an
+        ``.odoorc`` file, it is copied to ``.osh/odoo.conf`` during init.
+        The config file is hackable and automatically generated.
       - Remembers the database name per git branch (including explicit ``-d``
         / ``--database`` values for later runs).
       - Passes ``-d`` and ``--db-filter`` on the command line.

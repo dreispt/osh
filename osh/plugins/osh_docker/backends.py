@@ -269,6 +269,15 @@ class DockerBackend(Backend):
                     click.echo(f"Generated {osh_compose}.", err=True)
             compose_file = str(_COMPOSE_FILE)
 
+        # Copy .odoorc to .osh/odoo.conf if it exists
+        odoo_rc = target / ".odoorc"
+        osh_odoo_conf = target / ".osh" / "odoo.conf"
+        if odoo_rc.exists() and not osh_odoo_conf.exists():
+            import shutil
+
+            shutil.copy(odoo_rc, osh_odoo_conf)
+            click.echo("Copied .odoorc to .osh/odoo.conf", err=True)
+
         if dry_run:
             click.echo(
                 f"Would write {target / _DOCKER_TOML}: "
@@ -427,6 +436,14 @@ class DockerBackend(Backend):
             ]
             if container_paths:
                 odoo_args.extend(["--addons-path", ",".join(container_paths)])
+
+        # Inject .osh/odoo.conf if it exists and no explicit config is provided
+        if not any(
+            arg.startswith("--config") or arg.startswith("-c") for arg in odoo_args
+        ):
+            osh_odoo_conf = base / ".osh" / "odoo.conf"
+            if osh_odoo_conf.exists():
+                odoo_args.extend(["--config", "/mnt/extra-addons/.osh/odoo.conf"])
 
         odoo_command = _docker_command(service, command)
         cli_params = getattr(ctx, "params", {}) or {}
