@@ -35,9 +35,10 @@ def find_project_root(start=None, *, required=False):
     """Return the project root containing a ``.osh`` directory.
 
     When inside a git repository, the ``.osh`` directory is expected at the
-    git root. If the git root itself has no ``.osh``, the immediate parent is
-    checked as well (to support running from inside a git submodule of the
-    actual project). The search does **not** walk past the git boundary.
+    git root. If the git root itself has no ``.osh``, the search continues
+    upward through parent directories until finding an ``.osh`` directory
+    or reaching the user's home directory. This supports running from inside
+    a git submodule of the actual project.
 
     When not inside a git repository, falls back to walking up from *start*
     looking for a ``.osh`` directory.
@@ -46,15 +47,18 @@ def find_project_root(start=None, *, required=False):
     project is found, instead of returning None.
     """
     start = (start or Path.cwd()).resolve()
+    home = Path.home()
 
     git_root = _find_git_root(start)
     if git_root is not None:
         if (git_root / ".osh").exists():
             return git_root
-        # Submodule case: .osh lives one level above the submodule's git root.
-        parent = git_root.parent
-        if parent != git_root and (parent / ".osh").exists():
-            return parent
+        # Submodule case: walk up from git root looking for .osh
+        for p in [git_root] + list(git_root.parents):
+            if (p / ".osh").exists():
+                return p
+            if p == home:
+                break
         if required:
             _not_in_project()
         return None
@@ -63,6 +67,8 @@ def find_project_root(start=None, *, required=False):
     for p in [start] + list(start.parents):
         if (p / ".osh").exists():
             return p
+        if p == home:
+            break
     if required:
         _not_in_project()
     return None
