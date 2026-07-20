@@ -1,9 +1,10 @@
 """`osh odoo` command implementation.
 
 A generic passthrough to the project's Odoo executable. It applies the same
-project-aware defaults as `osh run` (`.odoorc` config and `--addons-path`), but
-it does not inject a database name or `--db-filter`. This makes it suitable for
-any `odoo-bin` subcommand such as `shell`, `neutralize`, `scaffold`, `cloc`, etc.
+project-aware defaults as `osh run` (--addons-path and database name), but
+it does not inject `--db-filter`. For subcommands, it skips the config file
+to avoid default command conflicts. This makes it suitable for any `odoo-bin`
+subcommand such as `shell`, `neutralize`, `scaffold`, `cloc`, etc.
 """
 
 import os
@@ -37,8 +38,9 @@ def odoo(
     """Run the project's Odoo executable with any subcommand or arguments.
 
     This is a general-purpose wrapper around `odoo-bin`. It discovers the
-    project's `.odoorc`, `--addons-path`, and database name automatically,
-    then passes everything else through to the Odoo executable.
+    project's `--addons-path` and database name automatically, then passes
+    everything else through to the Odoo executable. For subcommands, it skips
+    the config file to avoid default command conflicts.
 
     Examples:
 
