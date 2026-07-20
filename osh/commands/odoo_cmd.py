@@ -11,6 +11,7 @@ import os
 import click
 
 from ..commons import find_project_root, get_odoo_config_path
+from ..db import resolve_db_name
 from ..odoo_layout import build_addons_paths, find_odoo_executable
 
 
@@ -36,17 +37,17 @@ def odoo(
     """Run the project's Odoo executable with any subcommand or arguments.
 
     This is a general-purpose wrapper around `odoo-bin`. It discovers the
-    project's `.odoorc` and `--addons-path` automatically, then passes everything
-    else through to the Odoo executable.
+    project's `.odoorc`, `--addons-path`, and database name automatically,
+    then passes everything else through to the Odoo executable.
 
     Examples:
 
     \b
-      osh odoo shell -d mydb
-      osh odoo neutralize -d mydb
+      osh odoo shell
+      osh odoo neutralize
       osh odoo scaffold mymodule ./addons
       osh odoo cloc -p my_module
-      osh odoo --dry-run -- shell -d mydb
+      osh odoo --dry-run -- shell
     """
 
     base = find_project_root(required=True)
@@ -71,6 +72,16 @@ def odoo(
             if verbose:
                 click.echo(f"Using addons path: {addons_path_str}", err=True)
             args.extend(["--addons-path", addons_path_str])
+
+    # Inject database name from osh config unless already specified.
+    if not any(
+        arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
+    ):
+        db_name = resolve_db_name(base, verbose=verbose)
+        if db_name:
+            if verbose:
+                click.echo(f"Using database: {db_name}", err=True)
+            args.extend(["-d", db_name])
 
     args.extend(extra_args)
 
