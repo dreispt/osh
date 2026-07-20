@@ -11,7 +11,7 @@ def test_odoo_includes_addons_path(
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` adds --addons-path but skips config for subcommands."""
+    """``osh odoo`` adds --addons-path but skips config and auto-db for subcommands."""
     # Create .odoorc so the command would use it for default command.
     (tmp_project / ".odoorc").write_text("[options]\n")
 
@@ -24,7 +24,7 @@ def test_odoo_includes_addons_path(
     assert "--config" not in result.output
     assert "--addons-path" in result.output
     assert "shell -d mydb" in result.output
-    # It must not add --db-filter or auto-resolve a branch database.
+    # It must not add --db-filter or auto-resolve a branch database for subcommands
     assert "--db-filter" not in result.output
 
 
@@ -101,3 +101,23 @@ def test_odoo_default_command_uses_config(
     # Config should be used when no subcommand is provided
     assert "--config" in result.output
     assert str(osh_conf) in result.output
+
+
+def test_odoo_subcommand_does_not_auto_inject_db(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+):
+    """``osh odoo neutralize`` does not auto-inject database name."""
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--dry-run", "neutralize"])
+
+    assert result.exit_code == 0
+    # Database name should not be auto-injected for subcommands
+    # (subcommands handle their own -d parameter)
+    assert result.output.strip().endswith("neutralize")
+    # Check that there's no standalone -d parameter (not part of --addons-path)
+    parts = result.output.split()
+    assert "-d" not in parts

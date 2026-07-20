@@ -78,14 +78,16 @@ def odoo(
             args.extend(["--addons-path", addons_path_str])
 
     # Inject database name from osh config unless already specified.
-    if not any(
-        arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
-    ):
-        db_name = resolve_db_name(base, verbose=verbose)
-        if db_name:
-            if verbose:
-                click.echo(f"Using database: {db_name}", err=True)
-            args.extend(["-d", db_name])
+    # Only inject for default command, not for subcommands (subcommands handle their own -d)
+    if not has_subcommand:
+        if not any(
+            arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
+        ):
+            db_name = resolve_db_name(base, verbose=verbose)
+            if db_name:
+                if verbose:
+                    click.echo(f"Using database: {db_name}", err=True)
+                args.extend(["-d", db_name])
 
     args.extend(extra_args)
 
