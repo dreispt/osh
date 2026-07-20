@@ -160,6 +160,21 @@ those modules are added to `--addons-path`.
 
 The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init.
 
+### Removing Osh
+
+To remove the Osh environment from a project, simply delete the `.osh` directory. This will remove all Osh-specific project configurations including:
+
+- Project settings (`.osh/config`)
+- Generated Odoo configuration (`.osh/odoo.conf`)
+- Source symlinks and cached backups (`.osh/backups/`)
+- Docker backend configuration (`.osh/docker.toml`, `.osh/docker-compose.yml`)
+
+```bash
+rm -rf .osh
+```
+
+Your project files, virtual environment (`.venv/`), and any existing Odoo sources will remain intact.
+
 ## Help
 
 Run `osh --help` or `osh <command> --help` for detailed usage information.
