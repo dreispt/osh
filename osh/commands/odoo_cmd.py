@@ -72,11 +72,25 @@ def odoo(
     args = [exe]
 
     # Check if we're running a subcommand (not the default server command)
-    # If so, skip all automatic injections to be a clean passthrough
     has_subcommand = extra_args and not extra_args[0].startswith("-")
 
-    if not has_subcommand:
-        # Only add defaults for the default server command
+    if has_subcommand:
+        # For subcommands, add the subcommand first, then inject addons-path after it
+        args.append(extra_args[0])
+        remaining_args = extra_args[1:]
+
+        # Inject addons-path after the subcommand (before other args)
+        if not any(arg.startswith("--addons-path") for arg in remaining_args):
+            addons_paths = build_addons_paths(base)
+            if addons_paths:
+                addons_path_str = ",".join(str(p) for p in addons_paths)
+                if verbose:
+                    click.echo(f"Using addons path: {addons_path_str}", err=True)
+                args.extend(["--addons-path", addons_path_str])
+
+        args.extend(remaining_args)
+    else:
+        # For default server command, add all defaults before other args
         config_path = resolve_config_file(base, extra_args)
         if config_path:
             if verbose:
@@ -100,7 +114,7 @@ def odoo(
                     click.echo(f"Using database: {db_name}", err=True)
                 args.extend(["-d", db_name])
 
-    args.extend(extra_args)
+        args.extend(extra_args)
 
     if dry_run:
         click.echo(f"Would run: {' '.join(args)}", err=True)
