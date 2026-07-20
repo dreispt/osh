@@ -1,6 +1,8 @@
 """Shared fixtures for the Osh test suite."""
 
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -136,3 +138,18 @@ def real_git_only_subprocess(monkeypatch):
         monkeypatch.setattr(target, fake_check_call)
     monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _cleanup_explicit_temp_root():
+    """Remove a leftover ``.pytest_tmp`` tree after the full session.
+
+    When pytest is pointed at an in-repo temporary directory, it no longer
+    applies its default cleanup that keeps only the last few runs.  This
+    fixture ensures the local directory cannot grow unbounded if such an
+    option is set from the environment or a wrapper.
+    """
+    yield
+    tmp_root = Path.cwd() / ".pytest_tmp"
+    if tmp_root.is_dir():
+        shutil.rmtree(tmp_root, ignore_errors=True)
