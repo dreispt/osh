@@ -89,6 +89,17 @@ def odoo(
                     click.echo(f"Using addons path: {addons_path_str}", err=True)
                 args.append(f"--addons-path={addons_path_str}")
 
+        # Auto-inject database name if not provided (subcommands need -d too)
+        if not any(
+            arg.startswith("-d") or arg.startswith("--database")
+            for arg in remaining_args
+        ):
+            db_name = resolve_db_name(base, verbose=verbose)
+            if db_name:
+                if verbose:
+                    click.echo(f"Using database: {db_name}", err=True)
+                args.extend(["-d", db_name])
+
         args.extend(remaining_args)
     else:
         # For default server command, add all defaults before other args

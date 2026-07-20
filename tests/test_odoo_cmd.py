@@ -11,20 +11,20 @@ def test_odoo_includes_addons_path(
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` adds --addons-path for subcommands, placed after the subcommand name."""
+    """``osh odoo`` adds --addons-path and -d for subcommands, placed after the subcommand name."""
     # Create .odoorc so the command would use it for default command.
     (tmp_project / ".odoorc").write_text("[options]\n")
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(odoo, ["--dry-run", "shell", "-d", "mydb"])
+    result = runner.invoke(odoo, ["--dry-run", "shell"])
 
     assert result.exit_code == 0
-    # For subcommands, addons-path is added after the subcommand name with equals sign
+    # For subcommands, addons-path and -d are added after the subcommand name with equals sign
     assert "--config" not in result.output
     assert "--addons-path=" in result.output
     assert "shell --addons-path=" in result.output
-    assert "-d mydb" in result.output
+    assert "-d" in result.output
 
 
 def test_odoo_respects_explicit_config(
@@ -106,32 +106,37 @@ def test_odoo_default_command_adds_defaults(
     assert "--addons-path=" in result.output
 
 
-def test_odoo_subcommand_does_not_auto_inject_db(
+def test_odoo_subcommand_respects_explicit_db(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo neutralize`` does not auto-inject database name."""
+    """``osh odoo neutralize`` respects explicitly provided database name."""
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--dry-run", "neutralize", "-d", "mydb"])
+
+    assert result.exit_code == 0
+    # When user provides -d, it should be respected (not auto-injected)
+    assert "-d mydb" in result.output
+    # Should only appear once as "-d mydb" (user-provided)
+    assert result.output.count("-d mydb") == 1
+
+
+def test_odoo_subcommand_auto_injects_db_when_not_provided(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+):
+    """``osh odoo neutralize`` auto-injects database name when not provided."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(odoo, ["--dry-run", "neutralize"])
 
     assert result.exit_code == 0
-    # Database name should not be auto-injected for subcommands
-    # (subcommands handle their own -d parameter)
-    # The command should end with neutralize or neutralize --addons-path=... (no -d)
-    assert (
-        result.output.strip().endswith("neutralize")
-        or "neutralize --addons-path=" in result.output
-    )
-    # Check that there's no standalone -d parameter (not part of --addons-path)
-    parts = result.output.split()
-    # The -d should not appear as a standalone parameter
-    # (it could appear as part of --addons-path but that's fine)
-    if "-d" in parts:
-        # Find the index of -d and check if it's followed by a database name
-        idx = parts.index("-d")
-        # If -d exists, it should be the last parameter (user-provided)
-        # or it should be part of --addons-path (which is not the case here)
-        assert idx == len(parts) - 1 or parts[idx + 1].startswith("--")
+    # When user doesn't provide -d, it should be auto-injected
+    assert "-d" in result.output
+    # Should end with the auto-injected database name
+    assert result.output.strip().endswith("-d project-default")
