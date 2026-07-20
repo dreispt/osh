@@ -26,10 +26,28 @@ def _version_from_sources(base):
     if not release_file.is_file():
         return None
     text = release_file.read_text()
-    match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', text)
-    if not match:
-        return None
-    return match.group(1)
+
+    # Real Odoo release.py computes `version` from `version_info`.  Execute it
+    # with a minimal builtins mapping so the computed value is available.
+    namespace = {"__builtins__": {"str": str}}
+    try:
+        exec(text, namespace)  # noqa: S102
+    except Exception:
+        pass
+    else:
+        version = namespace.get("version")
+        if version is not None:
+            return str(version)
+
+    # Fallback for release files that simply set `version = "..."`.
+    match = re.search(
+        r'^version\s*=\s*(["\'])([^"\']+)\1\s*(?:#.*)?$',
+        text,
+        re.MULTILINE,
+    )
+    if match:
+        return match.group(2)
+    return None
 
 
 def ensure_osh_sources(
