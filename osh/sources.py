@@ -346,15 +346,15 @@ def _find_local_source(
         if path.is_dir() and _has_manifest_file(path, files):
             return path.resolve()
 
-    # Search recursively up to 3 levels deep for candidate directories
+    # Search recursively up to 9 levels deep for candidate directories
     # Only search subdirectories (not base itself, which was already checked)
     non_empty_names = [n for n in names if n]  # Filter out empty strings
 
     if non_empty_names:
         # Search for specific directory names
         for cand in base.rglob("*"):
-            # Limit depth to 3 levels
-            if len(cand.relative_to(base).parts) > 3:
+            # Limit depth to 9 levels
+            if len(cand.relative_to(base).parts) > 9:
                 continue
             if not cand.is_dir():
                 continue
@@ -364,8 +364,8 @@ def _find_local_source(
     else:
         # If no specific names, search for any directory with manifest files
         for cand in base.rglob("*"):
-            # Limit depth to 3 levels
-            if len(cand.relative_to(base).parts) > 3:
+            # Limit depth to 9 levels
+            if len(cand.relative_to(base).parts) > 9:
                 continue
             if not cand.is_dir():
                 continue
