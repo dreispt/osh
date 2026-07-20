@@ -118,9 +118,11 @@ def run(
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
     if backend_name == "local":
+        exe = diagnostics.info.get("local", {}).get("odoo_executable")
         config_path = resolve_config_file(base, extra_args, for_run=not dry_run)
         if config_path:
             echo.details(f"Using config: {config_path}")
+        executable = exe if exe else "odoo"
     else:
         executable = "odoo"
         config_path = None
