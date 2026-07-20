@@ -57,6 +57,11 @@ repos:
 
   - repo: local
     hooks:
+      - id: no-pytest-basetemp
+        name: Do not set an explicit pytest temp root
+        language: pygrep
+        entry: "(?i)basetemp"
+        files: '^(pyproject\.toml|setup\.cfg|pytest\.ini|tox\.ini|.*conftest\.py|\.github/.*|Makefile)$'
       - id: prettier
         name: prettier
         entry: prettier
