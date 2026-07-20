@@ -83,7 +83,7 @@ def ensure_osh_sources(
             (
                 "enterprise",
                 enterprise_source,
-                ("enterprise",),
+                ("enterprise", "enterprise-copy"),
                 ("*/__manifest__.py", "*/__openerp__.py"),
                 DEFAULT_ENTERPRISE_URL,
             )
@@ -340,12 +340,37 @@ def _find_local_source(
     *names* are candidate directory names (an empty string means *base* itself).
     *files* are glob patterns to look for inside the candidate directory.
     """
-    candidates = [base] + [p for p in base.iterdir() if p.is_dir()]
-    for cand in candidates:
-        for name in names:
-            path = cand / name if name else cand
-            if path.is_dir() and _has_manifest_file(path, files):
-                return path.resolve()
+    # Check base directory itself
+    for name in names:
+        path = base / name if name else base
+        if path.is_dir() and _has_manifest_file(path, files):
+            return path.resolve()
+
+    # Search recursively up to 3 levels deep for candidate directories
+    # Only search subdirectories (not base itself, which was already checked)
+    non_empty_names = [n for n in names if n]  # Filter out empty strings
+
+    if non_empty_names:
+        # Search for specific directory names
+        for cand in base.rglob("*"):
+            # Limit depth to 3 levels
+            if len(cand.relative_to(base).parts) > 3:
+                continue
+            if not cand.is_dir():
+                continue
+            for name in non_empty_names:
+                if cand.name == name and _has_manifest_file(cand, files):
+                    return cand.resolve()
+    else:
+        # If no specific names, search for any directory with manifest files
+        for cand in base.rglob("*"):
+            # Limit depth to 3 levels
+            if len(cand.relative_to(base).parts) > 3:
+                continue
+            if not cand.is_dir():
+                continue
+            if _has_manifest_file(cand, files):
+                return cand.resolve()
     return None
 
 
