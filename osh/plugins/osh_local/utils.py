@@ -20,10 +20,13 @@ def init_project(
     odoo_source,
     enterprise_source,
     themes_source,
+    todo=None,
 ):
     """Initialise *target* for an Odoo project using local sources."""
     _prepare_target_dir(target)
 
+    if todo:
+        todo.start()
     sources = ensure_osh_sources(
         target,
         version,
@@ -41,7 +44,9 @@ def init_project(
     if not sources.get("odoo"):
         raise click.ClickException("Odoo sources are required.")
 
-    env_ready = _setup_environment(target, sources)
+    env_ready = _setup_environment(target, sources, todo=todo)
+    if todo:
+        todo.start()
     smoke_ok = _run_init_smoke_test(target, env_ready)
 
     if not env_ready or not smoke_ok:
@@ -88,10 +93,13 @@ def _run_init_smoke_test(target, env_ready):
 def _setup_environment(
     target,
     sources,
+    todo=None,
 ):
     """Create a virtualenv and pip-install Odoo sources."""
     odoo_link = sources.get("odoo")
     venv_path = target / ".venv"
+    if todo:
+        todo.start()
     if venv_path.exists():
         click.echo(f"Using existing virtual environment at {venv_path}", err=True)
     else:
@@ -103,6 +111,9 @@ def _setup_environment(
             builder.create(str(venv_path))
 
     pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
+
+    if todo:
+        todo.start()
 
     requirements_file = odoo_link / "requirements.txt"
     if requirements_file.exists():

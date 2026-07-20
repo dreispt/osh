@@ -111,6 +111,24 @@ def _format_targets_section(formatter):
         formatter.write_dl(records)
 
 
+class TodoPlan:
+    """Numbered init plan that can print a progress message for each step."""
+
+    def __init__(self, echo, plan):
+        self.echo = echo
+        self.plan = plan
+        self.index = 0
+        self.total = len(plan)
+
+    def start(self):
+        """Print and advance to the next plan item."""
+        if self.index >= self.total:
+            return
+        self.index += 1
+        item = self.plan[self.index - 1]
+        self.echo.essential(f"[{self.index}/{self.total}] Starting: {item}")
+
+
 @click.command(name="init", cls=InitCommand)
 @click.argument("version", type=str)
 @click.argument(
@@ -231,8 +249,9 @@ def init(
     )
     if diagnostics.plan:
         echo.essential(f"Planned actions for {backend_name}:")
-        for item in diagnostics.plan:
-            echo.essential(f"  - {item}")
+        total = len(diagnostics.plan)
+        for i, item in enumerate(diagnostics.plan, 1):
+            echo.essential(f"  [{i}/{total}] {item}")
     for warning in diagnostics.warnings:
         echo.warning(warning)
     for error in diagnostics.errors:
@@ -246,6 +265,8 @@ def init(
             raise click.ClickException("Aborted.")
         confirmed = True
 
+    todo = None if dry_run else TodoPlan(echo, diagnostics.plan)
+
     docker_source_kwargs = {}
     if backend_name == "docker":
         for key in ("enterprise_source", "themes_source"):
@@ -258,6 +279,7 @@ def init(
         edition=edition,
         dry_run=dry_run,
         assume_yes=assume_yes or confirmed,
+        todo=todo,
         **kwargs,
         **docker_source_kwargs,
     )

@@ -240,6 +240,7 @@ class DockerBackend(Backend):
         service = options.get("service")
         command = options.get("command")
         compose_file = options.get("compose_file")
+        todo = options.get("todo")
 
         source_kwargs = {
             k: options[k]
@@ -261,6 +262,8 @@ class DockerBackend(Backend):
                     err=True,
                 )
             else:
+                if todo:
+                    todo.start()
                 _generate_compose_file(target, version)
                 if osh_compose.is_file():
                     click.echo(f"Generated {osh_compose}.", err=True)
@@ -292,6 +295,8 @@ class DockerBackend(Backend):
                 "Install 'docker compose' or 'docker-compose'."
             )
 
+        if todo:
+            todo.start()
         _save_docker_config(
             target,
             service,
@@ -312,6 +317,8 @@ class DockerBackend(Backend):
                 err=True,
             )
 
+        if todo:
+            todo.start()
         ensure_osh_sources(
             target,
             version,
@@ -332,7 +339,8 @@ class DockerBackend(Backend):
             )
             return True
 
-        click.echo("Running quick Odoo smoke test in container\u2026", err=True)
+        if todo:
+            todo.start()
         compose_cmd = _compose_base_command(target, compose_file=compose_file)
         try:
             run_command(
