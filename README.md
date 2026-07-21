@@ -1,12 +1,33 @@
-# Osh – Odoo Shell
+# Osh — Odoo Ops Shell
 
-`osh` is a command-line wrapper around `odoo-bin` that makes it easier to run
-Odoo in development and staging environments.
+### Init, restore, run. Odoo environments at your fingertips.
 
-Think of it as a lightweight project manager for Odoo: it discovers your addons,
-picks a database name for you, and runs the right virtual environment.
+Running Odoo locally means juggling venvs, `--addons-path`, `--db-filter`,
+which database to use, and remembering the right flags every
+time. `osh` handles all of that for you.
 
-> **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
+`osh` is a lightweight command-line wrapper around `odoo-bin` for
+day-to-day Odoo development and staging work. Point it at a project and it
+discovers your addons, tracks a database per git branch, manages your
+venv, and runs Odoo with the right configuration.
+All of this without forcing you into a particular project structure,
+or lock-in into a particular workflow.
+
+It also supports easy database restore and neutralization, has a plugin
+extensibility system, and is expected to provide the ability to
+retrieve direct live system databases.
+
+```bash
+cd my-odoo-project && git checkout my-branch
+osh init 19.0 --ce  # set up venv + Odoo sources
+osh restore ./path-to/my-backup.zip
+osh doctor          # sanity-check the project
+osh run             # go
+```
+
+> **Note:** `osh` is a personal/community project and is not affiliated
+> with Odoo's `odoo.sh` service. It's under active development — expect
+> some rough edges.
 
 ## Design principles
 
@@ -14,22 +35,6 @@ picks a database name for you, and runs the right virtual environment.
 - **Pluggable** – can become a powerful toolbelt by creating and using additional plugins
 - **Transparent** – the user can see what is going on at any time, what actual commands or operations are being run, what defaults or assumptions are being used, and make choices or even manually run their own modified commands. No surprises, no black boxes
 - **Friendly** – commands are script-friendly, but interactive mode experience tries to be helpful and guide the user along the way, explaining options available and suggesting next steps
-
-## Quick start
-
-```bash
-# Create a project directory
-cd my-odoo-project
-
-# Initialise it for Odoo 19.0
-osh init 19.0
-
-# Check the project status
-osh doctor
-
-# Run Odoo
-osh run
-```
 
 ## Prerequisites
 
