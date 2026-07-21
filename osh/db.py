@@ -12,12 +12,8 @@ import subprocess
 
 import click
 
-from .commons import (
-    decode_stderr,
-    get_odoo_config_path,
-    get_osh_config_path,
-    resolve_config_file,
-)
+from . import config as _config
+from .commons import decode_stderr, get_odoo_config_path, resolve_config_file
 from .echo import Echo
 from .odoo_layout import build_addons_paths
 from .version import get_version_from_executable
@@ -33,33 +29,17 @@ def sanitize_db_name(name):
 
 def load_osh_config(base):
     """Load or create an Osh project configuration."""
-    cfg = configparser.ConfigParser()
-    cfg.add_section("db")
-    cfg.add_section("user")
-    config_path = get_osh_config_path(base)
-    if config_path.exists():
-        cfg.read(config_path)
-    if not cfg.has_section("db"):
-        cfg.add_section("db")
-    if not cfg.has_section("user"):
-        cfg.add_section("user")
-    return cfg
+    return _config.load_project_config(base)
 
 
 def save_osh_config(base, cfg):
     """Write the Osh project configuration file."""
-    config_path = get_osh_config_path(base)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open("w") as f:
-        cfg.write(f)
+    _config.save_project_config(base, cfg)
 
 
 def get_project_config(base, section, option, fallback=None):
     """Return a value from ``.osh/config``, or *fallback* if it is missing."""
-    cfg = load_osh_config(base)
-    if not cfg.has_option(section, option):
-        return fallback
-    return cfg.get(section, option)
+    return _config.get_project_config(base, section, option, fallback)
 
 
 def set_project_config(
@@ -71,17 +51,7 @@ def set_project_config(
     values=None,
 ):
     """Set one or more values in ``.osh/config``, creating the section if absent."""
-    cfg = load_osh_config(base)
-    if not cfg.has_section(section):
-        cfg.add_section(section)
-    if option is not None:
-        if value is None:
-            raise ValueError(f"value required for option {option!r}")
-        cfg.set(section, option, value)
-    if values is not None:
-        for opt, val in values.items():
-            cfg.set(section, opt, val)
-    save_osh_config(base, cfg)
+    _config.set_project_config(base, section, option, value, values=values)
 
 
 def resolve_run_target(base, default_target, ctx):

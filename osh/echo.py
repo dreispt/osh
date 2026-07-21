@@ -8,7 +8,7 @@ import threading
 
 import click
 
-from .userconfig import _load_user_init_config, _read_project_config
+from .config import load_user_init_config, read_project_config
 
 # Cached Echo instance - created once and reused
 _cached_echo = None
@@ -211,12 +211,12 @@ def _detect_verbosity(base):
     """
     # Check project config first (highest priority after CLI)
     if base is not None and (base / ".osh").exists():
-        verbosity = _read_project_config(base, "verbosity")
+        verbosity = read_project_config(base, "verbosity")
         if verbosity and verbosity in Echo.LEVELS:
             return verbosity
 
     # Fall back to global user config
-    user_cfg = _load_user_init_config()
+    user_cfg = load_user_init_config()
     if "verbosity" in user_cfg:
         verbosity = user_cfg["verbosity"]
         if verbosity in Echo.LEVELS:
@@ -244,14 +244,14 @@ def _detect_emoji_preference(base):
     """
     # Check project config first (highest priority after CLI)
     if base is not None and (base / ".osh").exists():
-        emoji = _read_project_config(base, "emoji")
+        emoji = read_project_config(base, "emoji")
         if emoji is not None:
             if isinstance(emoji, bool):
                 return emoji
             return str(emoji).lower() == "true"
 
     # Fall back to global user config
-    user_cfg = _load_user_init_config()
+    user_cfg = load_user_init_config()
     if "emoji" in user_cfg:
         emoji = user_cfg["emoji"]
         if isinstance(emoji, bool):

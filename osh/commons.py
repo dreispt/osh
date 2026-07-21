@@ -90,11 +90,6 @@ def get_odoo_config_path(base):
     return base / ".odoorc"
 
 
-def get_osh_config_path(base):
-    """Return path to the Osh project configuration file (.osh/config)."""
-    return base / ".osh" / "config"
-
-
 def _has_arg(args, long, short=None):
     """Return True if *args* contains the given long (and optional short) option."""
     for arg in args:

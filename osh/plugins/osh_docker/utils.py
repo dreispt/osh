@@ -6,21 +6,15 @@ from pathlib import Path
 
 import click
 
+from ... import config as _config
+
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
 
 
 def _load_docker_config(base):
     """Load the Docker backend configuration from ``.osh/docker.toml``."""
-    config_path = base / _DOCKER_TOML
-    if not config_path.exists():
-        return {}
-    try:
-        import tomllib
-    except ImportError:  # pragma: no cover
-        import tomli as tomllib  # type: ignore[no-redef]
-    with config_path.open("rb") as f:
-        return tomllib.load(f)
+    return _config.load_docker_config(base)
 
 
 def _save_docker_config(
@@ -33,20 +27,21 @@ def _save_docker_config(
     compose_tool=None,
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
-    config_path = base / _DOCKER_TOML
-    config_path.parent.mkdir(parents=True, exist_ok=True)
     service = service or "odoo"
     command = command or "odoo"
-    lines = [f"service = {service!r}", f"command = {command!r}"]
+    data = {
+        "service": service,
+        "command": command,
+    }
     if compose_file:
-        lines.append(f"compose_file = {compose_file!r}")
+        data["compose_file"] = compose_file
     if version:
-        lines.append(f"version = {version!r}")
+        data["version"] = version
     if edition:
-        lines.append(f"edition = {edition!r}")
+        data["edition"] = edition
     if compose_tool:
-        lines.append(f"compose_tool = {compose_tool!r}")
-    config_path.write_text("\n".join(lines) + "\n")
+        data["compose_tool"] = compose_tool
+    _config.save_docker_config(base, data)
 
 
 def _docker_command(service, command):

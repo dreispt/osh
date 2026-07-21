@@ -5,10 +5,10 @@ from pathlib import Path
 
 import click
 
+from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
 from ..echo import get_echo
 from ..plugin_loader import load_backends
-from ..userconfig import _load_user_init_config, save_user_preference
 
 
 def _collect_backend_options():
@@ -216,7 +216,7 @@ def init(
 
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         edition = get_project_config(target, "init", "edition") or edition
-        user_cfg = _load_user_init_config()
+        user_cfg = load_user_init_config()
         edition = user_cfg.get("edition") or edition
         if not edition and not dry_run and not assume_yes and sys.stdin.isatty():
             edition = click.prompt(

@@ -2,7 +2,8 @@
 
 import click
 
-from ..commons import find_project_root, get_osh_config_path
+from ..commons import find_project_root
+from ..config import get_project_config_path, save_user_preference
 from ..db import (
     get_current_branch,
     load_osh_config,
@@ -11,7 +12,6 @@ from ..db import (
     set_project_config,
 )
 from ..echo import get_echo
-from ..userconfig import save_user_preference
 
 
 @click.group(name="config")
@@ -78,7 +78,7 @@ def show(ctx):  # noqa: D401
     echo = get_echo(ctx, base)
 
     cfg = load_osh_config(base)
-    config_path = get_osh_config_path(base)
+    config_path = get_project_config_path(base)
     echo.info(f"Configuration file: {config_path}")
 
     if cfg.has_section("db"):
@@ -91,9 +91,10 @@ def show(ctx):  # noqa: D401
     if cfg.has_section("user"):
         echo.info("User preferences:")
         for key, value in cfg.items("user"):
+            value_str = str(value)
             # Format boolean values nicely
-            if value.lower() in ("true", "false"):
-                display = "on" if value.lower() == "true" else "off"
+            if value_str.lower() in ("true", "false"):
+                display = "on" if value_str.lower() == "true" else "off"
                 echo.info(f"  {key} = {display}")
             else:
                 echo.info(f"  {key} = {value}")
