@@ -38,6 +38,18 @@ from ..plugin_loader import load_backends
     default=None,
     help="Odoo edition for addons path (ce/ee/sh).",
 )
+@click.option(
+    "--no-db-filter",
+    is_flag=True,
+    hidden=True,
+    help="Do not inject --db-filter (for odoo command).",
+)
+@click.option(
+    "--skip-config",
+    is_flag=True,
+    hidden=True,
+    help="Skip config file (for odoo subcommands).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def run(
@@ -47,6 +59,8 @@ def run(
     backend_name,
     compose_file,
     edition,
+    no_db_filter,
+    skip_config,
     extra_args,
 ):  # noqa: D401
     """Run the project's Odoo executable.
@@ -63,7 +77,7 @@ def run(
         The config file is hackable and automatically generated.
       - Remembers the database name per git branch (including explicit ``-d``
         / ``--database`` values for later runs).
-      - Passes ``-d`` and ``--db-filter`` on the command line.
+      - Passes ``-d`` and ``--db-filter`` on the command line (unless --no-db-filter).
 
     Examples:
 
@@ -114,12 +128,16 @@ def run(
         echo.assumptions(f"Using database: {db_name}")
         if not explicit_db:
             db_args.extend(["-d", db_name])
-        if not _has_arg(extra_args, "--db-filter"):
+        if not no_db_filter and not _has_arg(extra_args, "--db-filter"):
             db_args.extend(["--db-filter", f"^{db_name}$"])
 
     if backend_name == "local":
         exe = diagnostics.info.get("local", {}).get("odoo_executable")
-        config_path = resolve_config_file(base, extra_args, for_run=not dry_run)
+        config_path = (
+            None
+            if skip_config
+            else resolve_config_file(base, extra_args, for_run=not dry_run)
+        )
         if config_path:
             echo.details(f"Using config: {config_path}")
         executable = exe if exe else "odoo"

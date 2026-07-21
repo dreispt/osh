@@ -430,7 +430,7 @@ class DockerBackend(Backend):
                 if _is_relative_to(p, base)
             ]
             if container_paths:
-                odoo_args.extend(["--addons-path", ",".join(container_paths)])
+                odoo_args.append(f"--addons-path={','.join(container_paths)}")
 
         # Inject .osh/odoo.conf if it exists, otherwise fall back to .odoorc
         config_path = resolve_config_file(base, odoo_args)

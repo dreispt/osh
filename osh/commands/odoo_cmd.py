@@ -1,19 +1,11 @@
 """`osh odoo` command implementation.
 
-A generic passthrough to the project's Odoo executable. It applies the same
-project-aware defaults as `osh run` (--addons-path and database name), but
-it does not inject `--db-filter`. For subcommands, it skips the config file
-to avoid default command conflicts. This makes it suitable for any `odoo-bin`
-subcommand such as `shell`, `neutralize`, `scaffold`, `cloc`, etc.
+This is an alias for `osh run --target local` with behavior adjustments:
+- Does not inject --db-filter (unlike run)
+- For subcommands, skips config file to avoid default command conflicts
 """
 
-import os
-
 import click
-
-from ..commons import find_project_root, resolve_config_file
-from ..db import resolve_db_name
-from ..odoo_layout import build_addons_paths, find_odoo_executable
 
 
 @click.command(
@@ -40,10 +32,9 @@ def odoo(
 ):  # noqa: D401
     """Run the project's Odoo executable with any subcommand or arguments.
 
-    This is a general-purpose wrapper around `odoo-bin`. It discovers the
-    project's `--addons-path` and database name automatically, then passes
-    everything else through to the Odoo executable. For subcommands, it skips
-    the config file to avoid default command conflicts.
+    This is an alias for `osh run --target local` with behavior adjustments:
+    - Does not inject --db-filter (unlike run)
+    - For subcommands, skips config file to avoid default command conflicts
 
     Examples:
 
@@ -54,88 +45,21 @@ def odoo(
       osh odoo cloc -p my_module
       osh odoo --dry-run -- shell
     """
+    # Import here to avoid circular dependency
+    from .run_cmd import run
 
-    base = find_project_root(required=True)
-    exe = find_odoo_executable(base, required=True)
-
-    # If --help is requested, just pass it through to odoo
-    if "--help" in extra_args or "-h" in extra_args:
-        args = [exe] + list(extra_args)
-        if dry_run:
-            click.echo(f"Would run: {' '.join(args)}", err=True)
-            return
-        try:
-            os.execvp(args[0], args)
-        except Exception as exc:  # pragma: no cover
-            raise click.ClickException(str(exc))
-
-    args = [exe]
-
-    # Check if we're running a subcommand (not the default server command)
+    # Detect if we're running a subcommand (not the default server command)
     has_subcommand = extra_args and not extra_args[0].startswith("-")
 
-    if has_subcommand:
-        # For subcommands, add the subcommand first, then inject addons-path after it
-        args.append(extra_args[0])
-        remaining_args = extra_args[1:]
-
-        # Inject addons-path after the subcommand (before other args)
-        # Use equals sign format: --addons-path=PATH to avoid command parsing issues
-        if not any(arg.startswith("--addons-path") for arg in remaining_args):
-            addons_paths = build_addons_paths(base)
-            if addons_paths:
-                addons_path_str = ",".join(str(p) for p in addons_paths)
-                if verbose:
-                    click.echo(f"Using addons path: {addons_path_str}", err=True)
-                args.append(f"--addons-path={addons_path_str}")
-
-        # Auto-inject database name if not provided (subcommands need -d too)
-        if not any(
-            arg.startswith("-d") or arg.startswith("--database")
-            for arg in remaining_args
-        ):
-            db_name = resolve_db_name(base, verbose=verbose)
-            if db_name:
-                if verbose:
-                    click.echo(f"Using database: {db_name}", err=True)
-                args.extend(["-d", db_name])
-
-        args.extend(remaining_args)
-    else:
-        # For default server command, add all defaults before other args
-        config_path = resolve_config_file(base, extra_args)
-        if config_path:
-            if verbose:
-                click.echo(f"Using config: {config_path}", err=True)
-            args.append(f"--config={config_path}")
-
-        if not any(arg.startswith("--addons-path") for arg in extra_args):
-            addons_paths = build_addons_paths(base)
-            if addons_paths:
-                addons_path_str = ",".join(str(p) for p in addons_paths)
-                if verbose:
-                    click.echo(f"Using addons path: {addons_path_str}", err=True)
-                args.append(f"--addons-path={addons_path_str}")
-
-        if not any(
-            arg.startswith("-d") or arg.startswith("--database") for arg in extra_args
-        ):
-            db_name = resolve_db_name(base, verbose=verbose)
-            if db_name:
-                if verbose:
-                    click.echo(f"Using database: {db_name}", err=True)
-                args.extend(["-d", db_name])
-
-        args.extend(extra_args)
-
-    if dry_run:
-        click.echo(f"Would run: {' '.join(args)}", err=True)
-        return
-
-    if verbose:
-        click.echo(f"Running: {' '.join(args)}", err=True)
-
-    try:
-        os.execvp(args[0], args)
-    except Exception as exc:  # pragma: no cover
-        raise click.ClickException(str(exc))
+    # Call run with appropriate flags using ctx.invoke
+    return ctx.invoke(
+        run,
+        dry_run=dry_run,
+        verbose=verbose,
+        backend_name="local",
+        compose_file=None,
+        edition=None,
+        no_db_filter=True,
+        skip_config=has_subcommand,
+        extra_args=extra_args,
+    )
