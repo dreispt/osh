@@ -6,14 +6,14 @@ from osh.cli import main
 from osh.commands.run_cmd import run
 
 
-def test_run_dry_run_shows_addons_path_and_save(
+def test_run_dry_run_shows_addons_path(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
     patch_resolve_db_name,
 ):
-    """Dry-run prints the command with --addons-path and --save."""
+    """Dry-run prints the command with --addons-path."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(run, ["--dry-run"])
@@ -33,7 +33,7 @@ def test_run_dry_run_shows_addons_path_and_save(
     assert not odoo_conf.exists()
 
 
-def test_run_creates_empty_config_and_adds_save_flag(
+def test_run_creates_empty_config_and_adds_config(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
@@ -41,7 +41,7 @@ def test_run_creates_empty_config_and_adds_save_flag(
     patch_resolve_db_name,
     capture_execvp,
 ):
-    """``osh run`` touches ``.osh/odoo.conf`` and adds ``--config --save``."""
+    """``osh run`` touches ``.osh/odoo.conf`` and adds ``--config``."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(run, [])
@@ -55,7 +55,6 @@ def test_run_creates_empty_config_and_adds_save_flag(
     joined = " ".join(final_args)
     assert "--addons-path" in joined
     assert f"--config={odoo_conf}" in joined
-    assert "--save" in joined
     assert "-d testdb" in joined
 
 
@@ -79,8 +78,6 @@ def test_run_does_not_overwrite_existing_config(
     assert result.exit_code == 0
     assert odoo_conf.read_text().startswith("# custom header")
     assert len(capture_execvp) == 1
-    _, final_args = capture_execvp[0]
-    assert "--save" in final_args
 
 
 def test_run_uses_explicit_config_without_save(
@@ -91,7 +88,7 @@ def test_run_uses_explicit_config_without_save(
     patch_resolve_db_name,
     capture_execvp,
 ):
-    """An explicit --config disables the automatic --config --save pair."""
+    """An explicit --config disables the automatic --config pair."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(run, ["--config", "/other/odoo.conf"])
@@ -106,7 +103,7 @@ def test_run_uses_explicit_config_without_save(
     assert "--save" not in joined
 
 
-def test_run_keeps_explicit_addons_path_and_still_saves(
+def test_run_keeps_explicit_addons_path(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
@@ -114,7 +111,7 @@ def test_run_keeps_explicit_addons_path_and_still_saves(
     patch_resolve_db_name,
     capture_execvp,
 ):
-    """An explicit --addons-path is kept and the config is still saved."""
+    """An explicit --addons-path is kept and the config is used."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(run, ["--", "--addons-path", "/custom/addons"])
@@ -126,7 +123,7 @@ def test_run_keeps_explicit_addons_path_and_still_saves(
     _, final_args = capture_execvp[0]
     joined = " ".join(final_args)
     assert "--config" in joined
-    assert "--save" in joined
+    assert "--save" not in joined
     assert "--addons-path /custom/addons" in joined
 
 
