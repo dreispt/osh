@@ -197,9 +197,9 @@ class LocalBackend(Backend):
         echo = get_echo(ctx, base, verbose_override=verbose)
         command = " ".join(args)
         if dry_run:
-            echo.essential(f"Would run: {command}", err=True)
+            echo.info(f"Would run: {command}", err=True)
             return
-        echo.essential(f"Running: {command}", err=True)
+        echo.info(f"Running: {command}", err=True)
         try:
             os.execvp(args[0], args)
         except OSError as exc:

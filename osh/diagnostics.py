@@ -59,7 +59,7 @@ class Diagnostics:
     ):
         """Print this diagnostics object using the current echo object."""
         if include_header:
-            echo.essential(f"Ready: {'yes' if self.ready else 'no'}")
+            echo.info(f"Ready: {'yes' if self.ready else 'no'}")
 
         for error in self.errors:
             echo.error(error)
@@ -67,9 +67,9 @@ class Diagnostics:
             echo.warning(warning)
 
         if include_plans and self.plan:
-            echo.essential("Planned actions:")
+            echo.info("Planned actions:")
             for item in self.plan:
-                echo.essential(f"  - {item}")
+                echo.info(f"  - {item}")
 
         if include_info and self.info:
             for topic in ("Project", "System") + tuple(
@@ -77,13 +77,13 @@ class Diagnostics:
             ):
                 if topic not in self.info:
                     continue
-                echo.essential(f"{topic}:")
+                echo.info(f"{topic}:")
                 for key in sorted(self.info[topic]):
                     value = self.info[topic][key]
                     if key == "odoo_version":
-                        echo.essential(f"  Odoo version: {value}")
+                        echo.info(f"  Odoo version: {value}")
                     else:
-                        echo.essential(f"  {key}: {value}")
+                        echo.info(f"  {key}: {value}")
 
 
 def collect_diagnostics(

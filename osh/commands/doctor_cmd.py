@@ -24,7 +24,7 @@ def doctor(ctx, verbose):  # noqa: D401
     echo = get_echo(ctx, base, verbose_override=verbose)
 
     # Show friendly header for new users
-    echo.guidance("Checking your Osh setup...")
+    echo.friendly("Checking your Osh setup...")
 
     backend_name = get_project_config(base, "init", "target") or get_project_config(
         base, "run", "target"
@@ -33,7 +33,7 @@ def doctor(ctx, verbose):  # noqa: D401
     backends = load_backends()
 
     if backend_name is None:
-        echo.essential(
+        echo.info(
             "No installed targets. "
             "Run 'osh init --target <local|docker> <version>' first."
         )
@@ -52,4 +52,4 @@ def doctor(ctx, verbose):  # noqa: D401
 
     # Show friendly footer for new users
     if diagnostics.ready:
-        echo.next_steps("Your setup looks good! Run 'osh run' to start Odoo.")
+        echo.friendly("Your setup looks good! Run 'osh run' to start Odoo.")

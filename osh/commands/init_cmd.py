@@ -126,7 +126,7 @@ class TodoPlan:
             return
         self.index += 1
         item = self.plan[self.index - 1]
-        self.echo.essential(f"[{self.index}/{self.total}] Starting: {item}")
+        self.echo.info(f"[{self.index}/{self.total}] Starting: {item}")
 
 
 @click.command(name="init", cls=InitCommand)
@@ -203,7 +203,7 @@ def init(
         )
 
     echo = get_echo(ctx, target)
-    echo.guidance(f"Welcome to Osh! Let's set up your Odoo {version} project.")
+    echo.friendly(f"Welcome to Osh! Let's set up your Odoo {version} project.")
 
     if not (target / ".git").exists() and not dry_run:
         echo.warning(
@@ -229,7 +229,7 @@ def init(
         save_user_preference("edition", edition, section="init")
 
     edition_names = {"ce": "Community", "ee": "Enterprise", "sh": "Odoo.sh"}
-    echo.assumptions(f"Using {edition_names.get(edition, edition)} edition")
+    echo.info(f"Using {edition_names.get(edition, edition)} edition")
 
     backends = load_backends()
     backend_cls = backends.get(backend_name)
@@ -248,10 +248,10 @@ def init(
         **kwargs,
     )
     if diagnostics.plan:
-        echo.essential(f"Planned actions for {backend_name}:")
+        echo.info(f"Planned actions for {backend_name}:")
         total = len(diagnostics.plan)
         for i, item in enumerate(diagnostics.plan, 1):
-            echo.essential(f"  [{i}/{total}] {item}")
+            echo.info(f"  [{i}/{total}] {item}")
     for warning in diagnostics.warnings:
         echo.warning(warning)
     for error in diagnostics.errors:
@@ -299,13 +299,13 @@ def init(
         set_project_config(target, "init", values=init_values)
 
     if dry_run:
-        echo.essential(f"Dry run for project directory at {target}")
+        echo.info(f"Dry run for project directory at {target}")
     elif result:
-        echo.success(f"Initialised project directory at {target}")
-        echo.next_steps("Next steps:")
-        echo.next_steps("  osh doctor    # Check your setup")
-        echo.next_steps("  osh run        # Start Odoo")
-        echo.next_steps("  osh config --help  # Configure databases and options")
+        echo.info(f"Initialised project directory at {target}")
+        echo.friendly("Next steps:")
+        echo.friendly("  osh doctor    # Check your setup")
+        echo.friendly("  osh run        # Start Odoo")
+        echo.friendly("  osh config --help  # Configure databases and options")
     else:
         echo.warning(
             "Warning: project initialisation did not complete successfully.",

@@ -105,9 +105,7 @@ def user(ctx):  # noqa: D401
 
 
 @user.command(name="verbosity")
-@click.argument(
-    "level", type=click.Choice(["quiet", "normal", "friendly", "verbose", "debug"])
-)
+@click.argument("level", type=click.Choice(["quiet", "normal", "friendly", "verbose"]))
 @click.option(
     "--global",
     "global_setting",
@@ -127,7 +125,6 @@ def verbosity(
       normal    - Essential information (default for experienced users)
       friendly  - Helpful guidance and next steps (default for new users)
       verbose   - Detailed information about what's happening
-      debug     - Maximum detail for troubleshooting
 
     Examples:
 

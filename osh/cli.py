@@ -28,17 +28,12 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 @click.option(
     "--verbosity",
     "-v",
-    type=click.Choice(["quiet", "normal", "friendly", "verbose", "debug"]),
+    type=click.Choice(["quiet", "normal", "friendly", "verbose"]),
     default=None,
     help="Output verbosity level (default: auto-detect based on experience)",
 )
-@click.option(
-    "--no-emoji",
-    is_flag=True,
-    help="Disable emoji prefixes in output (for the emoji-averse)",
-)
 @click.pass_context
-def main(ctx, verbosity, no_emoji):  # noqa: D401
+def main(ctx, verbosity):  # noqa: D401
     """
     Odoo Shell – your toolkit for Odoo environments
     to accelerate your development and staging workflows.
@@ -50,7 +45,6 @@ def main(ctx, verbosity, no_emoji):  # noqa: D401
     """
     ctx.ensure_object(dict)
     ctx.obj["verbosity"] = verbosity
-    ctx.obj["no_emoji"] = no_emoji
 
 
 # Register all sub-commands from the dedicated package

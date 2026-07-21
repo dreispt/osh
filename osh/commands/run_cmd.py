@@ -125,7 +125,7 @@ def run(
 
     db_args = []
     if db_name:
-        echo.assumptions(f"Using database: {db_name}")
+        echo.info(f"Using database: {db_name}")
         if not explicit_db:
             db_args.extend(["-d", db_name])
         if not no_db_filter and not _has_arg(extra_args, "--db-filter"):
@@ -139,7 +139,7 @@ def run(
             else resolve_config_file(base, extra_args, for_run=not dry_run)
         )
         if config_path:
-            echo.details(f"Using config: {config_path}")
+            echo.info(f"Using config: {config_path}")
         executable = exe if exe else "odoo"
     else:
         executable = "odoo"

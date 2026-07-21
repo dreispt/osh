@@ -13,25 +13,17 @@ from .userconfig import _load_user_init_config
 _EMOJI_PREFIXES = {
     "error": "❌ ",
     "warning": "⚠️ ",
-    "success": "✅ ",
-    "guidance": "💡 ",
-    "next_steps": "➡️ ",
-    "details": "📋 ",
-    "assumptions": "🔍 ",
-    "internal": "🔧 ",
-    "essential": "",
+    "info": "",
+    "friendly": "🧭 ",
+    "internal": "",
 }
 
 _TEXT_PREFIXES = {
     "error": "ERROR: ",
     "warning": "WARNING: ",
-    "success": "",
-    "guidance": "",
-    "next_steps": "Next: ",
-    "details": "",
-    "assumptions": "",
+    "info": "",
+    "friendly": "",
     "internal": "",
-    "essential": "",
 }
 
 
@@ -42,13 +34,13 @@ class Echo:
     onboarding for new users with pragmatic output for seasoned developers.
     """
 
-    LEVELS = ["quiet", "normal", "friendly", "verbose", "debug"]
+    LEVELS = ["quiet", "normal", "friendly", "verbose"]
 
     def __init__(self, level="normal", emoji=True):
         """Initialize echo helper with the given verbosity level.
 
         Args:
-            level: One of "quiet", "normal", "friendly", "verbose", "debug"
+            level: One of "quiet", "normal", "friendly", "verbose"
             emoji: Whether to use emoji prefixes (default: True)
         """
         self.level = level if level in self.LEVELS else "normal"
@@ -58,42 +50,16 @@ class Echo:
         """Return True if message category should be shown at current level.
 
         Args:
-            category: Message category (error, warning, success, essential,
-                     guidance, next_steps, details, assumptions, internal)
+            category: Message category (error, warning, info, friendly, internal)
 
         Returns:
             True if the category should be displayed at current verbosity level
         """
         rules = {
             "quiet": ["error"],
-            "normal": ["error", "warning", "success", "essential"],
-            "friendly": [
-                "error",
-                "warning",
-                "success",
-                "essential",
-                "guidance",
-                "next_steps",
-            ],
-            "verbose": [
-                "error",
-                "warning",
-                "success",
-                "essential",
-                "guidance",
-                "details",
-                "assumptions",
-            ],
-            "debug": [
-                "error",
-                "warning",
-                "success",
-                "essential",
-                "guidance",
-                "details",
-                "assumptions",
-                "internal",
-            ],
+            "normal": ["error", "warning", "info"],
+            "friendly": ["error", "warning", "info", "friendly"],
+            "verbose": ["error", "warning", "info", "internal"],
         }
         return category in rules.get(self.level, [])
 
@@ -134,32 +100,16 @@ class Echo:
         """Log a warning message."""
         self._echo("warning", message, err=err)
 
-    def success(self, message, err=False):
-        """Log a success message."""
-        self._echo("success", message, err=err)
+    def info(self, message, err=False):
+        """Log an info message."""
+        self._echo("info", message, err=err)
 
-    def essential(self, message, err=False):
-        """Log an essential message (shown at normal level and above)."""
-        self._echo("essential", message, err=err)
-
-    def guidance(self, message, err=False):
-        """Log a guidance message (shown at friendly level and above)."""
-        self._echo("guidance", message, err=err)
-
-    def next_steps(self, message, err=False):
-        """Log next steps message (shown at friendly level and above)."""
-        self._echo("next_steps", message, err=err)
-
-    def details(self, message, err=False):
-        """Log detailed information (shown at verbose level and above)."""
-        self._echo("details", message, err=err)
-
-    def assumptions(self, message, err=False):
-        """Log assumptions being made (shown at verbose level and above)."""
-        self._echo("assumptions", message, err=err)
+    def friendly(self, message, err=False):
+        """Log a friendly message (shown at friendly level and above)."""
+        self._echo("friendly", message, err=err)
 
     def internal(self, message, err=False):
-        """Log internal debugging information (shown at debug level only)."""
+        """Log internal debugging information (shown at verbose level)."""
         self._echo("internal", message, err=err)
 
     def confirm(self, message, default=True, abort=False):
@@ -247,10 +197,6 @@ def get_echo(ctx, base, verbose_override=False):
     This encapsulates all the complexity of detecting verbosity level and emoji
     preference from CLI flags, environment variables, project config, and user config.
 
-    The two detection blocks below look similar; this duplication is intentional
-    because verbosity and emoji are independent settings with different config keys,
-    precedence rules and defaults.
-
     Args:
         ctx: Click context containing CLI flags
         base: Project root directory, or None if no project found
@@ -259,15 +205,14 @@ def get_echo(ctx, base, verbose_override=False):
     Returns:
         Configured Echo object
     """
-    # Determine verbosity level (intentionally separate from emoji detection below).
+    # Determine verbosity level
     cli_obj = ctx.obj or {}
     cli_verbosity = cli_obj.get("verbosity")
     if verbose_override and not cli_verbosity:
         cli_verbosity = "verbose"
     verbosity = cli_verbosity or _detect_verbosity(base)
 
-    # Determine emoji preference (intentionally separate from verbosity detection above).
-    no_emoji = cli_obj.get("no_emoji", False)
-    use_emoji = not no_emoji and _detect_emoji_preference(base)
+    # Determine emoji preference from config only
+    use_emoji = _detect_emoji_preference(base)
 
     return Echo(verbosity, emoji=use_emoji)
