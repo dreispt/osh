@@ -144,6 +144,20 @@ def _confirm_sources(assume_yes):
         echo.info("Proceeding in non-interactive mode.", err=True)
 
 
+def _resolve_source(
+    name,
+    version,
+    source_flag,
+    project_source,
+    osh_dir,
+    default_url,
+):
+    """Return the planned action, source spec and optional warning for *name*."""
+    return SourceResolver(
+        name, version, source_flag, project_source, osh_dir, default_url
+    ).resolve()
+
+
 class SourceResolver:
     """Plan how to install a single Odoo source copy."""
 

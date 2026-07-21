@@ -42,10 +42,8 @@ def _format_toml_value(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        if value.lower() in ("true", "false"):
-            return value.lower()
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
     if isinstance(value, (int, float)):
         return str(value)
     raise ValueError(f"Unsupported TOML value type: {type(value)}")
