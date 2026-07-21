@@ -17,7 +17,7 @@ from ..echo import get_echo
 @click.group(name="config")
 @click.pass_context
 def config(ctx):  # noqa: D401
-    """Manage Osh project settings stored in `.osh/config`."""
+    """Manage Osh project settings stored in `.osh/config.toml`."""
 
 
 @config.command(name="db")
@@ -186,6 +186,6 @@ def emoji(
         base = find_project_root(required=True)
         echo = get_echo(ctx, base)
         cfg = load_osh_config(base)
-        cfg.set("user", "emoji", str(value))
+        cfg.set("user", "emoji", value)
         save_osh_config(base, cfg)
         echo.info(f"Set project emoji to: {enabled}")

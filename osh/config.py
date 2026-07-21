@@ -63,7 +63,7 @@ def _dump_toml(path, data):
         lines.append(f"[{section}]")
         for key, value in options.items():
             lines.append(f"{key} = {_format_toml_value(value)}")
-    path.write_text("\n".join(lines) + "\n" if lines else "")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _load_toml(path):
@@ -73,7 +73,7 @@ def _load_toml(path):
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
-    except Exception as exc:  # pragma: no cover
+    except (OSError, ValueError) as exc:  # pragma: no cover
         warnings.warn(f"Could not load config from {path}: {exc}")
         return {}
     return data if isinstance(data, dict) else {}
@@ -121,7 +121,11 @@ def _write_toml_section_key(path, section, key, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     formatted = _format_toml_value(value)
 
-    lines = path.read_text().splitlines(keepends=True) if path.exists() else []
+    lines = (
+        path.read_text(encoding="utf-8").splitlines(keepends=True)
+        if path.exists()
+        else []
+    )
 
     key_line, section_start = _find_toml_section_key(lines, section, key)
 
@@ -132,7 +136,7 @@ def _write_toml_section_key(path, section, key, value):
     else:
         _append_new_toml_section(lines, section, f"{key} = {formatted}\n")
 
-    path.write_text("".join(lines))
+    path.write_text("".join(lines), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +155,7 @@ class ConfigStore:
         self._data = data if data is not None else {}
 
     def _ensure_section(self, section):
-        if section not in self._data:
+        if section not in self._data or not isinstance(self._data[section], dict):
             self._data[section] = {}
         return self._data[section]
 
@@ -283,4 +287,4 @@ def save_docker_config(base, data):
     config_path = get_docker_config_path(base)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{key} = {_format_toml_value(value)}" for key, value in data.items()]
-    config_path.write_text("\n".join(lines) + "\n")
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

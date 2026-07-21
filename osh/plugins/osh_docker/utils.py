@@ -29,6 +29,8 @@ def _save_docker_config(
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     service = service or "odoo"
     command = command or "odoo"
+    if not isinstance(command, str):
+        command = shlex.join(str(c) for c in command)
     data = {
         "service": service,
         "command": command,

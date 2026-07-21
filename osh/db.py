@@ -1,6 +1,6 @@
 """Database configuration and PostgreSQL helpers for Osh.
 
-Tracks the preferred database per git branch in `.osh/config` and provides
+Tracks the preferred database per git branch in `.osh/config.toml` and provides
 shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 """
 
