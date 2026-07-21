@@ -235,6 +235,11 @@ class MyBackend(Backend):
   create options; it automatically sets the `target_group` attribute so the
   help formatter groups the option under the right backend heading.
 
+- `detect_odoo_version(self, base)`: return the installed Odoo version for
+  _base_, or `None` if it cannot be determined. The base implementation in
+  `Backend` delegates to `osh/version.py`, but backends may override it for
+  target-specific discovery.
+
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
   Return a `Diagnostics` object. `osh doctor`, `osh init` and `osh run` all use
   this. `options` may include `phase` (`"doctor"`, `"init"` or `"run"`) and any
@@ -337,52 +342,3 @@ class EchoBackend(Backend):
 
 Register it with `osh --target echo` or `osh init --target echo` once the
 plugin is loaded.
-
-## Plugin API Critique
-
-This section evaluates how friendly the current plugin API is for third-party
-extension authors.
-
-### What works well
-
-- **Small surface area**: there are only two concepts to learn, commands and
-  backends, and both are simple Python objects.
-- **Familiar tools**: commands are standard Click commands; backends are plain
-  Python classes inheriting from `Backend`.
-- **Built-in examples**: `osh_local`, `osh_docker` and `osh_test` provide
-  realistic reference implementations.
-- **Automatic command namespacing**: command name collisions are resolved by
-  prefixing the plugin source, which keeps `osh` stable when multiple plugins are
-  installed.
-- **Reusable diagnostics**: the `Diagnostics` dataclass is reused by
-  `osh doctor`, `osh init` and `osh run`, so backend authors do not have to
-  write separate reporting code.
-
-### Pain points
-
-- **Broad `**options`signatures**:`init`, `diagnose`, `run`and`restore`all
-accept`\*\*options`but do not document which keys are actually passed. The
-only way to know is to trace`init_cmd.py`, `run_cmd.py`and`restore_cmd.py`.
-- **No dependency mechanism**: `osh` does not declare or install plugin
-  dependencies. Authors must document external packages and trust users to
-  install them.
-- **`ctx` usage is inconsistent**: `diagnose` receives `ctx` but most backends
-  use it only to read `ctx.params` for CLI overrides. The exact CLI options that
-  are forwarded to each method differ between commands.
-
-### Improvements implemented
-
-- `Backend.make_init_option()` now sets `target_group` automatically.
-- `Backend.run()` receives a `RunSpec` dataclass with `argv`, `db_name`,
-  `config_path`, `extra_args` and `executable` fields.
-- `plugin_loader.load_backends()` warns when a backend name collision causes a
-  plugin backend to be skipped.
-- Plugins can be distributed via the `osh.plugins` Python entry point group in
-  addition to `~/.config/osh/plugins/`.
-
-### Remaining suggestions
-
-- Document the exact keys passed in `**options` for each lifecycle method, or
-  replace `**options` with named keyword arguments.
-- Consider a plugin manifest (e.g. `pyproject.toml` `[tool.osh.plugins]`) so
-  metadata such as dependencies and target names can be declared statically.
