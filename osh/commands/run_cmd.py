@@ -164,9 +164,9 @@ def run(
         )
         if config_path:
             echo.info(f"Using config: {config_path}")
-        executable = exe if exe else "odoo"
+        executable = exe if exe else "odoo-bin"
     else:
-        executable = "odoo"
+        executable = "odoo-bin"
         config_path = None
 
     argv = [executable]

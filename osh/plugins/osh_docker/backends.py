@@ -51,7 +51,7 @@ class DockerBackend(Backend):
             click.Option(
                 ["--command"],
                 help="Shell-quoted command to run inside the container "
-                "(e.g. 'odoo' or 'python3 -m odoo').",
+                "(e.g. 'odoo-bin' or 'python3 -m odoo').",
             ),
             click.Option(
                 ["--compose-file"],
@@ -146,7 +146,7 @@ class DockerBackend(Backend):
         """Report the saved Docker backend configuration."""
         if cfg:
             d.add_info("service", service or "odoo")
-            d.add_info("command", command or "odoo")
+            d.add_info("command", command or "odoo-bin")
             d.add_info("compose_file", compose_file or "<none>")
             d.add_info("edition", edition)
             if cfg.get("compose_tool"):
@@ -258,7 +258,7 @@ class DockerBackend(Backend):
         if dry_run:
             info(
                 f"Would write {target / _DOCKER_TOML}: "
-                f"service={service or 'odoo'}, command={command or 'odoo'}, "
+                f"service={service or 'odoo'}, command={command or 'odoo-bin'}, "
                 f"compose_file={compose_file or '<none>'}, "
                 f"version={version!r}, edition={edition!r}.",
                 err=True,
@@ -476,7 +476,7 @@ class DockerBackend(Backend):
         self.run(
             ctx,
             base,
-            RunSpec(argv=["odoo", "-d", db_name, "neutralize"], db_name=db_name),
+            RunSpec(argv=["odoo-bin", "-d", db_name, "neutralize"], db_name=db_name),
             dry_run=dry_run,
             verbose=False,
         )

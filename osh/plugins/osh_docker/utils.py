@@ -28,7 +28,7 @@ def _save_docker_config(
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     service = service or "odoo"
-    command = command or "odoo"
+    command = command or "odoo-bin"
     if not isinstance(command, str):
         command = shlex.join(str(c) for c in command)
     data = {
@@ -49,7 +49,7 @@ def _save_docker_config(
 def _docker_command(service, command):
     """Return the Odoo command inside the container as a list."""
     if command is None:
-        command = "odoo"
+        command = "odoo-bin"
     if isinstance(command, list):
         return list(command)
     return shlex.split(str(command))
