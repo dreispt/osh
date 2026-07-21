@@ -590,7 +590,7 @@ class TestInitEdition:
 
         fake_home = tmp_project / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("osh.userconfig.Path.home", lambda: fake_home)
+        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -600,7 +600,7 @@ class TestInitEdition:
         assert result.exit_code == 0
         config_file = fake_home / ".config" / "osh" / "config.toml"
         assert config_file.exists()
-        assert 'edition = "sh"' in config_file.read_text()
+        assert "edition = 'sh'" in config_file.read_text()
 
     def test_ce_alias_skips_optional_sources(self, tmp_project, monkeypatch):
         """--ce explicitly selects Community only."""
@@ -657,7 +657,7 @@ class TestInitEdition:
         config_dir = fake_home / ".config" / "osh"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "config.toml").write_text('[init]\nedition = "sh"\n')
-        monkeypatch.setattr("osh.userconfig.Path.home", lambda: fake_home)
+        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
 
         runner = CliRunner()
         result = runner.invoke(main, ["init", "19.0", str(tmp_project)])

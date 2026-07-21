@@ -4,14 +4,13 @@ import pytest
 from click.testing import CliRunner
 
 from osh.commands.restore_cmd import restore
+from osh.db import set_project_config
 from osh.plugins.osh_local.backends import LocalBackend
 
 
 def _setup_fake_db_config(project, db_name="testdb"):
     """Write a branch database mapping into the project config."""
-    osh_dir = project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    (osh_dir / "config").write_text(f"[db]\ndefault = {db_name}\n")
+    set_project_config(project, "db", "default", db_name)
 
 
 @pytest.fixture
