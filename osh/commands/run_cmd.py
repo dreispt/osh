@@ -3,7 +3,7 @@
 import click
 
 from ..backends import RunSpec
-from ..commons import find_project_root, resolve_config_file
+from ..commons import _has_arg, find_project_root, resolve_config_file
 from ..db import resolve_run_target, set_project_config
 from ..diagnostics import collect_diagnostics
 from ..echo import get_echo
@@ -173,13 +173,3 @@ def _parse_explicit_db(extra_args):
         if arg.startswith("--database="):
             return arg.split("=", 1)[1]
     return None
-
-
-def _has_arg(extra_args, long, short=None):
-    """Return True if *extra_args* contains the given long (and optional short) option."""
-    for arg in extra_args:
-        if arg == long or arg.startswith(f"{long}="):
-            return True
-        if short and (arg == short or arg.startswith(short)):
-            return True
-    return False

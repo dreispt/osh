@@ -228,6 +228,33 @@ def run_command(
         raise click.ClickException(f"Command not found: {' '.join(args)}") from exc
 
 
+def run_subprocess(
+    args, *, cwd=None, env=None, text=True, stdout=None, stderr=None, **kwargs
+):
+    """Run *args* and return ``(returncode, stdout, stderr)``.
+
+    Stdout and stderr are captured by default. Pass ``stdout`` or ``stderr``
+    explicitly to override the capture behaviour (e.g. ``stderr=subprocess.DEVNULL``).
+    When the executable is missing, ``returncode`` is ``None`` and ``stderr``
+    contains a "command not found" message.
+    """
+    run_kwargs = dict(cwd=cwd, env=env, text=text)
+    if stdout is not None or stderr is not None:
+        run_kwargs["stdout"] = stdout if stdout is not None else subprocess.PIPE
+        run_kwargs["stderr"] = stderr if stderr is not None else subprocess.PIPE
+    else:
+        run_kwargs["capture_output"] = True
+    run_kwargs.update(kwargs)
+
+    try:
+        result = subprocess.run(args, **run_kwargs)
+    except FileNotFoundError as exc:
+        cmd = " ".join(shlex.quote(str(a)) for a in args)
+        return None, "", f"Command not found: {cmd} ({exc})"
+
+    return result.returncode, result.stdout or "", result.stderr or ""
+
+
 def discover_addons_paths(base, *, max_depth=3):
     """Return a list of addon directories under *base*.
 

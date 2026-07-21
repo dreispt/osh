@@ -7,6 +7,7 @@ edition, etc.).
 
 import configparser
 import re
+import warnings
 from pathlib import Path
 
 try:
@@ -23,7 +24,8 @@ def _load_user_init_config():
     try:
         with config_file.open("rb") as f:
             data = tomllib.load(f)
-    except Exception:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover
+        warnings.warn(f"Could not load user config from {config_file}: {exc}")
         return {}
     if not isinstance(data, dict):
         return {}

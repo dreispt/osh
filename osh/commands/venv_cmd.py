@@ -45,8 +45,8 @@ def python(extra_args):
     args = [str(python), *list(extra_args)]
     try:
         os.execvp(args[0], args)
-    except Exception as exc:  # pragma: no cover
-        raise click.ClickException(str(exc))
+    except OSError as exc:  # pragma: no cover
+        raise click.ClickException(f"Could not run {args[0]}: {exc}") from exc
 
 
 @click.command(
@@ -68,5 +68,5 @@ def pip(extra_args):
     args = [str(python), "-m", "pip", *list(extra_args)]
     try:
         os.execvp(args[0], args)
-    except Exception as exc:  # pragma: no cover
-        raise click.ClickException(str(exc))
+    except OSError as exc:  # pragma: no cover
+        raise click.ClickException(f"Could not run {args[0]}: {exc}") from exc

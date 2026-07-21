@@ -1,7 +1,6 @@
 """Local init/run/restore/prune backend for Osh."""
 
 import os
-import subprocess
 
 import click
 
@@ -11,25 +10,7 @@ from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
 from ...echo import get_echo, info
 from ...odoo_layout import build_addons_paths, find_odoo_executable
-from ...sources import _version_from_sources
 from .utils import init_project
-
-
-def _version_from_executable(exe):
-    """Return the version reported by an Odoo executable, or None."""
-    try:
-        result = subprocess.run(
-            [str(exe), "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except (OSError, ValueError):
-        return None
-    output = (result.stdout or result.stderr or "").strip()
-    if result.returncode != 0 or not output:
-        return None
-    return output.splitlines()[0]
 
 
 class LocalBackend(Backend):
@@ -71,15 +52,6 @@ class LocalBackend(Backend):
         ]
 
     _DIAGNOSE_SECTIONS = ("odoo_executable", "odoo_version", "config", "addons")
-
-    def detect_odoo_version(self, base):
-        """Return the installed Odoo version for the local target, or None."""
-        exe = find_odoo_executable(base)
-        if exe:
-            version = _version_from_executable(exe)
-            if version:
-                return version
-        return _version_from_sources(base)
 
     def diagnose_sections_for_phase(self, phase):
         """Skip expensive version/addons checks in ``init`` and ``run`` phases."""

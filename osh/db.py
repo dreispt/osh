@@ -20,6 +20,7 @@ from .commons import (
 )
 from .echo import Echo
 from .odoo_layout import build_addons_paths
+from .version import get_version_from_executable
 
 
 def sanitize_db_name(name):
@@ -297,19 +298,10 @@ def neutralize_database(
 
 def _get_odoo_version(exe):
     """Return the installed Odoo version as a (major, minor) tuple, or None."""
-    try:
-        result = subprocess.run(
-            [str(exe), "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except (OSError, ValueError):
+    output = get_version_from_executable(exe)
+    if not output:
         return None
-    output = (result.stdout or result.stderr or "").strip()
-    if result.returncode != 0 or not output:
-        return None
-    match = re.search(r"(\d+)\.(\d+)", output.splitlines()[0])
+    match = re.search(r"(\d+)\.(\d+)", output)
     if not match:
         return None
     return (int(match.group(1)), int(match.group(2)))

@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 import click
 
 from . import echo
-from .commons import decode_stderr, get_odoo_data_dir
+from .commons import decode_stderr, get_odoo_data_dir, run_subprocess
 from .db import get_pg_credentials
 
 
@@ -305,22 +305,15 @@ class OdooshSource(BackupSource):
         if dry_run:
             echo.info(f"Would run: ssh {' '.join(ssh_args)} {ls_command}", err=True)
             return "<latest_daily>.sql.gz"
-        try:
-            result = subprocess.run(
-                ["ssh", *ssh_args, self.ssh_target, ls_command],
-                capture_output=True,
-                check=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr.strip() if exc.stderr else ""
-            raise SourceError(f"Could not list odoo.sh backups: {stderr}") from exc
-        except FileNotFoundError as exc:
-            raise SourceError("Could not locate `ssh`. Is OpenSSH installed?") from exc
+        returncode, stdout, stderr = run_subprocess(
+            ["ssh", *ssh_args, self.ssh_target, ls_command]
+        )
+        if returncode:
+            raise SourceError(f"Could not list odoo.sh backups: {stderr.strip()}")
 
         files = [
             line.strip()
-            for line in result.stdout.splitlines()
+            for line in stdout.splitlines()
             if line.strip().endswith("_daily.sql.gz")
         ]
         if not files:
@@ -400,13 +393,9 @@ class OdooshSource(BackupSource):
 
     def _scp(self, remote_path, output):
         scp_args = ["scp", *self._ssh_args(), remote_path, str(output)]
-        try:
-            subprocess.run(scp_args, stderr=subprocess.PIPE, check=True)
-        except subprocess.CalledProcessError as exc:
-            stderr = decode_stderr(exc.stderr)
-            raise SourceError(f"scp failed: {stderr}") from exc
-        except FileNotFoundError as exc:
-            raise SourceError("Could not locate `scp`. Is OpenSSH installed?") from exc
+        returncode, _, stderr = run_subprocess(scp_args)
+        if returncode:
+            raise SourceError(f"scp failed: {stderr.strip()}")
 
 
 class SshSource(BackupSource):
@@ -455,13 +444,9 @@ class SshSource(BackupSource):
             echo.info(f"Would run: {' '.join(scp_args)}", err=True)
             return
 
-        try:
-            subprocess.run(scp_args, stderr=subprocess.PIPE, check=True)
-        except subprocess.CalledProcessError as exc:
-            stderr = decode_stderr(exc.stderr)
-            raise SourceError(f"scp failed: {stderr}") from exc
-        except FileNotFoundError as exc:
-            raise SourceError("Could not locate `scp`. Is OpenSSH installed?") from exc
+        returncode, _, stderr = run_subprocess(scp_args)
+        if returncode:
+            raise SourceError(f"scp failed: {stderr.strip()}")
 
 
 def parse_source(

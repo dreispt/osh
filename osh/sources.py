@@ -7,7 +7,6 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 
 import fnmatch
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -16,42 +15,13 @@ from pathlib import Path
 import click
 
 from . import echo
+from .commons import run_subprocess
 from .echo import confirm
 
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
 DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
 SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
-
-
-def _version_from_sources(base):
-    """Return the version declared in ``.osh/odoo/odoo/release.py``, or None."""
-    release_file = base / ".osh" / "odoo" / "odoo" / "release.py"
-    if not release_file.is_file():
-        return None
-    text = release_file.read_text()
-
-    # Real Odoo release.py computes `version` from `version_info`.  Execute it
-    # with a minimal builtins mapping so the computed value is available.
-    namespace = {"__builtins__": {"str": str}}
-    try:
-        exec(text, namespace)  # noqa: S102
-    except Exception:
-        pass
-    else:
-        version = namespace.get("version")
-        if version is not None:
-            return str(version)
-
-    # Fallback for release files that simply set `version = "..."`.
-    match = re.search(
-        r'^version\s*=\s*(["\'])([^"\']+)\1\s*(?:#.*)?$',
-        text,
-        re.MULTILINE,
-    )
-    if match:
-        return match.group(2)
-    return None
 
 
 def ensure_osh_sources(
@@ -113,9 +83,9 @@ def ensure_osh_sources(
             if not confirm(f"Use {project_source} for {name}?", default=True):
                 # User declined, fall back to default URL
                 project_source = None
-        source_plans[name] = _resolve_source(
+        source_plans[name] = SourceResolver(
             name, version, flag, project_source, osh_dir, url
-        )
+        ).resolve()
 
     _display_source_plan(osh_dir, edition, source_plans)
 
@@ -174,51 +144,66 @@ def _confirm_sources(assume_yes):
         echo.info("Proceeding in non-interactive mode.", err=True)
 
 
-def _resolve_source(
-    name,
-    version,
-    source_flag,
-    project_source,
-    osh_dir,
-    default_url,
-):
-    """Return the planned action, source spec and an optional mismatch warning."""
-    # Handle tuple return from _find_local_source
-    if project_source and isinstance(project_source, tuple):
-        project_source = project_source[0]  # Extract path, ignore confirmation flag
+class SourceResolver:
+    """Plan how to install a single Odoo source copy."""
 
-    link = osh_dir / name
-    if link.exists() or link.is_symlink():
+    def __init__(
+        self, name, version, source_flag, project_source, osh_dir, default_url
+    ):
+        self.name = name
+        self.version = version
+        self.source_flag = source_flag
+        self.project_source = (
+            project_source[0]
+            if project_source and isinstance(project_source, tuple)
+            else project_source
+        )
+        self.osh_dir = osh_dir
+        self.default_url = default_url
+
+    def resolve(self):
+        """Return the planned action, source spec and an optional mismatch warning."""
+        link = self.osh_dir / self.name
+        if link.exists() or link.is_symlink():
+            return self._resolve_existing(link)
+        if self.source_flag:
+            return self._resolve_flag()
+        if self.project_source:
+            return self._resolve_project()
+        return self._resolve_cache()
+
+    def _resolve_existing(self, link):
         resolved = link.resolve()
-        warning = _source_branch_warning(resolved, version)
+        warning = _source_branch_warning(resolved, self.version)
 
         # If the user supplied an explicit source, keep what they gave us and
         # only warn about a branch mismatch. Otherwise a managed source is
         # allowed to be replaced so ``osh init <new-version>`` can switch.
-        if source_flag or project_source:
+        if self.source_flag or self.project_source:
             return "existing", link, warning
 
         detected = _source_branch(resolved)
-        if detected and not _version_matches(detected, version):
+        if detected and not _version_matches(detected, self.version):
             return (
                 "replace",
-                default_url,
-                f"on branch '{detected}', expected '{version}'",
+                self.default_url,
+                f"on branch '{detected}', expected '{self.version}'",
             )
         return "existing", link, warning
 
-    if source_flag:
-        local_path = Path(source_flag).expanduser().resolve()
-        if not _is_git_url(source_flag) and local_path.is_dir():
-            warning = _source_branch_warning(local_path, version)
+    def _resolve_flag(self):
+        local_path = Path(self.source_flag).expanduser().resolve()
+        if not _is_git_url(self.source_flag) and local_path.is_dir():
+            warning = _source_branch_warning(local_path, self.version)
             return "symlink", local_path, warning
-        return "clone", source_flag, None
+        return "clone", self.source_flag, None
 
-    if project_source:
-        warning = _source_branch_warning(project_source, version)
-        return "symlink", project_source, warning
+    def _resolve_project(self):
+        warning = _source_branch_warning(self.project_source, self.version)
+        return "symlink", self.project_source, warning
 
-    return "cache", default_url, None
+    def _resolve_cache(self):
+        return "cache", self.default_url, None
 
 
 def _install_source_plan(
@@ -330,12 +315,12 @@ def _fetch_refspec_into_cache(cache, name, version, default_url):
 def _cache_has_branch(cache, version):
     """Return True if *cache* has a local ref for *version*."""
     for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
-        res = subprocess.run(
+        returncode, _, _ = run_subprocess(
             ["git", "-C", str(cache), "show-ref", "--verify", "--quiet", ref],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        if res.returncode == 0:
+        if returncode == 0:
             return True
     return False
 
@@ -416,23 +401,20 @@ def _source_branch(path):
     resolved = path.resolve()
     if not _is_git_repo(resolved):
         return None
-    try:
-        branch = subprocess.check_output(
-            ["git", "-C", str(resolved), "branch", "--show-current"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        if branch:
-            return branch
-        tag = subprocess.check_output(
-            ["git", "-C", str(resolved), "describe", "--tags", "--exact-match"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        if tag:
-            return tag
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
+
+    returncode, branch, _ = run_subprocess(
+        ["git", "-C", str(resolved), "branch", "--show-current"],
+        stderr=subprocess.DEVNULL,
+    )
+    if returncode == 0 and branch:
+        return branch.strip()
+
+    returncode, tag, _ = run_subprocess(
+        ["git", "-C", str(resolved), "describe", "--tags", "--exact-match"],
+        stderr=subprocess.DEVNULL,
+    )
+    if returncode == 0 and tag:
+        return tag.strip()
     return None
 
 

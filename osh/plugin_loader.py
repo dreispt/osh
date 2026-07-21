@@ -91,7 +91,8 @@ def _iter_entry_point_modules(group="osh.plugins"):
         return
     try:
         eps = _metadata.entry_points()
-    except Exception:
+    except Exception as exc:
+        echo.warning(f"Could not scan entry points: {exc}", err=True)
         return
     try:
         selected = eps.select(group=group)
@@ -101,8 +102,10 @@ def _iter_entry_point_modules(group="osh.plugins"):
         try:
             module = importlib.import_module(ep.value)
             yield ep.name, module
-        except Exception:
-            # Skip broken entry-point plugins.
+        except Exception as exc:
+            echo.warning(
+                f"Could not load entry-point plugin '{ep.value}': {exc}", err=True
+            )
             continue
 
 
@@ -118,8 +121,10 @@ def _iter_plugin_modules():
                 module = importlib.import_module(module_name)
                 source = _plugin_source_name(module_name)
                 yield source, module
-            except Exception:
-                # Skip broken built-in plugins.
+            except Exception as exc:
+                echo.warning(
+                    f"Could not load built-in plugin '{module_name}': {exc}", err=True
+                )
                 continue
     except ImportError:
         pass
@@ -136,8 +141,8 @@ def _iter_plugin_modules():
                 if module is not None:
                     source = _plugin_source_name(child.name)
                     yield source, module
-            except Exception:
-                # Skip broken user plugins.
+            except Exception as exc:
+                echo.warning(f"Could not load user plugin '{child}': {exc}", err=True)
                 continue
 
 

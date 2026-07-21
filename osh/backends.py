@@ -71,13 +71,10 @@ class Backend(ABC):
         return []
 
     def detect_odoo_version(self, base):
-        """Return the installed Odoo version for *base*, or None if unknown.
+        """Return the installed Odoo version for *base*, or None if unknown."""
+        from .version import detect_odoo_version
 
-        Each backend is responsible for inspecting its own runtime environment,
-        because how the version is discovered depends on the target (e.g. a
-        local executable vs. a container image).
-        """
-        raise NotImplementedError
+        return detect_odoo_version(base, self)
 
     def diagnose_sections_for_phase(self, phase):
         """Return the diagnose sections to run for *phase*.
