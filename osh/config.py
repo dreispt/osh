@@ -231,17 +231,8 @@ def _ensure_default_sections(data):
 
 
 def load_project_config(base):
-    """Load or create the Osh project configuration.
-
-    Falls back to the pre-TOML ``.osh/config`` file and parses it as TOML
-    when the new ``.osh/config.toml`` is missing. All writes go to the
-    ``.osh/config.toml`` path.
-    """
+    """Load or create the Osh project configuration."""
     data = _load_toml(get_project_config_path(base))
-    if not data:
-        legacy_path = Path(base) / ".osh" / "config"
-        if legacy_path.exists():
-            data = _load_toml(legacy_path)
     return ConfigStore(_ensure_default_sections(data))
 
 
