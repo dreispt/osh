@@ -1,11 +1,10 @@
 """Built-in Docker backend plugin for Osh.
 
-Provides ``osh init-docker`` and ``osh run --target docker`` support by reading
-an existing Docker Compose stack configuration from ``.osh/docker.toml``.
+Provides ``osh init --target docker`` and ``osh run --target docker`` support
+by reading an existing Docker Compose stack configuration from ``.osh/docker.toml``.
 """
 
 from .backends import DockerBackend
-from .commands import init_docker
 
 
 def get_backends():
@@ -15,4 +14,4 @@ def get_backends():
 
 def get_commands():
     """Return Click commands exposed by this plugin."""
-    return [init_docker]
+    return []

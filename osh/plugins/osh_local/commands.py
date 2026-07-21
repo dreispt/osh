@@ -1,90 +1,11 @@
 """Local backend commands for Osh."""
 
 import subprocess
-from pathlib import Path
 
 import click
 
-from ...commands import init_cmd
 from ...commons import find_project_root
 from ...echo import Echo
-
-
-@click.command(name="init-local")
-@click.argument("version")
-@click.argument(
-    "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
-)
-@click.option(
-    "-c",
-    "--odoo-source",
-    help="Odoo source: an existing local directory or a git URL. "
-    "Defaults to the central cache (populated from GitHub).",
-)
-@click.option(
-    "-e",
-    "--enterprise-source",
-    help="Enterprise source: an existing local directory or a git URL. "
-    "Defaults to the central cache (populated from GitHub).",
-)
-@click.option(
-    "-t",
-    "--themes-source",
-    help="Design-themes source: an existing local directory or a git URL. "
-    "Defaults to the central cache (populated from GitHub).",
-)
-@click.option(
-    "--save",
-    is_flag=True,
-    help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
-)
-@click.option(
-    "--yes",
-    is_flag=True,
-    help="Assume yes for interactive prompts; useful when a TTY is available but input is not desired.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Show the planned actions without modifying anything.",
-)
-@click.pass_context
-def init_local(
-    ctx,
-    version,
-    directory,
-    odoo_source,
-    enterprise_source,
-    themes_source,
-    save,
-    yes,
-    dry_run,
-):  # noqa: D401
-    """Initialise a project for the local (virtualenv) target.
-
-    This is an alias for `osh init --target local`. See `osh init --help` for
-    full documentation.
-
-    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
-    DIRECTORY: Project directory to initialise (defaults to current directory)
-    """
-    kwargs = {
-        "backend_name": "local",
-        "version": version,
-        "directory": directory,
-        "edition": None,
-        "save": save,
-        "assume_yes": yes,
-        "dry_run": dry_run,
-    }
-    if odoo_source:
-        kwargs["odoo_source"] = odoo_source
-    if enterprise_source:
-        kwargs["enterprise_source"] = enterprise_source
-    if themes_source:
-        kwargs["themes_source"] = themes_source
-
-    ctx.invoke(init_cmd.init, **kwargs)
 
 
 @click.command(name="prune")

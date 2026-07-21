@@ -10,7 +10,31 @@ from ..echo import get_echo
 from ..plugin_loader import load_backends
 
 
-@click.command(name="run", context_settings=dict(ignore_unknown_options=True))
+class RunCommand(click.Command):
+    """Click command that appends a Targets section to `osh run --help`."""
+
+    def format_help_text(self, ctx, formatter):
+        """Write the docstring followed by the list of available backends."""
+        super().format_help_text(ctx, formatter)
+        _format_run_targets(formatter)
+
+
+def _format_run_targets(formatter):
+    """Write a Targets section listing each backend name and description."""
+    backends = load_backends()
+    if not backends:
+        return
+    records = [
+        (name, getattr(backends[name], "description", "") or "")
+        for name in sorted(backends)
+    ]
+    with formatter.section("Targets"):
+        formatter.write_dl(records)
+
+
+@click.command(
+    name="run", cls=RunCommand, context_settings=dict(ignore_unknown_options=True)
+)
 @click.option(
     "--dry-run",
     is_flag=True,

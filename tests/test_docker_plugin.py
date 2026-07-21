@@ -12,7 +12,6 @@ from osh.backends import Backend, RunSpec
 from osh.cli import main
 from osh.plugin_loader import load_backends, load_plugins
 from osh.plugins.osh_docker.backends import DockerBackend
-from osh.plugins.osh_docker.commands import init_docker
 
 
 def test_docker_backends_are_registered():
@@ -71,7 +70,9 @@ def test_init_docker_command_writes_config_and_compose(tmp_project, monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(init_docker, ["19.0", "--service", "odoo"])
+    result = runner.invoke(
+        main, ["init", "--target", "docker"] + ["19.0", "--service", "odoo"]
+    )
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -90,7 +91,7 @@ def test_init_docker_overwrites_existing_osh_compose(tmp_project, monkeypatch):
     existing.write_text("existing: compose\n")
 
     runner = CliRunner()
-    result = runner.invoke(init_docker, ["19.0"])
+    result = runner.invoke(main, ["init", "--target", "docker"] + ["19.0"])
 
     assert result.exit_code == 0, result.output
     assert "image: odoo:19.0" in existing.read_text()
@@ -106,12 +107,16 @@ def test_init_docker_updates_compose_for_a_different_version(tmp_project, monkey
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(init_docker, ["19.0", "--service", "odoo"])
+    result = runner.invoke(
+        main, ["init", "--target", "docker"] + ["19.0", "--service", "odoo"]
+    )
     assert result.exit_code == 0, result.output
     compose = tmp_project / ".osh" / "docker-compose.yml"
     assert "image: odoo:19.0" in compose.read_text()
 
-    result = runner.invoke(init_docker, ["20.0", "--service", "odoo"])
+    result = runner.invoke(
+        main, ["init", "--target", "docker"] + ["20.0", "--service", "odoo"]
+    )
     assert result.exit_code == 0, result.output
     assert "image: odoo:20.0" in compose.read_text()
     assert "version = '20.0'" in (tmp_project / ".osh" / "docker.toml").read_text()
@@ -126,8 +131,17 @@ def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
 
     runner = CliRunner()
     result = runner.invoke(
-        init_docker,
-        ["19.0", "--service", "odoo", "--compose-file", "devel.yaml"],
+        main,
+        [
+            "init",
+            "--target",
+            "docker",
+            *"19.0",
+            "--service",
+            "odoo",
+            "--compose-file",
+            "devel.yaml",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -168,8 +182,17 @@ def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
 
     runner = CliRunner()
     result = runner.invoke(
-        init_docker,
-        ["19.0", "--service", "odoo", "--compose-file", "missing.yaml"],
+        main,
+        [
+            "init",
+            "--target",
+            "docker",
+            *"19.0",
+            "--service",
+            "odoo",
+            "--compose-file",
+            "missing.yaml",
+        ],
     )
 
     assert result.exit_code != 0
