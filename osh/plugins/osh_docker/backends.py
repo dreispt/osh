@@ -362,7 +362,7 @@ class DockerBackend(Backend):
         if not service:
             raise click.ClickException(
                 "No Docker service configured. Run "
-                "'osh init-docker --service <name>' or edit "
+                "'osh init --target docker --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
 
