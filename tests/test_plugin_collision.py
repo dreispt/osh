@@ -132,5 +132,5 @@ def test_double_collision_is_ignored(monkeypatch, tmp_path, capsys):
     assert cli.main.commands["source-custom"].callback is second_custom.callback
     assert "source-source-custom" not in cli.main.commands
     assert (
-        "conflicts with an existing command and is ignored" in capsys.readouterr().err
+        "conflicts with an existing command and is ignored" in capsys.readouterr().out
     )

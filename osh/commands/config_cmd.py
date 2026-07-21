@@ -10,6 +10,7 @@ from ..db import (
     save_osh_config,
     set_project_config,
 )
+from ..echo import get_echo
 from ..userconfig import save_user_preference
 
 
@@ -52,6 +53,7 @@ def db(
     """
 
     base = find_project_root(required=True)
+    echo = get_echo(ctx, base)
 
     if branch is None:
         branch = get_current_branch(base) or "default"
@@ -64,7 +66,7 @@ def db(
     if set_default:
         set_project_config(base, "db", "last", db_name)
 
-    click.echo(f"Set database for branch '{branch}' to '{db_name}'")
+    echo.info(f"Set database for branch '{branch}' to '{db_name}'")
 
 
 @config.command(name="show")
@@ -73,29 +75,30 @@ def show(ctx):  # noqa: D401
     """Show the current Osh project configuration."""
 
     base = find_project_root(required=True)
+    echo = get_echo(ctx, base)
 
     cfg = load_osh_config(base)
     config_path = get_osh_config_path(base)
-    click.echo(f"Configuration file: {config_path}")
+    echo.info(f"Configuration file: {config_path}")
 
     if cfg.has_section("db"):
-        click.echo("Database configuration:")
+        echo.info("Database configuration:")
         for key, value in cfg.items("db"):
-            click.echo(f"  {key} = {value}")
+            echo.info(f"  {key} = {value}")
     else:
-        click.echo("  No database configuration.")
+        echo.info("  No database configuration.")
 
     if cfg.has_section("user"):
-        click.echo("User preferences:")
+        echo.info("User preferences:")
         for key, value in cfg.items("user"):
             # Format boolean values nicely
             if value.lower() in ("true", "false"):
                 display = "on" if value.lower() == "true" else "off"
-                click.echo(f"  {key} = {display}")
+                echo.info(f"  {key} = {display}")
             else:
-                click.echo(f"  {key} = {value}")
+                echo.info(f"  {key} = {value}")
     else:
-        click.echo("  No user preferences.")
+        echo.info("  No user preferences.")
 
 
 @config.group(name="user")
@@ -135,14 +138,16 @@ def verbosity(
     if global_setting:
         # Set in global user config
         save_user_preference("verbosity", level)
-        click.echo(f"Set global verbosity to: {level}")
+        echo = get_echo(ctx, None)
+        echo.info(f"Set global verbosity to: {level}")
     else:
         # Set in project config
         base = find_project_root(required=True)
+        echo = get_echo(ctx, base)
         cfg = load_osh_config(base)
         cfg.set("user", "verbosity", level)
         save_osh_config(base, cfg)
-        click.echo(f"Set project verbosity to: {level}")
+        echo.info(f"Set project verbosity to: {level}")
 
 
 @user.command(name="emoji")
@@ -173,11 +178,13 @@ def emoji(
     if global_setting:
         # Set in global user config
         save_user_preference("emoji", value, section="user")
-        click.echo(f"Set global emoji to: {enabled}")
+        echo = get_echo(ctx, None)
+        echo.info(f"Set global emoji to: {enabled}")
     else:
         # Set in project config
         base = find_project_root(required=True)
+        echo = get_echo(ctx, base)
         cfg = load_osh_config(base)
         cfg.set("user", "emoji", str(value))
         save_osh_config(base, cfg)
-        click.echo(f"Set project emoji to: {enabled}")
+        echo.info(f"Set project emoji to: {enabled}")

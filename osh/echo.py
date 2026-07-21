@@ -4,11 +4,78 @@ This module provides a logging-style API for output that adapts to user experien
 level and preferences, supporting multiple verbosity levels and emoji control.
 """
 
-import configparser
+import threading
 
 import click
 
-from .userconfig import _load_user_init_config
+from .userconfig import _load_user_init_config, _read_project_config
+
+# Cached Echo instance - created once and reused
+_cached_echo = None
+_cache_lock = threading.Lock()
+
+
+def _get_cached_echo():
+    """Get cached Echo instance, creating it once if not set."""
+    global _cached_echo
+    with _cache_lock:
+        if _cached_echo is None:
+            from .commons import find_project_root
+
+            base = find_project_root(required=False)
+            verbosity = _detect_verbosity(base)
+            use_emoji = _detect_emoji_preference(base)
+            _cached_echo = Echo(level=verbosity, emoji=use_emoji)
+    return _cached_echo
+
+
+def _set_config(verbosity=None, emoji=None, base=None):
+    """Override the cached configuration (used by CLI context)."""
+    global _cached_echo
+    with _cache_lock:
+        if base is None:
+            from .commons import find_project_root
+
+            base = find_project_root(required=False)
+
+        current_verbosity = (
+            verbosity if verbosity is not None else _detect_verbosity(base)
+        )
+        current_emoji = emoji if emoji is not None else _detect_emoji_preference(base)
+        _cached_echo = Echo(level=current_verbosity, emoji=current_emoji)
+
+
+def _reset_cache():
+    """Reset the cached configuration (useful for tests)."""
+    global _cached_echo
+    _cached_echo = None
+
+
+# Top-level convenience functions that use cached Echo instance
+def error(message, err=True):
+    """Log an error message."""
+    _get_cached_echo().error(message, err=err)
+
+
+def warning(message, err=False):
+    """Log a warning message."""
+    _get_cached_echo().warning(message, err=err)
+
+
+def info(message, err=False):
+    """Log an info message."""
+    _get_cached_echo().info(message, err=err)
+
+
+def friendly(message, err=False):
+    """Log a friendly message (shown at friendly level and above)."""
+    _get_cached_echo().friendly(message, err=err)
+
+
+def internal(message, err=False):
+    """Log internal debugging information (shown at verbose level)."""
+    _get_cached_echo().internal(message, err=err)
+
 
 _EMOJI_PREFIXES = {
     "error": "❌ ",
@@ -112,24 +179,25 @@ class Echo:
         """Log internal debugging information (shown at verbose level)."""
         self._echo("internal", message, err=err)
 
-    def confirm(self, message, default=True, abort=False):
-        """Ask the user for confirmation.
 
-        Args:
-            message: The confirmation message
-            default: Default value if user doesn't respond (default: True)
-            abort: If True, abort on negative response (default: False)
+def confirm(message, default=True, abort=False):
+    """Ask the user for confirmation.
 
-        Returns:
-            True if user confirms, False otherwise
-        """
-        import sys
+    Args:
+        message: The confirmation message
+        default: Default value if user doesn't respond (default: True)
+        abort: If True, abort on negative response (default: False)
 
-        if not sys.stdin.isatty():
-            # Non-interactive mode, return default
-            return default
+    Returns:
+        True if user confirms, False otherwise
+    """
+    import sys
 
-        return click.confirm(message, default=default, abort=abort)
+    if not sys.stdin.isatty():
+        # Non-interactive mode, return default
+        return default
+
+    return click.confirm(message, default=default, abort=abort)
 
 
 def _detect_verbosity(base):
@@ -141,21 +209,22 @@ def _detect_verbosity(base):
     Returns:
         Appropriate verbosity level for the current context
     """
-    # Check global user config first
+    # Check project config first (highest priority after CLI)
+    if base is not None and (base / ".osh").exists():
+        verbosity = _read_project_config(base, "verbosity")
+        if verbosity and verbosity in Echo.LEVELS:
+            return verbosity
+
+    # Fall back to global user config
     user_cfg = _load_user_init_config()
     if "verbosity" in user_cfg:
-        return user_cfg["verbosity"]
+        verbosity = user_cfg["verbosity"]
+        if verbosity in Echo.LEVELS:
+            return verbosity
 
+    # No project or no explicit setting - determine based on context
     if base is None or not (base / ".osh").exists():
         return "friendly"  # New user, no project yet
-
-    # Check project config
-    cfg = configparser.ConfigParser()
-    config_path = base / ".osh" / "config"
-    if config_path.exists():
-        cfg.read(config_path)
-        if cfg.has_option("user", "verbosity"):
-            return cfg.get("user", "verbosity")
 
     # If config exists but no explicit setting, assume normal (experienced user)
     return "normal"
@@ -164,8 +233,8 @@ def _detect_verbosity(base):
 def _detect_emoji_preference(base):
     """Detect emoji preference based on user configuration.
 
-    This intentionally mirrors ``_detect_verbosity`` because the two settings
-    are independent and use different config keys, precedence rules and defaults.
+    This mirrors ``_detect_verbosity`` precedence: project config first,
+    then user config, then default.
 
     Args:
         base: Project root directory, or None if no project found
@@ -173,19 +242,21 @@ def _detect_emoji_preference(base):
     Returns:
         True if emojis should be used, False otherwise
     """
+    # Check project config first (highest priority after CLI)
     if base is not None and (base / ".osh").exists():
-        # Check project config first (highest priority)
-        cfg = configparser.ConfigParser()
-        config_path = base / ".osh" / "config"
-        if config_path.exists():
-            cfg.read(config_path)
-            if cfg.has_option("user", "emoji"):
-                return cfg.get("user", "emoji").lower() == "true"
+        emoji = _read_project_config(base, "emoji")
+        if emoji is not None:
+            if isinstance(emoji, bool):
+                return emoji
+            return str(emoji).lower() == "true"
 
     # Fall back to global user config
     user_cfg = _load_user_init_config()
     if "emoji" in user_cfg:
-        return user_cfg["emoji"]
+        emoji = user_cfg["emoji"]
+        if isinstance(emoji, bool):
+            return emoji
+        return str(emoji).lower() == "true"
 
     # Default to emojis
     return True
@@ -198,21 +269,26 @@ def get_echo(ctx, base, verbose_override=False):
     preference from CLI flags, environment variables, project config, and user config.
 
     Args:
-        ctx: Click context containing CLI flags
+        ctx: Click context containing CLI flags (can be None for tests)
         base: Project root directory, or None if no project found
         verbose_override: If True, force verbose level (for legacy --verbose flag)
 
     Returns:
         Configured Echo object
     """
-    # Determine verbosity level
-    cli_obj = ctx.obj or {}
-    cli_verbosity = cli_obj.get("verbosity")
+    # Determine verbosity level from CLI context
+    cli_verbosity = None
+    if ctx and hasattr(ctx, "obj") and ctx.obj:
+        try:
+            cli_verbosity = ctx.obj.get("verbosity")
+        except (AttributeError, TypeError):
+            # obj might not be a dict or might not have get method
+            pass
+
     if verbose_override and not cli_verbosity:
         cli_verbosity = "verbose"
-    verbosity = cli_verbosity or _detect_verbosity(base)
 
-    # Determine emoji preference from config only
+    verbosity = cli_verbosity or _detect_verbosity(base)
     use_emoji = _detect_emoji_preference(base)
 
     return Echo(verbosity, emoji=use_emoji)

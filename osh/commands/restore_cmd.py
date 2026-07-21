@@ -7,6 +7,7 @@ import click
 from ..cache import get_cache_dir, list_cache, resolve_cache_id
 from ..commons import find_project_root
 from ..db import resolve_db_name, resolve_run_target
+from ..echo import get_echo
 from ..plugin_loader import load_backends
 
 
@@ -50,6 +51,7 @@ def restore(
     """
 
     base = find_project_root(required=True)
+    echo = get_echo(ctx, base)
 
     dump_path = _resolve_dump(base, dump)
 
@@ -74,9 +76,9 @@ def restore(
     )
 
     if dry_run:
-        click.echo(f"Would restore '{db_name}' from {dump_path}", err=True)
+        echo.info(f"Would restore '{db_name}' from {dump_path}", err=True)
     else:
-        click.echo(f"Restored database '{db_name}' from {dump_path}", err=True)
+        echo.info(f"Restored database '{db_name}' from {dump_path}", err=True)
 
 
 def _resolve_dump(base, dump):

@@ -9,7 +9,7 @@ from ...backends import Backend, RunSpec
 from ...commons import get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
-from ...echo import get_echo
+from ...echo import get_echo, info
 from ...odoo_layout import build_addons_paths, find_odoo_executable
 from ...sources import _version_from_sources
 from .utils import init_project
@@ -133,7 +133,11 @@ class LocalBackend(Backend):
             if config.exists():
                 d.add_info("odoo_config", str(config))
             else:
-                d.add_warning(f"Odoo config file not found: {config}")
+                # More informative warning showing both attempted paths
+                attempted_paths = [str(osh_conf), str(odoo_rc)]
+                d.add_warning(
+                    f"Odoo config file not found. Attempted: {', '.join(attempted_paths)}"
+                )
 
         if "addons" in sections:
             addons_paths = build_addons_paths(base, include_themes=True)
@@ -154,7 +158,6 @@ class LocalBackend(Backend):
         version="",
         edition="ce",
         dry_run=False,
-        echo=None,
         **options,
     ):
         init_project(
@@ -166,7 +169,6 @@ class LocalBackend(Backend):
             odoo_source=options.get("odoo_source"),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
-            echo=echo,
         )
         return True
 
@@ -194,12 +196,17 @@ class LocalBackend(Backend):
                 else:
                     args.append(f"--addons-path={addons_path_str}")
 
-        echo = get_echo(ctx, base, verbose_override=verbose)
+        if ctx:
+            get_echo(ctx, base, verbose_override=verbose)
+        else:
+            from ... import echo
+
+            echo._get_cached_echo()
         command = " ".join(args)
         if dry_run:
-            echo.info(f"Would run: {command}", err=True)
+            info(f"Would run: {command}", err=True)
             return
-        echo.info(f"Running: {command}", err=True)
+        info(f"Running: {command}", err=True)
         try:
             os.execvp(args[0], args)
         except OSError as exc:
@@ -238,12 +245,12 @@ class LocalBackend(Backend):
                     f"Database '{db_name}' already exists. Use --force to overwrite."
                 )
             if dry_run:
-                click.echo(f"Would drop database '{db_name}'", err=True)
+                info(f"Would drop database '{db_name}'", err=True)
             else:
                 drop_db(base, db_name)
 
         if dry_run:
-            click.echo(f"Would create database '{db_name}'", err=True)
+            info(f"Would create database '{db_name}'", err=True)
         else:
             create_db(base, db_name)
 

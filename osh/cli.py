@@ -8,6 +8,7 @@ import click
 
 from . import __version__
 from .commands import COMMANDS
+from .echo import Echo, _reset_cache
 from .plugin_loader import load_plugins
 
 
@@ -46,6 +47,16 @@ def main(ctx, verbosity):  # noqa: D401
     ctx.ensure_object(dict)
     ctx.obj["verbosity"] = verbosity
 
+    # Reset cache and set configuration based on CLI context
+    _reset_cache()
+    from .commons import find_project_root
+
+    base = find_project_root(required=False)
+    # Set config with CLI verbosity override
+    from . import echo as echo_module
+
+    echo_module._set_config(verbosity=verbosity, base=base)
+
 
 # Register all sub-commands from the dedicated package
 for _cmd in COMMANDS:
@@ -60,9 +71,9 @@ for plugin_source, plugin_cmd in load_plugins():
     if name in main.commands:
         prefixed = f"{plugin_source}-{name}"
         if prefixed in main.commands:
-            click.echo(
-                f"Warning: plugin command '{name}' from '{plugin_source}' conflicts with an existing command and is ignored.",
-                err=True,
+            echo = Echo(level="normal", emoji=True)
+            echo.warning(
+                f"plugin command '{name}' from '{plugin_source}' conflicts with an existing command and is ignored."
             )
             continue
         name = prefixed

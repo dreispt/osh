@@ -3,6 +3,7 @@
 import click
 
 from .. import __version__
+from ..echo import get_echo
 
 
 @click.command(name="version")
@@ -12,4 +13,5 @@ def version(ctx):  # noqa: D401
 
     Use `osh --version` for the same output.
     """
-    click.echo(f"osh, version {__version__}")
+    echo = get_echo(ctx, None)
+    echo.info(f"osh, version {__version__}")

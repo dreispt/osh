@@ -5,6 +5,7 @@ file that stores init defaults and user preferences (verbosity, emoji,
 edition, etc.).
 """
 
+import configparser
 import re
 from pathlib import Path
 
@@ -147,3 +148,27 @@ def save_user_preference(key, value, section="user"):
         section: TOML section name (default: "user")
     """
     _save_user_init_setting(key, value, section=section)
+
+
+def _read_project_config(base, option):
+    """Read a specific option from the project config file.
+
+    Args:
+        base: Project root directory
+        option: The config option to read (e.g., "verbosity", "emoji")
+
+    Returns:
+        The option value if found, None otherwise
+    """
+    if base is None:
+        return None
+
+    config_path = base / ".osh" / "config"
+    if not config_path.exists():
+        return None
+
+    cfg = configparser.ConfigParser()
+    cfg.read(config_path)
+    if cfg.has_option("user", option):
+        return cfg.get("user", option)
+    return None

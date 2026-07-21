@@ -7,6 +7,7 @@ import click
 from ..backup_sources import parse_source
 from ..cache import ensure_cache_dir, list_cache, write_metadata
 from ..commons import find_project_root
+from ..echo import get_echo
 
 SOURCE_COLUMN_WIDTH = 40
 SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")
@@ -103,6 +104,7 @@ def download(
     """
 
     base = find_project_root()
+    echo = get_echo(ctx, base)
     parsed = parse_source(
         source,
         base=base,
@@ -123,7 +125,7 @@ def download(
         )
 
     if dry_run:
-        click.echo(f"Would download {source} to {output_path}", err=True)
+        echo.info(f"Would download {source} to {output_path}", err=True)
         parsed.fetch(output_path, dry_run=True)
         return
 
@@ -138,7 +140,7 @@ def download(
             original_format=parsed.original_format,
         )
 
-    click.echo(str(output_path))
+    echo.info(str(output_path))
 
 
 def _is_in_cache(base, path):
@@ -171,20 +173,21 @@ def list_backups(
     """List backups stored in the project cache."""
 
     base = find_project_root(required=True)
+    echo = get_echo(ctx, base)
 
     entries = list_cache(base, limit=limit, reverse=reverse)
     if not entries:
-        click.echo("No cached backups.", err=True)
+        echo.info("No cached backups.", err=True)
         return
 
-    click.echo(
+    echo.info(
         f"{'#':<4} {'Source':<{SOURCE_COLUMN_WIDTH}} {'Created':<20} {'Filename'}"
     )
     for entry in entries:
         source = entry["source"]
         if len(source) > SOURCE_TRUNCATE_AT + len("..."):
             source = source[:SOURCE_TRUNCATE_AT] + "..."
-        click.echo(
+        echo.info(
             f"{entry['id']:<4} {source:<{SOURCE_COLUMN_WIDTH}} "
             f"{entry['created_at']:<20} {entry['filename']}"
         )

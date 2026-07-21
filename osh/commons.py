@@ -16,6 +16,8 @@ from pathlib import Path
 
 import click
 
+from . import echo
+
 DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
 
 
@@ -76,7 +78,7 @@ def find_project_root(start=None, *, required=False):
 
 def _not_in_project():
     """Print a helpful message and exit when no Osh project is found."""
-    click.echo(
+    echo.info(
         "Not inside an Osh project. "
         "Run 'osh init --target <local|docker> <version>' to create one."
     )
@@ -148,7 +150,7 @@ def _stream_output(pipe, err=False):
     for line in iter(pipe.readline, ""):
         if not line:
             break
-        click.echo(line.rstrip("\r\n"), err=err)
+        echo.info(line.rstrip("\r\n"), err=err)
     pipe.close()
 
 

@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 import click
 
+from . import echo
 from .commons import decode_stderr, get_odoo_data_dir
 from .db import get_pg_credentials
 
@@ -89,14 +90,14 @@ class DbSource(BackupSource):
             args.extend(conn_args)
             args.append(self.db_name)
             if dry_run:
-                click.echo(f"Would run: {' '.join(args)} > {output}", err=True)
+                echo.info(f"Would run: {' '.join(args)} > {output}", err=True)
                 return
             self._run_dump(args, env, output)
             return
 
         if self.output_format == "zip":
             if dry_run:
-                click.echo(
+                echo.info(
                     f"Would create zip {output} containing dump.sql and filestore",
                     err=True,
                 )
@@ -154,9 +155,7 @@ class DbSource(BackupSource):
                             )
                             zf.write(path, arcname)
                 else:
-                    click.echo(
-                        f"Warning: filestore not found at {source_filestore}", err=True
-                    )
+                    echo.warning(f"filestore not found at {source_filestore}")
 
     def _data_dir(self):
         return get_odoo_data_dir(self.base)
@@ -203,7 +202,7 @@ class HttpsSource(BackupSource):
         ).encode("utf-8")
         req = Request(self.endpoint, data=payload, method="POST")
         if dry_run:
-            click.echo(
+            echo.info(
                 f"Would POST {self.endpoint} with backup_format={self.backup_format} to {output}",
                 err=True,
             )
@@ -290,7 +289,7 @@ class OdooshSource(BackupSource):
             return
         remote_path = f"{self.ssh_target}:{self.BACKUP_DIR}/{remote_file}"
         if dry_run:
-            click.echo(f"Would run: scp {remote_path} {output}", err=True)
+            echo.info(f"Would run: scp {remote_path} {output}", err=True)
             return
         self._scp(remote_path, output)
 
@@ -304,7 +303,7 @@ class OdooshSource(BackupSource):
         ssh_args = self._ssh_args()
         ls_command = f"ls {self.BACKUP_DIR}"
         if dry_run:
-            click.echo(f"Would run: ssh {' '.join(ssh_args)} {ls_command}", err=True)
+            echo.info(f"Would run: ssh {' '.join(ssh_args)} {ls_command}", err=True)
             return "<latest_daily>.sql.gz"
         try:
             result = subprocess.run(
@@ -339,7 +338,7 @@ class OdooshSource(BackupSource):
 
     def _fetch_full_backup(self, remote_file, output, *, dry_run=False):
         if dry_run:
-            click.echo(
+            echo.info(
                 f"Would download {remote_file} and filestore to {output}", err=True
             )
             return
@@ -453,7 +452,7 @@ class SshSource(BackupSource):
         scp_args.extend([remote_path, str(output)])
 
         if dry_run:
-            click.echo(f"Would run: {' '.join(scp_args)}", err=True)
+            echo.info(f"Would run: {' '.join(scp_args)}", err=True)
             return
 
         try:

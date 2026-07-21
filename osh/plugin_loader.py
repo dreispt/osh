@@ -19,12 +19,14 @@ import re
 import sys
 from pathlib import Path
 
+import click
+
+from . import echo
+
 try:
     import importlib.metadata as _metadata
 except ImportError:  # pragma: no cover
     _metadata = None
-
-import click
 
 
 def _user_plugin_dir():
@@ -208,8 +210,8 @@ def load_backends(backend_type=None):
             if not name:
                 continue
             if name in result:
-                click.echo(
-                    f"Warning: backend '{name}' from '{source}' conflicts with "
+                echo.warning(
+                    f"backend '{name}' from '{source}' conflicts with "
                     f"an existing backend and is ignored.",
                     err=True,
                 )

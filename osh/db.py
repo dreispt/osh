@@ -18,6 +18,7 @@ from .commons import (
     get_osh_config_path,
     resolve_config_file,
 )
+from .echo import Echo
 from .odoo_layout import build_addons_paths
 
 
@@ -247,7 +248,8 @@ def resolve_db_name(base, verbose=False):
     last_db = get_project_config(base, "db", "last")
     if last_db:
         if verbose:
-            click.echo(f"Using last database: {last_db}", err=True)
+            echo = Echo(level="normal", emoji=True)
+            echo.info(f"Using last database: {last_db}", err=True)
         return last_db
 
     return sanitize_db_name(f"{base.name}-{branch}")
@@ -282,7 +284,8 @@ def neutralize_database(
 ):
     """Neutralize *db_name* using the best available strategy."""
     if dry_run:
-        click.echo(f"Would neutralize database '{db_name}'", err=True)
+        echo = Echo(level="normal", emoji=True)
+        echo.info(f"Would neutralize database '{db_name}'", err=True)
         return
 
     version = _get_odoo_version(exe)

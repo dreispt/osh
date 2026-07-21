@@ -524,7 +524,7 @@ class TestInitCommand:
         )
 
         assert result.exit_code == 0
-        assert "Warning: Odoo smoke test failed" in result.output
+        assert "Odoo smoke test failed" in result.output
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "config").exists()
 

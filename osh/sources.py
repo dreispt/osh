@@ -15,6 +15,9 @@ from pathlib import Path
 
 import click
 
+from . import echo
+from .echo import confirm
+
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
 DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
@@ -62,7 +65,6 @@ def ensure_osh_sources(
     odoo_source=None,
     enterprise_source=None,
     themes_source=None,
-    echo=None,
 ):
     """Resolve, plan and install the required Odoo source copies.
 
@@ -108,7 +110,7 @@ def ensure_osh_sources(
     for name, flag, names, files, url in source_defs:
         project_source, requires_confirmation = _find_local_source(base, names, files)
         if requires_confirmation and not assume_yes and echo:
-            if not echo.confirm(f"Use {project_source} for {name}?", default=True):
+            if not confirm(f"Use {project_source} for {name}?", default=True):
                 # User declined, fall back to default URL
                 project_source = None
         source_plans[name] = _resolve_source(
@@ -118,7 +120,7 @@ def ensure_osh_sources(
     _display_source_plan(osh_dir, edition, source_plans)
 
     if dry_run:
-        click.echo("Dry run: no changes made.", err=True)
+        echo.info("Dry run: no changes made.", err=True)
         return {
             "odoo": None,
             "enterprise": None,
@@ -143,7 +145,7 @@ def _display_source_plan(
     source_plans,
 ):
     """Print the planned source-install actions for review."""
-    click.echo(
+    echo.info(
         f"Will install Odoo sources under {osh_dir} for edition '{edition}':",
         err=True,
     )
@@ -158,18 +160,18 @@ def _display_source_plan(
         line = f"  {name}: {verbs[action]} {spec}"
         if warning:
             line += f"  [warning: {warning}]"
-        click.echo(line, err=True)
+        echo.info(line, err=True)
 
 
 def _confirm_sources(assume_yes):
     """Ask the user to confirm the source plan, or proceed automatically."""
     if assume_yes:
-        click.echo("Proceeding with --yes (skipping confirmation).", err=True)
+        echo.info("Proceeding with --yes (skipping confirmation).", err=True)
         return
     if sys.stdin.isatty():
-        click.confirm("Proceed?", default=True, abort=True)
+        confirm("Proceed?", default=True, abort=True)
     else:
-        click.echo("Proceeding in non-interactive mode.", err=True)
+        echo.info("Proceeding in non-interactive mode.", err=True)
 
 
 def _resolve_source(
@@ -229,7 +231,7 @@ def _install_source_plan(
     """Execute a source plan entry and return the installed link, if any."""
     link = osh_dir / name
     if action == "existing":
-        click.echo(f"Using existing {name} sources at {link}", err=True)
+        echo.info(f"Using existing {name} sources at {link}", err=True)
         return link
 
     if action == "replace":
@@ -240,7 +242,7 @@ def _install_source_plan(
         elif link.exists():
             link.unlink()
         cache = _ensure_cache(name, version, str(spec))
-        click.echo(
+        echo.info(
             f"Reinstalling {name} {version} from cache into {link} (shallow)\u2026",
             err=True,
         )
@@ -248,18 +250,18 @@ def _install_source_plan(
         return link
 
     if action == "symlink":
-        click.echo(f"Linking {name} \u2192 {spec}\u2026", err=True)
+        echo.info(f"Linking {name} \u2192 {spec}\u2026", err=True)
         os.symlink(spec, link, target_is_directory=True)
         return link
 
     if action == "clone":
-        click.echo(f"Cloning {name} from {spec} (shallow)\u2026", err=True)
+        echo.info(f"Cloning {name} from {spec} (shallow)\u2026", err=True)
         _git_shallow_clone(spec, link, branch=version)
         return link
 
     if action == "cache":
         cache = _ensure_cache(name, version, str(spec))
-        click.echo(f"Cloning {name} from cache into {link} (shallow)\u2026", err=True)
+        echo.info(f"Cloning {name} from cache into {link} (shallow)\u2026", err=True)
         _git_shallow_clone(f"file://{cache}", link, branch=version)
         return link
 
@@ -275,9 +277,7 @@ def _ensure_cache(name, version, default_url):
     cache = SOURCE_CACHE_DIR / f"{name}.git"
     if not cache.exists():
         SOURCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        click.echo(
-            f"Creating central {name} cache at {cache} (shallow)\u2026", err=True
-        )
+        echo.info(f"Creating central {name} cache at {cache} (shallow)\u2026", err=True)
         subprocess.check_call(
             [
                 "git",
@@ -293,7 +293,7 @@ def _ensure_cache(name, version, default_url):
             ]
         )
     if not _cache_has_branch(cache, version):
-        click.echo(f"Fetching {name} {version} into cache\u2026", err=True)
+        echo.info(f"Fetching {name} {version} into cache\u2026", err=True)
         _fetch_refspec_into_cache(cache, name, version, default_url)
     return cache
 

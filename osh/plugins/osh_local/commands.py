@@ -7,6 +7,7 @@ import click
 
 from ...commands import init_cmd
 from ...commons import find_project_root
+from ...echo import Echo
 
 
 @click.command(name="init-local")
@@ -112,6 +113,7 @@ def prune(aggressive, dry_run):  # noqa: D401
       osh prune --dry-run
     """
     base = find_project_root(required=True)
+    echo = Echo(level="normal", emoji=True)
 
     osh_dir = base / ".osh"
     sources = ["odoo", "enterprise", "design-themes"]
@@ -120,10 +122,10 @@ def prune(aggressive, dry_run):  # noqa: D401
         path = osh_dir / name
         git_dir = path / ".git"
         if not path.is_dir() or not git_dir.exists():
-            click.echo(f"Skipping {name}: not a Git clone.", err=True)
+            echo.info(f"Skipping {name}: not a Git clone.", err=True)
             continue
         if path.is_symlink():
-            click.echo(f"Skipping {name}: symlinked source.", err=True)
+            echo.info(f"Skipping {name}: symlinked source.", err=True)
             continue
 
         cmd = ["git", "-C", str(path), "gc"]
@@ -131,10 +133,10 @@ def prune(aggressive, dry_run):  # noqa: D401
             cmd.append("--aggressive")
 
         if dry_run:
-            click.echo(f"Would run: {' '.join(cmd)}", err=True)
+            echo.info(f"Would run: {' '.join(cmd)}", err=True)
             continue
 
-        click.echo(f"Pruning {name} at {path}...", err=True)
+        echo.info(f"Pruning {name} at {path}...", err=True)
         try:
             subprocess.check_call(cmd)
             pruned += 1
@@ -146,4 +148,4 @@ def prune(aggressive, dry_run):  # noqa: D401
             ) from exc
 
     if not dry_run:
-        click.echo(f"Pruned {pruned} source clone(s).")
+        echo.info(f"Pruned {pruned} source clone(s).")

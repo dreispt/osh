@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import click
 
+from . import echo
+
 
 def copy_odoo_rc_to_osh_conf(base):
     """Copy .odoorc to .osh/odoo.conf if .odoorc exists and .osh/odoo.conf doesn't."""
@@ -18,7 +20,7 @@ def copy_odoo_rc_to_osh_conf(base):
     osh_odoo_conf = base / ".osh" / "odoo.conf"
     if odoo_rc.exists() and not osh_odoo_conf.exists():
         shutil.copy(odoo_rc, osh_odoo_conf)
-        click.echo("Copied .odoorc to .osh/odoo.conf", err=True)
+        echo.info("Copied .odoorc to .osh/odoo.conf", err=True)
 
 
 @dataclass
@@ -114,7 +116,6 @@ class Backend(ABC):
         version="",
         edition="ce",
         dry_run=False,
-        echo=None,
         **options,
     ):
         """Set up the environment. Return ``True`` if ready for use."""

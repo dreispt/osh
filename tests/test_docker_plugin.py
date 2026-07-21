@@ -479,7 +479,7 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
     backends = load_backends()
     assert backends["docker"] is FakeBackend
     err = capsys.readouterr().err
-    assert "Warning: backend 'docker' from 'second' conflicts" in err
+    assert "backend 'docker' from 'second' conflicts" in err
 
 
 def test_entry_point_plugin_loading(monkeypatch):

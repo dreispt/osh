@@ -15,17 +15,20 @@ from pathlib import Path
 
 import click
 
+from . import echo
 from .commons import decode_stderr, ensure_tool, get_odoo_data_dir
 from .db import create_db, drop_db, get_pg_credentials
 
 
 def restore_dump(base, dump_path, target_db, *, dry_run=False):
     """Restore *dump_path* into a freshly created *target_db*."""
+    from . import echo
+
     suffix = _dump_suffix(dump_path)
     conn_args, env = get_pg_credentials(base)
 
     if dry_run:
-        click.echo(
+        echo.info(
             f"Would drop/create database '{target_db}' and restore {dump_path}",
             err=True,
         )
@@ -126,13 +129,12 @@ def _restore_zip(
         if filestore_src.exists():
             data_dir = get_odoo_data_dir(base)
             if data_dir is None:
-                click.echo(
-                    "Warning: could not determine Odoo data_dir; filestore not restored.",
-                    err=True,
+                echo.warning(
+                    "could not determine Odoo data_dir; filestore not restored."
                 )
                 return
             filestore_dst = data_dir / "filestore" / target_db
             if filestore_dst.exists():
                 shutil.rmtree(filestore_dst)
             shutil.copytree(filestore_src, filestore_dst)
-            click.echo(f"Restored filestore to {filestore_dst}", err=True)
+            echo.info(f"Restored filestore to {filestore_dst}", err=True)

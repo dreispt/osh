@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 
 from ...db import set_project_config
+from ...echo import Echo
 from .backends import DockerBackend
 
 
@@ -40,9 +41,10 @@ def init_docker(
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to the current directory).
     """
+    echo = Echo(level="normal", emoji=True)
     target = (directory or Path.cwd()).expanduser().resolve()
     if not target.exists():
-        click.echo(f"Creating directory {target}…", err=True)
+        echo.info(f"Creating directory {target}…", err=True)
         target.mkdir(parents=True, exist_ok=True)
 
     osh_dir = target / ".osh"
@@ -66,10 +68,9 @@ def init_docker(
     set_project_config(target, "run", "target", "docker")
 
     if not ok:
-        click.echo(
+        echo.warning(
             f"Initialised project directory at {target} "
-            "(Docker setup incomplete; see warnings above).",
-            err=True,
+            "(Docker setup incomplete; see warnings above)."
         )
     else:
-        click.echo(f"Initialised project directory at {target}")
+        echo.info(f"Initialised project directory at {target}")

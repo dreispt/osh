@@ -126,7 +126,7 @@ class TodoPlan:
             return
         self.index += 1
         item = self.plan[self.index - 1]
-        self.echo.info(f"[{self.index}/{self.total}] Starting: {item}")
+        self.echo.info(f"[{self.index}] Starting: {item}")
 
 
 @click.command(name="init", cls=InitCommand)

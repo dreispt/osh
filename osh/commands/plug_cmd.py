@@ -5,6 +5,7 @@ import subprocess
 
 import click
 
+from ..echo import get_echo
 from ..plugin_loader import _user_plugin_dir
 
 
@@ -40,15 +41,13 @@ def install(ctx, url, trust):  # noqa: D401
     The repository must expose a `get_commands()` function or a `COMMANDS` list.
     Use --trust to skip the security warning.
     """
+    echo = get_echo(ctx, None)
 
     if not url.startswith(("https://", "git@", "http://", "git://", "file://")):
         raise click.ClickException("URL must be a git repository.")
 
     if not trust:
-        click.echo(
-            "Warning: plugins are arbitrary code. Only install from trusted sources.",
-            err=True,
-        )
+        echo.warning("plugins are arbitrary code. Only install from trusted sources.")
         if not click.confirm("Install this plugin?", default=False, err=True):
             ctx.exit(0)
 
@@ -65,8 +64,8 @@ def install(ctx, url, trust):  # noqa: D401
     except subprocess.CalledProcessError as exc:
         raise click.ClickException(f"git clone failed: {exc}")
 
-    click.echo(f"Installed plugin '{name}' at {plugin_dir}")
-    click.echo("Restart `osh` to load the plugin's commands.")
+    echo.info(f"Installed plugin '{name}' at {plugin_dir}")
+    echo.friendly("Restart `osh` to load the plugin's commands.")
 
 
 @plug.command(name="list")
@@ -76,22 +75,23 @@ def list_(ctx):  # noqa: D401
 
     Plugins are located in ~/.config/osh/plugins/.
     """
+    echo = get_echo(ctx, None)
 
     plugin_dir = _user_plugin_dir()
     if not plugin_dir.is_dir():
-        click.echo("No plugins installed.")
+        echo.info("No plugins installed.")
         return
 
     plugins = sorted(
         p for p in plugin_dir.iterdir() if p.is_dir() and not p.name.startswith(".")
     )
     if not plugins:
-        click.echo("No plugins installed.")
+        echo.info("No plugins installed.")
         return
 
-    click.echo("Installed plugins:")
+    echo.info("Installed plugins:")
     for p in plugins:
-        click.echo(f"  - {p.name}")
+        echo.info(f"  - {p.name}")
 
 
 @plug.command(name="uninstall")
@@ -107,6 +107,7 @@ def uninstall(ctx, name, yes):  # noqa: D401
 
     Use --yes to skip the confirmation prompt.
     """
+    echo = get_echo(ctx, None)
 
     plugin_dir = _user_plugin_dir() / name
     if not plugin_dir.exists():
@@ -119,4 +120,4 @@ def uninstall(ctx, name, yes):  # noqa: D401
             ctx.exit(0)
 
     shutil.rmtree(plugin_dir)
-    click.echo(f"Removed plugin '{name}'.")
+    echo.info(f"Removed plugin '{name}'.")
