@@ -6,7 +6,7 @@ import subprocess
 import click
 
 from ...backends import Backend, RunSpec
-from ...commons import discover_addons_paths, get_odoo_config_path
+from ...commons import get_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
 from ...echo import get_echo
@@ -137,9 +137,7 @@ class LocalBackend(Backend):
 
         if "addons" in sections:
             addons_paths = build_addons_paths(base, include_themes=True)
-            modules = discover_addons_paths(base)
             d.add_info("addons_directories", len(addons_paths))
-            d.add_info("addon_modules", len(modules))
 
         if phase == "init":
             d.add_plan("Resolve Odoo sources for the selected edition")
@@ -189,15 +187,12 @@ class LocalBackend(Backend):
         if "--addons-path" not in args:
             addons_paths = build_addons_paths(base, include_themes=True)
             if addons_paths:
-                addons_path_args = [
-                    "--addons-path",
-                    ",".join(str(p) for p in addons_paths),
-                ]
+                addons_path_str = ",".join(str(p) for p in addons_paths)
                 if "--config" in args:
                     idx = args.index("--config")
-                    args[idx:idx] = addons_path_args
+                    args.insert(idx, f"--addons-path={addons_path_str}")
                 else:
-                    args.extend(addons_path_args)
+                    args.append(f"--addons-path={addons_path_str}")
 
         echo = get_echo(ctx, base, verbose_override=verbose)
         command = " ".join(args)
