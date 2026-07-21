@@ -51,7 +51,7 @@ def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatc
     assert docker_toml.exists()
     text = docker_toml.read_text()
     assert "service = 'app'" in text
-    assert "command = 'odoo'" in text
+    assert "command = 'odoo-bin'" in text
     assert "compose_file = '.osh/docker-compose.yml'" in text
 
     compose_file = tmp_project / ".osh" / "docker-compose.yml"
