@@ -16,19 +16,26 @@ def find_odoo_executable(base, *, required=False):
     """Return path to Odoo executable.
 
     Search order:
-    1. *base*/.venv/bin/odoo-bin (source) or odoo (pip-installed)
-    2. First `odoo-bin` or `odoo` found in PATH.
+    1. *base*/.venv/bin/odoo-bin
+    2. *base*/.osh/odoo/odoo-bin (source checkout)
+    3. *base*/.venv/bin/odoo (pip-installed)
+    4. First `odoo-bin` or `odoo` found in PATH.
 
     When *required* is True, raise a ClickException instead of returning None.
     """
-    # 1. virtualenv local - prefer odoo-bin (source) over odoo (pip)
+    # 1. virtualenv local - prefer odoo-bin over odoo
     venv_dir = base / ".venv" / ("Scripts" if os.name == "nt" else "bin")
     for exe_name in ["odoo-bin", "odoo"]:
         venv_exe = venv_dir / exe_name
         if venv_exe.is_file():
             return str(venv_exe)
 
-    # 2. PATH fallback
+    # 2. source checkout under .osh/odoo
+    source_exe = base / ".osh" / "odoo" / "odoo-bin"
+    if source_exe.is_file():
+        return str(source_exe)
+
+    # 3. PATH fallback
     exe = shutil.which("odoo-bin") or shutil.which("odoo")
     if not exe and required:
         raise click.ClickException(
