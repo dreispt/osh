@@ -1,72 +1,80 @@
-"""`osh python` and `osh pip` command implementations.
+"""`osh venv` command implementation.
 
-Thin wrappers around the project's virtualenv Python interpreter and its pip.
+Enters the project's virtualenv or runs a command in it.
 """
 
 import os
+import shutil
 
 import click
 
 from ..commons import find_project_root
-from ..plugins.osh_local.utils import _get_venv_python
 
 
-def _get_venv_python_for_project(base):
-    """Return the Python interpreter inside the project's .venv, or raise."""
-    venv_bin = base / ".venv" / ("Scripts" if os.name == "nt" else "bin")
-    python = _get_venv_python(venv_bin / "python")
-    if python is None:
+def _get_venv_bin(base):
+    """Return the virtualenv binary directory for *base*."""
+    return base / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+
+
+def _activate_venv(base):
+    """Put the project's .venv first on PATH and set VIRTUAL_ENV.
+
+    Raises a ClickException if the virtualenv does not exist.
+    """
+    venv_bin = _get_venv_bin(base)
+    if not venv_bin.is_dir():
         raise click.ClickException(
             "No virtualenv found. Run `osh init --target local` to create one."
         )
-    if not str(python).startswith(str(venv_bin)):
-        raise click.ClickException(
-            "Could not locate a Python interpreter inside the project's virtualenv."
-        )
-    return python
+    venv_path = str(venv_bin)
+    old_path = os.environ.get("PATH", "")
+    if venv_path not in old_path.split(os.pathsep):
+        os.environ["PATH"] = f"{venv_path}{os.pathsep}{old_path}"
+    os.environ["VIRTUAL_ENV"] = str(venv_bin.parent)
+    return venv_bin
+
+
+def _find_shell():
+    """Return a shell to launch for `osh venv` without arguments."""
+    if os.name == "nt":
+        return os.environ.get("COMSPEC", "cmd.exe")
+    shell = os.environ.get("SHELL")
+    if shell:
+        return shell
+    for fallback in ("bash", "sh", "zsh"):
+        found = shutil.which(fallback)
+        if found:
+            return found
+    raise click.ClickException("Could not determine a shell to launch.")
 
 
 @click.command(
-    name="python",
-    context_settings=dict(ignore_unknown_options=True, help_option_names=[]),
+    name="venv",
+    context_settings=dict(ignore_unknown_options=True),
 )
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
-def python(extra_args):
-    """Run the project's virtualenv Python interpreter.
+def venv(extra_args):
+    """Enter the project's virtualenv or run a command in it.
+
+    Without arguments this opens an interactive shell with the virtualenv on
+    PATH. Any arguments are passed through as a command to run inside the
+    virtualenv.
 
     Examples:
 
     \b
-      osh python
-      osh python -c "import odoo; print(odoo.__version__)"
+      osh venv
+      osh venv python --version
+      osh venv pip list
+      osh venv -- pytest tests/
     """
     base = find_project_root(required=True)
-    python = _get_venv_python_for_project(base)
-    args = [str(python), *list(extra_args)]
-    try:
-        os.execvp(args[0], args)
-    except OSError as exc:  # pragma: no cover
-        raise click.ClickException(f"Could not run {args[0]}: {exc}") from exc
-
-
-@click.command(
-    name="pip",
-    context_settings=dict(ignore_unknown_options=True, help_option_names=[]),
-)
-@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
-def pip(extra_args):
-    """Run pip inside the project's virtualenv.
-
-    Examples:
-
-    \b
-      osh pip install --upgrade odoo
-      osh pip list
-    """
-    base = find_project_root(required=True)
-    python = _get_venv_python_for_project(base)
-    args = [str(python), "-m", "pip", *list(extra_args)]
-    try:
-        os.execvp(args[0], args)
-    except OSError as exc:  # pragma: no cover
-        raise click.ClickException(f"Could not run {args[0]}: {exc}") from exc
+    _activate_venv(base)
+    args = list(extra_args)
+    if args and args[0] == "--":
+        args.pop(0)
+    if not args:
+        shell = _find_shell()
+        os.execvp(shell, [shell])
+        return
+    os.execvp(args[0], args)
