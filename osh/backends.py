@@ -12,15 +12,20 @@ from dataclasses import dataclass, field
 import click
 
 from . import echo
+from .commons import get_osh_odoo_config_path
 
 
 def copy_odoo_rc_to_osh_conf(base):
-    """Copy .odoorc to .osh/odoo.conf if .odoorc exists and .osh/odoo.conf doesn't."""
+    """Copy .odoorc to .osh/odoo.conf if .odoorc exists and .osh/odoo.conf doesn't.
+
+    Returns the path to ``.osh/odoo.conf`` regardless of whether a copy happened.
+    """
     odoo_rc = base / ".odoorc"
-    osh_odoo_conf = base / ".osh" / "odoo.conf"
+    osh_odoo_conf = get_osh_odoo_config_path(base)
     if odoo_rc.exists() and not osh_odoo_conf.exists():
         shutil.copy(odoo_rc, osh_odoo_conf)
         echo.info("Copied .odoorc to .osh/odoo.conf", err=True)
+    return osh_odoo_conf
 
 
 @dataclass

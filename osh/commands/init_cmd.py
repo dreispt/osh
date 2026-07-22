@@ -1,10 +1,12 @@
 """`osh init` command implementation."""
 
+import configparser
 import sys
 from pathlib import Path
 
 import click
 
+from ..backends import copy_odoo_rc_to_osh_conf
 from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
 from ..echo import get_echo
@@ -168,6 +170,13 @@ class TodoPlan:
     help="Alias for --edition sh.",
 )
 @click.option(
+    "--dev/--no-dev",
+    "dev",
+    default=True,
+    help="Add development-friendly Odoo config options (limit_time_cpu=0, "
+    "limit_time_real=0) to .osh/odoo.conf. Use --no-dev to disable.",
+)
+@click.option(
     "--save",
     is_flag=True,
     help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
@@ -185,7 +194,16 @@ class TodoPlan:
 )
 @click.pass_context
 def init(
-    ctx, version, directory, backend_name, edition, save, assume_yes, dry_run, **kwargs
+    ctx,
+    version,
+    directory,
+    backend_name,
+    edition,
+    save,
+    assume_yes,
+    dry_run,
+    dev=True,
+    **kwargs,
 ):
     """Initialise a project for the chosen target.
 
@@ -288,10 +306,23 @@ def init(
     if not dry_run:
         set_project_config(target, "run", "target", backend_name)
 
+        osh_conf = copy_odoo_rc_to_osh_conf(target)
+        if dev:
+            odoo_cfg = configparser.ConfigParser()
+            if osh_conf.exists():
+                odoo_cfg.read(osh_conf, encoding="utf-8")
+            if not odoo_cfg.has_section("options"):
+                odoo_cfg.add_section("options")
+            odoo_cfg.set("options", "limit_time_cpu", "0")
+            odoo_cfg.set("options", "limit_time_real", "0")
+            with osh_conf.open("w", encoding="utf-8") as f:
+                odoo_cfg.write(f)
+
         init_values = {
             "target": backend_name,
             "version": version,
             "edition": edition,
+            "dev": dev,
         }
         for key, value in {**kwargs, **docker_source_kwargs}.items():
             if value is not None:

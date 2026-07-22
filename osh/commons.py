@@ -90,6 +90,11 @@ def get_odoo_config_path(base):
     return base / ".odoorc"
 
 
+def get_osh_odoo_config_path(base):
+    """Return path to the Osh-managed Odoo configuration file (.osh/odoo.conf)."""
+    return base / ".osh" / "odoo.conf"
+
+
 def _has_arg(args, long, short=None):
     """Return True if *args* contains the given long (and optional short) option."""
     for arg in args:
@@ -115,7 +120,7 @@ def resolve_config_file(base, extra_args, *, for_run=False):
     if has_explicit_config:
         return None
 
-    osh_odoo_conf = base / ".osh" / "odoo.conf"
+    osh_odoo_conf = get_osh_odoo_config_path(base)
     odoo_rc = get_odoo_config_path(base)
 
     # Prefer .osh/odoo.conf, fall back to .odoorc

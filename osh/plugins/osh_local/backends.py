@@ -5,7 +5,7 @@ import os
 import click
 
 from ...backends import Backend, RunSpec
-from ...commons import get_odoo_config_path
+from ...commons import get_odoo_config_path, get_osh_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
 from ...echo import get_echo, info
@@ -100,7 +100,7 @@ class LocalBackend(Backend):
 
         if "config" in sections:
             odoo_rc = get_odoo_config_path(base)
-            osh_conf = base / ".osh" / "odoo.conf"
+            osh_conf = get_osh_odoo_config_path(base)
             config = osh_conf if osh_conf.exists() else odoo_rc
             if config.exists():
                 d.add_info("odoo_config", str(config))
