@@ -7,6 +7,7 @@ lets `osh run` handle the target backend.
 
 import click
 
+from ... import echo
 from ...commands.run_cmd import run
 from ...commons import discover_module_names, find_project_root
 from ...db import db_exists, drop_db, resolve_test_db_name
@@ -90,14 +91,14 @@ def test(
     if current_db and not db_exists(base, db_name):
         raise click.ClickException(f"Current database '{db_name}' does not exist.")
 
-    if dropdb and not current_db:
-        if not dry_run:
-            drop_db(base, db_name)
-        need_install = True
-    else:
-        need_install = not db_exists(base, db_name)
+    need_install = not current_db and (dropdb or not db_exists(base, db_name))
 
-    if need_install and not current_db:
+    if dropdb and not current_db and not dry_run:
+        drop_db(base, db_name)
+
+    if need_install:
+        if dry_run and dropdb:
+            echo.info("Would drop and recreate the test database first.", err=True)
         # Fresh database: first install modules without tests.
         _run_odoo(ctx, db_name, module_list, "-i", http, dry_run=dry_run)
 
