@@ -2,10 +2,6 @@
 
 This document tracks planned improvements and future development work for the Osh project.
 
-## Release blockers for 0.1.0
-
-All blockers below have been resolved.
-
 ## Configuration system improvements
 
 - Create a unified `osh/config.py` module to handle read/write operations for both project-level (`~/.osh/config`) and user/system-level (`~/.config/osh/config.toml`) configurations.
@@ -25,21 +21,3 @@ All blockers below have been resolved.
 - Refactor `osh/plugins/osh_docker/backends.py` `diagnose()` into section-specific methods (currently ~140 lines).
 - Extract `osh/sources.py` source-resolution logic into a `SourceResolver` class to reduce nested conditionals and parameter passing.
 - Remove or consolidate the `init-local` and `init-docker` alias commands if they duplicate `osh init --target <name>`.
-
-## Already completed
-
-- Refactored echo system to cached top-level functions (`error`, `warning`, `info`, `friendly`, `internal`) with thread-safe access.
-- Fixed inconsistent config precedence and added input validation for verbosity/emoji in `osh/echo.py`.
-- Moved `confirm()` to a module-level function and updated callers in `osh/sources.py`.
-- Centralized project-config reading helper `_read_project_config()` in `osh/userconfig.py`.
-- Simplified `osh init` progress display from `[1/4]` to `[1]`.
-- Removed duplicated `_has_arg` from `osh/commands/run_cmd.py` and imported it from `osh/commons.py`.
-- Replaced bare `except Exception` clauses in `osh/plugin_loader.py` with specific exception types.
-- Resolved the `osh/commands/odoo_cmd.py` circular-import workaround so `run_cmd.run` is imported at module level.
-- Standardized all commands and backends on the cached `osh/echo` module (`echo.info`, `echo.warning`, etc.) and removed `get_echo()`.
-
-## Future ideas
-
-- Add machine-readable / JSON output to `osh doctor` for CI/CD integration.
-- Add plugin metadata (version, author, description) and display it in `osh plug list`.
-- Expand test coverage for configuration handling, edge cases, and full end-to-end workflows.
