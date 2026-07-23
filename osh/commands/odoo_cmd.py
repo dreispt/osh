@@ -7,6 +7,8 @@ This is an alias for `osh run --target local` with behavior adjustments:
 
 import click
 
+from .run_cmd import run
+
 
 @click.command(
     name="odoo",
@@ -45,9 +47,6 @@ def odoo(
       osh odoo cloc -p my_module
       osh odoo --dry-run -- shell
     """
-    # Import here to avoid circular dependency
-    from .run_cmd import run
-
     # Detect if we're running a subcommand (not the default server command)
     has_subcommand = extra_args and not extra_args[0].startswith("-")
 
