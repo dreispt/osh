@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import echo
+from .. import echo
 
 
 @dataclass
@@ -91,7 +91,7 @@ def collect_diagnostics(
     base, backend, ctx=None, *, target=None, sections=None, **options
 ):
     """Collect core and backend-specific diagnostics for *base*."""
-    from .db import get_current_branch, resolve_db_name
+    from ..db import get_current_branch, resolve_db_name
 
     diagnostics = backend.diagnose(base, ctx, sections=sections, **options)
     diagnostics.project = base

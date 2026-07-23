@@ -8,7 +8,7 @@ import click
 
 from . import __version__, echo
 from .commands import COMMANDS
-from .plugin_loader import load_plugins
+from .utils.plugin_loader import load_plugins
 
 
 class NaturalOrderGroup(click.Group):
@@ -48,7 +48,7 @@ def main(ctx, verbosity):  # noqa: D401
 
     # Reset cache and set configuration based on CLI context
     echo._reset_cache()
-    from .commons import find_project_root
+    from .common import find_project_root
 
     base = find_project_root(required=False)
     # Set config with CLI verbosity override

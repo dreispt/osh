@@ -9,7 +9,7 @@ import shutil
 
 import click
 
-from .commons import discover_addons_paths
+from ..common import discover_addons_paths
 
 
 def find_odoo_executable(base, *, required=False):

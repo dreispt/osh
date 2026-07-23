@@ -10,8 +10,8 @@ from click.testing import CliRunner
 
 from osh.backends import Backend, RunSpec
 from osh.cli import main
-from osh.plugin_loader import load_backends, load_plugins
 from osh.plugins.osh_docker.backends import DockerBackend
+from osh.utils.plugin_loader import load_backends, load_plugins
 
 
 def test_docker_backends_are_registered():
@@ -482,7 +482,7 @@ def test_docker_backend_run_accepts_runspec(tmp_project, capsys):
 
 def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
     """A backend name collision is reported instead of silently ignored."""
-    from osh import plugin_loader
+    from osh.utils import plugin_loader
 
     class FakeBackend(Backend):
         name = "docker"
@@ -507,7 +507,7 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
 
 def test_entry_point_plugin_loading(monkeypatch):
     """Plugins registered as Python entry points are loaded by load_plugins."""
-    from osh import plugin_loader
+    from osh.utils import plugin_loader
 
     fake_cmd = click.Command(name="fake-cmd")
 

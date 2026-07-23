@@ -3,8 +3,8 @@
 import re
 from pathlib import Path
 
-from . import echo
-from .commons import run_subprocess
+from .. import echo
+from ..common import run_subprocess
 from .odoo_layout import find_odoo_executable
 
 
@@ -27,7 +27,7 @@ def detect_odoo_version(base, backend):
         if version:
             return version
 
-        from .plugins.osh_docker.utils import _COMPOSE_FILE, _load_docker_config
+        from ..plugins.osh_docker.utils import _COMPOSE_FILE, _load_docker_config
 
         cfg = _load_docker_config(base)
         compose_file = (cfg or {}).get("compose_file") or str(_COMPOSE_FILE)

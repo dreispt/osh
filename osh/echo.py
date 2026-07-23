@@ -20,7 +20,7 @@ def _get_cached_echo():
     global _cached_echo
     with _cache_lock:
         if _cached_echo is None:
-            from .commons import find_project_root
+            from .common import find_project_root
 
             base = find_project_root(required=False)
             verbosity = _detect_verbosity(base)
@@ -34,7 +34,7 @@ def _set_config(verbosity=None, emoji=None, base=None):
     global _cached_echo
     with _cache_lock:
         if base is None:
-            from .commons import find_project_root
+            from .common import find_project_root
 
             base = find_project_root(required=False)
 

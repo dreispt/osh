@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osh.backup_sources import OdooshSource, SourceError, SshSource
 from osh.commands.backup_cmd import backup
+from osh.commands.backup_sources import OdooshSource, SourceError, SshSource
 
 
 def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
@@ -83,7 +83,7 @@ def test_download_https_posts_payload(in_project, monkeypatch):
         requests.append(req)
         return FakeResponse()
 
-    monkeypatch.setattr("osh.backup_sources.urlopen", fake_urlopen)
+    monkeypatch.setattr("osh.commands.backup_sources.urlopen", fake_urlopen)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -255,7 +255,7 @@ def test_download_odoosh_with_filestore_creates_zip(
             tar.extractall(filestore_dir)
         return 0, b"", ""
 
-    monkeypatch.setattr("osh.backup_sources.run_shell_pipeline", fake_pipeline)
+    monkeypatch.setattr("osh.commands.backup_sources.run_shell_pipeline", fake_pipeline)
 
     output = tmp_path / "backup.zip"
     source.fetch(output)

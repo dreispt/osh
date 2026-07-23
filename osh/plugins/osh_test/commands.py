@@ -10,7 +10,7 @@ import click
 
 from ... import echo
 from ...commands.run_cmd import run
-from ...commons import discover_module_names, find_project_root
+from ...common import discover_module_names, find_project_root
 from ...db import db_exists, drop_db, resolve_test_db_name
 
 

@@ -6,10 +6,10 @@ import click
 
 from ... import echo
 from ...backends import Backend, RunSpec
-from ...commons import get_odoo_config_path, get_osh_odoo_config_path
+from ...commands.helpers import Diagnostics
+from ...common import get_odoo_config_path, get_osh_odoo_config_path
 from ...db import create_db, db_exists, drop_db
-from ...diagnostics import Diagnostics
-from ...odoo_layout import build_addons_paths, find_odoo_executable
+from ...utils.odoo_layout import build_addons_paths, find_odoo_executable
 from .utils import init_project
 
 
@@ -28,7 +28,7 @@ class LocalBackend(Backend):
         "creates a Python virtualenv at ``.venv``, pip-installs Odoo in editable "
         "mode, and runs an ``odoo --version`` smoke test.\n\n"
         "Sources are resolved from explicit flags, existing project directories, "
-        "or a central cache under ``~/.cache/osh``."
+        "or a central cache under ``~/.utils.cache/osh``."
     )
 
     @classmethod
@@ -202,7 +202,7 @@ class LocalBackend(Backend):
         dry_run=False,
         **options,
     ):
-        from ...restore import restore_dump
+        from ...commands.restore import restore_dump
 
         if db_exists(base, db_name):
             if not force:

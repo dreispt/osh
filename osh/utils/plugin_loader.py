@@ -21,7 +21,7 @@ from pathlib import Path
 
 import click
 
-from . import echo
+from .. import echo
 
 try:
     import importlib.metadata as _metadata
@@ -162,7 +162,7 @@ def _load_commands_from_module(module):
 
 def _load_backends_from_module(module, backend_type):
     """Return backend classes of *backend_type* exposed by a plugin module."""
-    from .backends import Backend
+    from ..backends import Backend
 
     if hasattr(module, "get_backends"):
         backends = module.get_backends()

@@ -3,10 +3,10 @@
 import click
 
 from .. import echo
-from ..commons import find_project_root
+from ..common import find_project_root
 from ..db import get_project_config
-from ..diagnostics import collect_diagnostics, report_diagnostics
-from ..plugin_loader import load_backends
+from ..utils.plugin_loader import load_backends
+from .helpers import collect_diagnostics, report_diagnostics
 
 
 @click.command(name="doctor")

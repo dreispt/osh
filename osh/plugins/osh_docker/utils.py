@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from ... import config as _config
-from ...commons import run_subprocess
+from ...common import run_subprocess
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"

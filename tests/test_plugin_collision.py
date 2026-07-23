@@ -35,7 +35,7 @@ def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "init")
 
-    monkeypatch.setattr("osh.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -58,7 +58,7 @@ def test_collision_between_plugins_is_renamed(monkeypatch, tmp_path):
         click.echo("second custom")
 
     monkeypatch.setattr(
-        "osh.plugin_loader.load_plugins",
+        "osh.utils.plugin_loader.load_plugins",
         lambda: [("first", first_custom), ("second", second_custom)],
     )
 
@@ -76,7 +76,7 @@ def test_no_collision_registers_plugin_command(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "unique")
 
-    monkeypatch.setattr("osh.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -91,7 +91,7 @@ def test_renamed_command_appears_in_help(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "init")
 
-    monkeypatch.setattr("osh.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -116,7 +116,7 @@ def test_double_collision_is_ignored(monkeypatch, tmp_path, capsys):
         click.echo("second custom")
 
     monkeypatch.setattr(
-        "osh.plugin_loader.load_plugins",
+        "osh.utils.plugin_loader.load_plugins",
         lambda: [
             ("first", first_custom),
             ("source", second_custom),

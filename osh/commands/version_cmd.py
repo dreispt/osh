@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from .. import __version__, echo
-from ..commons import run_subprocess
+from ..common import run_subprocess
 
 
 def _version_with_git():

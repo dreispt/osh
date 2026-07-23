@@ -3,7 +3,7 @@
 import click
 
 from .. import echo
-from ..commons import find_project_root
+from ..common import find_project_root
 from ..config import get_project_config_path, save_user_preference
 from ..db import (
     get_current_branch,

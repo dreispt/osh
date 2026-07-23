@@ -13,14 +13,14 @@ import click
 
 from . import config as _config
 from . import echo
-from .commons import (
+from .common import (
     decode_stderr,
     get_odoo_config_path,
     resolve_config_file,
     run_subprocess,
 )
-from .odoo_layout import build_addons_paths
-from .version import get_version_tuple
+from .utils.odoo_layout import build_addons_paths
+from .utils.version import get_version_tuple
 
 
 def sanitize_db_name(name):

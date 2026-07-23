@@ -13,20 +13,20 @@ from pathlib import Path
 
 import click
 
-from . import echo
-from .commons import (
+from .. import echo
+from ..common import (
     decode_stderr,
     ensure_tool,
     get_odoo_data_dir,
     run_shell_pipeline,
     run_subprocess,
 )
-from .db import create_db, drop_db, get_pg_credentials
+from ..db import create_db, drop_db, get_pg_credentials
 
 
 def restore_dump(base, dump_path, target_db, *, dry_run=False):
     """Restore *dump_path* into a freshly created *target_db*."""
-    from . import echo
+    from .. import echo
 
     suffix = _dump_suffix(dump_path)
     conn_args, env = get_pg_credentials(base)

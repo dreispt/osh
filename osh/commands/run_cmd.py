@@ -4,10 +4,10 @@ import click
 
 from .. import echo
 from ..backends import RunSpec
-from ..commons import _has_arg, find_project_root, resolve_config_file
+from ..common import _has_arg, find_project_root, resolve_config_file
 from ..db import resolve_run_target, set_project_config
-from ..diagnostics import collect_diagnostics
-from ..plugin_loader import load_backends
+from ..utils.plugin_loader import load_backends
+from .helpers import collect_diagnostics
 
 
 class RunCommand(click.Command):

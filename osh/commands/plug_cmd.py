@@ -5,8 +5,8 @@ import shutil
 import click
 
 from .. import echo
-from ..commons import run_subprocess
-from ..plugin_loader import _user_plugin_dir
+from ..common import run_subprocess
+from ..utils.plugin_loader import _user_plugin_dir
 
 
 def _repo_name_from_url(url):

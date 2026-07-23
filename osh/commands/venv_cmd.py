@@ -8,7 +8,7 @@ import shutil
 
 import click
 
-from ..commons import find_project_root
+from ..common import find_project_root
 
 
 def _get_venv_bin(base):

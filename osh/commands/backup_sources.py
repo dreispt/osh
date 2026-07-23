@@ -13,14 +13,14 @@ from urllib.request import Request, urlopen
 
 import click
 
-from . import echo
-from .commons import (
+from .. import echo
+from ..common import (
     decode_stderr,
     get_odoo_data_dir,
     run_shell_pipeline,
     run_subprocess,
 )
-from .db import get_pg_credentials
+from ..db import get_pg_credentials
 
 
 def _now_stamp():

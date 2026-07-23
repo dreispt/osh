@@ -3,7 +3,7 @@
 import click
 
 from ... import echo
-from ...commons import find_project_root, run_subprocess
+from ...common import find_project_root, run_subprocess
 
 
 @click.command(name="prune")

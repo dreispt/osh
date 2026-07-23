@@ -7,10 +7,10 @@ import click
 
 from ... import echo
 from ...backends import Backend, RunSpec, copy_odoo_rc_to_osh_conf
-from ...commons import resolve_config_file, run_command
-from ...diagnostics import Diagnostics
-from ...odoo_layout import build_addons_paths
+from ...commands.helpers import Diagnostics
+from ...common import resolve_config_file, run_command
 from ...sources import ensure_osh_sources
+from ...utils.odoo_layout import build_addons_paths
 from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,

@@ -75,7 +75,7 @@ pre-commit run --all-files
 ## Plugin Development
 
 Plugins let you add new commands to `osh`. They are loaded at startup by
-`osh/plugin_loader.py`.
+`osh/utils/plugin_loader.py`.
 
 ### Plugin conventions
 
@@ -179,6 +179,28 @@ Python packages, document them and let users install them in the same
 environment as `osh` (typically the `osh` project virtual environment or the
 user's `osh` install environment).
 
+## Public API surface
+
+The stable public API for plugins is intentionally small. Import from these
+top-level modules only; everything else is internal and may change without
+notice.
+
+- `osh.common` — shared helpers: `run_subprocess`, `run_shell_pipeline`,
+  `find_project_root`, `ensure_tool`, `get_odoo_data_dir`,
+  `get_odoo_config_path`, `resolve_config_file`, `discover_addons_paths`,
+  `decode_stderr`.
+- `osh.backends` — `Backend`, `RunSpec`, and `copy_odoo_rc_to_osh_conf`.
+- `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
+  `friendly`.
+- `osh.db` — database helpers: `get_pg_credentials`, `create_db`, `drop_db`,
+  `db_exists`, `resolve_db_name`, `get_current_branch`.
+- `osh.sources` — source installation helpers: `ensure_osh_sources`,
+  `pull_odoo_sources`, etc.
+
+Internal implementation modules live in `osh/utils/` (layout, version, cache,
+plugin loading) and `osh/commands/` (CLI command logic and `Diagnostics`).
+These are not part of the stable plugin API.
+
 ## Plugin API Reference
 
 Plugins can extend `osh` in two ways: **commands** and **backends**. Commands are
@@ -237,7 +259,7 @@ class MyBackend(Backend):
 
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
   _base_, or `None` if it cannot be determined. The base implementation in
-  `Backend` delegates to `osh/version.py`, but backends may override it for
+  `Backend` delegates to `osh/utils/version.py`, but backends may override it for
   target-specific discovery.
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
@@ -286,7 +308,7 @@ build a target-specific command.
 ### Diagnostics
 
 Backends return diagnostics via the `Diagnostics` dataclass in
-`osh/diagnostics.py`:
+`osh/commands/helpers.py`:
 
 - `backend`: backend name.
 - `ready`: `True` unless `add_error()` was called.

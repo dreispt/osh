@@ -9,7 +9,7 @@ import click
 
 from ... import echo as echo_module
 from ...backends import copy_odoo_rc_to_osh_conf
-from ...commons import run_subprocess
+from ...common import run_subprocess
 from ...sources import ensure_osh_sources
 
 

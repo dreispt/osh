@@ -10,7 +10,7 @@ from .. import echo
 from ..backends import copy_odoo_rc_to_osh_conf
 from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
-from ..plugin_loader import load_backends
+from ..utils.plugin_loader import load_backends
 
 
 def _collect_backend_options():

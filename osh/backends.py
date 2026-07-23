@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 import click
 
 from . import echo
-from .commons import get_osh_odoo_config_path
+from .common import get_osh_odoo_config_path
 
 
 def copy_odoo_rc_to_osh_conf(base):
@@ -77,7 +77,7 @@ class Backend(ABC):
 
     def detect_odoo_version(self, base):
         """Return the installed Odoo version for *base*, or None if unknown."""
-        from .version import detect_odoo_version
+        from .utils.version import detect_odoo_version
 
         return detect_odoo_version(base, self)
 
