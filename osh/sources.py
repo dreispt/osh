@@ -8,7 +8,6 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 import fnmatch
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -239,7 +238,7 @@ def _install_source_plan(
             shutil.rmtree(link)
         elif link.exists():
             link.unlink()
-        cache = _ensure_cache(name, version, str(spec))
+        cache = _ensure_repo_cache(name, version, str(spec))
         echo.info(
             f"Reinstalling {name} {version} from cache into {link} (shallow)\u2026",
             err=True,
@@ -258,7 +257,7 @@ def _install_source_plan(
         return link
 
     if action == "cache":
-        cache = _ensure_cache(name, version, str(spec))
+        cache = _ensure_repo_cache(name, version, str(spec))
         echo.info(f"Cloning {name} from cache into {link} (shallow)\u2026", err=True)
         _git_shallow_clone(f"file://{cache}", link, branch=version)
         return link
@@ -266,7 +265,7 @@ def _install_source_plan(
     raise ValueError(f"Unknown source action: {action}")
 
 
-def _ensure_cache(name, version, default_url):
+def _ensure_repo_cache(name, version, default_url):
     """Return the cached bare repo for *name*, creating or updating it as needed.
 
     The cache is populated with shallow fetches: only the requested version/branch
@@ -276,7 +275,7 @@ def _ensure_cache(name, version, default_url):
     if not cache.exists():
         SOURCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         echo.info(f"Creating central {name} cache at {cache} (shallow)\u2026", err=True)
-        subprocess.check_call(
+        returncode, _, _ = run_subprocess(
             [
                 "git",
                 "clone",
@@ -290,6 +289,10 @@ def _ensure_cache(name, version, default_url):
                 str(cache),
             ]
         )
+        if returncode != 0:
+            raise click.ClickException(
+                f"Could not clone {name} {version} from {default_url}"
+            )
     if not _cache_has_branch(cache, version):
         echo.info(f"Fetching {name} {version} into cache\u2026", err=True)
         _fetch_refspec_into_cache(cache, name, version, default_url)
@@ -303,35 +306,29 @@ def _fetch_refspec_into_cache(cache, name, version, default_url):
         f"refs/tags/{version}:refs/tags/{version}",
     ]
     for refspec in refspecs:
-        try:
-            subprocess.check_call(
-                [
-                    "git",
-                    "-C",
-                    str(cache),
-                    "fetch",
-                    "--progress",
-                    "--depth",
-                    "1",
-                    "origin",
-                    refspec,
-                ]
-            )
+        returncode, _, _ = run_subprocess(
+            [
+                "git",
+                "-C",
+                str(cache),
+                "fetch",
+                "--progress",
+                "--depth",
+                "1",
+                "origin",
+                refspec,
+            ]
+        )
+        if returncode == 0:
             return
-        except subprocess.CalledProcessError as exc:
-            if refspec == refspecs[-1]:
-                raise click.ClickException(
-                    f"Could not fetch {name} {version} from {default_url}"
-                ) from exc
+    raise click.ClickException(f"Could not fetch {name} {version} from {default_url}")
 
 
 def _cache_has_branch(cache, version):
     """Return True if *cache* has a local ref for *version*."""
     for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
         returncode, _, _ = run_subprocess(
-            ["git", "-C", str(cache), "show-ref", "--verify", "--quiet", ref],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            ["git", "-C", str(cache), "show-ref", "--verify", "--quiet", ref]
         )
         if returncode == 0:
             return True
@@ -416,15 +413,13 @@ def _source_branch(path):
         return None
 
     returncode, branch, _ = run_subprocess(
-        ["git", "-C", str(resolved), "branch", "--show-current"],
-        stderr=subprocess.DEVNULL,
+        ["git", "-C", str(resolved), "branch", "--show-current"]
     )
     if returncode == 0 and branch:
         return branch.strip()
 
     returncode, tag, _ = run_subprocess(
-        ["git", "-C", str(resolved), "describe", "--tags", "--exact-match"],
-        stderr=subprocess.DEVNULL,
+        ["git", "-C", str(resolved), "describe", "--tags", "--exact-match"]
     )
     if returncode == 0 and tag:
         return tag.strip()
@@ -485,4 +480,6 @@ def _git_shallow_clone(
     if branch:
         cmd.extend(["--branch", branch])
     cmd.extend([url, str(target)])
-    subprocess.check_call(cmd)
+    returncode, _, _ = run_subprocess(cmd)
+    if returncode != 0:
+        raise click.ClickException(f"Could not clone {url} into {target}")

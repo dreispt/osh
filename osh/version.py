@@ -1,10 +1,10 @@
 """Centralized Odoo version detection helpers."""
 
 import re
-import subprocess
 from pathlib import Path
 
 from . import echo
+from .commons import run_subprocess
 from .odoo_layout import find_odoo_executable
 
 
@@ -54,17 +54,12 @@ def detect_odoo_version(base, backend):
 def get_version_from_executable(exe):
     """Return the version reported by an Odoo executable, or None."""
     try:
-        result = subprocess.run(
-            [str(exe), "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        returncode, stdout, stderr = run_subprocess([str(exe), "--version"])
     except (OSError, ValueError):
         return None
 
-    output = (result.stdout or result.stderr or "").strip()
-    if result.returncode != 0 or not output:
+    output = (stdout or stderr or "").strip()
+    if returncode != 0 or not output:
         return None
     return parse_version_output(output)
 

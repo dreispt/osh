@@ -2,7 +2,6 @@
 
 import os
 import shlex
-import subprocess
 import venv
 from pathlib import Path
 
@@ -10,6 +9,7 @@ import click
 
 from ... import echo as echo_module
 from ...backends import copy_odoo_rc_to_osh_conf
+from ...commons import run_subprocess
 from ...sources import ensure_osh_sources
 
 
@@ -142,45 +142,36 @@ def _setup_environment(
 
 def _pip_install(pip_exe, *args):
     """Run pip with *args* and report failures; return True on success."""
-    try:
-        subprocess.check_call([str(pip_exe), *args])
-        return True
-    except subprocess.CalledProcessError as exc:
-        if isinstance(exc.cmd, (list, tuple)):
-            command = " ".join(shlex.quote(str(arg)) for arg in exc.cmd)
-        else:
-            command = str(exc.cmd)
+    command = [str(pip_exe), *args]
+    returncode, _, _ = run_subprocess(command)
+    if returncode is None or returncode != 0:
+        command_str = " ".join(shlex.quote(str(arg)) for arg in command)
+        status = "not found" if returncode is None else returncode
         echo_module.warning(
-            f"pip install failed (exit status {exc.returncode}).\n\n"
-            f"You can retry the command manually:\n\n  {command}\n"
+            f"pip install failed (exit status {status}).\n\n"
+            f"You can retry the command manually:\n\n  {command_str}\n"
         )
         return False
+    return True
 
 
 def _run_smoke_test(odoo_exe):
     """Run ``odoo --version`` and return True if it succeeds."""
-    try:
-        subprocess.run(
-            [str(odoo_exe), "--version"],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        return True
-    except subprocess.CalledProcessError as exc:
-        stdout = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
-        echo_module.warning(
-            f"Odoo smoke test failed (exit status {exc.returncode}).\n"
-            f"{stdout}\n"
-            "The environment is initialised but Odoo may not be usable."
-        )
-        return False
-    except FileNotFoundError:
+    returncode, stdout, _ = run_subprocess([str(odoo_exe), "--version"])
+    if returncode is None:
         echo_module.warning(
             "Odoo executable could not be executed. "
             "The environment is initialised but Odoo may not be usable."
         )
         return False
+    if returncode != 0:
+        echo_module.warning(
+            f"Odoo smoke test failed (exit status {returncode}).\n"
+            f"{stdout}\n"
+            "The environment is initialised but Odoo may not be usable."
+        )
+        return False
+    return True
 
 
 def _find_odoo_executable_in_venv(venv_path):

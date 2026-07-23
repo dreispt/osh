@@ -1,12 +1,12 @@
 """Docker Compose utility helpers."""
 
 import shlex
-import subprocess
 from pathlib import Path
 
 import click
 
 from ... import config as _config
+from ...commons import run_subprocess
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
@@ -58,16 +58,9 @@ def _docker_command(service, command):
 def _find_compose_tool():
     """Return the available Compose command, preferring ``docker compose``."""
     for args in (["docker", "compose"], ["docker-compose"]):
-        try:
-            subprocess.run(
-                [*args, "version"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
+        returncode, _, _ = run_subprocess([*args, "version"], silent=True)
+        if returncode == 0:
             return list(args)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            continue
     return None
 
 

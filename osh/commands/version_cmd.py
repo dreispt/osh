@@ -1,28 +1,23 @@
 """`osh version` command implementation."""
 
-import subprocess
 from pathlib import Path
 
 import click
 
 from .. import __version__, echo
+from ..commons import run_subprocess
 
 
 def _version_with_git():
     """Return ``__version__`` with the short git commit appended when available."""
     version = __version__
-    try:
-        repo = Path(__file__).resolve().parent.parent.parent
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=repo,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        if commit:
-            version += f"+g{commit}"
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        pass
+    repo = Path(__file__).resolve().parent.parent.parent
+    returncode, commit, _ = run_subprocess(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=repo,
+    )
+    if returncode == 0 and commit:
+        version += f"+g{commit.strip()}"
     return version
 
 

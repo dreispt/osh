@@ -12,7 +12,7 @@ from osh.cli import main
 from osh.sources import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
-    _ensure_cache,
+    _ensure_repo_cache,
     _find_local_source,
     _install_source_plan,
     _is_git_url,
@@ -193,7 +193,7 @@ class TestIsGitUrl:
 class TestEnsureCache:
     def test_creates_mirror(self, tmp_path, patch_cache):
         bare = _make_bare_repo(tmp_path, "odoo")
-        cache = _ensure_cache("odoo", "master", f"file://{bare}")
+        cache = _ensure_repo_cache("odoo", "master", f"file://{bare}")
 
         assert cache == patch_cache / "odoo.git"
         assert cache.exists()
@@ -202,8 +202,8 @@ class TestEnsureCache:
 
     def test_fetches_missing_version(self, tmp_path, patch_cache):
         bare = _make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
-        _ensure_cache("odoo", "master", f"file://{bare}")
-        cache = _ensure_cache("odoo", "19.0", f"file://{bare}")
+        _ensure_repo_cache("odoo", "master", f"file://{bare}")
+        cache = _ensure_repo_cache("odoo", "19.0", f"file://{bare}")
 
         assert _cache_has_branch(cache, "19.0")
 
@@ -443,16 +443,9 @@ class TestInitCommand:
 
         monkeypatch.setattr("venv.create", lambda *a, **kw: None)
 
-        real_check_call = subprocess.check_call
-
-        def failing_check_call(*args, **kwargs):
-            cmd = args[0] if args else kwargs.get("args")
-            if isinstance(cmd, (list, tuple)) and "git" in cmd:
-                return real_check_call(*args, **kwargs)
-            raise subprocess.CalledProcessError(1, cmd)
-
         monkeypatch.setattr(
-            "osh.plugins.osh_local.utils.subprocess.check_call", failing_check_call
+            "osh.plugins.osh_local.utils.run_subprocess",
+            lambda *args, **kwargs: (1, "", ""),
         )
 
         runner = CliRunner()

@@ -117,25 +117,53 @@ def patch_cache(monkeypatch, tmp_path):
 def real_git_only_subprocess(monkeypatch):
     """Run git commands for real; record/no-op everything else.
 
-    Patches ``subprocess.check_call`` in the source-acquisition modules so that
-    calls containing ``git`` are executed normally, while other calls are
-    recorded in the returned list. Also disables ``venv.create``.
+    Patches ``run_subprocess`` in the source-acquisition modules so that
+    calls containing ``git`` are executed normally, ``pip`` is no-opped,
+    and other commands are also executed. Calls are recorded in the
+    returned list. Also disables ``venv.create``.
     """
     calls = []
-    real_check_call = subprocess.check_call
 
-    def fake_check_call(*args, **kwargs):
-        cmd = args[0] if args else kwargs.get("args")
+    def _name(cmd):
+        if isinstance(cmd, (list, tuple)):
+            return Path(str(cmd[0])).name
+        return Path(str(cmd)).name
+
+    def fake_run_subprocess(args, **kwargs):
+        cmd = args[0] if isinstance(args, (list, tuple)) else args
+        kwargs.pop("error_msg", None)
+        kwargs.pop("dry_run", None)
+        kwargs.pop("stdout", None)
+        kwargs.pop("stderr", None)
+
+        if isinstance(args, (list, tuple)):
+            calls.append(list(args))
+        else:
+            calls.append([args])
+
         if isinstance(cmd, (list, tuple)) and "git" in cmd:
-            return real_check_call(*args, **kwargs)
-        calls.append(cmd)
-        return None
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                **kwargs,
+            )
+            return result.returncode, result.stdout or "", result.stderr or ""
+
+        if _name(cmd).startswith("pip"):
+            return 0, "", ""
+
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            **kwargs,
+        )
+        return result.returncode, result.stdout or "", result.stderr or ""
 
     for target in (
-        "osh.plugins.osh_local.utils.subprocess.check_call",
-        "osh.sources.subprocess.check_call",
+        "osh.plugins.osh_local.utils.run_subprocess",
+        "osh.sources.run_subprocess",
     ):
-        monkeypatch.setattr(target, fake_check_call)
+        monkeypatch.setattr(target, fake_run_subprocess)
     monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls
 

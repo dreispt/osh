@@ -8,13 +8,17 @@ import configparser
 import importlib.resources
 import os
 import re
-import subprocess
 
 import click
 
 from . import config as _config
 from . import echo
-from .commons import decode_stderr, get_odoo_config_path, resolve_config_file
+from .commons import (
+    decode_stderr,
+    get_odoo_config_path,
+    resolve_config_file,
+    run_subprocess,
+)
 from .odoo_layout import build_addons_paths
 from .version import get_version_tuple
 
@@ -73,15 +77,13 @@ def resolve_run_target(base, default_target, ctx):
 
 def get_current_branch(base):
     """Return the current git branch, or None if not in a git repo."""
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=base,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    returncode, branch, _ = run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=base,
+    )
+    if returncode != 0 or not branch:
         return None
+    return branch.strip()
 
 
 def get_pg_credentials(base):
@@ -125,19 +127,10 @@ def db_exists(base, db_name):
     """Return True if the PostgreSQL database exists."""
     conn_args, env = get_pg_credentials(base)
     pg_args = ["psql", "-d", db_name, "-c", "SELECT 1", *conn_args]
-    try:
-        subprocess.run(
-            pg_args,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-        )
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # A failed connection means the database does not exist (or psql is
-        # missing); in either case the database is not usable here.
-        return False
+    returncode, _, _ = run_subprocess(pg_args, env=env, silent=True)
+    # A failed connection means the database does not exist (or psql is
+    # missing); in either case the database is not usable here.
+    return returncode == 0
 
 
 def drop_db(base, db_name):
@@ -145,62 +138,35 @@ def drop_db(base, db_name):
     conn_args, env = get_pg_credentials(base)
     drop_args = ["dropdb", *conn_args, db_name]
     # `dropdb` is expected to fail when the database does not exist. Use
-    # `check=False` so callers can call this defensively without handling an
-    # error for the common "database is already gone" case.
-    try:
-        subprocess.run(
-            drop_args,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    except FileNotFoundError:
-        # The `dropdb` binary itself is missing; the caller will discover this
-        # later when it tries to create or restore a database.
-        pass
+    # `run_subprocess` without raising so callers can call this defensively
+    # without handling an error for the common "database is already gone" case.
+    run_subprocess(drop_args, env=env, silent=True)
 
 
 def create_db(base, db_name):
     """Create a fresh PostgreSQL database."""
     conn_args, env = get_pg_credentials(base)
     create_args = ["createdb", *conn_args, db_name]
-    try:
-        subprocess.run(
-            create_args,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        stderr = decode_stderr(exc.stderr)
-        raise RuntimeError(f"Could not create database '{db_name}': {stderr}") from exc
-    except FileNotFoundError as exc:
+    returncode, _, stderr = run_subprocess(create_args, env=env, text=False)
+    if returncode is None:
+        raise RuntimeError("Could not locate `createdb`. Is PostgreSQL installed?")
+    if returncode != 0:
         raise RuntimeError(
-            "Could not locate `createdb`. Is PostgreSQL installed?"
-        ) from exc
+            f"Could not create database '{db_name}': {decode_stderr(stderr)}"
+        )
 
 
 def run_psql_script(base, db_name, script_path):
     """Execute a SQL script against *db_name* using psql."""
     conn_args, env = get_pg_credentials(base)
     psql_args = ["psql", "-d", db_name, "-f", str(script_path), *conn_args]
-    try:
-        subprocess.run(
-            psql_args,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        stderr = decode_stderr(exc.stderr)
+    returncode, _, stderr = run_subprocess(psql_args, env=env, text=False)
+    if returncode is None:
+        raise RuntimeError("Could not locate `psql`. Is PostgreSQL installed?")
+    if returncode != 0:
         raise RuntimeError(
-            f"Failed to run SQL script on '{db_name}': {stderr}"
-        ) from exc
-    except FileNotFoundError as exc:
-        raise RuntimeError("Could not locate `psql`. Is PostgreSQL installed?") from exc
+            f"Failed to run SQL script on '{db_name}': {decode_stderr(stderr)}"
+        )
 
 
 def resolve_db_name(base, verbose=False):
@@ -279,16 +245,14 @@ def _neutralize_with_odoo(base, exe, db_name):
         args.append(f"--addons-path={','.join(unique_paths)}")
 
     args.extend(["neutralize", "-d", db_name])
-    try:
-        subprocess.run(args, check=True, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as exc:
-        stderr = decode_stderr(exc.stderr)
+    returncode, _, stderr = run_subprocess(args, text=False)
+    if returncode is None:
+        raise click.ClickException("Could not locate Odoo executable.")
+    if returncode != 0:
         raise click.ClickException(
-            f"Database restored but neutralization failed: {stderr}\n"
+            f"Database restored but neutralization failed: {decode_stderr(stderr)}\n"
             f"Run `odoo-bin neutralize -d {db_name}` manually."
-        ) from exc
-    except FileNotFoundError as exc:
-        raise click.ClickException("Could not locate Odoo executable.") from exc
+        )
 
 
 def _neutralize_with_sql(base, db_name):

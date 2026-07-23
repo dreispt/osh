@@ -110,18 +110,12 @@ class DbSource(BackupSource):
         return get_pg_credentials(self.base)
 
     def _run_dump(self, args, env, output):
-        try:
-            with output.open("wb") as f:
-                subprocess.run(
-                    args, env=env, stdout=f, stderr=subprocess.PIPE, check=True
-                )
-        except subprocess.CalledProcessError as exc:
-            stderr = decode_stderr(exc.stderr)
-            raise SourceError(f"pg_dump failed: {stderr}") from exc
-        except FileNotFoundError as exc:
-            raise SourceError(
-                "Could not locate `pg_dump`. Is PostgreSQL installed?"
-            ) from exc
+        with output.open("wb") as f:
+            returncode, _, stderr = run_subprocess(args, env=env, stdout=f, text=False)
+        if returncode is None:
+            raise SourceError("Could not locate `pg_dump`. Is PostgreSQL installed?")
+        if returncode != 0:
+            raise SourceError(f"pg_dump failed: {decode_stderr(stderr)}")
 
     def _fetch_zip(self, output):
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,16 +123,14 @@ class DbSource(BackupSource):
             dump_sql = tmp_path / "dump.sql"
             conn_args, env = self._credentials()
             dump_args = ["pg_dump", "-Fp", *conn_args, self.db_name]
-            try:
-                with dump_sql.open("wb") as f:
-                    subprocess.run(
-                        dump_args, env=env, stdout=f, stderr=subprocess.PIPE, check=True
-                    )
-            except subprocess.CalledProcessError as exc:
-                stderr = decode_stderr(exc.stderr)
-                raise SourceError(f"pg_dump failed: {stderr}") from exc
-            except FileNotFoundError as exc:
-                raise SourceError("Could not locate `pg_dump`.") from exc
+            with dump_sql.open("wb") as f:
+                returncode, _, stderr = run_subprocess(
+                    dump_args, env=env, stdout=f, text=False
+                )
+            if returncode is None:
+                raise SourceError("Could not locate `pg_dump`.")
+            if returncode != 0:
+                raise SourceError(f"pg_dump failed: {decode_stderr(stderr)}")
 
             data_dir = self._data_dir()
             source_filestore = (

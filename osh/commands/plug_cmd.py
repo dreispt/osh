@@ -1,11 +1,11 @@
 """`osh plug` command for managing user-installed plugins."""
 
 import shutil
-import subprocess
 
 import click
 
 from .. import echo
+from ..commons import run_subprocess
 from ..plugin_loader import _user_plugin_dir
 
 
@@ -58,10 +58,10 @@ def install(ctx, url, trust):  # noqa: D401
         )
 
     plugin_dir.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        subprocess.check_call(["git", "clone", "--depth", "1", url, str(plugin_dir)])
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"git clone failed: {exc}")
+    run_subprocess(
+        ["git", "clone", "--depth", "1", url, str(plugin_dir)],
+        error_msg="git clone failed",
+    )
 
     echo.info(f"Installed plugin '{name}' at {plugin_dir}")
     echo.friendly("Restart `osh` to load the plugin's commands.")

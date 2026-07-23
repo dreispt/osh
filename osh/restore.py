@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 
 from . import echo
-from .commons import decode_stderr, ensure_tool, get_odoo_data_dir
+from .commons import decode_stderr, ensure_tool, get_odoo_data_dir, run_subprocess
 from .db import create_db, drop_db, get_pg_credentials
 
 
@@ -72,13 +72,11 @@ def _dump_suffix(path):
 
 
 def _run(args, env, label):
-    try:
-        subprocess.run(args, env=env, check=True, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as exc:
-        stderr = decode_stderr(exc.stderr)
-        raise click.ClickException(f"{label} failed: {stderr}") from exc
-    except FileNotFoundError as exc:
-        raise click.ClickException(f"Could not locate `{label}`.") from exc
+    returncode, _, stderr = run_subprocess(args, env=env, text=False)
+    if returncode is None:
+        raise click.ClickException(f"Could not locate `{label}`.")
+    if returncode != 0:
+        raise click.ClickException(f"{label} failed: {decode_stderr(stderr)}")
 
 
 def _restore_sql_gz(

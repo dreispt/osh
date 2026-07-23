@@ -229,7 +229,17 @@ def run_command(
 
 
 def run_subprocess(
-    args, *, cwd=None, env=None, text=True, stdout=None, stderr=None, **kwargs
+    args,
+    *,
+    cwd=None,
+    env=None,
+    text=True,
+    stdout=None,
+    stderr=None,
+    error_msg=None,
+    dry_run=False,
+    silent=False,
+    **kwargs,
 ):
     """Run *args* and return ``(returncode, stdout, stderr)``.
 
@@ -237,9 +247,25 @@ def run_subprocess(
     explicitly to override the capture behaviour (e.g. ``stderr=subprocess.DEVNULL``).
     When the executable is missing, ``returncode`` is ``None`` and ``stderr``
     contains a "command not found" message.
+
+    If *error_msg* is given, a non-zero exit code or a missing executable raises
+    a ``click.ClickException`` using that message.
+
+    If *dry_run* is True, the command is not executed; ``(0, "", "")`` is
+    returned after printing the command that would have run.
+
+    If *silent* is True, both stdout and stderr are discarded to ``/dev/null``.
     """
+    cmd = " ".join(shlex.quote(str(a)) for a in args)
+    if dry_run:
+        echo.info(f"Would run: {cmd}", err=True)
+        return 0, "", ""
+
     run_kwargs = dict(cwd=cwd, env=env, text=text)
-    if stdout is not None or stderr is not None:
+    if silent:
+        run_kwargs["stdout"] = subprocess.DEVNULL
+        run_kwargs["stderr"] = subprocess.DEVNULL
+    elif stdout is not None or stderr is not None:
         run_kwargs["stdout"] = stdout if stdout is not None else subprocess.PIPE
         run_kwargs["stderr"] = stderr if stderr is not None else subprocess.PIPE
     else:
@@ -249,9 +275,12 @@ def run_subprocess(
     try:
         result = subprocess.run(args, **run_kwargs)
     except FileNotFoundError as exc:
-        cmd = " ".join(shlex.quote(str(a)) for a in args)
+        if error_msg:
+            raise click.ClickException(f"{error_msg}: command not found") from exc
         return None, "", f"Command not found: {cmd} ({exc})"
 
+    if error_msg and result.returncode != 0:
+        raise click.ClickException(error_msg)
     return result.returncode, result.stdout or "", result.stderr or ""
 
 

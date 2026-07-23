@@ -1,11 +1,9 @@
 """Local backend commands for Osh."""
 
-import subprocess
-
 import click
 
-from ...commons import find_project_root
-from ...echo import Echo
+from ... import echo
+from ...commons import find_project_root, run_subprocess
 
 
 @click.command(name="prune")
@@ -34,7 +32,6 @@ def prune(aggressive, dry_run):  # noqa: D401
       osh prune --dry-run
     """
     base = find_project_root(required=True)
-    echo = Echo(level="normal", emoji=True)
 
     osh_dir = base / ".osh"
     sources = ["odoo", "enterprise", "design-themes"]
@@ -53,20 +50,17 @@ def prune(aggressive, dry_run):  # noqa: D401
         if aggressive:
             cmd.append("--aggressive")
 
-        if dry_run:
-            echo.info(f"Would run: {' '.join(cmd)}", err=True)
-            continue
-
         echo.info(f"Pruning {name} at {path}...", err=True)
-        try:
-            subprocess.check_call(cmd)
-            pruned += 1
-        except subprocess.CalledProcessError as exc:
-            raise click.ClickException(f"Failed to prune {name}: {exc}") from exc
-        except FileNotFoundError as exc:
+        returncode, _, _ = run_subprocess(cmd, dry_run=dry_run)
+        if dry_run:
+            continue
+        if returncode is None:
             raise click.ClickException(
                 "Could not locate git executable. Is git installed?"
-            ) from exc
+            )
+        if returncode != 0:
+            raise click.ClickException(f"Failed to prune {name}")
+        pruned += 1
 
     if not dry_run:
         echo.info(f"Pruned {pruned} source clone(s).")
