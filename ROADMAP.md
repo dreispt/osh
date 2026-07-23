@@ -4,12 +4,7 @@ This document tracks planned improvements and future development work for the Os
 
 ## Release blockers for 0.1.0
 
-These items are small, high-impact fixes that should be completed before the first public release.
-
-- Remove duplicated `_has_arg` from `osh/commands/run_cmd.py` and import it from `osh/commons.py`.
-- Replace bare `except Exception` clauses with specific exceptions or add logging for broken plugins, bad user config, and failed plugin loads in `osh/plugin_loader.py` and `osh/userconfig.py`.
-- Resolve the `osh/commands/odoo_cmd.py` circular-import workaround so `run_cmd.run` can be imported at module level.
-- Standardize echo usage: decide whether `osh run` and backends should use the cached top-level echo functions or explicitly create `Echo` instances via `get_echo()`, then remove the hybrid approach.
+All blockers below have been resolved.
 
 ## Configuration system improvements
 
@@ -38,6 +33,10 @@ These items are small, high-impact fixes that should be completed before the fir
 - Moved `confirm()` to a module-level function and updated callers in `osh/sources.py`.
 - Centralized project-config reading helper `_read_project_config()` in `osh/userconfig.py`.
 - Simplified `osh init` progress display from `[1/4]` to `[1]`.
+- Removed duplicated `_has_arg` from `osh/commands/run_cmd.py` and imported it from `osh/commons.py`.
+- Replaced bare `except Exception` clauses in `osh/plugin_loader.py` with specific exception types.
+- Resolved the `osh/commands/odoo_cmd.py` circular-import workaround so `run_cmd.run` is imported at module level.
+- Standardized all commands and backends on the cached `osh/echo` module (`echo.info`, `echo.warning`, etc.) and removed `get_echo()`.
 
 ## Future ideas
 
