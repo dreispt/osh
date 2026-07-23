@@ -4,11 +4,11 @@ import os
 
 import click
 
+from ... import echo
 from ...backends import Backend, RunSpec
 from ...commons import get_odoo_config_path, get_osh_odoo_config_path
 from ...db import create_db, db_exists, drop_db
 from ...diagnostics import Diagnostics
-from ...echo import get_echo, info
 from ...odoo_layout import build_addons_paths, find_odoo_executable
 from .utils import init_project
 
@@ -151,7 +151,6 @@ class LocalBackend(Backend):
         run_spec,
         *,
         dry_run=False,
-        verbose=False,
         **options,
     ):
         if not isinstance(run_spec, RunSpec):
@@ -168,17 +167,11 @@ class LocalBackend(Backend):
                 else:
                     args.append(f"--addons-path={addons_path_str}")
 
-        if ctx:
-            get_echo(ctx, base, verbose_override=verbose)
-        else:
-            from ... import echo
-
-            echo._get_cached_echo()
         command = " ".join(args)
         if dry_run:
-            info(f"Would run: {command}", err=True)
+            echo.info(f"Would run: {command}", err=True)
             return
-        info(f"Running: {command}", err=True)
+        echo.info(f"Running: {command}", err=True)
         try:
             os.execvp(args[0], args)
         except OSError as exc:
@@ -217,12 +210,12 @@ class LocalBackend(Backend):
                     f"Database '{db_name}' already exists. Use --force to overwrite."
                 )
             if dry_run:
-                info(f"Would drop database '{db_name}'", err=True)
+                echo.info(f"Would drop database '{db_name}'", err=True)
             else:
                 drop_db(base, db_name)
 
         if dry_run:
-            info(f"Would create database '{db_name}'", err=True)
+            echo.info(f"Would create database '{db_name}'", err=True)
         else:
             create_db(base, db_name)
 

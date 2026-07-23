@@ -2,26 +2,18 @@
 
 import click
 
+from .. import echo
 from ..commons import find_project_root
 from ..db import get_project_config
 from ..diagnostics import collect_diagnostics, report_diagnostics
-from ..echo import get_echo
 from ..plugin_loader import load_backends
 
 
 @click.command(name="doctor")
-@click.option(
-    "--verbose",
-    is_flag=True,
-    help="Show extra diagnostic details.",
-)
 @click.pass_context
-def doctor(ctx, verbose):  # noqa: D401
+def doctor(ctx):  # noqa: D401
     """Show project diagnostics by delegating to the active backend."""
     base = find_project_root(required=True)
-
-    # Set up verbosity
-    echo = get_echo(ctx, base, verbose_override=verbose)
 
     # Show friendly header for new users
     echo.friendly("Checking your Osh setup...")
@@ -48,7 +40,7 @@ def doctor(ctx, verbose):  # noqa: D401
 
     backend = backend_cls()
     diagnostics = collect_diagnostics(base, backend, ctx, target=backend_name)
-    report_diagnostics(diagnostics, echo)
+    report_diagnostics(diagnostics)
 
     # Show friendly footer for new users
     if diagnostics.ready:

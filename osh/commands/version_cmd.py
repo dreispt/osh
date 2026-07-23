@@ -5,8 +5,7 @@ from pathlib import Path
 
 import click
 
-from .. import __version__
-from ..echo import get_echo
+from .. import __version__, echo
 
 
 def _version_with_git():
@@ -34,5 +33,4 @@ def version(ctx):  # noqa: D401
 
     Use `osh --version` for the same output.
     """
-    echo = get_echo(ctx, None)
     echo.info(f"osh, version {_version_with_git()}")

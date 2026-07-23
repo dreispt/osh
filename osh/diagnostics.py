@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import echo
+
 
 @dataclass
 class Diagnostics:
@@ -51,20 +53,19 @@ class Diagnostics:
 
     def report(
         self,
-        echo,
         *,
         include_header=True,
         include_info=True,
         include_plans=False,
     ):
-        """Print this diagnostics object using the current echo object."""
+        """Print this diagnostics object using the cached echo functions."""
         if include_header:
             echo.info(f"Ready: {'yes' if self.ready else 'no'}")
 
-        for error in self.errors:
-            echo.error(error)
-        for warning in self.warnings:
-            echo.warning(warning)
+        for error_msg in self.errors:
+            echo.error(error_msg)
+        for warning_msg in self.warnings:
+            echo.warning(warning_msg)
 
         if include_plans and self.plan:
             echo.info("Planned actions:")
@@ -105,6 +106,6 @@ def collect_diagnostics(
     return diagnostics
 
 
-def report_diagnostics(diagnostics, echo):
-    """Print *diagnostics* using the current echo object."""
-    diagnostics.report(echo, include_plans=False, include_info=True)
+def report_diagnostics(diagnostics):
+    """Print *diagnostics* using the cached echo functions."""
+    diagnostics.report(include_plans=False, include_info=True)

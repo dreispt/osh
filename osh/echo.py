@@ -260,35 +260,3 @@ def _detect_emoji_preference(base):
 
     # Default to emojis
     return True
-
-
-def get_echo(ctx, base, verbose_override=False):
-    """Get a configured Echo object for the current context.
-
-    This encapsulates all the complexity of detecting verbosity level and emoji
-    preference from CLI flags, environment variables, project config, and user config.
-
-    Args:
-        ctx: Click context containing CLI flags (can be None for tests)
-        base: Project root directory, or None if no project found
-        verbose_override: If True, force verbose level (for legacy --verbose flag)
-
-    Returns:
-        Configured Echo object
-    """
-    # Determine verbosity level from CLI context
-    cli_verbosity = None
-    if ctx and hasattr(ctx, "obj") and ctx.obj:
-        try:
-            cli_verbosity = ctx.obj.get("verbosity")
-        except (AttributeError, TypeError):
-            # obj might not be a dict or might not have get method
-            pass
-
-    if verbose_override and not cli_verbosity:
-        cli_verbosity = "verbose"
-
-    verbosity = cli_verbosity or _detect_verbosity(base)
-    use_emoji = _detect_emoji_preference(base)
-
-    return Echo(verbosity, emoji=use_emoji)

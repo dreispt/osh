@@ -2,11 +2,11 @@
 
 import click
 
+from .. import echo
 from ..backends import RunSpec
 from ..commons import _has_arg, find_project_root, resolve_config_file
 from ..db import resolve_run_target, set_project_config
 from ..diagnostics import collect_diagnostics
-from ..echo import get_echo
 from ..plugin_loader import load_backends
 
 
@@ -41,11 +41,6 @@ def _format_run_targets(formatter):
     help="Print the assembled command without executing it.",
 )
 @click.option(
-    "--verbose",
-    is_flag=True,
-    help="Print extra details about the generated command.",
-)
-@click.option(
     "--target",
     "backend_name",
     default="local",
@@ -74,7 +69,6 @@ def _format_run_targets(formatter):
 def run(
     ctx,
     dry_run,
-    verbose,
     backend_name,
     compose_file,
     no_db_filter,
@@ -103,13 +97,10 @@ def run(
       osh run
       osh run -- --http-port=8080 --workers=0
       osh run --dry-run
-      osh run --verbose
       osh run --target docker --compose-file devel.yaml
     """
 
     base = find_project_root(required=True)
-
-    echo = get_echo(ctx, base, verbose_override=verbose)
 
     backend_name = resolve_run_target(base, backend_name, ctx)
     set_project_config(base, "run", "target", backend_name)
@@ -129,8 +120,8 @@ def run(
         compose_file=compose_file,
         sections=backend.diagnose_sections_for_phase("run"),
     )
-    for warning in diagnostics.warnings:
-        echo.warning(warning)
+    for warning_msg in diagnostics.warnings:
+        echo.warning(warning_msg)
     if diagnostics.errors:
         raise click.ClickException("\n".join(diagnostics.errors))
 
@@ -175,7 +166,7 @@ def run(
         config_path=config_path,
         extra_args=list(extra_args),
     )
-    backend.run(ctx, base, run_spec, dry_run=dry_run, verbose=verbose)
+    backend.run(ctx, base, run_spec, dry_run=dry_run)
 
 
 def _parse_explicit_db(extra_args):

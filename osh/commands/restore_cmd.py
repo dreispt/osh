@@ -4,10 +4,10 @@ from pathlib import Path
 
 import click
 
+from .. import echo
 from ..cache import get_cache_dir, list_cache, resolve_cache_id
 from ..commons import find_project_root
 from ..db import resolve_db_name, resolve_run_target
-from ..echo import get_echo
 from ..plugin_loader import load_backends
 
 
@@ -51,7 +51,6 @@ def restore(
     """
 
     base = find_project_root(required=True)
-    echo = get_echo(ctx, base)
 
     dump_path = _resolve_dump(base, dump)
 

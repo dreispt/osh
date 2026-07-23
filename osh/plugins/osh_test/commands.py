@@ -1,17 +1,17 @@
 """`osh test` command implementation.
 
 `osh test` is a thin wrapper around `osh run` that adds test-specific
-options and generates the right `-i`/`-u`/`--test-enable` arguments. All
-standard `osh run` options (`--target`, `--verbose`, `--compose-file`, etc.)
-are accepted and passed through.
+options and generates the right `-i`/`-u`/`--test-enable` arguments. Standard
+`osh run` options such as `--target` and `--compose-file` are accepted and
+passed through.
 """
 
 import click
 
+from ... import echo
 from ...commands.run_cmd import run
 from ...commons import discover_module_names, find_project_root
 from ...db import db_exists, drop_db, resolve_test_db_name
-from ...echo import info
 
 
 @click.command(name="test")
@@ -41,11 +41,6 @@ from ...echo import info
     "--dry-run",
     is_flag=True,
     help="Print the command that would be run without executing it.",
-)
-@click.option(
-    "--verbose",
-    is_flag=True,
-    help="Print extra details about the generated command.",
 )
 @click.option(
     "--target",
@@ -83,7 +78,6 @@ def test(
     http,
     no_stop_after_init,
     dry_run,
-    verbose,
     backend_name,
     compose_file,
     no_db_filter,
@@ -93,8 +87,7 @@ def test(
 
     This is a wrapper around `osh run` that adds the test-specific arguments
     (`-i`/`-u`, `--test-enable`, `--dropdb`, `--tags`, etc.). Standard `osh run`
-    options such as `--target`, `--verbose`, and `--compose-file` are accepted
-    and forwarded.
+    options such as `--target` and `--compose-file` are accepted and forwarded.
 
     The test database is `<project>-<branch>-test` by default. If it does not
     exist, modules are first installed with `-i` (without tests) and then the
@@ -135,7 +128,7 @@ def test(
 
     if dropdb and not current_db:
         if dry_run:
-            info("Would drop and recreate the test database first.", err=True)
+            echo.info("Would drop and recreate the test database first.", err=True)
         else:
             drop_db(base, db_name)
 
@@ -150,7 +143,6 @@ def test(
 
     run_kwargs = {
         "dry_run": dry_run,
-        "verbose": verbose,
         "backend_name": backend_name,
         "compose_file": compose_file,
         "no_db_filter": no_db_filter,

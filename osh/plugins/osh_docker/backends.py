@@ -5,10 +5,10 @@ from pathlib import Path
 
 import click
 
+from ... import echo
 from ...backends import Backend, RunSpec, copy_odoo_rc_to_osh_conf
 from ...commons import resolve_config_file, run_command
 from ...diagnostics import Diagnostics
-from ...echo import friendly, get_echo, info, warning
 from ...odoo_layout import build_addons_paths
 from ...sources import ensure_osh_sources
 from .utils import (
@@ -240,7 +240,7 @@ class DockerBackend(Backend):
         if not compose_file:
             osh_compose = target / _COMPOSE_FILE
             if dry_run:
-                info(
+                echo.info(
                     f"Would generate {osh_compose} with "
                     f"odoo/{version or 'latest'} and postgres:16 services.",
                     err=True,
@@ -250,13 +250,13 @@ class DockerBackend(Backend):
                     todo.start()
                 _generate_compose_file(target, version)
                 if osh_compose.is_file():
-                    info(f"Generated {osh_compose}.", err=True)
+                    echo.info(f"Generated {osh_compose}.", err=True)
             compose_file = str(_COMPOSE_FILE)
 
         copy_odoo_rc_to_osh_conf(target)
 
         if dry_run:
-            info(
+            echo.info(
                 f"Would write {target / _DOCKER_TOML}: "
                 f"service={service or 'odoo'}, command={command or 'odoo-bin'}, "
                 f"compose_file={compose_file or '<none>'}, "
@@ -291,12 +291,12 @@ class DockerBackend(Backend):
             edition=edition,
             compose_tool=" ".join(compose_tool),
         )
-        info(
+        echo.info(
             f"Wrote Docker backend config to {target / _DOCKER_TOML}.",
             err=True,
         )
         if not service:
-            warning(
+            echo.warning(
                 "no --service provided; defaulting to 'odoo'. "
                 f"Edit {target / _DOCKER_TOML} if your compose service is named differently."
             )
@@ -316,7 +316,7 @@ class DockerBackend(Backend):
         svc = cfg.get("service")
         cmd = _docker_command(svc, cfg.get("command"))
         if not svc:
-            warning("no Docker service configured; skipping smoke test.")
+            echo.warning("no Docker service configured; skipping smoke test.")
             return True
 
         if todo:
@@ -330,13 +330,13 @@ class DockerBackend(Backend):
                 stream=True,
             )
         except click.ClickException as exc:
-            warning(
+            echo.warning(
                 f"{exc.format_message()}\n"
                 "The project is initialised but Odoo may not be usable."
             )
             return False
 
-        friendly(f"Run the project with: osh run (in {target})")
+        echo.friendly(f"Run the project with: osh run (in {target})")
         return True
 
     def run(
@@ -346,16 +346,9 @@ class DockerBackend(Backend):
         run_spec,
         *,
         dry_run=False,
-        verbose=False,
         **options,
     ):
         """Translate host odoo-bin arguments into a Docker Compose invocation."""
-        if ctx:
-            get_echo(ctx, base, verbose_override=verbose)
-        else:
-            from ... import echo as echo_module
-
-            echo_module._get_cached_echo()
         cfg = _load_docker_config(base)
         service = cfg.get("service")
         command = cfg.get("command")
@@ -436,13 +429,10 @@ class DockerBackend(Backend):
         ]
 
         if dry_run:
-            info(f"Would run: {' '.join(docker_args)}", err=True)
+            echo.info(f"Would run: {' '.join(docker_args)}", err=True)
             return
 
-        if verbose:
-            info(f"Running: {' '.join(docker_args)}", err=True)
-        else:
-            info(f"Running {' '.join(docker_args)}", err=True)
+        echo.info(f"Running: {' '.join(docker_args)}", err=True)
 
         try:
             os.execvp("docker", docker_args)

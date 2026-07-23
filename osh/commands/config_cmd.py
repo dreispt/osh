@@ -2,6 +2,7 @@
 
 import click
 
+from .. import echo
 from ..commons import find_project_root
 from ..config import get_project_config_path, save_user_preference
 from ..db import (
@@ -11,7 +12,6 @@ from ..db import (
     save_osh_config,
     set_project_config,
 )
-from ..echo import get_echo
 
 
 @click.group(name="config")
@@ -53,8 +53,6 @@ def db(
     """
 
     base = find_project_root(required=True)
-    echo = get_echo(ctx, base)
-
     if branch is None:
         branch = get_current_branch(base) or "default"
 
@@ -75,7 +73,6 @@ def show(ctx):  # noqa: D401
     """Show the current Osh project configuration."""
 
     base = find_project_root(required=True)
-    echo = get_echo(ctx, base)
 
     cfg = load_osh_config(base)
     config_path = get_project_config_path(base)
@@ -139,12 +136,10 @@ def verbosity(
     if global_setting:
         # Set in global user config
         save_user_preference("verbosity", level)
-        echo = get_echo(ctx, None)
         echo.info(f"Set global verbosity to: {level}")
     else:
         # Set in project config
         base = find_project_root(required=True)
-        echo = get_echo(ctx, base)
         cfg = load_osh_config(base)
         cfg.set("user", "verbosity", level)
         save_osh_config(base, cfg)
@@ -179,12 +174,10 @@ def emoji(
     if global_setting:
         # Set in global user config
         save_user_preference("emoji", value, section="user")
-        echo = get_echo(ctx, None)
         echo.info(f"Set global emoji to: {enabled}")
     else:
         # Set in project config
         base = find_project_root(required=True)
-        echo = get_echo(ctx, base)
         cfg = load_osh_config(base)
         cfg.set("user", "emoji", value)
         save_osh_config(base, cfg)

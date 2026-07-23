@@ -4,10 +4,10 @@ from pathlib import Path
 
 import click
 
+from .. import echo
 from ..backup_sources import parse_source
 from ..cache import ensure_cache_dir, list_cache, write_metadata
 from ..commons import find_project_root
-from ..echo import get_echo
 
 SOURCE_COLUMN_WIDTH = 40
 SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")
@@ -104,7 +104,6 @@ def download(
     """
 
     base = find_project_root()
-    echo = get_echo(ctx, base)
     parsed = parse_source(
         source,
         base=base,
@@ -173,7 +172,6 @@ def list_backups(
     """List backups stored in the project cache."""
 
     base = find_project_root(required=True)
-    echo = get_echo(ctx, base)
 
     entries = list_cache(base, limit=limit, reverse=reverse)
     if not entries:

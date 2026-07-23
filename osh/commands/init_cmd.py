@@ -6,10 +6,10 @@ from pathlib import Path
 
 import click
 
+from .. import echo
 from ..backends import copy_odoo_rc_to_osh_conf
 from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
-from ..echo import get_echo
 from ..plugin_loader import load_backends
 
 
@@ -116,8 +116,7 @@ def _format_targets_section(formatter):
 class TodoPlan:
     """Numbered init plan that can print a progress message for each step."""
 
-    def __init__(self, echo, plan):
-        self.echo = echo
+    def __init__(self, plan):
         self.plan = plan
         self.index = 0
         self.total = len(plan)
@@ -128,7 +127,7 @@ class TodoPlan:
             return
         self.index += 1
         item = self.plan[self.index - 1]
-        self.echo.info(f"[{self.index}] Starting: {item}")
+        echo.info(f"[{self.index}] Starting: {item}")
 
 
 @click.command(name="init", cls=InitCommand)
@@ -220,7 +219,6 @@ def init(
             or "local"
         )
 
-    echo = get_echo(ctx, target)
     echo.friendly(f"Welcome to Osh! Let's set up your Odoo {version} project.")
 
     if not (target / ".git").exists() and not dry_run:
@@ -270,10 +268,10 @@ def init(
         total = len(diagnostics.plan)
         for i, item in enumerate(diagnostics.plan, 1):
             echo.info(f"  [{i}/{total}] {item}")
-    for warning in diagnostics.warnings:
-        echo.warning(warning)
-    for error in diagnostics.errors:
-        echo.error(error)
+    for warning_msg in diagnostics.warnings:
+        echo.warning(warning_msg)
+    for error_msg in diagnostics.errors:
+        echo.error(error_msg)
     if diagnostics.errors and not dry_run:
         raise click.ClickException("\n".join(diagnostics.errors))
 
@@ -283,7 +281,7 @@ def init(
             raise click.ClickException("Aborted.")
         confirmed = True
 
-    todo = None if dry_run else TodoPlan(echo, diagnostics.plan)
+    todo = None if dry_run else TodoPlan(diagnostics.plan)
 
     docker_source_kwargs = {}
     if backend_name == "docker":
@@ -298,7 +296,6 @@ def init(
         dry_run=dry_run,
         assume_yes=assume_yes or confirmed,
         todo=todo,
-        echo=echo,
         **kwargs,
         **docker_source_kwargs,
     )

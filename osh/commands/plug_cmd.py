@@ -5,7 +5,7 @@ import subprocess
 
 import click
 
-from ..echo import get_echo
+from .. import echo
 from ..plugin_loader import _user_plugin_dir
 
 
@@ -41,7 +41,6 @@ def install(ctx, url, trust):  # noqa: D401
     The repository must expose a `get_commands()` function or a `COMMANDS` list.
     Use --trust to skip the security warning.
     """
-    echo = get_echo(ctx, None)
 
     if not url.startswith(("https://", "git@", "http://", "git://", "file://")):
         raise click.ClickException("URL must be a git repository.")
@@ -75,8 +74,6 @@ def list_(ctx):  # noqa: D401
 
     Plugins are located in ~/.config/osh/plugins/.
     """
-    echo = get_echo(ctx, None)
-
     plugin_dir = _user_plugin_dir()
     if not plugin_dir.is_dir():
         echo.info("No plugins installed.")
@@ -107,8 +104,6 @@ def uninstall(ctx, name, yes):  # noqa: D401
 
     Use --yes to skip the confirmation prompt.
     """
-    echo = get_echo(ctx, None)
-
     plugin_dir = _user_plugin_dir() / name
     if not plugin_dir.exists():
         raise click.ClickException(f"Plugin '{name}' is not installed.")

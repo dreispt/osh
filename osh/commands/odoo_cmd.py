@@ -19,17 +19,11 @@ from .run_cmd import run
     is_flag=True,
     help="Print the assembled command without executing it.",
 )
-@click.option(
-    "--verbose",
-    is_flag=True,
-    help="Print extra details about the generated command.",
-)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def odoo(
     ctx,
     dry_run,
-    verbose,
     extra_args,
 ):  # noqa: D401
     """Run the project's Odoo executable with any subcommand or arguments.
@@ -54,7 +48,6 @@ def odoo(
     return ctx.invoke(
         run,
         dry_run=dry_run,
-        verbose=verbose,
         backend_name="local",
         compose_file=None,
         no_db_filter=True,

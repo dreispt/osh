@@ -16,7 +16,6 @@ import click
 
 from . import echo
 from .commons import run_subprocess
-from .echo import confirm
 
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
@@ -80,7 +79,7 @@ def ensure_osh_sources(
     for name, flag, names, files, url in source_defs:
         project_source, requires_confirmation = _find_local_source(base, names, files)
         if requires_confirmation and not assume_yes and echo:
-            if not confirm(f"Use {project_source} for {name}?", default=True):
+            if not echo.confirm(f"Use {project_source} for {name}?", default=True):
                 # User declined, fall back to default URL
                 project_source = None
         source_plans[name] = SourceResolver(
@@ -139,7 +138,7 @@ def _confirm_sources(assume_yes):
         echo.info("Proceeding with --yes (skipping confirmation).", err=True)
         return
     if sys.stdin.isatty():
-        confirm("Proceed?", default=True, abort=True)
+        echo.confirm("Proceed?", default=True, abort=True)
     else:
         echo.info("Proceeding in non-interactive mode.", err=True)
 

@@ -130,7 +130,6 @@ class Backend(ABC):
         run_spec,
         *,
         dry_run=False,
-        verbose=False,
         **options,
     ):
         """Run Odoo using the supplied ``RunSpec``.
