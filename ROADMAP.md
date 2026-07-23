@@ -2,13 +2,6 @@
 
 This document tracks planned improvements and future development work for the Osh project.
 
-## Configuration system improvements
-
-- Create a unified `osh/config.py` module to handle read/write operations for both project-level (`~/.osh/config`) and user/system-level (`~/.config/osh/config.toml`) configurations.
-  - Abstract format differences (INI for project config, TOML for user config).
-  - Centralize read/write operations and validation.
-  - Eliminate duplicated config-reading logic across `osh/userconfig.py`, `osh/db.py`, and `osh/commands/config_cmd.py`.
-
 ## Plugin API improvements
 
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
