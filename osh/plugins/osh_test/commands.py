@@ -56,10 +56,11 @@ def test(
     """Run Odoo tests for project modules.
 
     The test database is `<project>-<branch>-test` by default. If it does not
-    exist, modules are installed with `-i` and tested. If ``--dropdb`` is
-    given, the test database is dropped first so the run always installs on a
-    fresh database. Otherwise, if the database exists, modules are updated with
-    `-u` and tested.
+    exist, modules are first installed with `-i` (without tests) and then the
+    tests are run with `-u`. If ``--dropdb`` is given, the test database is
+    dropped once before any install/update so the run always starts on a fresh
+    database. If the database already exists and ``--dropdb`` is not given,
+    modules are updated with `-u` and tested directly.
 
     Examples:
 
@@ -86,24 +87,53 @@ def test(
     module_list = ",".join(modules)
     db_name = resolve_test_db_name(base, current_db, test_db)
 
-    need_install = not db_exists(base, db_name)
-    if need_install and current_db:
+    if current_db and not db_exists(base, db_name):
         raise click.ClickException(f"Current database '{db_name}' does not exist.")
 
     if dropdb and not current_db:
         if not dry_run:
             drop_db(base, db_name)
         need_install = True
-
-    odoo_args = ["-d", db_name]
-    if need_install:
-        odoo_args.extend(["-i", module_list])
     else:
-        odoo_args.extend(["-u", module_list])
-    odoo_args.append("--test-enable")
+        need_install = not db_exists(base, db_name)
+
+    if need_install and not current_db:
+        # Fresh database: first install modules without tests.
+        _run_odoo(ctx, db_name, module_list, "-i", http, dry_run=dry_run)
+
+    # Run tests by updating the modules.
+    _run_odoo(
+        ctx,
+        db_name,
+        module_list,
+        "-u",
+        http,
+        test_enable=True,
+        tags=tags,
+        stop_after_init=not no_stop_after_init,
+        dry_run=dry_run,
+    )
+
+
+def _run_odoo(
+    ctx,
+    db_name,
+    module_list,
+    mode,
+    http,
+    *,
+    test_enable=False,
+    tags=None,
+    stop_after_init=True,
+    dry_run=False,
+):
+    """Invoke `osh run` with the requested Odoo test/install arguments."""
+    odoo_args = ["-d", db_name, mode, module_list]
+    if test_enable:
+        odoo_args.append("--test-enable")
     if not http:
         odoo_args.append("--no-http")
-    if not no_stop_after_init:
+    if stop_after_init:
         odoo_args.append("--stop-after-init")
     if tags:
         odoo_args.extend(["--test-tags", tags])
