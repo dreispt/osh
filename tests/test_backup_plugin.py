@@ -242,38 +242,20 @@ def test_download_odoosh_with_filestore_creates_zip(
     filestore_tar = filestore_buf.getvalue()
 
     def fake_run(args, **kwargs):
-        Path(args[-1]).write_bytes(dump_gz.read_bytes())
+        if args[0] == "scp":
+            Path(args[-1]).write_bytes(dump_gz.read_bytes())
         return subprocess.CompletedProcess(args, returncode=0)
 
     subprocess_run_capture.side_effect = fake_run
 
-    class MockProcess:
-        def __init__(self, args, **kwargs):
-            self.args = args
-            self.returncode = 0
-            self.stderr = io.BytesIO()
-            if args[0] == "ssh":
-                self.stdout = io.BytesIO(filestore_tar)
-                self.stdin = None
-            else:
-                self.stdout = io.BytesIO()
-                self.stdin = kwargs.get("stdin")
-                if self.args[0] == "tar" and self.stdin is not None:
-                    data = self.stdin.read()
-                    filestore_dir = Path(self.args[-1])
-                    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-                        tar.extractall(filestore_dir)
+    def fake_pipeline(commands, **kwargs):
+        tar_cmd = commands[-1]
+        filestore_dir = Path(tar_cmd[tar_cmd.index("-C") + 1])
+        with tarfile.open(fileobj=io.BytesIO(filestore_tar), mode="r:gz") as tar:
+            tar.extractall(filestore_dir)
+        return 0, b"", ""
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def wait(self):
-            return 0
-
-    monkeypatch.setattr(subprocess, "Popen", MockProcess)
+    monkeypatch.setattr("osh.backup_sources.run_shell_pipeline", fake_pipeline)
 
     output = tmp_path / "backup.zip"
     source.fetch(output)

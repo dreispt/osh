@@ -4,7 +4,6 @@ import gzip
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 import zipfile
 from datetime import datetime, timezone
@@ -15,7 +14,12 @@ from urllib.request import Request, urlopen
 import click
 
 from . import echo
-from .commons import decode_stderr, get_odoo_data_dir, run_subprocess
+from .commons import (
+    decode_stderr,
+    get_odoo_data_dir,
+    run_shell_pipeline,
+    run_subprocess,
+)
 from .db import get_pg_credentials
 
 
@@ -33,14 +37,6 @@ def _safe_name(value):
 
 class SourceError(click.ClickException):
     """Raised when a source cannot be fetched; Click will show the message and exit cleanly."""
-
-
-def _check_process_error(proc, label):
-    """Raise a SourceError with the proc stderr if *proc* failed."""
-    if proc.returncode == 0:
-        return
-    stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
-    raise SourceError(f"Failed to {label}: {stderr}")
 
 
 class BackupSource:
@@ -356,24 +352,14 @@ class OdooshSource(BackupSource):
     def _download_filestore(self, filestore_dir):
         ssh_args = self._ssh_args()
         remote_cmd = f"tar cz -C {self.FILESTORE_DIR} {self.db_name}"
-        try:
-            with subprocess.Popen(
+        run_shell_pipeline(
+            [
                 ["ssh", *ssh_args, self.ssh_target, remote_cmd],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            ) as ssh_proc, subprocess.Popen(
                 ["tar", "xz", "-C", str(filestore_dir)],
-                stdin=ssh_proc.stdout,
-                stderr=subprocess.PIPE,
-            ) as tar_proc:
-                if ssh_proc.stdout is not None:
-                    ssh_proc.stdout.close()
-                ssh_proc.wait()
-                tar_proc.wait()
-                _check_process_error(ssh_proc, "download filestore")
-                _check_process_error(tar_proc, "extract filestore")
-        except FileNotFoundError as exc:
-            raise SourceError("Could not locate `ssh` or `tar`.") from exc
+            ],
+            error_msg="Failed to download/extract filestore",
+            not_found_msg="Could not locate `ssh` or `tar`.",
+        )
 
     def _create_zip(self, output, dump_sql, filestore_dir):
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:

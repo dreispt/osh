@@ -284,6 +284,41 @@ def run_subprocess(
     return result.returncode, result.stdout or "", result.stderr or ""
 
 
+def run_shell_pipeline(
+    commands,
+    *,
+    stdout=None,
+    env=None,
+    text=False,
+    error_msg=None,
+    not_found_msg=None,
+):
+    """Run a shell pipeline of commands and return ``(returncode, stdout, stderr)``.
+
+    Each command in *commands* is an iterable of arguments.  The pipeline is
+    built with `shlex.quote` and executed via ``sh -c``.  Stderr is captured
+    and returned as text unless *text* is ``False``.
+
+    If *error_msg* is given, a missing executable or a non-zero exit code raises
+    a ``click.ClickException`` using that message.  *not_found_msg* overrides
+    the message used when the executable is missing.
+    """
+    pipeline = " | ".join(
+        " ".join(shlex.quote(str(a)) for a in cmd) for cmd in commands
+    )
+    returncode, out, stderr = run_subprocess(
+        ["sh", "-c", pipeline], stdout=stdout, env=env, text=text
+    )
+    if error_msg:
+        if returncode is None:
+            raise click.ClickException(
+                not_found_msg or f"{error_msg}: command not found"
+            )
+        if returncode != 0:
+            raise click.ClickException(f"{error_msg}: {stderr}")
+    return returncode, out, stderr
+
+
 def discover_addons_paths(base, *, max_depth=3):
     """Return a list of addon directories under *base*.
 

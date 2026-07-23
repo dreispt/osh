@@ -6,9 +6,7 @@ are shared by the ``osh restore`` command and by backends that implement
 ``restore()``.
 """
 
-import gzip
 import shutil
-import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
@@ -16,7 +14,13 @@ from pathlib import Path
 import click
 
 from . import echo
-from .commons import decode_stderr, ensure_tool, get_odoo_data_dir, run_subprocess
+from .commons import (
+    decode_stderr,
+    ensure_tool,
+    get_odoo_data_dir,
+    run_shell_pipeline,
+    run_subprocess,
+)
 from .db import create_db, drop_db, get_pg_credentials
 
 
@@ -86,21 +90,15 @@ def _restore_sql_gz(
     env,
 ):
     """Stream a gzipped SQL dump into psql."""
-    try:
-        with gzip.open(dump_path, "rb") as gz, subprocess.Popen(
+    run_shell_pipeline(
+        [
+            ["gzip", "-cd", str(dump_path)],
             ["psql", "-d", target_db, *conn_args],
-            stdin=subprocess.PIPE,
-            env=env,
-            stderr=subprocess.PIPE,
-        ) as proc:
-            shutil.copyfileobj(gz, proc.stdin)  # type: ignore[union-attr]
-            proc.stdin.close()  # type: ignore[union-attr]
-            ret = proc.wait()
-            if ret != 0:
-                stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""  # type: ignore[union-attr]
-                raise click.ClickException(f"psql failed: {stderr}")
-    except FileNotFoundError as exc:
-        raise click.ClickException("Could not locate `psql` or `gunzip`.") from exc
+        ],
+        env=env,
+        error_msg="psql failed",
+        not_found_msg="Could not locate `psql` or `gunzip`.",
+    )
 
 
 def _restore_zip(
