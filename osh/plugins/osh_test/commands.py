@@ -1,16 +1,17 @@
 """`osh test` command implementation.
 
-Runs Odoo tests for project modules. It is a thin wrapper around `osh run`
-that adds the test-specific arguments (`--test-enable`, `-u`/`-i`, etc.) and
-lets `osh run` handle the target backend.
+`osh test` is a thin wrapper around `osh run` that adds test-specific
+options and generates the right `-i`/`-u`/`--test-enable` arguments. All
+standard `osh run` options (`--target`, `--verbose`, `--compose-file`, etc.)
+are accepted and passed through.
 """
 
 import click
 
-from ... import echo
 from ...commands.run_cmd import run
 from ...commons import discover_module_names, find_project_root
 from ...db import db_exists, drop_db, resolve_test_db_name
+from ...echo import info
 
 
 @click.command(name="test")
@@ -41,6 +42,35 @@ from ...db import db_exists, drop_db, resolve_test_db_name
     is_flag=True,
     help="Print the command that would be run without executing it.",
 )
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Print extra details about the generated command.",
+)
+@click.option(
+    "--target",
+    "backend_name",
+    default="local",
+    envvar="OSH_RUN_TARGET",
+    help="Execution target: local virtualenv or a plugin backend.",
+)
+@click.option(
+    "--compose-file",
+    default=None,
+    help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
+)
+@click.option(
+    "--no-db-filter",
+    is_flag=True,
+    hidden=True,
+    help="Do not inject --db-filter (for odoo command).",
+)
+@click.option(
+    "--skip-config",
+    is_flag=True,
+    hidden=True,
+    help="Skip config file (for odoo subcommands).",
+)
 @click.pass_context
 def test(
     ctx,
@@ -53,8 +83,18 @@ def test(
     http,
     no_stop_after_init,
     dry_run,
+    verbose,
+    backend_name,
+    compose_file,
+    no_db_filter,
+    skip_config,
 ):  # noqa: D401
     """Run Odoo tests for project modules.
+
+    This is a wrapper around `osh run` that adds the test-specific arguments
+    (`-i`/`-u`, `--test-enable`, `--dropdb`, `--tags`, etc.). Standard `osh run`
+    options such as `--target`, `--verbose`, and `--compose-file` are accepted
+    and forwarded.
 
     The test database is `<project>-<branch>-test` by default. If it does not
     exist, modules are first installed with `-i` (without tests) and then the
@@ -71,7 +111,7 @@ def test(
       osh test --tags :TestClass.method
       osh test --current-db
       osh test --dropdb
-      osh test --dry-run
+      osh test --target docker
     """
 
     base = find_project_root(required=True)
@@ -93,55 +133,41 @@ def test(
 
     need_install = not current_db and (dropdb or not db_exists(base, db_name))
 
-    if dropdb and not current_db and not dry_run:
-        drop_db(base, db_name)
+    if dropdb and not current_db:
+        if dry_run:
+            info("Would drop and recreate the test database first.", err=True)
+        else:
+            drop_db(base, db_name)
+
+    # Build base Odoo arguments shared between install and test invocations.
+    base_odoo_args = ["-d", db_name]
+    if not http:
+        base_odoo_args.append("--no-http")
+
+    test_odoo_args = []
+    if tags:
+        test_odoo_args.extend(["--test-tags", tags])
+
+    run_kwargs = {
+        "dry_run": dry_run,
+        "verbose": verbose,
+        "backend_name": backend_name,
+        "compose_file": compose_file,
+        "no_db_filter": no_db_filter,
+        "skip_config": skip_config,
+    }
 
     if need_install:
-        if dry_run and dropdb:
-            echo.info("Would drop and recreate the test database first.", err=True)
         # Fresh database: first install modules without tests.
-        _run_odoo(ctx, db_name, module_list, "-i", http, dry_run=dry_run)
+        install_args = base_odoo_args + ["-i", module_list, "--stop-after-init"]
+        ctx.invoke(run, extra_args=install_args, **run_kwargs)
 
-    # Run tests by updating the modules.
-    _run_odoo(
-        ctx,
-        db_name,
-        module_list,
-        "-u",
-        http,
-        test_enable=True,
-        tags=tags,
-        stop_after_init=not no_stop_after_init,
-        dry_run=dry_run,
+    # Run tests by updating the modules. Always stop after init unless requested
+    # otherwise, because tests are the point of this command.
+    test_args = (
+        base_odoo_args
+        + ["-u", module_list, "--test-enable"]
+        + (["--stop-after-init"] if not no_stop_after_init else [])
+        + test_odoo_args
     )
-
-
-def _run_odoo(
-    ctx,
-    db_name,
-    module_list,
-    mode,
-    http,
-    *,
-    test_enable=False,
-    tags=None,
-    stop_after_init=True,
-    dry_run=False,
-):
-    """Invoke `osh run` with the requested Odoo test/install arguments."""
-    odoo_args = ["-d", db_name, mode, module_list]
-    if test_enable:
-        odoo_args.append("--test-enable")
-    if not http:
-        odoo_args.append("--no-http")
-    if stop_after_init:
-        odoo_args.append("--stop-after-init")
-    if tags:
-        odoo_args.extend(["--test-tags", tags])
-
-    run_args = []
-    if dry_run:
-        run_args.append("--dry-run")
-    run_args.extend(odoo_args)
-    run_ctx = run.make_context(run.name, run_args, parent=ctx)
-    run.invoke(run_ctx)
+    ctx.invoke(run, extra_args=test_args, **run_kwargs)

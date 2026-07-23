@@ -58,11 +58,6 @@ def _format_run_targets(formatter):
     help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
 )
 @click.option(
-    "--edition",
-    default=None,
-    help="Odoo edition for addons path (ce/ee/sh).",
-)
-@click.option(
     "--no-db-filter",
     is_flag=True,
     hidden=True,
@@ -82,7 +77,6 @@ def run(
     verbose,
     backend_name,
     compose_file,
-    edition,
     no_db_filter,
     skip_config,
     extra_args,
@@ -133,7 +127,6 @@ def run(
         target=backend_name,
         phase="run",
         compose_file=compose_file,
-        edition=edition,
         sections=backend.diagnose_sections_for_phase("run"),
     )
     for warning in diagnostics.warnings:
@@ -182,7 +175,7 @@ def run(
         config_path=config_path,
         extra_args=list(extra_args),
     )
-    backend.run(ctx, base, run_spec, dry_run=dry_run, verbose=verbose, edition=edition)
+    backend.run(ctx, base, run_spec, dry_run=dry_run, verbose=verbose)
 
 
 def _parse_explicit_db(extra_args):

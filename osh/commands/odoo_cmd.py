@@ -58,7 +58,6 @@ def odoo(
         verbose=verbose,
         backend_name="local",
         compose_file=None,
-        edition=None,
         no_db_filter=True,
         skip_config=has_subcommand,
         extra_args=extra_args,
