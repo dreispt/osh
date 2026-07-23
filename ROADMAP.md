@@ -9,7 +9,6 @@ This document tracks planned improvements and future development work for the Os
 
 ## Code-quality and simplification opportunities
 
-- Consolidate version detection into `osh/version.py` to reduce duplication across `osh/sources.py`, `osh/db.py`, and backend implementations.
 - Extend `osh/commons.py` with a standard subprocess helper for capture/error handling and replace ad-hoc `subprocess` calls in `osh/sources.py`, `osh/backup_sources.py`, and plugins.
 - Refactor `osh/plugins/osh_docker/backends.py` `diagnose()` into section-specific methods (currently ~140 lines).
 - Extract `osh/sources.py` source-resolution logic into a `SourceResolver` class to reduce nested conditionals and parameter passing.

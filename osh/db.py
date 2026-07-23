@@ -13,10 +13,10 @@ import subprocess
 import click
 
 from . import config as _config
+from . import echo
 from .commons import decode_stderr, get_odoo_config_path, resolve_config_file
-from .echo import Echo
 from .odoo_layout import build_addons_paths
-from .version import get_version_from_executable
+from .version import get_version_tuple
 
 
 def sanitize_db_name(name):
@@ -219,7 +219,6 @@ def resolve_db_name(base, verbose=False):
     last_db = get_project_config(base, "db", "last")
     if last_db:
         if verbose:
-            echo = Echo(level="normal", emoji=True)
             echo.info(f"Using last database: {last_db}", err=True)
         return last_db
 
@@ -255,26 +254,14 @@ def neutralize_database(
 ):
     """Neutralize *db_name* using the best available strategy."""
     if dry_run:
-        echo = Echo(level="normal", emoji=True)
         echo.info(f"Would neutralize database '{db_name}'", err=True)
         return
 
-    version = _get_odoo_version(exe)
+    version = get_version_tuple(exe)
     if version is not None and version >= _MIN_NEUTRALIZE_VERSION:
         _neutralize_with_odoo(base, exe, db_name)
     else:
         _neutralize_with_sql(base, db_name)
-
-
-def _get_odoo_version(exe):
-    """Return the installed Odoo version as a (major, minor) tuple, or None."""
-    output = get_version_from_executable(exe)
-    if not output:
-        return None
-    match = re.search(r"(\d+)\.(\d+)", output)
-    if not match:
-        return None
-    return (int(match.group(1)), int(match.group(2)))
 
 
 def _neutralize_with_odoo(base, exe, db_name):

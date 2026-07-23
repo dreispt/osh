@@ -69,6 +69,17 @@ def get_version_from_executable(exe):
     return parse_version_output(output)
 
 
+def get_version_tuple(exe):
+    """Return the installed Odoo version as a (major, minor) tuple, or None."""
+    output = get_version_from_executable(exe)
+    if not output:
+        return None
+    match = re.search(r"(\d+)\.(\d+)", output)
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
+
+
 def get_version_from_sources(base):
     """Return the version declared in ``.osh/odoo/odoo/release.py``, or None."""
     release_file = base / ".osh" / "odoo" / "odoo" / "release.py"
@@ -82,7 +93,7 @@ def get_version_from_sources(base):
     namespace = {"__builtins__": {"str": str}}
     try:
         exec(text, namespace)  # noqa: S102
-    except Exception as exc:
+    except (SyntaxError, NameError, ValueError, TypeError, AttributeError) as exc:
         echo.internal(f"Could not execute {release_file}: {exc}", err=True)
     else:
         version = namespace.get("version")
