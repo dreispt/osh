@@ -11,8 +11,3 @@ This document tracks planned improvements and future development work for the Os
 
 - Extend `osh/common.py` with a standard subprocess helper for capture/error handling and replace ad-hoc `subprocess` calls in `osh/sources.py`, `osh/commands/backup_sources.py`, and plugins.
 - Extract `osh/sources.py` source-resolution logic into a `SourceResolver` class to reduce nested conditionals and parameter passing.
-
-## Backup and restore
-
-- Improve `osh test` so it can genuinely chain an install and a test run
-  instead of relying on a single `odoo-bin` invocation.

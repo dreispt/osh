@@ -85,15 +85,16 @@ def test(
 ):  # noqa: D401
     """Run Odoo tests for project modules.
 
-    This is a wrapper around `osh odoo` that assembles a single Odoo invocation
-    with the right `-i`/`-u`, `--test-enable`, `--dropdb` and `--test-tags`
-    flags. Standard `osh odoo` options such as `--target` and `--compose-file`
-    are accepted and forwarded.
+    This is a wrapper around `osh odoo` that chains two Odoo invocations:
+    an install/update run without `--test-enable`, followed by an update run
+    with `--test-enable` so tests execute on the already installed modules.
+    Standard `osh odoo` options such as `--target` and `--compose-file` are
+    accepted and forwarded.
 
     The test database is `<project>-<branch>-test` by default. On a fresh
-    database, modules are installed and tests run in one invocation with
-    `-i <modules> --test-enable`. On an existing database, modules are updated
-    with `-u <modules> --test-enable`.
+    database, modules are first installed with `-i <modules>` and then tested
+    with `-u <modules> --test-enable`. On an existing database, modules are
+    updated and then tested in the same way.
 
     Examples:
 
@@ -155,14 +156,30 @@ def test(
         "skip_config": skip_config,
     }
 
-    # Install on a fresh database or update on an existing one, enabling
-    # tests for the installed/updated modules. A single invocation lets the
-    # backend exec/replace the process without losing the test run.
-    mode = "-i" if need_install else "-u"
-    odoo_args = (
+    stop_arg = ["--stop-after-init"] if not no_stop_after_init else []
+
+    # First invocation: install or update modules without running tests.
+    # Run in wait mode so the backend returns control instead of exec/replacing.
+    install_mode = "-i" if need_install else "-u"
+    install_args = base_odoo_args + [install_mode, module_list] + stop_arg
+    ctx.invoke(
+        odoo,
+        extra_args=tuple(install_args),
+        wait_for_exit=True,
+        **odoo_kwargs,
+    )
+
+    # Second invocation: update modules and run tests. This is the final
+    # process, so the backend can exec/replace as usual.
+    test_args = (
         base_odoo_args
-        + [mode, module_list, "--test-enable"]
-        + (["--stop-after-init"] if not no_stop_after_init else [])
+        + ["-u", module_list, "--test-enable"]
+        + stop_arg
         + test_odoo_args
     )
-    ctx.invoke(odoo, extra_args=odoo_args, **odoo_kwargs)
+    ctx.invoke(
+        odoo,
+        extra_args=tuple(test_args),
+        wait_for_exit=False,
+        **odoo_kwargs,
+    )

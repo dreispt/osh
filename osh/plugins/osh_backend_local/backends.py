@@ -9,7 +9,12 @@ import click
 from ... import echo
 from ...backends import Backend, EnvSpec
 from ...commands.helpers import Diagnostics
-from ...common import _has_arg, get_odoo_config_path, get_osh_odoo_config_path
+from ...common import (
+    _has_arg,
+    get_odoo_config_path,
+    get_osh_odoo_config_path,
+    run_command,
+)
 from ...utils.odoo_layout import build_addons_paths, find_odoo_executable
 from .utils import init_project
 
@@ -183,7 +188,13 @@ class LocalBackend(Backend):
         if dry_run:
             echo.info(f"Would run: {command}", err=True)
             return
+
+        wait = options.pop("wait", False)
         echo.info(f"Running: {command}", err=True)
+        if wait:
+            run_command(args, check=True, stream=True)
+            return
+
         try:
             os.execvp(args[0], args)
         except OSError as exc:

@@ -346,6 +346,8 @@ class DockerBackend(Backend):
         dry_run=False,
         **options,
     ):
+        wait = options.pop("wait", False)
+
         if not isinstance(env_spec, EnvSpec):
             env_spec = EnvSpec(argv=list(env_spec))
 
@@ -392,6 +394,10 @@ class DockerBackend(Backend):
                 return
 
             echo.info(f"Running: {' '.join(docker_args)}", err=True)
+
+            if wait:
+                run_command(docker_args, check=True, stream=True)
+                return
 
             try:
                 os.execvp(docker_args[0], docker_args)

@@ -76,6 +76,13 @@ def _format_odoo_targets(formatter):
     hidden=True,
     help="Skip generating the dynamic config file.",
 )
+@click.option(
+    "--wait",
+    "wait_for_exit",
+    is_flag=True,
+    hidden=True,
+    help="Wait for the command to finish instead of exec/replacing the process.",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def odoo(
@@ -85,6 +92,7 @@ def odoo(
     compose_file,
     no_db_filter,
     skip_config,
+    wait_for_exit,
     extra_args,
 ):  # noqa: D401
     """Run the project's Odoo executable.
@@ -166,4 +174,4 @@ def odoo(
         db_name=resolved_db,
         config_path=str(conf_path) if conf_path else None,
     )
-    backend.env(ctx, base, env_spec, dry_run=dry_run)
+    backend.env(ctx, base, env_spec, dry_run=dry_run, wait=wait_for_exit)
