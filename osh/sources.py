@@ -81,9 +81,9 @@ def ensure_osh_sources(
             if not echo.confirm(f"Use {project_source} for {name}?", default=True):
                 # User declined, fall back to default URL
                 project_source = None
-        source_plans[name] = SourceResolver(
+        source_plans[name] = _resolve_source(
             name, version, flag, project_source, osh_dir, url
-        ).resolve()
+        )
 
     _display_source_plan(osh_dir, edition, source_plans)
 
@@ -151,71 +151,60 @@ def _resolve_source(
     default_url,
 ):
     """Return the planned action, source spec and optional warning for *name*."""
-    return SourceResolver(
-        name, version, source_flag, project_source, osh_dir, default_url
-    ).resolve()
+    if project_source and isinstance(project_source, tuple):
+        project_source = project_source[0]
 
-
-class SourceResolver:
-    """Plan how to install a single Odoo source copy."""
-
-    def __init__(
-        self, name, version, source_flag, project_source, osh_dir, default_url
-    ):
-        self.name = name
-        self.version = version
-        self.source_flag = source_flag
-        self.project_source = (
-            project_source[0]
-            if project_source and isinstance(project_source, tuple)
-            else project_source
+    link = osh_dir / name
+    if link.exists() or link.is_symlink():
+        return _resolve_existing(
+            link, version, source_flag, project_source, default_url
         )
-        self.osh_dir = osh_dir
-        self.default_url = default_url
+    if source_flag:
+        return _resolve_flag(source_flag, version)
+    if project_source:
+        return _resolve_project(project_source, version)
+    return _resolve_cache(default_url)
 
-    def resolve(self):
-        """Return the planned action, source spec and an optional mismatch warning."""
-        link = self.osh_dir / self.name
-        if link.exists() or link.is_symlink():
-            return self._resolve_existing(link)
-        if self.source_flag:
-            return self._resolve_flag()
-        if self.project_source:
-            return self._resolve_project()
-        return self._resolve_cache()
 
-    def _resolve_existing(self, link):
-        resolved = link.resolve()
-        warning = _source_branch_warning(resolved, self.version)
+def _resolve_existing(link, version, source_flag, project_source, default_url):
+    """Keep or replace a source link that already exists."""
+    resolved = link.resolve()
+    warning = _source_branch_warning(resolved, version)
 
-        # If the user supplied an explicit source, keep what they gave us and
-        # only warn about a branch mismatch. Otherwise a managed source is
-        # allowed to be replaced so ``osh init <new-version>`` can switch.
-        if self.source_flag or self.project_source:
-            return "existing", link, warning
-
-        detected = _source_branch(resolved)
-        if detected and not _version_matches(detected, self.version):
-            return (
-                "replace",
-                self.default_url,
-                f"on branch '{detected}', expected '{self.version}'",
-            )
+    # If the user supplied an explicit source, keep what they gave us and
+    # only warn about a branch mismatch. Otherwise a managed source is
+    # allowed to be replaced so ``osh init <new-version>`` can switch.
+    if source_flag or project_source:
         return "existing", link, warning
 
-    def _resolve_flag(self):
-        local_path = Path(self.source_flag).expanduser().resolve()
-        if not _is_git_url(self.source_flag) and local_path.is_dir():
-            warning = _source_branch_warning(local_path, self.version)
-            return "symlink", local_path, warning
-        return "clone", self.source_flag, None
+    detected = _source_branch(resolved)
+    if detected and not _version_matches(detected, version):
+        return (
+            "replace",
+            default_url,
+            f"on branch '{detected}', expected '{version}'",
+        )
+    return "existing", link, warning
 
-    def _resolve_project(self):
-        warning = _source_branch_warning(self.project_source, self.version)
-        return "symlink", self.project_source, warning
 
-    def _resolve_cache(self):
-        return "cache", self.default_url, None
+def _resolve_flag(source_flag, version):
+    """Resolve a source supplied via --*-source CLI option."""
+    local_path = Path(source_flag).expanduser().resolve()
+    if not _is_git_url(source_flag) and local_path.is_dir():
+        warning = _source_branch_warning(local_path, version)
+        return "symlink", local_path, warning
+    return "clone", source_flag, None
+
+
+def _resolve_project(project_source, version):
+    """Resolve a source discovered in the project directory."""
+    warning = _source_branch_warning(project_source, version)
+    return "symlink", project_source, warning
+
+
+def _resolve_cache(default_url):
+    """Resolve a source by using the shared cache."""
+    return "cache", default_url, None
 
 
 def _install_source_plan(
