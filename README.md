@@ -143,4 +143,4 @@ and `test`.
 
 Copyright © 2025 Daniel Reis
 
-Distributed under the GNU LGPL-3.0-only license.
+Distributed under the GNU AGPL-3.0-only license.

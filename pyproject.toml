@@ -6,7 +6,25 @@ authors = [
     {name = "Odoo Community Association", email="info@odoo-community.org"}
 ]
 readme = "README.md"
+license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.8"
+keywords = ["odoo", "cli", "shell", "development"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Framework :: Odoo",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
 dependencies = [
     "click>=8.1",
     'tomli>=1.2.0; python_version<"3.11"',
@@ -21,6 +39,10 @@ tests = [
 
 [project.scripts]
 osh = "osh.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dreispt/osh"
+Source = "https://github.com/dreispt/osh"
 
 [build-system]
 requires = ["setuptools>=70.0", "wheel"]
