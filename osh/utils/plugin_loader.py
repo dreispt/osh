@@ -223,3 +223,43 @@ def load_backends(backend_type=None):
                 continue
             result[name] = backend
     return result
+
+
+def _load_backup_sources_from_module(module):
+    """Return backup source classes exposed by a plugin module."""
+    if hasattr(module, "get_backup_sources"):
+        sources = module.get_backup_sources()
+    elif hasattr(module, "BACKUP_SOURCES"):
+        sources = module.BACKUP_SOURCES
+    else:
+        sources = []
+
+    if not isinstance(sources, list):
+        sources = [sources]
+
+    return [
+        src for src in sources if isinstance(src, type) and getattr(src, "scheme", None)
+    ]
+
+
+def load_backup_sources():
+    """Return a mapping of backup source scheme to source class.
+
+    Source classes are loaded from plugins that expose ``get_backup_sources()``
+    or a ``BACKUP_SOURCES`` list. A valid source class must have a ``scheme``
+    class attribute (e.g. ``scheme = "s3"``) and implement the backup source
+    interface.
+    """
+    result = {}
+    for source, module in _iter_plugin_modules():
+        for src_cls in _load_backup_sources_from_module(module):
+            scheme = getattr(src_cls, "scheme")
+            if scheme in result:
+                echo.warning(
+                    f"backup source '{scheme}' from '{source}' conflicts with "
+                    f"an existing source and is ignored.",
+                    err=True,
+                )
+                continue
+            result[scheme] = src_cls
+    return result

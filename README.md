@@ -22,12 +22,29 @@ cd my-odoo-project && git checkout my-branch
 osh init 19.0 --ce  # set up venv + Odoo sources
 osh restore ./path-to/my-backup.zip
 osh doctor          # sanity-check the project
-osh run             # go
+osh odoo            # go
 ```
 
 > **Note:** `osh` is a personal/community project and is not affiliated
 > with Odoo's `odoo.sh` service. It's under active development — expect
 > some rough edges.
+
+## Features
+
+- **One-command project setup** — `osh init` creates the virtualenv, fetches or
+  links Odoo sources, and installs Odoo in editable mode.
+- **Branch-aware databases** — `osh` tracks a database per git branch, so switching
+  branches automatically picks the right database.
+- **Zero-config Odoo runs** — `osh odoo` builds the correct `odoo.conf`,
+  `addons_path`, `db_name` and `dbfilter` from the project layout.
+- **Backup and restore** — `osh backup` fetches or dumps backups from multiple
+  sources; `osh restore` restores them and neutralizes the database.
+- **Custom neutralization** — drop `.sql` scripts into `.osh/neutralize/` to run
+  project-specific scrubbing after every restore.
+- **Pluggable backends** — run locally in a virtualenv or inside Docker Compose by
+  switching `--target`.
+- **Transparent** — `osh` prints the commands it runs and supports `--dry-run`
+  so you can inspect before executing.
 
 ## Design principles
 
@@ -51,99 +68,33 @@ pipx install osh
 
 ## Commands
 
-Run `osh <command> --help` for full usage details.
+Run `osh <command> --help` for detailed options and examples.
 
-### `osh init <version> [directory]`
+- `osh init <version>` — set up a project (venv, sources, config).
+- `osh odoo` — run Odoo with automatic addons-path, database and dbfilter.
+- `osh doctor` — check the project setup and report diagnostics.
+- `osh config` — manage branch/database mappings and preferences.
+- `osh plug` — install, list and remove plugins from git repositories.
+- `osh backup <source>` — download or dump a backup into `.osh/backups/`.
+- `osh restore [<dump>]` — restore and neutralize a backup.
+- `osh test` — run Odoo tests for project modules.
+- `osh version` — show the installed `osh` version.
 
-Initialise the current directory (or `directory`) as an `osh` project.
+Quick examples:
 
 ```bash
 osh init 19.0
-osh init 19.0 ./another-project
-```
-
-It creates `.osh/` and `.venv/`, makes Odoo/Enterprise sources available
-(using project sources, a central shallow cache, or custom URLs), and installs
-Odoo in editable mode.
-
-### `osh run`
-
-Run Odoo with automatic configuration. Runs the Odoo server on the active target backend (local, docker or other), injecting some default options detected from the current environment and branch: config, addons-path, dbname and dbfilter. If specifically provided, then the defaults will be overridden.
-
-```bash
-osh run
-```
-
-### `osh doctor`
-
-Show project information.
-
-### `osh config`
-
-Manage project settings stored in `.osh/config`.
-
-```bash
-osh config db myproject-dev --branch main --default
-```
-
-### `osh plug`
-
-Install, list, and remove plugins from git repositories.
-
-```bash
-osh plug install https://github.com/ORG/REPO
-```
-
-### `osh backup`
-
-Download or dump a backup and store it in the project cache (`.osh/backups/`).
-
-```bash
-# Fetch the latest odoo.sh daily dump (add --filestore for a full zip)
-osh backup download odoosh://my-project-master-123456
-
-# Download a remote Odoo manager backup
-osh backup download https://my.odoo.com?db=prod&format=zip
-
-# List cached backups
-osh backup list
-```
-
-See `docs/odoo-sh-backup-howto.md` for detailed odoo.sh backup instructions.
-
-### `osh restore`
-
-Restore a local backup file into the current branch's database and neutralize it.
-
-```bash
-# Use the newest cached backup
-osh restore
-
-# Pick a specific cached entry
-osh restore cache:1
-
-# Restore an explicit file
-osh restore /path/to/backup.zip
-```
-
-### `osh test`
-
-Run Odoo tests for project modules (built-in plugin).
-
-```bash
+osh doctor
+osh odoo
 osh test --all
 ```
-
-### `osh version`
-
-Show the installed `osh` version.
 
 ## Configuration
 
 ### Database name
 
-`osh run` tracks the database to use for each git branch in `.osh/config`.
-The first time you run `osh run` on a branch, it asks for a database name:
+`osh odoo` tracks the database to use for each git branch in `.osh/config`.
+The first time you run `osh odoo` on a branch, it asks for a database name:
 
 - If the branch has already been configured, it uses that database.
 - If a previous database exists, it suggests that one and asks for confirmation.
@@ -157,9 +108,9 @@ to keep the name safe for PostgreSQL and for Odoo's `--db-filter`.
 
 ### Addons path discovery
 
-`osh run` scans the project directory (up to 3 levels deep) for directories
+`osh odoo` scans the project directory (up to 9 levels deep) for directories
 containing `__manifest__.py` or `__openerp__.py`. The parent directories of
-those modules are added to `--addons-path`.
+those modules are added to the generated Odoo config as `addons_path`.
 
 ### Configuration file
 
@@ -185,8 +136,8 @@ Your project files, virtual environment (`.venv/`), and any existing Odoo source
 Run `osh --help` or `osh <command> --help` for detailed usage information.
 
 The command list is generated automatically from the built-in commands plus any
-installed plugins, so it may include additional commands such as `backup`,
-`rebuild`, and `test`.
+installed plugins, so it may include additional commands such as `backup`
+and `test`.
 
 ## License
 

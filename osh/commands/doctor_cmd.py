@@ -44,4 +44,4 @@ def doctor(ctx):  # noqa: D401
 
     # Show friendly footer for new users
     if diagnostics.ready:
-        echo.friendly("Your setup looks good! Run 'osh run' to start Odoo.")
+        echo.friendly("Your setup looks good! Run 'osh odoo' to start Odoo.")

@@ -96,7 +96,7 @@ def _default_compose_content(version):
 
     image = f"odoo:{version}" if version else "odoo:latest"
     template = importlib.resources.read_text(
-        "osh.plugins.osh_docker.data", "docker-compose.yml"
+        "osh.plugins.osh_backend_docker.data", "docker-compose.yml"
     )
     return template.replace("__IMAGE__", image)
 

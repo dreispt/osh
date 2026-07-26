@@ -1,26 +1,12 @@
-"""Backup source parsers and fetchers for `osh backup download`."""
+"""Backup source base class and registry for `osh backup download`."""
 
-import gzip
-import os
 import re
-import shutil
-import tempfile
-import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import Request, urlopen
 
 import click
 
 from .. import echo
-from ..common import (
-    decode_stderr,
-    get_odoo_data_dir,
-    run_shell_pipeline,
-    run_subprocess,
-)
-from ..db import get_pg_credentials
+from ..utils.plugin_loader import load_backup_sources
 
 
 def _now_stamp():
@@ -40,9 +26,29 @@ class SourceError(click.ClickException):
 
 
 class BackupSource:
-    """Base class for backup sources."""
+    """Base class for backup sources.
 
+    Subclasses must define a ``scheme`` class attribute (e.g. ``"s3"``) and
+    implement ``from_source()``, ``default_output_name()``, and ``fetch()``.
+    They may also set ``description`` to a short human-readable summary shown
+    in ``osh backup download --help``.
+    Plugins register subclasses through ``get_backup_sources()`` or the
+    ``BACKUP_SOURCES`` list.
+    """
+
+    scheme = ""
+    description = ""
     ssh_key = None
+
+    @classmethod
+    def from_source(cls, source, base, *, output_format="dump", **kwargs):
+        """Create an instance from a source URL string.
+
+        *source* is the full URL (e.g. ``s3://bucket/key``). *base* is the
+        project root. Additional keyword arguments come from the
+        ``osh backup download`` CLI options.
+        """
+        raise NotImplementedError
 
     def default_output_name(self):
         """Return the default filename for this source."""
@@ -65,366 +71,46 @@ class BackupSource:
         return values[0] if values else None
 
 
-class DbSource(BackupSource):
-    """Dump a local PostgreSQL database."""
+_SOURCE_REGISTRY = None
 
-    def __init__(self, db_name, base, output_format="dump"):
-        self.db_name = db_name
-        self.base = base
-        self.output_format = output_format
-        self.original_format = output_format
 
-    def default_output_name(self):
-        ext = {"dump": "dump", "sql": "sql", "zip": "zip"}[self.output_format]
-        return f"{self.db_name}_{_now_stamp()}.{ext}"
+def _source_registry():
+    """Return a cached mapping of scheme to BackupSource class.
 
-    def fetch(self, output, *, dry_run=False):
-        if self.output_format in ("dump", "sql"):
-            format_flag = "-Fc" if self.output_format == "dump" else "-Fp"
-            args = ["pg_dump", format_flag]
-            conn_args, env = self._credentials()
-            args.extend(conn_args)
-            args.append(self.db_name)
-            if dry_run:
-                echo.info(f"Would run: {' '.join(args)} > {output}", err=True)
-                return
-            self._run_dump(args, env, output)
-            return
-
-        if self.output_format == "zip":
-            if dry_run:
-                echo.info(
-                    f"Would create zip {output} containing dump.sql and filestore",
+    Sources are discovered from plugins only; built-in sources are shipped as
+    plugins under ``osh/plugins/osh_backup_*/``.
+    """
+    global _SOURCE_REGISTRY
+    if _SOURCE_REGISTRY is None:
+        registry = {}
+        for scheme, cls in load_backup_sources().items():
+            if scheme in registry:
+                echo.warning(
+                    f"backup source '{scheme}' from plugin conflicts with "
+                    "an existing source and is ignored.",
                     err=True,
                 )
-                return
-            self._fetch_zip(output)
-
-    def _credentials(self):
-        if self.base is None:
-            return [], dict(os.environ)
-        return get_pg_credentials(self.base)
-
-    def _run_dump(self, args, env, output):
-        with output.open("wb") as f:
-            returncode, _, stderr = run_subprocess(args, env=env, stdout=f, text=False)
-        if returncode is None:
-            raise SourceError("Could not locate `pg_dump`. Is PostgreSQL installed?")
-        if returncode != 0:
-            raise SourceError(f"pg_dump failed: {decode_stderr(stderr)}")
-
-    def _fetch_zip(self, output):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            dump_sql = tmp_path / "dump.sql"
-            conn_args, env = self._credentials()
-            dump_args = ["pg_dump", "-Fp", *conn_args, self.db_name]
-            with dump_sql.open("wb") as f:
-                returncode, _, stderr = run_subprocess(
-                    dump_args, env=env, stdout=f, text=False
-                )
-            if returncode is None:
-                raise SourceError("Could not locate `pg_dump`.")
-            if returncode != 0:
-                raise SourceError(f"pg_dump failed: {decode_stderr(stderr)}")
-
-            data_dir = self._data_dir()
-            source_filestore = (
-                data_dir / "filestore" / self.db_name if data_dir else None
-            )
-            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.write(dump_sql, "dump.sql")
-                if source_filestore and source_filestore.exists():
-                    for path in source_filestore.rglob("*"):
-                        if path.is_file():
-                            arcname = (
-                                "filestore/"
-                                + path.relative_to(source_filestore).as_posix()
-                            )
-                            zf.write(path, arcname)
-                else:
-                    echo.warning(f"filestore not found at {source_filestore}")
-
-    def _data_dir(self):
-        return get_odoo_data_dir(self.base)
+                continue
+            registry[scheme] = cls
+        _SOURCE_REGISTRY = registry
+    return _SOURCE_REGISTRY
 
 
-class HttpsSource(BackupSource):
-    """Download a backup from a remote Odoo manager."""
-
-    def __init__(
-        self,
-        url,
-        master_password=None,
-    ):
-        parsed = urlparse(url)
-        self.scheme = parsed.scheme
-        self.host = parsed.netloc
-        self.original_url = url
-        query = parse_qs(parsed.query)
-        self.db_name = self._first_or_none(query.get("db"))
-        self.backup_format = self._first_or_none(query.get("format")) or "zip"
-        self.original_format = self.backup_format
-        self.master_password = master_password
-
-        base_url = f"{self.scheme}://{self.host}"
-        if parsed.path and parsed.path != "/":
-            base_url = base_url.rstrip("/") + parsed.path
-        self.endpoint = base_url.rstrip("/") + "/web/database/backup"
-
-    def default_output_name(self):
-        safe_host = _safe_name(self.host)
-        safe_db = _safe_name(self.db_name or "backup")
-        return f"{safe_host}_{safe_db}_{_now_stamp()}.{self.backup_format}"
-
-    def fetch(self, output, *, dry_run=False):
-        if not self.db_name:
-            raise SourceError("Database name is required. Use ?db=<name> in the URL.")
-        master_pwd = self._resolve_master_password()
-        payload = urlencode(
-            {
-                "master_pwd": master_pwd,
-                "name": self.db_name,
-                "backup_format": self.backup_format,
-            }
-        ).encode("utf-8")
-        req = Request(self.endpoint, data=payload, method="POST")
-        if dry_run:
-            echo.info(
-                f"Would POST {self.endpoint} with backup_format={self.backup_format} to {output}",
-                err=True,
-            )
-            return
-        try:
-            with urlopen(req, timeout=300) as resp:
-                with output.open("wb") as f:
-                    shutil.copyfileobj(resp, f)
-        except Exception as exc:
-            raise SourceError(
-                f"Failed to download backup from {self.endpoint}: {exc}"
-            ) from exc
-
-    def _resolve_master_password(self):
-        if self.master_password:
-            return self.master_password
-        env_pwd = os.environ.get("ODOO_MASTER_PASSWORD")
-        if env_pwd:
-            return env_pwd
-        return click.prompt("Remote Odoo master password", hide_input=True, err=True)
+def list_backup_schemes():
+    """Return a mapping of registered scheme names to descriptions."""
+    return {
+        scheme: getattr(cls, "description", "")
+        or (cls.__doc__ or "").strip().split("\n")[0]
+        for scheme, cls in sorted(_source_registry().items())
+    }
 
 
-class OdooshSource(BackupSource):
-    """Fetch an odoo.sh daily backup via SSH."""
-
-    BACKUP_DIR = "/home/odoo/backup.daily"
-    FILESTORE_DIR = "/home/odoo/data/filestore"
-    BUILD_ID_RE = re.compile(r"-([0-9]+)(\.dev\.odoo\.com)?$", re.IGNORECASE)
-    DB_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}-(.+)-\d+_daily\.sql\.gz$")
-
-    def __init__(
-        self,
-        url,
-        ssh_key=None,
-        include_filestore=False,
-    ):
-        parsed = urlparse(url)
-        self.ssh_key = ssh_key
-        self.include_filestore = include_filestore
-        self.original_format = "zip" if include_filestore else "sql.gz"
-        query = parse_qs(parsed.query)
-        self.backup_name = self._first_or_none(query.get("backup"))
-        self.domain = self._normalize_domain(parsed.netloc)
-        self.build_id = self._resolve_build_id(parsed.username)
-        if not self.build_id or not self.domain:
-            raise SourceError(
-                "odoosh:// source must be `odoosh://<build_id>@<domain>` "
-                "or `odoosh://<slug>` with a numeric build suffix."
-            )
-        self._remote_file = None
-        self._db_name = None
-
-    def _normalize_domain(self, netloc):
-        if not netloc.endswith(".dev.odoo.com"):
-            return netloc + ".dev.odoo.com"
-        return netloc
-
-    def _resolve_build_id(self, username):
-        if username:
-            return username
-        match = self.BUILD_ID_RE.search(self.domain)
-        if match:
-            return match.group(1)
-        return None
-
-    @property
-    def ssh_target(self):
-        return f"{self.build_id}@{self.domain}"
-
-    @property
-    def db_name(self):
-        return self._db_name
-
-    def default_output_name(self):
-        safe_domain = _safe_name(self.domain)
-        safe_build = _safe_name(self.build_id)
-        ext = "zip" if self.include_filestore else "sql.gz"
-        return f"{safe_domain}_{safe_build}_{_now_stamp()}.{ext}"
-
-    def fetch(self, output, *, dry_run=False):
-        remote_file = self._resolve_remote_file(dry_run=dry_run)
-        if self.include_filestore:
-            self._fetch_full_backup(remote_file, output, dry_run=dry_run)
-            return
-        remote_path = f"{self.ssh_target}:{self.BACKUP_DIR}/{remote_file}"
-        if dry_run:
-            echo.info(f"Would run: scp {remote_path} {output}", err=True)
-            return
-        self._scp(remote_path, output)
-
-    def _resolve_remote_file(self, *, dry_run=False):
-        if self._remote_file:
-            return self._remote_file
-        if self.backup_name:
-            self._remote_file = self.backup_name
-            self._db_name = self._parse_db_name(self.backup_name)
-            return self._remote_file
-        ssh_args = self._ssh_args()
-        ls_command = f"ls {self.BACKUP_DIR}"
-        if dry_run:
-            echo.info(f"Would run: ssh {' '.join(ssh_args)} {ls_command}", err=True)
-            return "<latest_daily>.sql.gz"
-        returncode, stdout, stderr = run_subprocess(
-            ["ssh", *ssh_args, self.ssh_target, ls_command]
-        )
-        if returncode:
-            raise SourceError(f"Could not list odoo.sh backups: {stderr.strip()}")
-
-        files = [
-            line.strip()
-            for line in stdout.splitlines()
-            if line.strip().endswith("_daily.sql.gz")
-        ]
-        if not files:
-            raise SourceError(f"No daily backups found in {self.BACKUP_DIR}.")
-        files.sort()
-        self._remote_file = files[-1]
-        self._db_name = self._parse_db_name(self._remote_file)
-        return self._remote_file
-
-    def _parse_db_name(self, remote_file):
-        match = self.DB_NAME_RE.match(remote_file)
-        if match:
-            return match.group(1)
-        return None
-
-    def _fetch_full_backup(self, remote_file, output, *, dry_run=False):
-        if dry_run:
-            echo.info(
-                f"Would download {remote_file} and filestore to {output}", err=True
-            )
-            return
-        if not self.db_name:
-            raise SourceError(
-                f"Could not determine database name from backup file {remote_file}."
-            )
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            dump_gz = tmp_path / "dump.sql.gz"
-            remote_path = f"{self.ssh_target}:{self.BACKUP_DIR}/{remote_file}"
-            self._scp(remote_path, dump_gz)
-
-            dump_sql = tmp_path / "dump.sql"
-            self._gunzip(dump_gz, dump_sql)
-
-            filestore_dir = tmp_path / "filestore"
-            filestore_dir.mkdir()
-            self._download_filestore(filestore_dir)
-
-            self._create_zip(output, dump_sql, filestore_dir)
-
-    def _gunzip(self, source, target):
-        try:
-            with gzip.open(source, "rb") as gz, target.open("wb") as f:
-                shutil.copyfileobj(gz, f)
-        except Exception as exc:
-            raise SourceError(f"Could not decompress backup dump: {exc}") from exc
-
-    def _download_filestore(self, filestore_dir):
-        ssh_args = self._ssh_args()
-        remote_cmd = f"tar cz -C {self.FILESTORE_DIR} {self.db_name}"
-        run_shell_pipeline(
-            [
-                ["ssh", *ssh_args, self.ssh_target, remote_cmd],
-                ["tar", "xz", "-C", str(filestore_dir)],
-            ],
-            error_msg="Failed to download/extract filestore",
-            not_found_msg="Could not locate `ssh` or `tar`.",
-        )
-
-    def _create_zip(self, output, dump_sql, filestore_dir):
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.write(dump_sql, "dump.sql")
-            for path in filestore_dir.rglob("*"):
-                if path.is_file():
-                    arcname = "filestore/" + path.relative_to(filestore_dir).as_posix()
-                    zf.write(path, arcname)
-
-    def _scp(self, remote_path, output):
-        scp_args = ["scp", *self._ssh_args(), remote_path, str(output)]
-        returncode, _, stderr = run_subprocess(scp_args)
-        if returncode:
-            raise SourceError(f"scp failed: {stderr.strip()}")
-
-
-class SshSource(BackupSource):
-    """Fetch an existing backup file from a remote host via SSH/SCP."""
-
-    def __init__(self, url, ssh_key=None):
-        parsed = urlparse(url)
-        self.host = parsed.hostname
-        self.port = parsed.port
-        self.username = parsed.username
-        self.path = parsed.path
-        self.ssh_key = ssh_key
-        self.original_format = self._format_from_path(self.path)
-
-        if not self.host or not self.path:
-            raise SourceError(
-                "ssh:// source must be `ssh://[user@]host[:port]/path/to/file`."
-            )
-
-    @staticmethod
-    def _format_from_path(path):
-        ext = Path(path).suffix.lower()
-        if ext == ".gz":
-            return "sql.gz"
-        return ext.lstrip(".") or "backup"
-
-    @property
-    def ssh_target(self):
-        if self.username:
-            return f"{self.username}@{self.host}"
-        return self.host
-
-    def default_output_name(self):
-        safe_host = _safe_name(self.host)
-        safe_name = _safe_name(Path(self.path).name)
-        return f"{safe_host}_{safe_name}_{_now_stamp()}.{self.original_format}"
-
-    def fetch(self, output, *, dry_run=False):
-        remote_path = f"{self.ssh_target}:{self.path}"
-        scp_args = ["scp", *self._ssh_args()]
-        if self.port:
-            scp_args.extend(["-P", str(self.port)])
-        scp_args.extend([remote_path, str(output)])
-
-        if dry_run:
-            echo.info(f"Would run: {' '.join(scp_args)}", err=True)
-            return
-
-        returncode, _, stderr = run_subprocess(scp_args)
-        if returncode:
-            raise SourceError(f"scp failed: {stderr.strip()}")
+def get_backup_source_help(scheme):
+    """Return the detailed help text for a registered backup source scheme."""
+    cls = _source_registry().get(scheme)
+    if cls is None:
+        raise SourceError(f"Unknown backup source scheme: {scheme}.")
+    return getattr(cls, "help_text", "") or (cls.__doc__ or "")
 
 
 def parse_source(
@@ -437,17 +123,21 @@ def parse_source(
     include_filestore=False,
 ):
     """Parse a source string into a BackupSource instance."""
-    if source.startswith("db://"):
-        return DbSource(source[5:], base, output_format=output_format)
-    if source.startswith("https://") or source.startswith("http://"):
-        return HttpsSource(source, master_password=master_password)
-    if source.startswith("odoosh://"):
-        return OdooshSource(
-            source, ssh_key=ssh_key, include_filestore=include_filestore
+    from urllib.parse import urlparse
+
+    parsed = urlparse(source)
+    scheme = parsed.scheme
+    cls = _source_registry().get(scheme)
+    if cls is None:
+        supported = ", ".join(sorted(_source_registry()))
+        raise SourceError(
+            f"Unsupported source: {source}. " f"Expected one of: {supported}."
         )
-    if source.startswith("ssh://"):
-        return SshSource(source, ssh_key=ssh_key)
-    raise SourceError(
-        f"Unsupported source: {source}. "
-        "Expected db://, https://, odoosh://, or ssh://."
+    return cls.from_source(
+        source,
+        base,
+        output_format=output_format,
+        master_password=master_password,
+        ssh_key=ssh_key,
+        include_filestore=include_filestore,
     )

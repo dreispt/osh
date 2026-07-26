@@ -444,7 +444,7 @@ class TestInitCommand:
         monkeypatch.setattr("venv.create", lambda *a, **kw: None)
 
         monkeypatch.setattr(
-            "osh.plugins.osh_local.utils.run_subprocess",
+            "osh.plugins.osh_backend_local.utils.run_subprocess",
             lambda *args, **kwargs: (1, "", ""),
         )
 

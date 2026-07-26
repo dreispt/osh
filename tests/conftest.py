@@ -53,10 +53,10 @@ def patch_resolve_db_name(monkeypatch):
 
 @pytest.fixture
 def capture_execvp(monkeypatch):
-    """Capture ``osh.commands.run_cmd.os.execvp`` calls and return them."""
+    """Capture ``osh.plugins.osh_backend_local.backends.os.execvp`` calls and return them."""
     exec_calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_local.backends.os.execvp",
+        "osh.plugins.osh_backend_local.backends.os.execvp",
         lambda exe, args: exec_calls.append((exe, args)),
     )
     return exec_calls
@@ -160,7 +160,7 @@ def real_git_only_subprocess(monkeypatch):
         return result.returncode, result.stdout or "", result.stderr or ""
 
     for target in (
-        "osh.plugins.osh_local.utils.run_subprocess",
+        "osh.plugins.osh_backend_local.utils.run_subprocess",
         "osh.sources.run_subprocess",
     ):
         monkeypatch.setattr(target, fake_run_subprocess)

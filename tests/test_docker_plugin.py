@@ -8,9 +8,9 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from osh.backends import Backend, RunSpec
+from osh.backends import Backend, EnvSpec
 from osh.cli import main
-from osh.plugins.osh_docker.backends import DockerBackend
+from osh.plugins.osh_backend_docker.backends import DockerBackend
 from osh.utils.plugin_loader import load_backends, load_plugins
 
 
@@ -25,7 +25,7 @@ def test_docker_backends_are_registered():
 def _patch_docker_tools(monkeypatch):
     """Make Docker tooling no-ops so tests do not require a Docker daemon."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.utils._find_compose_tool",
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
 
@@ -33,7 +33,7 @@ def _patch_docker_tools(monkeypatch):
         cmd = args[0] if args else kwargs.get("args", [])
         return subprocess.CompletedProcess(cmd, returncode=0)
 
-    monkeypatch.setattr("osh.plugins.osh_docker.backends.run_command", fake_run)
+    monkeypatch.setattr("osh.plugins.osh_backend_docker.backends.run_command", fake_run)
 
 
 def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatch):
@@ -153,7 +153,7 @@ def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
 def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, monkeypatch):
     """DockerBackend.diagnose reports the Odoo version from .osh/odoo sources."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.utils._find_compose_tool",
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     release = tmp_project / ".osh" / "odoo" / "odoo" / "release.py"
@@ -220,7 +220,7 @@ def test_init_docker_dry_run_does_not_write(tmp_project, monkeypatch):
 def test_docker_backend_diagnose(tmp_project, monkeypatch):
     """``diagnose`` returns diagnostics for the configured stack."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.utils._find_compose_tool",
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -240,7 +240,7 @@ def test_docker_backend_diagnose(tmp_project, monkeypatch):
 def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, monkeypatch):
     """``diagnose`` resolves the effective compose file from config/options."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.utils._find_compose_tool",
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -264,7 +264,7 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
 ):
     """``diagnose`` allows missing source copies when a version is configured."""
     monkeypatch.setattr(
-        "osh.plugins.osh_docker.utils._find_compose_tool",
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -281,8 +281,8 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
     assert not d.errors
 
 
-def test_docker_backend_run_dry_run(tmp_project, capsys):
-    """``run`` builds and prints the docker compose command in dry-run mode."""
+def test_docker_backend_env_dry_run(tmp_project, capsys):
+    """``env`` builds and prints the docker compose command in dry-run mode."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -290,15 +290,15 @@ def test_docker_backend_run_dry_run(tmp_project, capsys):
     )
 
     backend = DockerBackend()
-    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+    backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert "Would run:" in err
     assert "docker compose run --rm --service-ports app odoo" in err
 
 
-def test_docker_backend_uses_container_executable(tmp_project, capsys):
-    """The configured command is invoked inside the container."""
+def test_docker_backend_env_runs_user_command(tmp_project, capsys):
+    """The command passed by the user is invoked inside the container."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -306,17 +306,22 @@ def test_docker_backend_uses_container_executable(tmp_project, capsys):
     )
 
     backend = DockerBackend()
-    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+    backend.env(
+        None,
+        tmp_project,
+        EnvSpec(argv=["python3", "-m", "odoo"]),
+        dry_run=True,
+    )
 
     err = capsys.readouterr().err
     assert "python3 -m odoo" in err
 
 
 def test_docker_backend_requires_service(tmp_project):
-    """``run`` fails when no service is configured."""
+    """``env`` fails when no service is configured."""
     backend = DockerBackend()
     with pytest.raises(click.ClickException):
-        backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+        backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
 
 def test_docker_backend_compose_file_from_config(tmp_project, capsys):
@@ -329,7 +334,7 @@ def test_docker_backend_compose_file_from_config(tmp_project, capsys):
     )
 
     backend = DockerBackend()
-    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
+    backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert "docker compose -f devel.yaml run" in err
@@ -348,24 +353,15 @@ def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
         params = {"compose_file": "test.yaml"}
 
     backend = DockerBackend()
-    backend.run(FakeCtx(), tmp_project, ["odoo"], dry_run=True, verbose=False)
+    backend.env(
+        FakeCtx(),
+        tmp_project,
+        EnvSpec(argv=["odoo"]),
+        dry_run=True,
+    )
 
     err = capsys.readouterr().err
     assert "docker compose -f test.yaml run" in err
-
-
-def test_docker_backend_restore_not_implemented(tmp_project):
-    """``restore`` is not implemented for Docker."""
-    backend = DockerBackend()
-    with pytest.raises(click.ClickException):
-        backend.restore(None, tmp_project, "db", tmp_project / "dump.sql")
-
-
-def test_docker_backend_prune_not_implemented(tmp_project):
-    """``prune`` is not implemented for Docker."""
-    backend = DockerBackend()
-    with pytest.raises(click.ClickException):
-        backend.prune(None, tmp_project)
 
 
 def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
@@ -404,7 +400,7 @@ def test_osh_run_docker_uses_branch_database(
     tmp_project,
     monkeypatch,
 ):
-    """``osh run --target docker`` defaults to a branch-based database name."""
+    """``osh odoo --target docker`` defaults to a branch-based database name."""
     subprocess.run(["git", "init"], cwd=tmp_project, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "x@y"], cwd=tmp_project, check=True)
     subprocess.run(["git", "config", "user.name", "x"], cwd=tmp_project, check=True)
@@ -424,60 +420,20 @@ def test_osh_run_docker_uses_branch_database(
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(main, ["run", "--target", "docker", "--dry-run"])
+    result = runner.invoke(main, ["odoo", "--target", "docker", "--dry-run"])
 
     assert result.exit_code == 0, result.output
-    assert "-d project-feature-x" in result.output
-    assert "--db-filter ^project-feature-x$" in result.output
-
-
-def test_docker_backend_run_appends_addons_path_for_sh(
-    tmp_project,
-    monkeypatch,
-    capsys,
-):
-    """``run`` includes the mounted container --addons-path for sh editions."""
-    _patch_docker_tools(monkeypatch)
-
-    osh_dir = tmp_project / ".osh"
-    (osh_dir / "enterprise" / "web").mkdir(parents=True, exist_ok=True)
-    (osh_dir / "design-themes" / "theme_buzzy").mkdir(parents=True, exist_ok=True)
-    docker_toml = osh_dir / "docker.toml"
-    docker_toml.write_text(
-        "service = 'odoo'\n"
-        'command = "odoo"\n'
-        "edition = 'sh'\n"
-        "version = '19.0'\n"
-    )
-
-    backend = DockerBackend()
-    backend.run(None, tmp_project, ["odoo"], dry_run=True, verbose=False)
-
-    err = capsys.readouterr().err
-    assert "--addons-path" in err
-    assert "/mnt/extra-addons/.osh/enterprise" in err
-    assert "/mnt/extra-addons/.osh/design-themes" in err
+    assert "Using database: project-feature-x" in result.output
+    assert "PGDATABASE=project-feature-x" in result.output
+    assert "odoo odoo" in result.output
+    assert "-d project-feature-x" not in result.output
+    assert "--db-filter" not in result.output
 
 
 def test_backend_make_init_option_sets_target_group():
     """make_init_option attaches the backend name as the target_group."""
     option = DockerBackend.make_init_option(["--my-opt"], help="An option.")
     assert option.target_group == "docker"
-
-
-def test_docker_backend_run_accepts_runspec(tmp_project, capsys):
-    """Backend.run accepts a RunSpec as well as a raw argv list."""
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.write_text(
-        "service = 'odoo'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
-    )
-
-    backend = DockerBackend()
-    spec = RunSpec(argv=["odoo", "-d", "mydb"], db_name="mydb")
-    backend.run(None, tmp_project, spec, dry_run=True, verbose=False)
-
-    err = capsys.readouterr().err
-    assert "-d mydb" in err
 
 
 def test_load_backends_warns_on_name_collision(monkeypatch, capsys):

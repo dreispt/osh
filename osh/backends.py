@@ -2,7 +2,7 @@
 
 Backends allow plugins to replace the default host-venv execution model with
 other targets, such as Docker or remote containers, while keeping the same
-``osh init`` and ``osh run`` user interface.
+``osh init`` and ``osh odoo`` user interface.
 """
 
 import shutil
@@ -29,24 +29,23 @@ def copy_odoo_rc_to_osh_conf(base):
 
 
 @dataclass
-class RunSpec:
-    """Structured Odoo invocation passed to ``Backend.run()``.
+class EnvSpec:
+    """Structured environment invocation passed to ``Backend.env()``.
 
-    ``argv`` is the fully assembled argument list that a local backend would
-    execute directly. Backends may also read the individual fields (database,
-    config path, extra arguments, etc.) when translating the invocation for
-    another target such as Docker Compose.
+    ``argv`` is the command and arguments to execute inside the target
+    environment. ``env`` is a mapping of extra environment variables that the
+    backend should expose before running the command. ``db_name`` and
+    ``config_path`` are informational hints for backends.
     """
 
-    argv: list
-    executable: str = None
+    argv: list = field(default_factory=list)
+    env: dict = field(default_factory=dict)
     db_name: str = None
     config_path: str = None
-    extra_args: list = field(default_factory=list)
 
 
 class Backend(ABC):
-    """Unified base class for Osh init/run/restore/prune backends."""
+    """Unified base class for Osh init and execution backends."""
 
     backend_type = "backend"
     name = ""
@@ -85,7 +84,7 @@ class Backend(ABC):
         """Return the diagnose sections to run for *phase*.
 
         ``None`` means "all sections". This is used by ``osh init`` and
-        ``osh run`` to skip expensive checks that are only useful for a full
+        ``osh odoo`` to skip expensive checks that are only useful for a full
         ``osh doctor`` report.
         """
         return None
@@ -102,11 +101,11 @@ class Backend(ABC):
 
         *sections* is an optional list of section names to detect. When omitted,
         backends should detect everything. Callers such as ``osh init`` and
-        ``osh run`` can use it to avoid expensive checks that are not needed for
+        ``osh odoo`` can use it to avoid expensive checks that are not needed for
         their phase.
 
         Returns a ``Diagnostics`` object that ``osh doctor`` reports, ``osh init``
-        uses to plan actions and ask for confirmation, and ``osh run`` uses to
+        uses to plan actions and ask for confirmation, and ``osh odoo`` uses to
         check prerequisites.
         """
         raise NotImplementedError
@@ -123,62 +122,23 @@ class Backend(ABC):
         """Set up the environment. Return ``True`` if ready for use."""
         raise NotImplementedError
 
-    def run(
+    def env(
         self,
         ctx,
         base,
-        run_spec,
+        env_spec,
         *,
         dry_run=False,
         **options,
     ):
-        """Run Odoo using the supplied ``RunSpec``.
+        """Run a command inside the target environment using the supplied ``EnvSpec``.
 
-        ``run_spec`` is either a ``RunSpec`` instance or an argv-style list for
-        backwards compatibility. New backends should accept a ``RunSpec`` and
-        inspect ``run_spec.argv`` plus the structured fields for the executable,
-        database name, config path and any extra Odoo arguments.
+        ``env_spec`` is either an ``EnvSpec`` instance or an argv-style list for
+        backwards compatibility. The backend prepares the environment (e.g.
+        activates the local virtualenv or enters the Docker container) and
+        executes ``env_spec.argv`` with ``env_spec.env`` applied. When ``argv`` is
+        empty, an interactive shell is launched.
         """
-        raise NotImplementedError
-
-    def neutralize(
-        self,
-        ctx,
-        base,
-        db_name,
-        *,
-        dry_run=False,
-    ):
-        """Neutralize *db_name* after it has been restored through this backend."""
-        raise NotImplementedError
-
-    def restore(
-        self,
-        ctx,
-        base,
-        db_name,
-        dump_path,
-        *,
-        force=False,
-        no_neutralize=False,
-        dry_run=False,
-        **options,
-    ):
-        """Restore *dump_path* into *db_name* through this backend.
-
-        If the database already exists and *force* is False, raise an error.
-        If the backend supports neutralization and *no_neutralize* is False,
-        the database is neutralized after the restore.
-        """
-        raise NotImplementedError
-
-    def prune(
-        self,
-        ctx,
-        base,
-        *,
-        aggressive=False,
-        dry_run=False,
-    ):
-        """Run target-specific housekeeping. Not all backends support this."""
-        raise NotImplementedError
+        raise click.ClickException(
+            f"Backend '{self.name}' does not support environment execution."
+        )

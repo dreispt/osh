@@ -8,6 +8,7 @@ import click
 
 from .. import echo
 from ..backends import copy_odoo_rc_to_osh_conf
+from ..common import setup_project_neutralize_scripts
 from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
 from ..utils.plugin_loader import load_backends
@@ -208,6 +209,20 @@ def init(
 
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
+
+    Creates `.osh/`, resolves Odoo sources, installs the virtualenv (local) or
+    writes Docker Compose configuration (docker), and prepares the project for
+    `osh odoo`.
+
+    Examples:
+
+    \b
+      osh init 19.0
+      osh init 19.0 ./another-project
+      osh init saas-19.4 --target docker
+      osh init 19.0 --ee
+      osh init 19.0 --odoo-source /path/to/odoo
+      osh init 19.0 --dry-run
     """
     target = (directory or Path.cwd()).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
@@ -326,13 +341,15 @@ def init(
                 init_values[key] = str(value)
         set_project_config(target, "init", values=init_values)
 
+        setup_project_neutralize_scripts(target, version)
+
     if dry_run:
         echo.info(f"Dry run for project directory at {target}")
     elif result:
         echo.info(f"Initialised project directory at {target}")
         echo.friendly("Next steps:")
         echo.friendly("  osh doctor    # Check your setup")
-        echo.friendly("  osh run        # Start Odoo")
+        echo.friendly("  osh odoo       # Start Odoo")
         echo.friendly("  osh config --help  # Configure databases and options")
     else:
         echo.warning(

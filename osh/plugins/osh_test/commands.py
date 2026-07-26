@@ -1,15 +1,15 @@
 """`osh test` command implementation.
 
-`osh test` is a thin wrapper around `osh run` that adds test-specific
+`osh test` is a thin wrapper around `osh odoo` that adds test-specific
 options and generates the right `-i`/`-u`/`--test-enable` arguments. Standard
-`osh run` options such as `--target` and `--compose-file` are accepted and
+`osh odoo` options such as `--target` and `--compose-file` are accepted and
 passed through.
 """
 
 import click
 
 from ... import echo
-from ...commands.run_cmd import run
+from ...commands.odoo_cmd import odoo
 from ...common import discover_module_names, find_project_root
 from ...db import db_exists, drop_db, resolve_test_db_name
 
@@ -85,16 +85,15 @@ def test(
 ):  # noqa: D401
     """Run Odoo tests for project modules.
 
-    This is a wrapper around `osh run` that adds the test-specific arguments
-    (`-i`/`-u`, `--test-enable`, `--dropdb`, `--tags`, etc.). Standard `osh run`
-    options such as `--target` and `--compose-file` are accepted and forwarded.
+    This is a wrapper around `osh odoo` that assembles a single Odoo invocation
+    with the right `-i`/`-u`, `--test-enable`, `--dropdb` and `--test-tags`
+    flags. Standard `osh odoo` options such as `--target` and `--compose-file`
+    are accepted and forwarded.
 
-    The test database is `<project>-<branch>-test` by default. If it does not
-    exist, modules are first installed with `-i` (without tests) and then the
-    tests are run with `-u`. If ``--dropdb`` is given, the test database is
-    dropped once before any install/update so the run always starts on a fresh
-    database. If the database already exists and ``--dropdb`` is not given,
-    modules are updated with `-u` and tested directly.
+    The test database is `<project>-<branch>-test` by default. On a fresh
+    database, modules are installed and tests run in one invocation with
+    `-i <modules> --test-enable`. On an existing database, modules are updated
+    with `-u <modules> --test-enable`.
 
     Examples:
 
@@ -105,6 +104,7 @@ def test(
       osh test --current-db
       osh test --dropdb
       osh test --target docker
+      osh test --dry-run
     """
 
     base = find_project_root(required=True)
@@ -121,10 +121,16 @@ def test(
     module_list = ",".join(modules)
     db_name = resolve_test_db_name(base, current_db, test_db)
 
-    if current_db and not db_exists(base, db_name):
+    if current_db and not dry_run and not db_exists(base, db_name):
         raise click.ClickException(f"Current database '{db_name}' does not exist.")
 
-    need_install = not current_db and (dropdb or not db_exists(base, db_name))
+    # In dry-run mode we skip the live database check so tests don't prompt for
+    # a PostgreSQL password when no credentials are configured. We assume the
+    # install path so the plan is shown.
+    if dry_run:
+        need_install = not current_db
+    else:
+        need_install = not current_db and (dropdb or not db_exists(base, db_name))
 
     if dropdb and not current_db:
         if dry_run:
@@ -141,7 +147,7 @@ def test(
     if tags:
         test_odoo_args.extend(["--test-tags", tags])
 
-    run_kwargs = {
+    odoo_kwargs = {
         "dry_run": dry_run,
         "backend_name": backend_name,
         "compose_file": compose_file,
@@ -149,17 +155,14 @@ def test(
         "skip_config": skip_config,
     }
 
-    if need_install:
-        # Fresh database: first install modules without tests.
-        install_args = base_odoo_args + ["-i", module_list, "--stop-after-init"]
-        ctx.invoke(run, extra_args=install_args, **run_kwargs)
-
-    # Run tests by updating the modules. Always stop after init unless requested
-    # otherwise, because tests are the point of this command.
-    test_args = (
+    # Install on a fresh database or update on an existing one, enabling
+    # tests for the installed/updated modules. A single invocation lets the
+    # backend exec/replace the process without losing the test run.
+    mode = "-i" if need_install else "-u"
+    odoo_args = (
         base_odoo_args
-        + ["-u", module_list, "--test-enable"]
+        + [mode, module_list, "--test-enable"]
         + (["--stop-after-init"] if not no_stop_after_init else [])
         + test_odoo_args
     )
-    ctx.invoke(run, extra_args=test_args, **run_kwargs)
+    ctx.invoke(odoo, extra_args=odoo_args, **odoo_kwargs)

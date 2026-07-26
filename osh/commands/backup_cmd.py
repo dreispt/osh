@@ -6,19 +6,53 @@ import click
 
 from .. import echo
 from ..common import find_project_root
-from ..utils.cache import ensure_cache_dir, list_cache, write_metadata
-from .backup_sources import parse_source
-
-SOURCE_COLUMN_WIDTH = 40
-SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")
-
-
-@click.group(name="backup")
-def backup():  # noqa: D401
-    """Manage backups in the project cache."""
+from ..utils.cache import ensure_cache_dir, write_metadata
+from .backup_sources import (
+    SourceError,
+    get_backup_source_help,
+    list_backup_schemes,
+    parse_source,
+)
 
 
-@backup.command(name="download")
+def _print_scheme_help(ctx, param, value):
+    """Eager callback that prints detailed help for a source scheme and exits."""
+    if not value or ctx.resilient_parsing:
+        return
+    try:
+        text = get_backup_source_help(value)
+    except SourceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if text:
+        click.echo(text.strip())
+    else:
+        click.echo(f"No detailed help available for scheme '{value}'.")
+    ctx.exit()
+
+
+class BackupCommand(click.Command):
+    """Click command that appends registered source schemes to --help."""
+
+    def format_help(self, ctx, formatter):
+        """Write standard help followed by the dynamically discovered scheme list."""
+        super().format_help(ctx, formatter)
+        schemes = list_backup_schemes()
+        if not schemes:
+            return
+        records = [(f"{scheme}://", desc) for scheme, desc in sorted(schemes.items())]
+        with formatter.section("Supported source schemes"):
+            formatter.write_dl(records)
+
+
+@click.command(name="backup", cls=BackupCommand)
+@click.option(
+    "--help-scheme",
+    metavar="SCHEME",
+    is_eager=True,
+    expose_value=False,
+    callback=_print_scheme_help,
+    help="Show detailed help for a backup source scheme and exit.",
+)
 @click.argument("source")
 @click.argument("output", required=False, type=click.Path())
 @click.option(
@@ -48,7 +82,7 @@ def backup():  # noqa: D401
     help="Print the commands that would be run without executing them.",
 )
 @click.pass_context
-def download(
+def backup(
     ctx,
     source,
     output,
@@ -60,13 +94,8 @@ def download(
 ):  # noqa: D401
     """Download or dump a backup source to the project cache.
 
-    Supported source schemes:
-
-    \b
-      db://<database>          - PostgreSQL dump via pg_dump
-      https://<host>?db=<db>  - Odoo manager backup download
-      odoosh://[<build>@]<host> - SSH/scp daily dump from an Odoo.sh container
-      ssh://[user@]host[:port]/path - SSH/scp an existing backup file
+    The available source schemes are listed below; they are registered by
+    plugins, including the built-in backup source plugins.
 
     Odoo.sh quick start:
 
@@ -74,7 +103,7 @@ def download(
     2. Copy the domain from the SSH tab of your branch.
     3. Download the latest daily SQL dump:
 
-       osh backup download odoosh://PROJECT-BRANCH-BUILD
+       osh backup odoosh://PROJECT-BRANCH-BUILD
 
     The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
     is optional. Add `--filestore` to also download the filestore over SSH and
@@ -86,23 +115,22 @@ def download(
     an existing backup file from the server:
 
     \b
-      osh backup download ssh://user@vps.example.com/var/backups/odoo.sql.gz
-      osh backup download ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
+      osh backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh backup ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
 
     See docs/odoo-sh-backup-howto.md for the complete guide.
 
     Examples:
 
     \b
-      osh backup download db://prod_db
-      osh backup download https://my.odoo.com?db=prod&format=zip
-      osh backup download odoosh://my-project-master-123456
-      osh backup download odoosh://my-project-master-123456 --filestore
-      osh backup download odoosh://my-project-master-123456.dev.odoo.com
-      osh backup download odoosh://123456@my-project-master-123456.dev.odoo.com
-      osh backup download ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh backup db://prod_db
+      osh backup https://my.odoo.com?db=prod&format=zip
+      osh backup odoosh://my-project-master-123456
+      osh backup odoosh://my-project-master-123456 --filestore
+      osh backup odoosh://my-project-master-123456.dev.odoo.com
+      osh backup odoosh://123456@my-project-master-123456.dev.odoo.com
+      osh backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
-
     base = find_project_root()
     parsed = parse_source(
         source,
@@ -149,43 +177,3 @@ def _is_in_cache(base, path):
         return True
     except ValueError:
         return False
-
-
-@backup.command(name="list")
-@click.option(
-    "--limit",
-    default=20,
-    show_default=True,
-    help="Maximum number of backups to show.",
-)
-@click.option(
-    "--reverse",
-    is_flag=True,
-    help="List oldest backups first.",
-)
-@click.pass_context
-def list_backups(
-    ctx,
-    limit,
-    reverse,
-):  # noqa: D401
-    """List backups stored in the project cache."""
-
-    base = find_project_root(required=True)
-
-    entries = list_cache(base, limit=limit, reverse=reverse)
-    if not entries:
-        echo.info("No cached backups.", err=True)
-        return
-
-    echo.info(
-        f"{'#':<4} {'Source':<{SOURCE_COLUMN_WIDTH}} {'Created':<20} {'Filename'}"
-    )
-    for entry in entries:
-        source = entry["source"]
-        if len(source) > SOURCE_TRUNCATE_AT + len("..."):
-            source = source[:SOURCE_TRUNCATE_AT] + "..."
-        echo.info(
-            f"{entry['id']:<4} {source:<{SOURCE_COLUMN_WIDTH}} "
-            f"{entry['created_at']:<20} {entry['filename']}"
-        )

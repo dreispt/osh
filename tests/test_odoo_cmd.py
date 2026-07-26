@@ -5,14 +5,13 @@ from click.testing import CliRunner
 from osh.commands.odoo_cmd import odoo
 
 
-def test_odoo_includes_addons_path(
+def test_odoo_uses_dynamic_config_for_subcommand(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` adds --addons-path and -d for subcommands, placed after the subcommand name."""
-    # Create .odoorc so the command would use it for default command.
+    """``osh odoo shell`` uses the env config (addons path and db_name)."""
     (tmp_project / ".odoorc").write_text("[options]\n")
 
     monkeypatch.chdir(tmp_project)
@@ -20,11 +19,13 @@ def test_odoo_includes_addons_path(
     result = runner.invoke(odoo, ["--dry-run", "shell"])
 
     assert result.exit_code == 0
-    # For subcommands, addons-path and -d are added with equals sign
+    # Options are now provided via ODOO_RC, not on the command line
     assert "--config" not in result.output
-    assert "--addons-path=" in result.output
+    assert "--addons-path" not in result.output
+    command_line = result.output.split("Would run:")[-1]
+    assert " -d " not in command_line
     assert "shell" in result.output
-    assert "-d" in result.output
+    assert "Using database:" in result.output
 
 
 def test_odoo_respects_explicit_config(
@@ -33,7 +34,7 @@ def test_odoo_respects_explicit_config(
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` does not add --config if the user already provides -c."""
+    """``osh odoo`` does not generate a dynamic config if the user provides -c."""
     (tmp_project / ".odoorc").write_text("[options]\n")
 
     monkeypatch.chdir(tmp_project)
@@ -58,14 +59,13 @@ def test_odoo_outside_project(monkeypatch, tmp_path):
     assert "Not inside an Osh project" in result.output
 
 
-def test_odoo_neutralize_skips_config_with_default_command(
+def test_odoo_neutralize_uses_dynamic_config(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo neutralize`` skips config but adds addons-path after the subcommand."""
-    # Create .osh/odoo.conf with a default command that would conflict
+    """``osh odoo neutralize`` uses the generated env config."""
     osh_conf = tmp_project / ".osh" / "odoo.conf"
     osh_conf.parent.mkdir(parents=True, exist_ok=True)
     osh_conf.write_text("[options]\nserver_wide_modules = web\n")
@@ -75,22 +75,19 @@ def test_odoo_neutralize_skips_config_with_default_command(
     result = runner.invoke(odoo, ["--dry-run", "neutralize", "-d", "mydb"])
 
     assert result.exit_code == 0
-    # Config should be skipped for subcommands to avoid conflicts
     assert "--config" not in result.output
-    # But addons-path should be added with equals sign
-    assert "--addons-path=" in result.output
+    assert "--addons-path" not in result.output
     assert "neutralize" in result.output
     assert "-d mydb" in result.output
 
 
-def test_odoo_default_command_adds_defaults(
+def test_odoo_default_command_uses_dynamic_config(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
 ):
-    """``osh odoo`` without subcommand adds config, addons-path, and database."""
-    # Create .osh/odoo.conf
+    """``osh odoo`` without subcommand uses the generated env config."""
     osh_conf = tmp_project / ".osh" / "odoo.conf"
     osh_conf.parent.mkdir(parents=True, exist_ok=True)
     osh_conf.write_text("[options]\nserver_wide_modules = web\n")
@@ -100,10 +97,10 @@ def test_odoo_default_command_adds_defaults(
     result = runner.invoke(odoo, ["--dry-run", "-d", "mydb"])
 
     assert result.exit_code == 0
-    # Config and addons-path should be used when no subcommand is provided
-    assert "--config=" in result.output
-    assert str(osh_conf) in result.output
-    assert "--addons-path=" in result.output
+    assert "Using config:" in result.output
+    assert "Using database: mydb" in result.output
+    assert "--config" not in result.output
+    assert "--addons-path" not in result.output
 
 
 def test_odoo_subcommand_respects_explicit_db(
@@ -118,9 +115,7 @@ def test_odoo_subcommand_respects_explicit_db(
     result = runner.invoke(odoo, ["--dry-run", "neutralize", "-d", "mydb"])
 
     assert result.exit_code == 0
-    # When user provides -d, it should be respected (not auto-injected)
     assert "-d mydb" in result.output
-    # Should only appear once as "-d mydb" (user-provided)
     assert result.output.count("-d mydb") == 1
 
 
@@ -136,7 +131,4 @@ def test_odoo_subcommand_auto_injects_db_when_not_provided(
     result = runner.invoke(odoo, ["--dry-run", "neutralize"])
 
     assert result.exit_code == 0
-    # When user doesn't provide -d, it should be auto-injected
-    assert "-d" in result.output
-    # Should contain the auto-injected database name
-    assert "-d project-default" in result.output
+    assert "Using database: project-default" in result.output

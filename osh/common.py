@@ -8,6 +8,9 @@ core and plugins.
 """
 
 import configparser
+import importlib.resources
+import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -16,9 +19,46 @@ from pathlib import Path
 
 import click
 
-from . import echo
+from . import config, echo
 
 DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
+
+
+def get_venv_bin(base):
+    """Return the virtualenv binary directory for *base*."""
+    return Path(base) / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+
+
+def activate_venv(base):
+    """Put the project's ``.venv`` first on ``PATH`` and set ``VIRTUAL_ENV``.
+
+    Raises a ``click.ClickException`` if the virtualenv does not exist.
+    """
+    venv_bin = get_venv_bin(base)
+    if not venv_bin.is_dir():
+        raise click.ClickException(
+            "No virtualenv found. Run `osh init --target local` to create one."
+        )
+    venv_path = str(venv_bin)
+    old_path = os.environ.get("PATH", "")
+    if venv_path not in old_path.split(os.pathsep):
+        os.environ["PATH"] = f"{venv_path}{os.pathsep}{old_path}"
+    os.environ["VIRTUAL_ENV"] = str(venv_bin.parent)
+    return venv_bin
+
+
+def find_shell():
+    """Return a shell to launch for an interactive environment session."""
+    if os.name == "nt":
+        return os.environ.get("COMSPEC", "cmd.exe")
+    shell = os.environ.get("SHELL")
+    if shell:
+        return shell
+    for fallback in ("bash", "sh", "zsh"):
+        found = shutil.which(fallback)
+        if found:
+            return found
+    raise click.ClickException("Could not determine a shell to launch.")
 
 
 def _find_git_root(start):
@@ -100,9 +140,18 @@ def _has_arg(args, long, short=None):
     for arg in args:
         if arg == long or arg.startswith(f"{long}="):
             return True
-        if short and (arg == short or arg.startswith(short)):
+        if short and (
+            arg == short
+            or arg.startswith(f"{short}=")
+            or _is_short_with_value(arg, short)
+        ):
             return True
     return False
+
+
+def _is_short_with_value(arg, short):
+    """Return True when *arg* is *short* followed by a value (not another flag)."""
+    return arg.startswith(short) and len(arg) > len(short) and arg[len(short)] != "-"
 
 
 def resolve_config_file(base, extra_args, *, for_run=False):
@@ -319,7 +368,7 @@ def run_shell_pipeline(
     return returncode, out, stderr
 
 
-def discover_addons_paths(base, *, max_depth=3):
+def discover_addons_paths(base, *, max_depth=9):
     """Return a list of addon directories under *base*.
 
     An *addon* is recognised if the directory contains a ``__manifest__.py``
@@ -378,3 +427,46 @@ def get_odoo_data_dir(base):
 def decode_stderr(stderr):
     """Decode subprocess stderr bytes to text, returning "" when None."""
     return stderr.decode("utf-8", errors="replace") if stderr else ""
+
+
+def get_user_neutralize_dir():
+    """Return the global user directory containing default neutralization scripts."""
+    return config.get_user_config_path().parent / "neutralize"
+
+
+def _major_version_from_string(version):
+    """Return the first integer found in *version*, or None if not found."""
+    if not version:
+        return None
+    match = re.search(r"(\d+)", str(version))
+    return int(match.group(1)) if match else None
+
+
+def setup_project_neutralize_scripts(target, version):
+    """Populate ``.osh/neutralize`` with default and user-provided SQL scripts.
+
+    User scripts from ``~/.config/osh/neutralize/`` are copied first. For Odoo
+    versions older than 16.0, the bundled fallback SQL script is also copied so
+    ``osh restore`` can neutralize the database without the ``odoo-bin neutralize``
+    subcommand.
+    """
+    neutralize_dir = Path(target) / ".osh" / "neutralize"
+    neutralize_dir.mkdir(parents=True, exist_ok=True)
+
+    user_dir = get_user_neutralize_dir()
+    if user_dir.is_dir():
+        for src in sorted(user_dir.glob("*.sql")):
+            shutil.copy2(src, neutralize_dir / src.name)
+            echo.info(f"Copied neutralization script: {src.name}", err=True)
+
+    major = _major_version_from_string(version)
+    if major is not None and major < 16:
+        fallback_dst = neutralize_dir / "000_osh_default.sql"
+        if not fallback_dst.exists():
+            fallback_sql = importlib.resources.read_text(
+                "osh.data", "neutralize_fallback.sql"
+            )
+            fallback_dst.write_text(fallback_sql, encoding="utf-8")
+            echo.info(
+                f"Copied default neutralization script: {fallback_dst.name}", err=True
+            )

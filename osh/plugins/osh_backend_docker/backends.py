@@ -1,4 +1,4 @@
-"""Docker Compose backend implementation for ``osh init`` and ``osh run``."""
+"""Docker Compose backend implementation for ``osh init`` and ``osh odoo``."""
 
 import os
 from pathlib import Path
@@ -6,11 +6,10 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...backends import Backend, RunSpec, copy_odoo_rc_to_osh_conf
+from ...backends import Backend, EnvSpec, copy_odoo_rc_to_osh_conf
 from ...commands.helpers import Diagnostics
-from ...common import resolve_config_file, run_command
+from ...common import run_command
 from ...sources import ensure_osh_sources
-from ...utils.odoo_layout import build_addons_paths
 from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
@@ -24,12 +23,11 @@ from .utils import (
 
 
 class DockerBackend(Backend):
-    """Unified Docker Compose backend for ``osh init`` and ``osh run``."""
+    """Unified Docker Compose backend for ``osh init`` and ``osh odoo``."""
 
     name = "docker"
     label = "Docker Compose"
     backend_type = "backend"
-    neutralize_supported = True
     description = (
         "Run Odoo inside a Docker Compose stack; generates a compose file if missing."
     )
@@ -336,22 +334,23 @@ class DockerBackend(Backend):
             )
             return False
 
-        echo.friendly(f"Run the project with: osh run (in {target})")
+        echo.friendly(f"Run the project with: osh odoo (in {target})")
         return True
 
-    def run(
+    def env(
         self,
         ctx,
         base,
-        run_spec,
+        env_spec,
         *,
         dry_run=False,
         **options,
     ):
-        """Translate host odoo-bin arguments into a Docker Compose invocation."""
+        if not isinstance(env_spec, EnvSpec):
+            env_spec = EnvSpec(argv=list(env_spec))
+
         cfg = _load_docker_config(base)
         service = cfg.get("service")
-        command = cfg.get("command")
         if not service:
             raise click.ClickException(
                 "No Docker service configured. Run "
@@ -359,129 +358,51 @@ class DockerBackend(Backend):
                 f"{base / _DOCKER_TOML}."
             )
 
-        edition = options.get("edition") or cfg.get("edition") or "ce"
-        version = cfg.get("version", "")
-
-        if edition in ("ee", "sh") and not version:
-            required = ["enterprise"]
-            if edition == "sh":
-                required.append("design-themes")
-            missing = [name for name in required if not (base / ".osh" / name).exists()]
-            if missing:
-                raise click.ClickException(
-                    "Project is missing required source copies and no version is "
-                    "configured. Run 'osh init ...' first."
-                )
-
-        ensure_osh_sources(
-            base,
-            version,
-            edition,
-            dry_run=dry_run,
-            skip_odoo=True,
-            assume_yes=True,
-        )
-
-        if not isinstance(run_spec, RunSpec):
-            run_spec = RunSpec(argv=list(run_spec))
-
-        if not run_spec.argv:
-            raise click.ClickException("No command provided to run.")
-        odoo_args = run_spec.argv[1:]  # argv[0] is the host executable placeholder
-
-        def _is_relative_to(path, base):
-            try:
-                path.relative_to(base)
-                return True
-            except ValueError:
-                return False
-
-        if "--addons-path" not in odoo_args:
-            addons_paths = build_addons_paths(base, include_themes=True)
-            container_paths = [
-                f"/mnt/extra-addons/{p.relative_to(base)}"
-                for p in addons_paths
-                if _is_relative_to(p, base)
-            ]
-            if container_paths:
-                odoo_args.append(f"--addons-path={','.join(container_paths)}")
-
-        # Inject .osh/odoo.conf if it exists, otherwise fall back to .odoorc
-        config_path = resolve_config_file(base, odoo_args)
-        if config_path:
-            # Convert local path to container path
-            container_config = str(config_path).replace(str(base), "/mnt/extra-addons")
-            odoo_args.append(f"--config={container_config}")
-
-        odoo_command = _docker_command(service, command)
         cli_params = getattr(ctx, "params", {}) or {}
         compose_cmd = _compose_base_command(
             base, compose_file=cli_params.get("compose_file")
         )
-        docker_args = [
-            *compose_cmd,
-            "run",
-            "--rm",
-            "--service-ports",
-            service,
-            *odoo_command,
-            *odoo_args,
-        ]
 
-        if dry_run:
-            echo.info(f"Would run: {' '.join(docker_args)}", err=True)
-            return
+        args = list(env_spec.argv)
+        if args and args[0] == "odoo-bin":
+            command = _cfg_value(cfg, "command")
+            if command:
+                args = command.split() + args[1:]
 
-        echo.info(f"Running: {' '.join(docker_args)}", err=True)
+        if not args:
+            shells = ["bash", "sh"]
+        else:
+            shells = [args[0]]
 
-        try:
-            os.execvp("docker", docker_args)
-        except OSError as exc:  # pragma: no cover
-            raise click.ClickException(f"Could not run docker: {exc}") from exc
+        env = dict(env_spec.env)
+        if "ODOO_RC" in env:
+            host_path = Path(env["ODOO_RC"])
+            container_path = str(host_path).replace(str(base), "/mnt/extra-addons")
+            env["ODOO_RC"] = container_path
 
-    def restore(
-        self,
-        ctx,
-        base,
-        db_name,
-        dump_path,
-        *,
-        force=False,
-        no_neutralize=False,
-        dry_run=False,
-        **options,
-    ):
-        """Restore a backup into the target database through this backend."""
-        raise click.ClickException("Docker restore is not yet implemented.")
+        base_docker_args = [*compose_cmd, "run", "--rm", "--service-ports"]
+        for key, value in env.items():
+            base_docker_args.extend(["-e", f"{key}={value}"])
+        base_docker_args.append(service)
 
-    def neutralize(
-        self,
-        ctx,
-        base,
-        db_name,
-        *,
-        dry_run=False,
-    ):
-        """Neutralize *db_name* by running ``odoo-bin neutralize`` in the container."""
-        self.run(
-            ctx,
-            base,
-            RunSpec(argv=["odoo-bin", "-d", db_name, "neutralize"], db_name=db_name),
-            dry_run=dry_run,
-            verbose=False,
-        )
+        for shell in shells:
+            docker_args = [*base_docker_args, shell, *args[1:]]
+            if dry_run:
+                echo.info(f"Would run: {' '.join(docker_args)}", err=True)
+                return
 
-    def prune(
-        self,
-        ctx,
-        base,
-        *,
-        aggressive=False,
-        dry_run=False,
-        **options,
-    ):
-        """Run target-specific housekeeping."""
-        raise click.ClickException("Docker prune is not yet implemented.")
+            echo.info(f"Running: {' '.join(docker_args)}", err=True)
+
+            try:
+                os.execvp(docker_args[0], docker_args)
+            except FileNotFoundError:
+                if shell != shells[-1]:
+                    continue
+                raise click.ClickException(
+                    f"Could not run docker: {docker_args[0]} not found"
+                )
+            except OSError as exc:  # pragma: no cover
+                raise click.ClickException(f"Could not run docker: {exc}") from exc
 
 
 def _cfg_value(cfg, key, default=None):

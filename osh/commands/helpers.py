@@ -2,7 +2,7 @@
 
 Backends implement ``diagnose`` to inspect the environment and the current
 project. The same diagnostics are reused by ``osh doctor`` (to report),
-``osh init`` (to plan and ask for confirmation), and ``osh run`` (to check
+``osh init`` (to plan and ask for confirmation), and ``osh odoo`` (to check
 prerequisites before executing).
 """
 

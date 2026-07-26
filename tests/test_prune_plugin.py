@@ -2,7 +2,7 @@
 
 from click.testing import CliRunner
 
-from osh.plugins.osh_local.commands import prune
+from osh.plugins.osh_backend_local.commands import prune
 
 
 def test_prune_outside_project_fails(tmp_path, monkeypatch):
@@ -91,7 +91,7 @@ def test_prune_reports_missing_git_executable(in_project, monkeypatch):
     (osh_dir / "odoo" / ".git").mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(
-        "osh.plugins.osh_local.commands.run_subprocess",
+        "osh.plugins.osh_backend_local.commands.run_subprocess",
         lambda *a, **kw: (None, "", ""),
     )
 
@@ -108,7 +108,7 @@ def test_prune_reports_git_failure(in_project, monkeypatch):
     (osh_dir / "odoo" / ".git").mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(
-        "osh.plugins.osh_local.commands.run_subprocess",
+        "osh.plugins.osh_backend_local.commands.run_subprocess",
         lambda *a, **kw: (1, "", ""),
     )
 

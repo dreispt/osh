@@ -1,11 +1,14 @@
 """Tests for the `osh restore` command."""
 
+import json
+from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
+from osh.commands.helpers import Diagnostics
 from osh.commands.restore_cmd import restore
 from osh.db import set_project_config
-from osh.plugins.osh_local.backends import LocalBackend
 
 
 def _setup_fake_db_config(project, db_name="testdb"):
@@ -17,27 +20,42 @@ def _setup_fake_db_config(project, db_name="testdb"):
 def patched_restore(monkeypatch, in_project):
     """Patch external dependencies used by `osh restore` for isolated tests."""
     state = {
-        "restore": None,
-        "neutralize": None,
+        "restore": [],
+        "neutralize": [],
         "dropped": [],
         "created": [],
+        "db_exists": False,
     }
-
     _setup_fake_db_config(in_project)
 
-    def capture_restore(
-        self, ctx, base, db_name, dump_path, *, dry_run=False, **options
-    ):
-        state["restore"] = (dump_path, db_name, dry_run)
-        if not options.get("no_neutralize"):
-            self.neutralize(ctx, base, db_name, dry_run=dry_run)
-
-    monkeypatch.setattr(LocalBackend, "restore", capture_restore)
-
-    def capture_neutralize(self, ctx, base, db_name, *, dry_run=False):
-        state["neutralize"] = (base, db_name, dry_run)
-
-    monkeypatch.setattr(LocalBackend, "neutralize", capture_neutralize)
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.db_exists",
+        lambda base, db: state["db_exists"],
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.drop_db",
+        lambda base, db: state["dropped"].append(db),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.create_db",
+        lambda base, db: state["created"].append(db),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd._restore_dump",
+        lambda base, dump_path, db_name, *, dry_run=False: state["restore"].append(
+            (dump_path, db_name, dry_run)
+        ),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.odoo",
+        lambda **kwargs: state["neutralize"].append(kwargs),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.collect_diagnostics",
+        lambda *args, **kwargs: Diagnostics(
+            backend="local", info={}, warnings=[], errors=[]
+        ),
+    )
 
     return state
 
@@ -54,11 +72,16 @@ def test_restore_uses_latest_cache(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(restore, [])
 
-    assert result.exit_code == 0
-    assert patched_restore["restore"][0] == new
-    assert patched_restore["restore"][1] == "testdb"
-    assert patched_restore["restore"][2] is False
-    assert patched_restore["neutralize"] == (in_project, "testdb", False)
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"] == [(new, "testdb", False)]
+    assert patched_restore["created"] == ["testdb"]
+    assert patched_restore["dropped"] == []
+    assert patched_restore["neutralize"]
+    assert patched_restore["neutralize"][0]["extra_args"] == (
+        "neutralize",
+        "-d",
+        "testdb",
+    )
 
 
 def test_restore_cache_id(patched_restore, in_project):
@@ -73,8 +96,8 @@ def test_restore_cache_id(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(restore, ["cache:2"])
 
-    assert result.exit_code == 0
-    assert patched_restore["restore"][0] == first
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"] == [(first, "testdb", False)]
 
 
 def test_restore_explicit_file(patched_restore, in_project):
@@ -85,9 +108,8 @@ def test_restore_explicit_file(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(restore, [str(dump)])
 
-    assert result.exit_code == 0
-    assert patched_restore["restore"][0] == dump.resolve()
-    assert patched_restore["restore"][1] == "testdb"
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"] == [(dump.resolve(), "testdb", False)]
 
 
 def test_restore_no_cache_error(in_project):
@@ -111,11 +133,12 @@ def test_restore_dry_run(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(restore, ["--dry-run"])
 
-    assert result.exit_code == 0
-    assert patched_restore["restore"][2] is True
-    assert patched_restore["neutralize"][2] is True
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"] == [(dump, "testdb", True)]
     assert patched_restore["dropped"] == []
     assert patched_restore["created"] == []
+    assert patched_restore["neutralize"]
+    assert patched_restore["neutralize"][0]["dry_run"] is True
 
 
 def test_restore_db_exists_no_force(in_project, monkeypatch):
@@ -124,8 +147,12 @@ def test_restore_db_exists_no_force(in_project, monkeypatch):
     dump = in_project / "dump.dump"
     dump.write_bytes(b"x")
 
+    monkeypatch.setattr("osh.commands.restore_cmd.db_exists", lambda base, db: True)
     monkeypatch.setattr(
-        "osh.plugins.osh_local.backends.db_exists", lambda base, db: True
+        "osh.commands.restore_cmd.collect_diagnostics",
+        lambda *args, **kwargs: Diagnostics(
+            backend="local", info={}, warnings=[], errors=[]
+        ),
     )
 
     runner = CliRunner()
@@ -146,6 +173,47 @@ def test_restore_no_neutralize(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(restore, ["--no-neutralize"])
 
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"]
+    assert patched_restore["neutralize"] == []
+
+
+def test_restore_list_cached_backups(in_project):
+    """`osh restore --list` shows cached backups newest first."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    first = cache_dir / "first.dump"
+    second = cache_dir / "second.zip"
+    first.write_bytes(b"x")
+    second.write_bytes(b"y")
+    Path(str(first) + ".meta.json").write_text(
+        json.dumps({"source": "db://db1", "format": "dump", "created_at": "2026-01-01"})
+    )
+    Path(str(second) + ".meta.json").write_text(
+        json.dumps(
+            {
+                "source": "https://host?db=prod",
+                "format": "zip",
+                "created_at": "2026-01-02",
+            }
+        )
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(restore, ["--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "second.zip" in result.output
+    assert "first.dump" in result.output
+    assert "https://host?db=prod" in result.output
+
+
+def test_restore_list_outside_project(monkeypatch, tmp_path):
+    """`osh restore --list` reports when run outside an Osh project."""
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(restore, ["--list"])
+
     assert result.exit_code == 0
-    assert patched_restore["restore"] is not None
-    assert patched_restore["neutralize"] is None
+    assert "Not inside an Osh project" in result.output
