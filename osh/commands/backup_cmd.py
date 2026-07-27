@@ -97,6 +97,27 @@ def backup(
     The available source schemes are listed below; they are registered by
     plugins, including the built-in backup source plugins.
 
+    HTTPS / HTTP backups (Odoo database manager):
+
+    Use ``https://HOST?db=DATABASE&format=FORMAT`` to download a backup from a
+    remote Odoo ``/web/database/backup`` endpoint. ``FORMAT`` can be one of:
+
+    \b
+      sql  - plain SQL dump (no filestore)
+      dump - compressed PostgreSQL dump (no filestore)
+      zip  - full backup including filestore
+
+    If ``format`` is omitted you will be prompted, with ``sql`` as the default.
+
+    \b
+      osh backup https://my.odoo.com?db=prod&format=zip
+      osh backup https://my.odoo.com?db=prod&format=sql
+      osh backup https://my.odoo.com?db=prod
+
+    The downloaded backup is not neutralized. Neutralize after restoring with
+    ``osh restore`` (which neutralizes by default), or on a running database
+    with ``osh odoo neutralize -d DB``.
+
     Odoo.sh quick start:
 
     1. Add your SSH key in the odoo.sh project profile.

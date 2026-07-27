@@ -1,6 +1,7 @@
 """Backup source for downloading a backup from a remote Odoo manager."""
 
 import os
+import sys
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -29,7 +30,10 @@ class HttpsSource(BackupSource):
         self.original_url = url
         query = parse_qs(parsed.query)
         self.db_name = self._first_or_none(query.get("db"))
-        self.backup_format = self._first_or_none(query.get("format")) or "zip"
+        format_value = self._first_or_none(query.get("format"))
+        self.backup_format = (
+            format_value if format_value else self._resolve_backup_format()
+        )
         self.original_format = self.backup_format
         self.master_password = master_password
 
@@ -37,6 +41,18 @@ class HttpsSource(BackupSource):
         if parsed.path and parsed.path != "/":
             base_url = base_url.rstrip("/") + parsed.path
         self.endpoint = base_url.rstrip("/") + "/web/database/backup"
+
+    def _resolve_backup_format(self):
+        """Prompt for the backup format when it is not in the URL."""
+        if not sys.stdin.isatty():
+            return "sql"
+        return click.prompt(
+            "Backup format (sql=plain SQL, dump=compressed pg_dump, zip=with filestore)",
+            default="sql",
+            type=click.Choice(["sql", "zip", "dump"]),
+            show_default=True,
+            err=True,
+        )
 
     @classmethod
     def from_source(cls, source, base, *, master_password=None, **kwargs):
