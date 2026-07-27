@@ -105,30 +105,47 @@ class HttpsSource(BackupSource):
         except ValueError:
             total = None
 
+        def _first_chunk(chunk):
+            head = chunk[:200].lower()
+            if head.startswith(b"<!doctype") or b"<html" in head:
+                raise SourceError(
+                    "Remote Odoo returned an HTML page instead of a backup. "
+                    "Check the URL, database name, and master password."
+                )
+
         chunk_size = 64 * 1024
         downloaded = 0
+        label = f"Downloading {self.db_name} backup"
         with output.open("wb") as f:
-            while True:
-                chunk = resp.read(chunk_size)
-                if not chunk:
-                    break
-                if downloaded == 0:
-                    head = chunk[:200].lower()
-                    if head.startswith(b"<!doctype") or b"<html" in head:
-                        raise SourceError(
-                            "Remote Odoo returned an HTML page instead of a backup. "
-                            "Check the URL, database name, and master password."
-                        )
-                f.write(chunk)
-                downloaded += len(chunk)
-                if downloaded % (1024 * 1024) < chunk_size:
-                    if total:
-                        pct = downloaded * 100 // total
-                        echo.info(
-                            f"Downloaded {downloaded:,} / {total:,} bytes ({pct}%)",
-                            err=True,
-                        )
-                    else:
+            if total:
+                with click.progressbar(
+                    length=total,
+                    label=label,
+                    fill_char="=",
+                    empty_char=" ",
+                    bar_template="%(label)s  [%(bar)s]  %(info)s",
+                    file=sys.stderr,
+                ) as bar:
+                    while True:
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
+                        if downloaded == 0:
+                            _first_chunk(chunk)
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        bar.update(len(chunk))
+            else:
+                echo.info(f"{label} ...", err=True)
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    if downloaded == 0:
+                        _first_chunk(chunk)
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if downloaded % (1024 * 1024) < chunk_size:
                         echo.info(f"Downloaded {downloaded:,} bytes", err=True)
 
         if downloaded == 0:

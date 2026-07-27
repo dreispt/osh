@@ -146,6 +146,8 @@ def backup(
     \b
       osh backup db://prod_db
       osh backup https://my.odoo.com?db=prod&format=zip
+      osh backup https://my.odoo.com?db=prod /path/to/backups/
+      osh backup https://my.odoo.com?db=prod /path/to/prod.zip
       osh backup odoosh://my-project-master-123456
       osh backup odoosh://my-project-master-123456 --filestore
       osh backup odoosh://my-project-master-123456.dev.odoo.com
@@ -163,7 +165,12 @@ def backup(
     )
 
     if output:
-        output_path = Path(output).expanduser().resolve()
+        candidate = Path(output).expanduser().resolve()
+        if output.endswith(("/", "\\")) or candidate.is_dir():
+            candidate.mkdir(parents=True, exist_ok=True)
+            output_path = candidate / parsed.default_output_name()
+        else:
+            output_path = candidate
     elif base is not None:
         cache_dir = ensure_cache_dir(base)
         output_path = cache_dir / parsed.default_output_name()
