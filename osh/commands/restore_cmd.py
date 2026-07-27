@@ -26,6 +26,7 @@ from ..db import (
     resolve_db_name,
     resolve_run_target,
     run_psql_script,
+    sanitize_db_name,
 )
 from ..utils.cache import get_cache_dir, list_cache, resolve_cache_id
 from ..utils.plugin_loader import load_backends
@@ -64,6 +65,13 @@ from .odoo_cmd import odoo
     help="Skip neutralizing the database after restoring.",
 )
 @click.option(
+    "-d",
+    "--db",
+    "target_db",
+    default=None,
+    help="Target database name to restore into (defaults to the branch database).",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Print the steps that would be executed without running them.",
@@ -77,6 +85,7 @@ def restore(
     reverse,
     force,
     no_neutralize,
+    target_db,
     dry_run,
 ):  # noqa: D401
     """Restore a backup into the current branch's database and neutralize it.
@@ -118,7 +127,9 @@ def restore(
       osh restore
       osh restore cache:1
       osh restore /path/to/backup.zip
+      osh restore /path/to/backup.zip --db prod_restore
       osh restore /path/to/backup.sql.gz --force
+      osh restore /path/to/backup.sql.gz --db prod_restore --force
       osh restore --list
     """
     base = find_project_root(required=True)
@@ -129,7 +140,11 @@ def restore(
 
     dump_path = _resolve_dump(base, dump)
 
-    db_name = resolve_db_name(base, verbose=False)
+    db_name = (
+        sanitize_db_name(target_db)
+        if target_db
+        else resolve_db_name(base, verbose=False)
+    )
     if not db_name:
         raise click.ClickException("Could not resolve a target database name.")
 
