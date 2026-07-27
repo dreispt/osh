@@ -37,10 +37,23 @@ def get_docker_config_path(base):
 # TOML helpers
 
 
+_KEY_BARE_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _format_toml_key(key):
+    """Return a TOML-safe representation of *key* (quoted if not bare-legal)."""
+    if _KEY_BARE_RE.match(key):
+        return key
+    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _format_toml_value(value):
     """Return a simple TOML representation of *value*."""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, Path):
+        value = str(value)
     if isinstance(value, str):
         escaped = value.replace("'", "''")
         return f"'{escaped}'"
@@ -58,9 +71,9 @@ def _dump_toml(path, data):
             continue
         if lines:
             lines.append("")
-        lines.append(f"[{section}]")
+        lines.append(f"[{_format_toml_key(section)}]")
         for key, value in options.items():
-            lines.append(f"{key} = {_format_toml_value(value)}")
+            lines.append(f"{_format_toml_key(key)} = {_format_toml_value(value)}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -81,7 +94,7 @@ def _find_toml_section_key(lines, section, key):
     """Return ``(key_line, section_start)`` for *key* inside *section*."""
     in_section = False
     section_start = None
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*.*$")
+    key_pattern = re.compile(rf'^\s*(?:"{re.escape(key)}"|{re.escape(key)})\s*=.*$')
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped == f"[{section}]":
@@ -127,12 +140,15 @@ def _write_toml_section_key(path, section, key, value):
 
     key_line, section_start = _find_toml_section_key(lines, section, key)
 
+    formatted_key = _format_toml_key(key)
     if key_line is not None:
-        lines[key_line] = f"{key} = {formatted}\n"
+        lines[key_line] = f"{formatted_key} = {formatted}\n"
     elif section_start is not None:
-        _insert_after_section_header(lines, section_start, f"{key} = {formatted}\n")
+        _insert_after_section_header(
+            lines, section_start, f"{formatted_key} = {formatted}\n"
+        )
     else:
-        _append_new_toml_section(lines, section, f"{key} = {formatted}\n")
+        _append_new_toml_section(lines, section, f"{formatted_key} = {formatted}\n")
 
     path.write_text("".join(lines), encoding="utf-8")
 
@@ -230,9 +246,24 @@ def _ensure_default_sections(data):
     return data
 
 
+def _flatten_section(options, prefix=""):
+    """Flatten nested TOML tables produced by dotted keys back to flat keys."""
+    result = {}
+    for key, value in options.items():
+        dotted = f"{prefix}{key}"
+        if isinstance(value, dict):
+            result.update(_flatten_section(value, prefix=f"{dotted}."))
+        else:
+            result[dotted] = value
+    return result
+
+
 def load_project_config(base):
     """Load or create the Osh project configuration."""
     data = _load_toml(get_project_config_path(base))
+    for section, options in list(data.items()):
+        if isinstance(options, dict):
+            data[section] = _flatten_section(options)
     return ConfigStore(_ensure_default_sections(data))
 
 
