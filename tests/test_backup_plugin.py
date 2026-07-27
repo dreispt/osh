@@ -34,15 +34,20 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
     assert meta["format"] == "dump"
 
 
-def test_download_requires_output_outside_project(monkeypatch, tmp_path):
-    """Outside a project, `backup download` requires --output."""
+def test_download_uses_cwd_outside_project(
+    monkeypatch, tmp_path, subprocess_run_capture
+):
+    """Outside a project, `backup` writes to the current directory."""
+    subprocess_run_capture.stdout = b"dump"
     monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(backup, ["db://sourcedb"])
 
-    assert result.exit_code != 0
-    assert "--output PATH" in result.output
+    assert result.exit_code == 0
+    dump_files = list(tmp_path.glob("*.dump"))
+    assert len(dump_files) == 1
+    assert dump_files[0].read_bytes() == b"dump"
 
 
 def test_download_with_output_outside_project(

@@ -92,7 +92,7 @@ def backup(
     filestore,
     dry_run,
 ):  # noqa: D401
-    """Download or dump a backup source to the project cache.
+    """Download or dump a backup source to the project cache or current directory.
 
     The available source schemes are listed below; they are registered by
     plugins, including the built-in backup source plugins.
@@ -168,9 +168,7 @@ def backup(
         cache_dir = ensure_cache_dir(base)
         output_path = cache_dir / parsed.default_output_name()
     else:
-        raise click.ClickException(
-            "Not inside an Osh project. Use --output PATH to save the backup to a specific file."
-        )
+        output_path = Path.cwd() / parsed.default_output_name()
 
     if dry_run:
         echo.info(f"Would download {source} to {output_path}", err=True)
