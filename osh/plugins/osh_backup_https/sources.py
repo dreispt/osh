@@ -1,7 +1,6 @@
 """Backup source for downloading a backup from a remote Odoo manager."""
 
 import os
-import shutil
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -61,20 +60,65 @@ class HttpsSource(BackupSource):
             }
         ).encode("utf-8")
         req = Request(self.endpoint, data=payload, method="POST")
+        req.add_header("User-Agent", "osh")
         if dry_run:
             echo.info(
                 f"Would POST {self.endpoint} with backup_format={self.backup_format} to {output}",
                 err=True,
             )
             return
+        echo.info(
+            f"Requesting backup for '{self.db_name}' from {self.endpoint} ...",
+            err=True,
+        )
         try:
             with urlopen(req, timeout=300) as resp:
-                with output.open("wb") as f:
-                    shutil.copyfileobj(resp, f)
+                self._download(resp, output)
+        except SourceError:
+            raise
         except Exception as exc:
             raise SourceError(
                 f"Failed to download backup from {self.endpoint}: {exc}"
             ) from exc
+        echo.info(f"Backup saved to {output}.", err=True)
+
+    def _download(self, resp, output):
+        total = resp.headers.get("Content-Length")
+        try:
+            total = int(total) if total is not None else None
+        except ValueError:
+            total = None
+
+        chunk_size = 64 * 1024
+        downloaded = 0
+        with output.open("wb") as f:
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                if downloaded == 0:
+                    head = chunk[:200].lower()
+                    if head.startswith(b"<!doctype") or b"<html" in head:
+                        raise SourceError(
+                            "Remote Odoo returned an HTML page instead of a backup. "
+                            "Check the URL, database name, and master password."
+                        )
+                f.write(chunk)
+                downloaded += len(chunk)
+                if downloaded % (1024 * 1024) < chunk_size:
+                    if total:
+                        pct = downloaded * 100 // total
+                        echo.info(
+                            f"Downloaded {downloaded:,} / {total:,} bytes ({pct}%)",
+                            err=True,
+                        )
+                    else:
+                        echo.info(f"Downloaded {downloaded:,} bytes", err=True)
+
+        if downloaded == 0:
+            raise SourceError(
+                "Remote server returned an empty response. No backup was downloaded."
+            )
 
     def _resolve_master_password(self):
         if self.master_password:

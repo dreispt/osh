@@ -68,6 +68,8 @@ def test_download_https_posts_payload(in_project, monkeypatch):
     requests = []
 
     class FakeResponse:
+        headers = {"Content-Length": "11"}
+
         def __init__(self):
             self._data = b"zip content"
 
