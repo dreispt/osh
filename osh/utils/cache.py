@@ -31,17 +31,21 @@ def write_metadata(
     backup_path,
     *,
     source,
-    original_format,
+    format,
+    requested_format=None,
     created_at=None,
 ):
     """Write the metadata sidecar next to a cached backup."""
     created_at = created_at or datetime.now(timezone.utc).isoformat()
     meta = {
         "source": source,
-        "format": original_format,
+        "format": format,  # Always the detected format (source of truth)
         "created_at": created_at,
         "path": str(backup_path),
     }
+    # Only include requested_format if user explicitly specified it
+    if requested_format is not None:
+        meta["requested_format"] = requested_format
     _metadata_path(backup_path).write_text(json.dumps(meta, indent=2))
 
 

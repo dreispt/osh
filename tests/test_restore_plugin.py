@@ -217,3 +217,169 @@ def test_restore_list_outside_project(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "Not inside an Osh project" in result.output
+
+
+def test_restore_uses_metadata_format(monkeypatch, in_project):
+    """`osh restore` uses metadata format when available, not just file extension."""
+    from osh.commands.restore_cmd import _restore_dump
+    from osh.utils.cache import write_metadata
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+
+    # Create a file with .sql extension but metadata indicating it's a dump format
+    dump = cache_dir / "backup.sql"
+    dump.write_text("SELECT 1;")
+
+    # Write metadata indicating this is actually a dump format
+    write_metadata(
+        dump,
+        source="db://testdb",
+        format="dump",  # Detected format (source of truth)
+    )
+
+    # Mock the actual restore commands to track which one is called
+    restore_calls = []
+
+    def mock_run_subprocess(args, **kwargs):
+        restore_calls.append(args[0])  # Track the command name
+        return (0, b"", b"")
+
+    def mock_ensure_tool(tool):
+        pass
+
+    monkeypatch.setattr("osh.commands.restore_cmd.run_subprocess", mock_run_subprocess)
+    monkeypatch.setattr("osh.commands.restore_cmd.ensure_tool", mock_ensure_tool)
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.get_pg_credentials", lambda base: ([], {})
+    )
+
+    # Call the restore function directly
+    _restore_dump(in_project, dump, "testdb", dry_run=False)
+
+    # Should use pg_restore because metadata says "dump", not psql because of .sql extension
+    assert "pg_restore" in restore_calls
+    assert "psql" not in restore_calls
+
+
+def test_detect_format_by_content_zip(tmp_path):
+    """Content detection correctly identifies ZIP format."""
+    from osh.common import detect_backup_format_by_content
+
+    # Create a file with ZIP magic bytes
+    zip_file = tmp_path / "test.unknown"
+    zip_file.write_bytes(b"PK\x03\x04" + b"\x00" * 12)  # ZIP file header
+
+    detected = detect_backup_format_by_content(zip_file)
+    assert detected == "zip"
+
+
+def test_detect_format_by_content_gzip(tmp_path):
+    """Content detection correctly identifies GZIP format."""
+    from osh.common import detect_backup_format_by_content
+
+    # Create a file with GZIP magic bytes
+    gzip_file = tmp_path / "test.unknown"
+    gzip_file.write_bytes(b"\x1f\x8b" + b"\x00" * 14)  # GZIP magic bytes
+
+    detected = detect_backup_format_by_content(gzip_file)
+    assert detected == "sql.gz"
+
+
+def test_detect_format_by_content_dump(tmp_path):
+    """Content detection correctly identifies PostgreSQL custom format."""
+    from osh.common import detect_backup_format_by_content
+
+    # Create a file with PostgreSQL custom format magic bytes
+    dump_file = tmp_path / "test.unknown"
+    dump_file.write_bytes(b"PGDMP" + b"\x00" * 11)  # PostgreSQL custom format header
+
+    detected = detect_backup_format_by_content(dump_file)
+    assert detected == "dump"
+
+
+def test_detect_format_by_content_sql(tmp_path):
+    """Content detection correctly identifies plain SQL format."""
+    from osh.common import detect_backup_format_by_content
+
+    # Create a file with SQL content
+    sql_file = tmp_path / "test.unknown"
+    sql_file.write_text("-- PostgreSQL dump\nSET client_encoding = 'UTF8';\nSELECT 1;")
+
+    detected = detect_backup_format_by_content(sql_file)
+    assert detected == "sql"
+
+
+def test_detect_format_by_content_sql_keywords(tmp_path):
+    """Content detection identifies SQL by keywords."""
+    from osh.common import detect_backup_format_by_content
+
+    # Test various SQL keywords
+    for keyword in [
+        "CREATE",
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "SELECT",
+        "BEGIN",
+        "COMMIT",
+    ]:
+        sql_file = tmp_path / f"test_{keyword.lower()}.unknown"
+        sql_file.write_text(f"{keyword} TABLE test;")
+        detected = detect_backup_format_by_content(sql_file)
+        assert detected == "sql"
+
+
+def test_detect_format_by_content_unknown(tmp_path):
+    """Content detection returns None for unknown formats."""
+    from osh.common import detect_backup_format_by_content
+
+    # Create a file with unknown binary content
+    unknown_file = tmp_path / "test.unknown"
+    unknown_file.write_bytes(b"\xff\xfe\xfd\xfc" + b"\x00" * 12)
+
+    detected = detect_backup_format_by_content(unknown_file)
+    assert detected is None
+
+
+def test_restore_uses_content_detection(monkeypatch, in_project):
+    """`osh restore` falls back to content detection when metadata and extension fail."""
+    from osh.commands.restore_cmd import _restore_dump
+    from osh.common import detect_backup_format_by_content
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+
+    # Create a file with unknown extension but ZIP content
+    backup = cache_dir / "backup.unknown"
+    backup.write_bytes(b"PK\x03\x04" + b"\x00" * 12)  # ZIP file header
+
+    # First verify content detection works
+    detected = detect_backup_format_by_content(backup)
+    assert detected == "zip", f"Content detection should identify ZIP, got: {detected}"
+
+    # Mock the actual restore commands to track which one is called
+    restore_calls = []
+
+    def mock_run_subprocess(args, **kwargs):
+        restore_calls.append(args[0])  # Track the command name
+        return (0, b"", b"")
+
+    def mock_ensure_tool(tool):
+        pass
+
+    def mock_restore_zip(base, dump_path, target_db, conn_args, env):
+        restore_calls.append("restore_zip")
+
+    monkeypatch.setattr("osh.commands.restore_cmd.run_subprocess", mock_run_subprocess)
+    monkeypatch.setattr("osh.commands.restore_cmd.ensure_tool", mock_ensure_tool)
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.get_pg_credentials", lambda base: ([], {})
+    )
+    monkeypatch.setattr("osh.commands.restore_cmd._restore_zip", mock_restore_zip)
+
+    # Call the restore function directly
+    _restore_dump(in_project, backup, "testdb", dry_run=False)
+
+    # Should use restore_zip because content detection identified ZIP format
+    assert "restore_zip" in restore_calls

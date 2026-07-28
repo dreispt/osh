@@ -15,7 +15,8 @@ from osh.plugins.osh_backup_ssh.sources import SshSource
 
 def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
     """Downloading a db:// source writes the dump and metadata into the cache."""
-    subprocess_run_capture.stdout = b"pg_dump output"
+    # Use PostgreSQL custom format data so content detection works correctly
+    subprocess_run_capture.stdout = b"PGDMP" + b"\x00" * 100
 
     runner = CliRunner()
     result = runner.invoke(backup, ["db://sourcedb"])
@@ -25,13 +26,14 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
     files = list(cache_dir.iterdir())
     dump_files = [p for p in files if not p.name.endswith(".meta.json")]
     assert len(dump_files) == 1
-    assert dump_files[0].read_bytes() == b"pg_dump output"
+    assert dump_files[0].read_bytes() == b"PGDMP" + b"\x00" * 100
 
     meta_path = Path(str(dump_files[0]) + ".meta.json")
     assert meta_path.exists()
     meta = json.loads(meta_path.read_text())
     assert meta["source"] == "db://sourcedb"
-    assert meta["format"] == "dump"
+    assert meta["format"] == "dump"  # Detected format (source of truth)
+    assert "requested_format" not in meta  # No explicit request for db:// source
 
 
 def test_download_uses_cwd_outside_project(
@@ -423,3 +425,38 @@ def test_download_help_scheme_unknown_reports_error():
 
     assert result.exit_code != 0
     assert "Unknown backup source scheme: s3" in result.output
+
+
+def test_backup_detects_format_mismatch(monkeypatch, in_project):
+    """`osh backup` detects format mismatch and corrects metadata."""
+    from osh.common import detect_backup_format_by_content
+    from osh.utils.cache import read_metadata, write_metadata
+
+    # Create a file with PostgreSQL custom format but .sql extension
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+
+    backup_file = cache_dir / "test_backup.sql"
+    backup_file.write_bytes(b"PGDMP" + b"\x00" * 100)
+
+    # Verify the detection works
+    detected = detect_backup_format_by_content(backup_file)
+    assert detected == "dump"
+
+    # Test the new simplified metadata structure
+    # Simulate what happens when user explicitly requested SQL but got dump
+    write_metadata(
+        backup_file,
+        source="https://test",
+        format=detected,  # Actual detected format
+        requested_format="sql",  # User's explicit request
+    )
+
+    # Verify the metadata structure
+    meta = read_metadata(backup_file)
+    assert (
+        meta["format"] == "dump"
+    ), "Metadata should show detected format (source of truth)"
+    assert (
+        meta["requested_format"] == "sql"
+    ), "Metadata should preserve user's explicit request"

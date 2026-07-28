@@ -11,6 +11,7 @@ import click
 
 from .. import echo
 from ..common import (
+    detect_backup_format_by_content,
     ensure_tool,
     find_project_root,
     get_odoo_data_dir,
@@ -28,7 +29,7 @@ from ..db import (
     run_psql_script,
     sanitize_db_name,
 )
-from ..utils.cache import get_cache_dir, list_cache, resolve_cache_id
+from ..utils.cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from ..utils.plugin_loader import load_backends
 from .env_cmd import prepare_env_context
 from .helpers import collect_diagnostics
@@ -318,7 +319,32 @@ def _list_backups(base, *, limit, reverse):
 
 def _restore_dump(base, dump_path, target_db, *, dry_run=False):
     """Restore *dump_path* into an existing *target_db*."""
-    suffix = _dump_suffix(dump_path)
+    # Use metadata format when available, falling back to content inspection
+    meta = read_metadata(dump_path)
+    backup_format = meta.get("format")
+
+    # If metadata format is missing or invalid, try content inspection
+    if not backup_format or backup_format not in ("dump", "sql", "sql.gz", "zip"):
+        detected_format = detect_backup_format_by_content(dump_path)
+        if detected_format:
+            backup_format = detected_format
+            echo.info(
+                f"Detected backup format '{detected_format}' from file content",
+                err=True,
+            )
+        else:
+            # Last resort: try file extension
+            backup_format = _dump_suffix(dump_path).lstrip(".")
+            if backup_format not in ("dump", "sql", "sql.gz", "zip"):
+                raise click.ClickException(
+                    f"Could not determine backup format from file: {dump_path}"
+                )
+
+    echo.info(
+        f"Restoring database '{target_db}' from {dump_path} (format: {backup_format})",
+        err=True,
+    )
+
     conn_args, env = get_pg_credentials(base)
 
     if dry_run:
@@ -328,7 +354,7 @@ def _restore_dump(base, dump_path, target_db, *, dry_run=False):
         )
         return
 
-    if suffix == ".dump":
+    if backup_format == "dump":
         ensure_tool("pg_restore")
         args = [
             "pg_restore",
@@ -339,19 +365,19 @@ def _restore_dump(base, dump_path, target_db, *, dry_run=False):
             str(dump_path),
         ]
         run_subprocess(args, env=env, error_msg="pg_restore failed")
-    elif suffix == ".sql":
+    elif backup_format == "sql":
         ensure_tool("psql")
         args = ["psql", "-d", target_db, "-f", str(dump_path), *conn_args]
         run_subprocess(args, env=env, error_msg="psql failed")
-    elif suffix == ".sql.gz":
+    elif backup_format == "sql.gz":
         ensure_tool("gunzip")
         ensure_tool("psql")
         _restore_sql_gz(dump_path, target_db, conn_args, env)
-    elif suffix == ".zip":
+    elif backup_format == "zip":
         ensure_tool("psql")
         _restore_zip(base, dump_path, target_db, conn_args, env)
     else:
-        raise click.ClickException(f"Unsupported backup format: {suffix}")
+        raise click.ClickException(f"Unsupported backup format: {backup_format}")
 
 
 def _dump_suffix(path):

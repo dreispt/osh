@@ -35,6 +35,7 @@ class HttpsSource(BackupSource):
             format_value if format_value else self._resolve_backup_format()
         )
         self.original_format = self.backup_format
+        self.format_was_explicit = format_value is not None
         self.master_password = master_password
 
         base_url = f"{self.scheme}://{self.host}"
@@ -136,8 +137,10 @@ class HttpsSource(BackupSource):
                         downloaded += len(chunk)
                         bar.update(len(chunk))
             else:
-                BAR_WIDTH = 20
-                SEGMENT = 10 * 1024 * 1024
+                # When size is unknown, show a growing progress bar
+                # Each "=" represents 10 MB, bar grows as download progresses
+                CHUNK_SIZE_MB = 10  # Each marker represents 10 MB
+                CHUNK_SIZE_BYTES = CHUNK_SIZE_MB * 1024 * 1024
                 last_mb = -1
                 click.echo(f"{label} ...", nl=False, err=True)
                 while True:
@@ -151,10 +154,9 @@ class HttpsSource(BackupSource):
                     mb = downloaded // (1024 * 1024)
                     if mb > last_mb:
                         last_mb = mb
-                        segments = downloaded // SEGMENT
-                        filled = min(segments, BAR_WIDTH)
-                        arrow = ">" if filled < BAR_WIDTH else ""
-                        bar = ("=" * filled + arrow).ljust(BAR_WIDTH)
+                        # Calculate number of markers (each = 10 MB)
+                        markers = downloaded // CHUNK_SIZE_BYTES
+                        bar = "=" * markers + ">"
                         mb_count = downloaded / (1024 * 1024)
                         click.echo(
                             f"\r{label} [{bar}] {mb_count:.0f} MB",
