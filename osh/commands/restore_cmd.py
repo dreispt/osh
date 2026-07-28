@@ -358,13 +358,15 @@ def _restore_dump(base, dump_path, target_db, *, dry_run=False):
         ensure_tool("pg_restore")
         args = [
             "pg_restore",
+            "--verbose",
             "--no-owner",
             "--dbname",
             target_db,
             *conn_args,
             str(dump_path),
         ]
-        run_subprocess(args, env=env, error_msg="pg_restore failed")
+        # Let pg_restore's verbose progress output go directly to stderr for user visibility
+        run_subprocess(args, env=env, stderr=None, error_msg="pg_restore failed")
     elif backup_format == "sql":
         ensure_tool("psql")
         args = ["psql", "-d", target_db, "-f", str(dump_path), *conn_args]
