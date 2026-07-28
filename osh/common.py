@@ -329,7 +329,21 @@ def run_subprocess(
         return None, "", f"Command not found: {cmd} ({exc})"
 
     if error_msg and result.returncode != 0:
-        raise click.ClickException(error_msg)
+
+        def _as_text(data):
+            if data is None:
+                return ""
+            if isinstance(data, bytes):
+                return data.decode("utf-8", errors="replace")
+            return data
+
+        output = "\n".join(
+            part for part in [_as_text(result.stdout), _as_text(result.stderr)] if part
+        )
+        message = f"{error_msg}\nCommand: {cmd}"
+        if output:
+            message += f"\n{output}"
+        raise click.ClickException(message)
     return result.returncode, result.stdout or "", result.stderr or ""
 
 
