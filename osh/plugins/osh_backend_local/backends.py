@@ -50,7 +50,7 @@ class LocalBackend(Backend):
                 "Defaults to the central cache (populated from GitHub).",
             ),
             cls.make_init_option(
-                ["-t", "--themes-source"],
+                ["-d", "--themes-source"],
                 help="Design-themes source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
@@ -137,6 +137,7 @@ class LocalBackend(Backend):
         version="",
         edition="ce",
         dry_run=False,
+        todo,
         **options,
     ):
         init_project(
@@ -148,6 +149,7 @@ class LocalBackend(Backend):
             odoo_source=options.get("odoo_source"),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
+            todo=todo,
         )
         return True
 

@@ -162,9 +162,7 @@ def test_env_docker_runs_container_with_env_vars(tmp_project, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["env", "--target", "docker", "odoo-bin", "-i", "base"]
-    )
+    result = runner.invoke(main, ["env", "--target", "docker", "odoo", "-i", "base"])
 
     assert result.exit_code == 0, result.output
     assert len(calls) == 1

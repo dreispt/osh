@@ -51,7 +51,7 @@ def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatc
     assert docker_toml.exists()
     text = docker_toml.read_text()
     assert "service = 'app'" in text
-    assert "command = 'odoo-bin'" in text
+    assert "command = 'odoo'" in text
     assert "compose_file = '.osh/docker-compose.yml'" in text
 
     compose_file = tmp_project / ".osh" / "docker-compose.yml"
@@ -204,12 +204,15 @@ def test_init_docker_dry_run_does_not_write(tmp_project, monkeypatch):
     _patch_docker_tools(monkeypatch)
     backend = DockerBackend()
 
+    from osh.commands.init_cmd import TodoPlan
+
     ok = backend.init(
         tmp_project,
         version="19.0",
         edition="ce",
         dry_run=True,
         service="odoo",
+        todo=TodoPlan(None),
     )
 
     assert ok is True

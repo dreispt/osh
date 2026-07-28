@@ -344,7 +344,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
-        assert (tmp_project / ".osh" / "config").exists()
+        assert (tmp_project / ".osh" / "config.toml").exists()
 
     def test_with_source_flags(self, tmp_project, monkeypatch):
         odoo_src = tmp_project / "my-odoo"
@@ -393,7 +393,7 @@ class TestInitCommand:
                 str(tmp_project),
                 "-c",
                 str(odoo_src),
-                "-t",
+                "--themes-source",
                 str(themes_src),
             ],
         )
@@ -457,7 +457,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
-        assert (tmp_project / ".osh" / "config").exists()
+        assert (tmp_project / ".osh" / "config.toml").exists()
         assert "pip install failed" in result.output
 
     def test_installs_project_requirements(self, tmp_project, monkeypatch):
@@ -519,7 +519,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert "Odoo smoke test failed" in result.output
         assert (tmp_project / ".osh" / "odoo").is_symlink()
-        assert (tmp_project / ".osh" / "config").exists()
+        assert (tmp_project / ".osh" / "config.toml").exists()
 
 
 class TestInitEdition:

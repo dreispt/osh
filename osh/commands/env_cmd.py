@@ -222,9 +222,9 @@ def env(
 
     \b
       osh env
-      osh env odoo-bin --version
+      osh env odoo --version
       osh env psql
-      osh env --target docker odoo-bin -i base
+      osh env --target docker odoo -i base
     """
     base = find_project_root(required=True)
 

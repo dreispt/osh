@@ -67,6 +67,11 @@ def info(message, err=False):
     _get_cached_echo().info(message, err=err)
 
 
+def success(message, err=False):
+    """Log a success message."""
+    _get_cached_echo().success(message, err=err)
+
+
 def friendly(message, err=False):
     """Log a friendly message (shown at friendly level and above)."""
     _get_cached_echo().friendly(message, err=err)
@@ -81,6 +86,7 @@ _EMOJI_PREFIXES = {
     "error": "❌ ",
     "warning": "⚠️ ",
     "info": "",
+    "success": "✅ ",
     "friendly": "🧭 ",
     "internal": "",
 }
@@ -89,6 +95,7 @@ _TEXT_PREFIXES = {
     "error": "ERROR: ",
     "warning": "WARNING: ",
     "info": "",
+    "success": "✓ ",
     "friendly": "",
     "internal": "",
 }
@@ -124,9 +131,9 @@ class Echo:
         """
         rules = {
             "quiet": ["error"],
-            "normal": ["error", "warning", "info"],
-            "friendly": ["error", "warning", "info", "friendly"],
-            "verbose": ["error", "warning", "info", "internal"],
+            "normal": ["error", "warning", "info", "success"],
+            "friendly": ["error", "warning", "info", "success", "friendly"],
+            "verbose": ["error", "warning", "info", "success", "internal"],
         }
         return category in rules.get(self.level, [])
 
@@ -170,6 +177,10 @@ class Echo:
     def info(self, message, err=False):
         """Log an info message."""
         self._echo("info", message, err=err)
+
+    def success(self, message, err=False):
+        """Log a success message."""
+        self._echo("success", message, err=err)
 
     def friendly(self, message, err=False):
         """Log a friendly message (shown at friendly level and above)."""

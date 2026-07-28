@@ -49,7 +49,7 @@ class DockerBackend(Backend):
             click.Option(
                 ["--command"],
                 help="Shell-quoted command to run inside the container "
-                "(e.g. 'odoo-bin' or 'python3 -m odoo').",
+                "(e.g. 'odoo' or 'python3 -m odoo').",
             ),
             click.Option(
                 ["--compose-file"],
@@ -144,7 +144,7 @@ class DockerBackend(Backend):
         """Report the saved Docker backend configuration."""
         if cfg:
             d.add_info("service", service or "odoo")
-            d.add_info("command", command or "odoo-bin")
+            d.add_info("command", command or "odoo")
             d.add_info("compose_file", compose_file or "<none>")
             d.add_info("edition", edition)
             if cfg.get("compose_tool"):
@@ -210,6 +210,8 @@ class DockerBackend(Backend):
 
     def _add_init_plans(self, d):
         """Record planned init actions."""
+        d.add_plan("Generate .osh/docker-compose.yml")
+        d.add_plan("Generate docker-compose.yml")
         d.add_plan("Write .osh/docker.toml with service and compose tool")
         d.add_plan("Ensure Odoo sources for the selected edition")
         d.add_plan("Run an Odoo --version smoke test")
@@ -221,14 +223,13 @@ class DockerBackend(Backend):
         version="",
         edition="ce",
         dry_run=False,
+        todo,
         **options,
     ):
         """Set up the project to run Odoo with Docker Compose."""
         service = options.get("service")
         command = options.get("command")
         compose_file = options.get("compose_file")
-
-        todo = options.get("todo")
 
         if compose_file and not (target / compose_file).is_file():
             raise click.ClickException(
@@ -238,14 +239,14 @@ class DockerBackend(Backend):
         if not compose_file:
             osh_compose = target / _COMPOSE_FILE
             if dry_run:
+                todo.start()
                 echo.info(
                     f"Would generate {osh_compose} with "
                     f"odoo/{version or 'latest'} and postgres:16 services.",
                     err=True,
                 )
             else:
-                if todo:
-                    todo.start()
+                todo.start()
                 _generate_compose_file(target, version)
                 if osh_compose.is_file():
                     echo.info(f"Generated {osh_compose}.", err=True)
@@ -254,9 +255,10 @@ class DockerBackend(Backend):
         copy_odoo_rc_to_osh_conf(target)
 
         if dry_run:
+            todo.start()
             echo.info(
                 f"Would write {target / _DOCKER_TOML}: "
-                f"service={service or 'odoo'}, command={command or 'odoo-bin'}, "
+                f"service={service or 'odoo'}, command={command or 'odoo'}, "
                 f"compose_file={compose_file or '<none>'}, "
                 f"version={version!r}, edition={edition!r}.",
                 err=True,
@@ -268,6 +270,8 @@ class DockerBackend(Backend):
                 dry_run=True,
                 skip_odoo=True,
                 assume_yes=options.get("assume_yes", False),
+                enterprise_source=options.get("enterprise_source"),
+                themes_source=options.get("themes_source"),
             )
             return True
 
@@ -278,8 +282,7 @@ class DockerBackend(Backend):
                 "Install 'docker compose' or 'docker-compose'."
             )
 
-        if todo:
-            todo.start()
+        todo.start()
         _save_docker_config(
             target,
             service,
@@ -299,8 +302,7 @@ class DockerBackend(Backend):
                 f"Edit {target / _DOCKER_TOML} if your compose service is named differently."
             )
 
-        if todo:
-            todo.start()
+        todo.start()
         ensure_osh_sources(
             target,
             version,
@@ -308,6 +310,8 @@ class DockerBackend(Backend):
             dry_run=False,
             skip_odoo=True,
             assume_yes=options.get("assume_yes", False),
+            enterprise_source=options.get("enterprise_source"),
+            themes_source=options.get("themes_source"),
         )
 
         cfg = _load_docker_config(target)
@@ -366,7 +370,7 @@ class DockerBackend(Backend):
         )
 
         args = list(env_spec.argv)
-        if args and args[0] == "odoo-bin":
+        if args and args[0] == "odoo":
             command = _cfg_value(cfg, "command")
             if command:
                 args = command.split() + args[1:]

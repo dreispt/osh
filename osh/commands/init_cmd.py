@@ -12,6 +12,7 @@ from ..common import setup_project_neutralize_scripts
 from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
 from ..utils.plugin_loader import load_backends
+from .helpers import Diagnostics
 
 
 def _collect_backend_options():
@@ -115,20 +116,42 @@ def _format_targets_section(formatter):
 
 
 class TodoPlan:
-    """Numbered init plan that can print a progress message for each step."""
+    """Progress tracker for init steps.
 
-    def __init__(self, plan):
-        self.plan = plan
-        self.index = 0
-        self.total = len(plan)
+    Attributes:
+        diagnostics: Backend diagnostic results (warnings, errors, plan items)
+        plan: List of planned action strings for progress display
+        index: Current position in the plan (0-based, increments on each start())
+    """
 
-    def start(self):
-        """Print and advance to the next plan item."""
-        if self.index >= self.total:
-            return
-        self.index += 1
-        item = self.plan[self.index - 1]
-        echo.info(f"[{self.index}] Starting: {item}")
+    def __init__(self, diagnostics: Diagnostics | None):
+        self.diagnostics: Diagnostics | None = diagnostics
+        self.plan: list[str] = diagnostics.plan if diagnostics else []
+        self.index: int = 0
+
+    @property
+    def warnings(self) -> list[str]:
+        """Return warnings from diagnostics, or empty list if None."""
+        return self.diagnostics.warnings if self.diagnostics else []
+
+    @property
+    def errors(self) -> list[str]:
+        """Return errors from diagnostics, or empty list if None."""
+        return self.diagnostics.errors if self.diagnostics else []
+
+    @property
+    def info(self) -> dict[str, dict[str, object]]:
+        """Return info from diagnostics, or empty dict if None."""
+        return self.diagnostics.info if self.diagnostics else {}
+
+    def start(self) -> None:
+        """Print progress message and advance to next step.
+
+        Only prints if there are remaining plan items to display.
+        """
+        if self.index < len(self.plan):
+            self.index += 1
+            echo.info(f"[{self.index}/{len(self.plan)}] {self.plan[self.index - 1]}")
 
 
 @click.command(name="init", cls=InitCommand)
@@ -137,6 +160,7 @@ class TodoPlan:
     "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
 )
 @click.option(
+    "-t",
     "--target",
     "backend_name",
     default=None,
@@ -296,13 +320,7 @@ def init(
             raise click.ClickException("Aborted.")
         confirmed = True
 
-    todo = None if dry_run else TodoPlan(diagnostics.plan)
-
-    docker_source_kwargs = {}
-    if backend_name == "docker":
-        for key in ("enterprise_source", "themes_source"):
-            if key in kwargs:
-                docker_source_kwargs[key] = kwargs.pop(key)
+    todo = TodoPlan(diagnostics)
 
     result = backend.init(
         target,
@@ -312,7 +330,6 @@ def init(
         assume_yes=assume_yes or confirmed,
         todo=todo,
         **kwargs,
-        **docker_source_kwargs,
     )
 
     if not dry_run:
@@ -336,7 +353,7 @@ def init(
             "edition": edition,
             "dev": dev,
         }
-        for key, value in {**kwargs, **docker_source_kwargs}.items():
+        for key, value in kwargs.items():
             if value is not None:
                 init_values[key] = str(value)
         set_project_config(target, "init", values=init_values)
