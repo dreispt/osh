@@ -136,7 +136,10 @@ class HttpsSource(BackupSource):
                         downloaded += len(chunk)
                         bar.update(len(chunk))
             else:
-                echo.info(f"{label} ...", err=True)
+                BAR_WIDTH = 20
+                SEGMENT = 10 * 1024 * 1024
+                last_mb = -1
+                click.echo(f"{label} ...", nl=False, err=True)
                 while True:
                     chunk = resp.read(chunk_size)
                     if not chunk:
@@ -145,8 +148,20 @@ class HttpsSource(BackupSource):
                         _first_chunk(chunk)
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if downloaded % (1024 * 1024) < chunk_size:
-                        echo.info(f"Downloaded {downloaded:,} bytes", err=True)
+                    mb = downloaded // (1024 * 1024)
+                    if mb > last_mb:
+                        last_mb = mb
+                        segments = downloaded // SEGMENT
+                        filled = min(segments, BAR_WIDTH)
+                        arrow = ">" if filled < BAR_WIDTH else ""
+                        bar = ("=" * filled + arrow).ljust(BAR_WIDTH)
+                        mb_count = downloaded / (1024 * 1024)
+                        click.echo(
+                            f"\r{label} [{bar}] {mb_count:.0f} MB",
+                            nl=False,
+                            err=True,
+                        )
+                click.echo("", err=True)
 
         if downloaded == 0:
             raise SourceError(
