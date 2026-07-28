@@ -6,7 +6,8 @@ from pathlib import Path
 import click
 
 from ... import config as _config
-from ...common import run_subprocess
+from ... import echo
+from ...common import run_command, run_subprocess
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
@@ -25,12 +26,25 @@ def _save_docker_config(
     version=None,
     edition=None,
     compose_tool=None,
+    dry_run=False,
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     service = service or "odoo"
     command = command or "odoo"
     if not isinstance(command, str):
         command = shlex.join(str(c) for c in command)
+
+    if dry_run:
+        docker_toml = base / _DOCKER_TOML
+        echo.info(
+            f"Would write {docker_toml}: "
+            f"service={service}, command={command}, "
+            f"compose_file={compose_file or '<none>'}, "
+            f"version={version!r}, edition={edition!r}.",
+            err=True,
+        )
+        return
+
     data = {
         "service": service,
         "command": command,
@@ -45,11 +59,19 @@ def _save_docker_config(
         data["compose_tool"] = compose_tool
     _config.save_docker_config(base, data)
 
+    docker_toml = base / _DOCKER_TOML
+    echo.info(f"Wrote Docker backend config to {docker_toml}.", err=True)
+    if not service:
+        echo.warning(
+            "no --service provided; defaulting to 'odoo'. "
+            f"Edit {docker_toml} if your compose service is named differently."
+        )
+
 
 def _docker_command(service, command):
     """Return the Odoo command inside the container as a list."""
     if command is None:
-        command = "odoo"
+        command = "odoo-bin"
     if isinstance(command, list):
         return list(command)
     return shlex.split(str(command))
@@ -90,6 +112,34 @@ def _compose_base_command(
     return cmd
 
 
+def _run_smoke_test(target, compose_file=None):
+    """Run the Odoo smoke test for Docker backend."""
+    cfg = _load_docker_config(target)
+    svc = cfg.get("service")
+    cmd = _docker_command(svc, cfg.get("command"))
+    if not svc:
+        echo.warning("no Docker service configured; skipping smoke test.")
+        return True
+
+    compose_cmd = _compose_base_command(target, compose_file=compose_file)
+    try:
+        run_command(
+            [*compose_cmd, "run", "--rm", svc, *cmd, "--version"],
+            cwd=target,
+            check=True,
+            stream=True,
+        )
+    except click.ClickException as exc:
+        echo.warning(
+            f"{exc.format_message()}\n"
+            "The project is initialised but Odoo may not be usable."
+        )
+        return False
+
+    echo.friendly(f"Run the project with: osh odoo (in {target})")
+    return True
+
+
 def _default_compose_content(version):
     """Return a generated Docker Compose file for a standard Odoo stack."""
     import importlib.resources
@@ -101,8 +151,17 @@ def _default_compose_content(version):
     return template.replace("__IMAGE__", image)
 
 
-def _generate_compose_file(target, version):
+def _generate_compose_file(target, version, dry_run=False):
     """Write the Osh-managed ``.osh/docker-compose.yml`` file."""
     compose_path = target / _COMPOSE_FILE
+    if dry_run:
+        echo.info(
+            f"Would generate {compose_path} with "
+            f"odoo/{version or 'latest'} and postgres:16 services.",
+            err=True,
+        )
+        return True
     compose_path.parent.mkdir(parents=True, exist_ok=True)
     compose_path.write_text(_default_compose_content(version))
+    echo.info(f"Generated {compose_path}.", err=True)
+    return True

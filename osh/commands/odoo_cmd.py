@@ -152,7 +152,7 @@ def odoo(
         exe = diagnostics.info.get("local", {}).get("odoo_executable")
         executable = exe if exe else "odoo-bin"
     else:
-        executable = "odoo-bin"
+        executable = "odoo"
 
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,

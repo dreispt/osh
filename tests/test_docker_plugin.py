@@ -33,7 +33,7 @@ def _patch_docker_tools(monkeypatch):
         cmd = args[0] if args else kwargs.get("args", [])
         return subprocess.CompletedProcess(cmd, returncode=0)
 
-    monkeypatch.setattr("osh.plugins.osh_backend_docker.backends.run_command", fake_run)
+    monkeypatch.setattr("osh.plugins.osh_backend_docker.utils.run_command", fake_run)
 
 
 def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatch):

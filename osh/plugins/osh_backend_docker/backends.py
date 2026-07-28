@@ -14,10 +14,10 @@ from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
     _compose_base_command,
-    _docker_command,
     _find_compose_tool,
     _generate_compose_file,
     _load_docker_config,
+    _run_smoke_test,
     _save_docker_config,
 )
 
@@ -144,7 +144,7 @@ class DockerBackend(Backend):
         """Report the saved Docker backend configuration."""
         if cfg:
             d.add_info("service", service or "odoo")
-            d.add_info("command", command or "odoo")
+            d.add_info("command", command or "odoo-bin")
             d.add_info("compose_file", compose_file or "<none>")
             d.add_info("edition", edition)
             if cfg.get("compose_tool"):
@@ -211,7 +211,6 @@ class DockerBackend(Backend):
     def _add_init_plans(self, d):
         """Record planned init actions."""
         d.add_plan("Generate .osh/docker-compose.yml")
-        d.add_plan("Generate docker-compose.yml")
         d.add_plan("Write .osh/docker.toml with service and compose tool")
         d.add_plan("Ensure Odoo sources for the selected edition")
         d.add_plan("Run an Odoo --version smoke test")
@@ -237,31 +236,22 @@ class DockerBackend(Backend):
             )
 
         if not compose_file:
-            osh_compose = target / _COMPOSE_FILE
-            if dry_run:
+            if not dry_run:
                 todo.start()
-                echo.info(
-                    f"Would generate {osh_compose} with "
-                    f"odoo/{version or 'latest'} and postgres:16 services.",
-                    err=True,
-                )
-            else:
-                todo.start()
-                _generate_compose_file(target, version)
-                if osh_compose.is_file():
-                    echo.info(f"Generated {osh_compose}.", err=True)
+            _generate_compose_file(target, version, dry_run=dry_run)
             compose_file = str(_COMPOSE_FILE)
 
         copy_odoo_rc_to_osh_conf(target)
 
         if dry_run:
-            todo.start()
-            echo.info(
-                f"Would write {target / _DOCKER_TOML}: "
-                f"service={service or 'odoo'}, command={command or 'odoo'}, "
-                f"compose_file={compose_file or '<none>'}, "
-                f"version={version!r}, edition={edition!r}.",
-                err=True,
+            _save_docker_config(
+                target,
+                service,
+                command,
+                compose_file,
+                version=version,
+                edition=edition,
+                dry_run=True,
             )
             ensure_osh_sources(
                 target,
@@ -292,15 +282,6 @@ class DockerBackend(Backend):
             edition=edition,
             compose_tool=" ".join(compose_tool),
         )
-        echo.info(
-            f"Wrote Docker backend config to {target / _DOCKER_TOML}.",
-            err=True,
-        )
-        if not service:
-            echo.warning(
-                "no --service provided; defaulting to 'odoo'. "
-                f"Edit {target / _DOCKER_TOML} if your compose service is named differently."
-            )
 
         todo.start()
         ensure_osh_sources(
@@ -314,31 +295,9 @@ class DockerBackend(Backend):
             themes_source=options.get("themes_source"),
         )
 
-        cfg = _load_docker_config(target)
-        svc = cfg.get("service")
-        cmd = _docker_command(svc, cfg.get("command"))
-        if not svc:
-            echo.warning("no Docker service configured; skipping smoke test.")
-            return True
+        todo.start()
+        _run_smoke_test(target, compose_file=compose_file)
 
-        if todo:
-            todo.start()
-        compose_cmd = _compose_base_command(target, compose_file=compose_file)
-        try:
-            run_command(
-                [*compose_cmd, "run", "--rm", svc, *cmd, "--version"],
-                cwd=target,
-                check=True,
-                stream=True,
-            )
-        except click.ClickException as exc:
-            echo.warning(
-                f"{exc.format_message()}\n"
-                "The project is initialised but Odoo may not be usable."
-            )
-            return False
-
-        echo.friendly(f"Run the project with: osh odoo (in {target})")
         return True
 
     def env(
