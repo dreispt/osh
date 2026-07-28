@@ -129,21 +129,6 @@ class TodoPlan:
         self.plan: list[str] = diagnostics.plan if diagnostics else []
         self.index: int = 0
 
-    @property
-    def warnings(self) -> list[str]:
-        """Return warnings from diagnostics, or empty list if None."""
-        return self.diagnostics.warnings if self.diagnostics else []
-
-    @property
-    def errors(self) -> list[str]:
-        """Return errors from diagnostics, or empty list if None."""
-        return self.diagnostics.errors if self.diagnostics else []
-
-    @property
-    def info(self) -> dict[str, dict[str, object]]:
-        """Return info from diagnostics, or empty dict if None."""
-        return self.diagnostics.info if self.diagnostics else {}
-
     def start(self) -> None:
         """Print progress message and advance to next step.
 
