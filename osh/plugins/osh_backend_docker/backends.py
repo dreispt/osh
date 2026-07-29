@@ -219,9 +219,7 @@ class DockerBackend(Backend):
         For Docker backends, host paths are translated to their container
         mount point under ``/mnt/extra-addons``.
         """
-        from ...utils.odoo_layout import build_addons_paths as _build_addons_paths
-
-        host_paths = _build_addons_paths(base, include_themes=include_themes)
+        host_paths = super().build_addons_paths(base, include_themes=include_themes)
         container_paths = []
         for path in host_paths:
             try:
