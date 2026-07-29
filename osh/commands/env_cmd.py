@@ -7,7 +7,6 @@ on top of it.
 """
 
 import configparser
-from pathlib import Path
 
 import click
 
@@ -20,7 +19,6 @@ from ..common import (
     get_odoo_config_path,
     get_osh_odoo_config_path,
 )
-from ..utils.odoo_layout import build_addons_paths
 from ..utils.plugin_loader import load_backends
 from .helpers import collect_diagnostics
 
@@ -60,7 +58,7 @@ def _get_pg_env(base):
 
 
 def build_dynamic_odoo_config(
-    base, db_name, backend_name, *, conf_path=None, no_db_filter=False, extra_args=()
+    base, db_name, backend, *, conf_path=None, no_db_filter=False, extra_args=()
 ):
     """Build a branch/database-specific Odoo config file in ``.osh/cache/env``.
 
@@ -68,8 +66,8 @@ def build_dynamic_odoo_config(
     adds the discovered addons path, ``db_name`` and ``dbfilter`` so that
     ``odoo-bin`` and ``psql`` work inside the environment without extra flags.
 
-    For the Docker backend, addons paths are translated to their container
-    mount point under ``/mnt/extra-addons``.
+    The *backend* parameter is used to build backend-specific addons paths
+    (e.g., container paths for Docker backends).
     """
     if conf_path is None:
         cache_dir = base / ".osh" / "cache" / "env"
@@ -91,21 +89,9 @@ def build_dynamic_odoo_config(
         cfg.add_section("options")
 
     if not _has_arg(extra_args, "--addons-path"):
-        addons_paths = build_addons_paths(base, include_themes=True)
+        addons_paths = backend.build_addons_paths(base, include_themes=True)
         if addons_paths:
-            if backend_name == "docker":
-                container_paths = []
-                for path in addons_paths:
-                    try:
-                        rel = path.relative_to(base)
-                    except ValueError:
-                        rel = Path(path.name)
-                    container_paths.append(f"/mnt/extra-addons/{rel}")
-                cfg.set("options", "addons_path", ",".join(container_paths))
-            else:
-                cfg.set(
-                    "options", "addons_path", ",".join(str(p) for p in addons_paths)
-                )
+            cfg.set("options", "addons_path", ",".join(str(p) for p in addons_paths))
 
     if db_name:
         cfg.set("options", "db_name", db_name)
@@ -120,7 +106,7 @@ def build_dynamic_odoo_config(
 
 def prepare_env_context(
     base,
-    backend_name,
+    backend,
     *,
     db_name=None,
     no_db_filter=False,
@@ -150,7 +136,7 @@ def prepare_env_context(
         conf_path = build_dynamic_odoo_config(
             base,
             db_name,
-            backend_name,
+            backend,
             conf_path=conf_path,
             no_db_filter=no_db_filter,
             extra_args=extra_args,
@@ -265,7 +251,7 @@ def env(
 
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,
-        backend_name,
+        backend,
         db_name=db_name,
         no_db_filter=no_db_filter,
         skip_config=skip_config,

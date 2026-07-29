@@ -171,7 +171,7 @@ def restore(
     # Layer on the same environment preparation as ``osh env``.
     _, env_vars, _ = prepare_env_context(
         base,
-        backend_name,
+        backend,
         db_name=db_name,
         no_db_filter=True,
         skip_config=True,

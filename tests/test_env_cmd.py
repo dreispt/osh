@@ -6,6 +6,8 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands.env_cmd import build_dynamic_odoo_config, env
+from osh.plugins.osh_backend_docker.backends import DockerBackend
+from osh.plugins.osh_backend_local.backends import LocalBackend
 
 
 def _setup_venv(project):
@@ -182,7 +184,8 @@ def test_build_dynamic_odoo_config_uses_container_paths_for_docker(
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
     (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
 
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", "docker")
+    backend = DockerBackend()
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
     text = conf.read_text()
     assert "/mnt/extra-addons/.osh/odoo/addons" in text
     assert "/mnt/extra-addons/.osh/enterprise" in text
@@ -194,7 +197,8 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     """The helper can omit ``dbfilter`` when requested."""
     (tmp_project / ".osh" / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
 
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", "local", no_db_filter=True)
+    backend = LocalBackend()
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend, no_db_filter=True)
     text = conf.read_text()
     assert "db_name = mydb" in text
     assert "dbfilter" not in text

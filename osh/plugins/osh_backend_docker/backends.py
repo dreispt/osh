@@ -213,6 +213,24 @@ class DockerBackend(Backend):
         todo.add_plan("Ensure Odoo sources for the selected edition")
         todo.add_plan("Run an Odoo --version smoke test")
 
+    def build_addons_paths(self, base, *, include_themes=False):
+        """Return a list of addon paths for *base* translated to container paths.
+
+        For Docker backends, host paths are translated to their container
+        mount point under ``/mnt/extra-addons``.
+        """
+        from ...utils.odoo_layout import build_addons_paths as _build_addons_paths
+
+        host_paths = _build_addons_paths(base, include_themes=include_themes)
+        container_paths = []
+        for path in host_paths:
+            try:
+                rel = path.relative_to(base)
+            except ValueError:
+                rel = Path(path.name)
+            container_paths.append(f"/mnt/extra-addons/{rel}")
+        return container_paths
+
     def init(
         self,
         target,

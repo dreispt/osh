@@ -156,7 +156,7 @@ def odoo(
 
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,
-        backend_name,
+        backend,
         db_name=db_name,
         no_db_filter=no_db_filter,
         skip_config=skip_config,

@@ -97,6 +97,17 @@ class Backend(ABC):
         """
         pass
 
+    def build_addons_paths(self, base, *, include_themes=False):
+        """Return a list of addon paths for *base*.
+
+        Includes the Odoo core addons directory, Enterprise, optionally
+        design-themes, and discovered project addon parent directories.
+        The default implementation returns host paths for local backends.
+        """
+        from .utils.odoo_layout import build_addons_paths as _build_addons_paths
+
+        return _build_addons_paths(base, include_themes=include_themes)
+
     def diagnose(
         self,
         base,

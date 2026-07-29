@@ -7,6 +7,7 @@ from click.testing import CliRunner
 from osh.cli import main
 from osh.commands.env_cmd import build_dynamic_odoo_config
 from osh.commands.odoo_cmd import odoo
+from osh.plugins.osh_backend_docker.backends import DockerBackend
 
 
 def _dynamic_conf_path(tmp_project, branch="default", db="testdb"):
@@ -208,10 +209,11 @@ def test_dynamic_config_translates_addons_path_for_docker(
     osh_source_dirs,
 ):
     """The dynamic config uses container paths for the Docker backend."""
+    backend = DockerBackend()
     conf = build_dynamic_odoo_config(
         tmp_project,
         "mydb",
-        "docker",
+        backend,
     )
     text = conf.read_text()
     assert "/mnt/extra-addons/.osh/odoo/addons" in text
