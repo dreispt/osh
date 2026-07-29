@@ -1,6 +1,7 @@
 """Local init and execution backend for Osh."""
 
 import os
+import re
 import shlex
 from pathlib import Path
 
@@ -13,9 +14,12 @@ from ...common import (
     _has_arg,
     get_odoo_config_path,
     get_osh_odoo_config_path,
+    get_venv_bin,
     run_command,
+    run_subprocess,
 )
 from ...utils.odoo_layout import find_odoo_executable
+from ...utils.python_versions import get_python_requirements
 from .utils import init_project
 
 
@@ -56,13 +60,69 @@ class LocalBackend(Backend):
             ),
         ]
 
-    _DIAGNOSE_SECTIONS = ("odoo_executable", "odoo_version", "config", "addons")
+    _DIAGNOSE_SECTIONS = (
+        "odoo_executable",
+        "odoo_version",
+        "python",
+        "config",
+        "addons",
+    )
 
     def diagnose_sections_for_phase(self, phase):
         """Skip expensive version/addons checks in ``init`` and ``run`` phases."""
         if phase in ("init", "run"):
             return ["odoo_executable", "config"]
         return list(self._DIAGNOSE_SECTIONS)
+
+    def _get_venv_python_version(self, base):
+        """Return the ``major.minor`` Python version of the project venv, or None."""
+        venv_bin = get_venv_bin(base)
+        for name in ("python", "python3"):
+            python = venv_bin / name
+            if not python.is_file():
+                continue
+            returncode, stdout, _ = run_subprocess([str(python), "--version"])
+            if returncode != 0 or not stdout:
+                continue
+            match = re.search(r"(\d+\.\d+)", stdout.strip())
+            if match:
+                return match.group(1)
+        return None
+
+    def _check_python_version(self, base, d, odoo_version):
+        """Report whether the venv's Python is recommended/supported for the Odoo version."""
+        if not odoo_version:
+            d.add_warning("Cannot check Python version: unknown Odoo version.")
+            return
+        requirements = get_python_requirements(odoo_version)
+        if requirements is None:
+            d.add_info(
+                "python_version",
+                f"Unknown Odoo version {odoo_version}; no Python support data.",
+            )
+            return
+        py_version = self._get_venv_python_version(base)
+        if py_version is None:
+            d.add_warning("Could not determine Python version in the virtualenv.")
+            return
+        if py_version == requirements["recommended"]:
+            d.add_info(
+                "python_version",
+                f"{py_version} (recommended for Odoo {odoo_version})",
+            )
+        elif py_version in requirements["supported"]:
+            d.add_info(
+                "python_version",
+                f"{py_version} (supported for Odoo {odoo_version}, "
+                f"recommended is {requirements['recommended']})",
+            )
+        else:
+            d.add_warning(
+                f"Python {py_version} is not supported for Odoo {odoo_version}. "
+                f"Supported versions: {', '.join(requirements['supported'])}; "
+                f"recommended: {requirements['recommended']}."
+            )
+            d.add_info("python_version", f"{py_version} (not supported)")
 
     def diagnose(
         self,
@@ -79,29 +139,38 @@ class LocalBackend(Backend):
             sections = self._DIAGNOSE_SECTIONS
         sections = set(sections)
 
-        need_exe = "odoo_executable" in sections or "odoo_version" in sections
-        if need_exe:
+        need_odoo = (
+            "odoo_executable" in sections
+            or "odoo_version" in sections
+            or "python" in sections
+        )
+        odoo_version = None
+        if need_odoo:
             exe = find_odoo_executable(base)
             if "odoo_executable" in sections and exe:
                 d.add_info("odoo_executable", str(exe))
 
-            if "odoo_version" in sections:
-                version = self.detect_odoo_version(base)
-                if version:
-                    d.add_info("odoo_version", version)
-                else:
-                    if exe and phase == "doctor":
-                        d.add_warning("Could not determine installed Odoo version.")
-                    elif not exe:
-                        if phase == "init":
-                            d.add_warning(
-                                "Odoo executable not found; "
-                                "it will be created during init."
-                            )
-                        else:
-                            d.add_error(
-                                "Odoo executable not found. Run 'osh init' first."
-                            )
+            if "odoo_version" in sections or "python" in sections:
+                odoo_version = self.detect_odoo_version(base)
+                if "odoo_version" in sections:
+                    if odoo_version:
+                        d.add_info("odoo_version", odoo_version)
+                    else:
+                        if exe and phase == "doctor":
+                            d.add_warning("Could not determine installed Odoo version.")
+                        elif not exe:
+                            if phase == "init":
+                                d.add_warning(
+                                    "Odoo executable not found; "
+                                    "it will be created during init."
+                                )
+                            else:
+                                d.add_error(
+                                    "Odoo executable not found. Run 'osh init' first."
+                                )
+
+            if "python" in sections:
+                self._check_python_version(base, d, odoo_version)
 
         if "config" in sections:
             odoo_rc = get_odoo_config_path(base)

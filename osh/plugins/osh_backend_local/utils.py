@@ -2,6 +2,7 @@
 
 import os
 import shlex
+import sys
 import venv
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from ... import echo
 from ...backends import copy_odoo_rc_to_osh_conf
 from ...common import run_subprocess
 from ...sources import ensure_osh_sources
+from ...utils.python_versions import resolve_python_for_odoo
 
 
 def init_project(
@@ -45,7 +47,7 @@ def init_project(
     if not sources.get("odoo"):
         raise click.ClickException("Odoo sources are required.")
 
-    env_ready = _setup_environment(target, sources, todo=todo)
+    env_ready = _setup_environment(target, sources, version, todo=todo)
     todo.start()
     smoke_ok = _run_init_smoke_test(target, env_ready)
 
@@ -90,9 +92,40 @@ def _run_init_smoke_test(target, env_ready):
     return _run_smoke_test(odoo_exe)
 
 
+def _is_current_python(python):
+    """Return True if *python* is the interpreter running this process."""
+    try:
+        return Path(python).resolve() == Path(sys.executable).resolve()
+    except OSError:
+        return False
+
+
+def _create_venv(venv_path, python):
+    """Create a virtualenv at *venv_path* using interpreter *python*.
+
+    Uses the standard ``venv`` module. When *python* is the running
+    interpreter, ``venv.create`` is used directly; otherwise the target
+    interpreter is invoked as ``python -m venv``.
+    """
+    if _is_current_python(python):
+        try:
+            venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
+        except AttributeError:  # pragma: no cover (py<3.9)
+            builder = venv.EnvBuilder(with_pip=True)
+            builder.create(str(venv_path))
+        return
+
+    returncode, _, _ = run_subprocess([str(python), "-m", "venv", str(venv_path)])
+    if returncode is None or returncode != 0:
+        raise click.ClickException(
+            f"Failed to create virtual environment with {python}."
+        )
+
+
 def _setup_environment(
     target,
     sources,
+    version,
     todo,
 ):
     """Create a virtualenv and pip-install Odoo sources."""
@@ -108,12 +141,19 @@ def _setup_environment(
     if venv_path.exists():
         echo.info(f"Using existing virtual environment at {venv_path}", err=True)
     else:
-        echo.info(f"Creating virtual environment at {venv_path}\u2026", err=True)
-        try:
-            venv.create(str(venv_path), with_pip=True)  # type: ignore[attr-defined]
-        except AttributeError:  # pragma: no cover (py<3.9)
-            builder = venv.EnvBuilder(with_pip=True)
-            builder.create(str(venv_path))
+        python = resolve_python_for_odoo(version)
+
+        if python["version"] != python["recommended"]:
+            echo.warning(
+                f"Python {python['recommended']} is recommended for Odoo {version}; "
+                f"using {python['version']} instead."
+            )
+        echo.info(
+            f"Creating virtual environment at {venv_path} "
+            f"with Python {python['version']} ({python['exe']})\u2026",
+            err=True,
+        )
+        _create_venv(venv_path, python["exe"])
 
     pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
 
