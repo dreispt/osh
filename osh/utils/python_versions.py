@@ -111,6 +111,37 @@ def _find_python(py_version, current_exe=None):
     return _find_pyenv_python(py_version)
 
 
+def get_available_python_versions():
+    """Return the installed Python ``major.minor`` versions available on this machine.
+
+    Detects ``python3.X`` binaries on PATH and versions installed via pyenv.
+    """
+    versions = set()
+    for minor in range(8, 15):
+        name = f"python3.{minor}"
+        if shutil.which(name):
+            versions.add(f"3.{minor}")
+
+    pyenv = shutil.which("pyenv")
+    if pyenv:
+        try:
+            result = subprocess.run(
+                [pyenv, "versions", "--bare"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except (OSError, ValueError):
+            result = None
+        if result and result.returncode == 0:
+            for line in result.stdout.splitlines():
+                match = re.match(r"(\d+\.\d+)", line.strip())
+                if match:
+                    versions.add(match.group(1))
+
+    return sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".")))
+
+
 def resolve_python_for_odoo(version):
     """Resolve a Python interpreter for the requested Odoo branch.
 

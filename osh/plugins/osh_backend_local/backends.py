@@ -19,7 +19,10 @@ from ...common import (
     run_subprocess,
 )
 from ...utils.odoo_layout import find_odoo_executable
-from ...utils.python_versions import get_python_requirements
+from ...utils.python_versions import (
+    get_available_python_versions,
+    get_python_requirements,
+)
 from .utils import init_project
 
 
@@ -171,6 +174,12 @@ class LocalBackend(Backend):
 
             if "python" in sections:
                 self._check_python_version(base, d, odoo_version)
+                available = get_available_python_versions()
+                d.add_info(
+                    "python_versions",
+                    ", ".join(available) if available else "none",
+                    topic="System",
+                )
 
         if "config" in sections:
             odoo_rc = get_odoo_config_path(base)

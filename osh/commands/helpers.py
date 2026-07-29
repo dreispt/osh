@@ -82,7 +82,14 @@ class Diagnostics:
 
 
 def collect_diagnostics(
-    base, backend, ctx=None, *, target=None, sections=None, **options
+    base,
+    backend,
+    ctx=None,
+    *,
+    target=None,
+    sections=None,
+    include_core=True,
+    **options,
 ):
     """Collect core and backend-specific diagnostics for *base*."""
     from ..db import get_current_branch, resolve_db_name
@@ -90,13 +97,14 @@ def collect_diagnostics(
     diagnostics = backend.diagnose(base, ctx, sections=sections, **options)
     diagnostics.project = base
     diagnostics.target = target or backend.name
-    branch = get_current_branch(base) or "default"
-    diagnostics.add_info("project", str(base), topic="Project")
-    diagnostics.add_info("git_branch", branch, topic="Project")
-    diagnostics.add_info("active_target", diagnostics.target, topic="Project")
-    diagnostics.add_info(
-        "dbname", resolve_db_name(base, verbose=False), topic="Project"
-    )
+    if include_core:
+        branch = get_current_branch(base) or "default"
+        diagnostics.add_info("project", str(base), topic="Project")
+        diagnostics.add_info("git_branch", branch, topic="Project")
+        diagnostics.add_info("active_target", diagnostics.target, topic="Project")
+        diagnostics.add_info(
+            "dbname", resolve_db_name(base, verbose=False), topic="Project"
+        )
     return diagnostics
 
 

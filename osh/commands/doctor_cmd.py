@@ -18,30 +18,41 @@ def doctor(ctx):  # noqa: D401
     # Show friendly header for new users
     echo.friendly("Checking your Osh setup...")
 
-    backend_name = get_project_config(base, "init", "target") or get_project_config(
+    active_target = get_project_config(base, "init", "target") or get_project_config(
         base, "run", "target"
     )
 
     backends = load_backends()
 
-    if backend_name is None:
-        echo.info(
-            "No installed targets. "
-            "Run 'osh init --target <local|docker> <version>' first."
-        )
-        return
-
-    backend_cls = backends.get(backend_name)
-    if backend_cls is None:
+    if active_target and active_target not in backends:
         raise click.ClickException(
-            f"Unknown backend '{backend_name}'. "
+            f"Unknown backend '{active_target}'. "
             f"Available: {', '.join(backends)} or run 'osh init --target <backend>'."
         )
 
-    backend = backend_cls()
-    diagnostics = collect_diagnostics(base, backend, ctx, target=backend_name)
-    report_diagnostics(diagnostics)
+    if not backends:
+        echo.info("No backends are registered.")
+        return
+
+    all_diagnostics = []
+    ordered = sorted(backends)
+    if active_target and active_target in ordered:
+        ordered.remove(active_target)
+        ordered.insert(0, active_target)
+
+    for backend_name in ordered:
+        backend = backends[backend_name]()
+        diagnostics = collect_diagnostics(
+            base,
+            backend,
+            ctx,
+            target=active_target if backend_name == active_target else backend_name,
+            include_core=(backend_name == active_target),
+        )
+        all_diagnostics.append(diagnostics)
+        report_diagnostics(diagnostics)
 
     # Show friendly footer for new users
-    if diagnostics.ready:
+    all_ready = all(d.ready for d in all_diagnostics)
+    if all_ready:
         echo.friendly("Your setup looks good! Run 'osh odoo' to start Odoo.")
