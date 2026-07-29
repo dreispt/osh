@@ -126,8 +126,27 @@ class TodoPlan:
 
     def __init__(self, diagnostics: Diagnostics | None):
         self.diagnostics: Diagnostics | None = diagnostics
-        self.plan: list[str] = diagnostics.plan if diagnostics else []
+        self.plan: list[str] = list(diagnostics.plan) if diagnostics else []
         self.index: int = 0
+
+    def add_plan(self, item: str) -> None:
+        """Record a planned action for the init process."""
+        self.plan.append(item)
+
+    def execute_plan(self, backend, backend_name: str) -> None:
+        """Copy plans from diagnostics, add backend plans, and display them."""
+        # Copy plans from diagnostics to todo
+        if self.diagnostics:
+            for item in self.diagnostics.plan:
+                self.add_plan(item)
+        # Allow backend to add standard plans to todo
+        backend._add_init_plans(self)
+        # Display planned actions
+        if self.plan:
+            echo.info(f"Planned actions for {backend_name}:")
+            total = len(self.plan)
+            for i, item in enumerate(self.plan, 1):
+                echo.info(f"  [{i}/{total}] {item}")
 
     def start(self) -> None:
         """Print progress message and advance to next step.
@@ -287,11 +306,6 @@ def init(
         sections=backend.diagnose_sections_for_phase("init"),
         **kwargs,
     )
-    if diagnostics.plan:
-        echo.info(f"Planned actions for {backend_name}:")
-        total = len(diagnostics.plan)
-        for i, item in enumerate(diagnostics.plan, 1):
-            echo.info(f"  [{i}/{total}] {item}")
     for warning_msg in diagnostics.warnings:
         echo.warning(warning_msg)
     for error_msg in diagnostics.errors:
@@ -299,13 +313,14 @@ def init(
     if diagnostics.errors and not dry_run:
         raise click.ClickException("\n".join(diagnostics.errors))
 
+    todo = TodoPlan(diagnostics)
+    todo.execute_plan(backend, backend_name)
+
     confirmed = False
-    if not dry_run and not assume_yes and diagnostics.plan and sys.stdin.isatty():
+    if not dry_run and not assume_yes and todo.plan and sys.stdin.isatty():
         if not click.confirm("Proceed with initialization?", default=True):
             raise click.ClickException("Aborted.")
         confirmed = True
-
-    todo = TodoPlan(diagnostics)
 
     result = backend.init(
         target,

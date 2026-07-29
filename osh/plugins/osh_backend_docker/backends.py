@@ -112,8 +112,6 @@ class DockerBackend(Backend):
             self._diagnose_odoo_version(d, phase, base)
         if "service" in sections:
             self._diagnose_service(d, phase, service)
-        if phase == "init":
-            self._add_init_plans(d)
         if (
             "sources" in sections
             and phase == "run"
@@ -208,12 +206,12 @@ class DockerBackend(Backend):
                 "Run 'osh init' first."
             )
 
-    def _add_init_plans(self, d):
-        """Record planned init actions."""
-        d.add_plan("Generate .osh/docker-compose.yml")
-        d.add_plan("Write .osh/docker.toml with service and compose tool")
-        d.add_plan("Ensure Odoo sources for the selected edition")
-        d.add_plan("Run an Odoo --version smoke test")
+    def _add_init_plans(self, todo):
+        """Record planned init actions (without doing work)."""
+        todo.add_plan("Generate .osh/docker-compose.yml")
+        todo.add_plan("Write .osh/docker.toml with service and compose tool")
+        todo.add_plan("Ensure Odoo sources for the selected edition")
+        todo.add_plan("Run an Odoo --version smoke test")
 
     def init(
         self,

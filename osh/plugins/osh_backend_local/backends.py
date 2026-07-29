@@ -122,13 +122,14 @@ class LocalBackend(Backend):
             addons_paths = build_addons_paths(base, include_themes=True)
             d.add_info("addons_directories", len(addons_paths))
 
-        if phase == "init":
-            d.add_plan("Resolve Odoo sources for the selected edition")
-            d.add_plan("Create a Python virtualenv at .venv")
-            d.add_plan("Install Odoo and requirements into the virtualenv")
-            d.add_plan("Run an Odoo --version smoke test")
-
         return d
+
+    def _add_init_plans(self, todo):
+        """Record planned init actions (without doing work)."""
+        todo.add_plan("Resolve Odoo sources for the selected edition")
+        todo.add_plan("Create a Python virtualenv at .venv")
+        todo.add_plan("Install Odoo and requirements into the virtualenv")
+        todo.add_plan("Run an Odoo --version smoke test")
 
     def init(
         self,

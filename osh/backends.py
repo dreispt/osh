@@ -89,6 +89,14 @@ class Backend(ABC):
         """
         return None
 
+    def _add_init_plans(self, todo):
+        """Add backend-specific init plans to the TodoPlan.
+
+        Backends can override this to add their own planned actions.
+        The default implementation adds no plans.
+        """
+        pass
+
     def diagnose(
         self,
         base,

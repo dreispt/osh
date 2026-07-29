@@ -56,7 +56,6 @@ class Diagnostics:
         *,
         include_header=True,
         include_info=True,
-        include_plans=False,
     ):
         """Print this diagnostics object using the cached echo functions."""
         if include_header:
@@ -66,11 +65,6 @@ class Diagnostics:
             echo.error(error_msg)
         for warning_msg in self.warnings:
             echo.warning(warning_msg)
-
-        if include_plans and self.plan:
-            echo.info("Planned actions:")
-            for item in self.plan:
-                echo.info(f"  - {item}")
 
         if include_info and self.info:
             for topic in ("Project", "System") + tuple(
@@ -108,4 +102,4 @@ def collect_diagnostics(
 
 def report_diagnostics(diagnostics):
     """Print *diagnostics* using the cached echo functions."""
-    diagnostics.report(include_plans=False, include_info=True)
+    diagnostics.report(include_info=True)
