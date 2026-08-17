@@ -60,6 +60,7 @@ def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatc
     assert "image: odoo:19.0" in compose_text
     assert "image: postgres:16" in compose_text
     assert "..:/mnt/extra-addons" in compose_text
+    assert "user: odoo" in compose_text
     assert not (tmp_project / "docker-compose.yml").exists()
     assert not (tmp_project / "Dockerfile").exists()
 
@@ -94,7 +95,9 @@ def test_init_docker_overwrites_existing_osh_compose(tmp_project, monkeypatch):
     result = runner.invoke(main, ["init", "--target", "docker"] + ["19.0"])
 
     assert result.exit_code == 0, result.output
-    assert "image: odoo:19.0" in existing.read_text()
+    compose_text = existing.read_text()
+    assert "image: odoo:19.0" in compose_text
+    assert "user: odoo" in compose_text
     assert (
         "compose_file = '.osh/docker-compose.yml'"
         in (tmp_project / ".osh" / "docker.toml").read_text()
@@ -112,14 +115,36 @@ def test_init_docker_updates_compose_for_a_different_version(tmp_project, monkey
     )
     assert result.exit_code == 0, result.output
     compose = tmp_project / ".osh" / "docker-compose.yml"
-    assert "image: odoo:19.0" in compose.read_text()
+    compose_text = compose.read_text()
+    assert "image: odoo:19.0" in compose_text
+    assert "user: odoo" in compose_text
 
     result = runner.invoke(
         main, ["init", "--target", "docker"] + ["20.0", "--service", "odoo"]
     )
     assert result.exit_code == 0, result.output
-    assert "image: odoo:20.0" in compose.read_text()
+    compose_text = compose.read_text()
+    assert "image: odoo:20.0" in compose_text
+    assert "user: odoo" in compose_text
     assert "version = '20.0'" in (tmp_project / ".osh" / "docker.toml").read_text()
+
+
+def test_init_docker_includes_permission_fix(tmp_project, monkeypatch):
+    """The generated compose file includes the user directive to run as odoo."""
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["init", "--target", "docker"] + ["19.0", "--service", "odoo"]
+    )
+
+    assert result.exit_code == 0, result.output
+    compose_file = tmp_project / ".osh" / "docker-compose.yml"
+    compose_text = compose_file.read_text()
+
+    # Check that the service runs as the odoo user
+    assert "user: odoo" in compose_text
 
 
 def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
