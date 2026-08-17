@@ -145,8 +145,8 @@ def get_available_python_versions():
 def resolve_python_for_odoo(version):
     """Resolve a Python interpreter for the requested Odoo branch.
 
-    Prefers the running interpreter when it is a supported version, then the
-    recommended version, then any other supported version. Returns a dict with
+    Prefers the recommended version, then the running interpreter when it is a
+    supported version, then any other supported version. Returns a dict with
     keys:
 
     - ``exe``: ``Path`` of the selected interpreter.
@@ -173,9 +173,9 @@ def resolve_python_for_odoo(version):
     recommended = requirements["recommended"]
     supported = requirements["supported"]
 
-    preferred = [current_version] if current_version in supported else []
-    if recommended not in preferred:
-        preferred.append(recommended)
+    preferred = [recommended]
+    if current_version in supported and current_version not in preferred:
+        preferred.append(current_version)
     for v in supported:
         if v not in preferred:
             preferred.append(v)

@@ -448,6 +448,18 @@ class TestInitCommand:
             lambda *args, **kwargs: (1, "", ""),
         )
 
+        # Force the use of the running interpreter so venv.create is used.
+        current_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        monkeypatch.setattr(
+            "osh.plugins.osh_backend_local.utils.resolve_python_for_odoo",
+            lambda version: {
+                "exe": Path(sys.executable),
+                "version": current_version,
+                "recommended": "3.12",
+                "supported": ["3.12"],
+            },
+        )
+
         runner = CliRunner()
         result = runner.invoke(
             main,
