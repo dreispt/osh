@@ -182,14 +182,24 @@ def _setup_environment(
 def _pip_install(pip_exe, *args):
     """Run pip with *args* and report failures; return True on success."""
     command = [str(pip_exe), *args]
-    returncode, _, _ = run_subprocess(command)
+    returncode, stdout, stderr = run_subprocess(command)
     if returncode is None or returncode != 0:
         command_str = " ".join(shlex.quote(str(arg)) for arg in command)
         status = "not found" if returncode is None else returncode
-        echo.warning(
+        output = "\n".join(
+            part for part in [stdout or "", stderr or ""] if part
+        ).strip()
+        tail = ""
+        if output:
+            lines = output.splitlines()
+            tail = "\n".join(lines[-40:]) if len(lines) > 40 else output
+        message = (
             f"pip install failed (exit status {status}).\n\n"
             f"You can retry the command manually:\n\n  {command_str}\n"
         )
+        if tail:
+            message += f"\nOutput (last 40 lines):\n{tail}\n"
+        echo.warning(message)
         return False
     return True
 
