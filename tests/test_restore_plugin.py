@@ -22,6 +22,7 @@ def patched_restore(monkeypatch, in_project):
     state = {
         "restore": [],
         "neutralize": [],
+        "sql_neutralize": [],
         "dropped": [],
         "created": [],
         "db_exists": False,
@@ -45,6 +46,22 @@ def patched_restore(monkeypatch, in_project):
         lambda base, dump_path, db_name, *, dry_run=False: state["restore"].append(
             (dump_path, db_name, dry_run)
         ),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.get_database_version",
+        lambda base, db: (19, 0),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.find_odoo_executable",
+        lambda base: str(in_project / ".venv" / "bin" / "odoo"),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.get_version_tuple",
+        lambda exe: (19, 0),
+    )
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd._neutralize_with_sql",
+        lambda base, db: state["sql_neutralize"].append(db),
     )
     monkeypatch.setattr(
         "osh.commands.restore_cmd.odoo",
@@ -383,3 +400,24 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
 
     # Should use restore_zip because content detection identified ZIP format
     assert "restore_zip" in restore_calls
+
+
+def test_restore_older_db_uses_sql_fallback(patched_restore, in_project, monkeypatch):
+    """Restoring a 14.0 dump into a 19.0 project falls back to SQL neutralization."""
+    monkeypatch.setattr(
+        "osh.commands.restore_cmd.get_database_version",
+        lambda base, db: (14, 0),
+    )
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    runner = CliRunner()
+    result = runner.invoke(restore, [str(dump)])
+
+    assert result.exit_code == 0, result.output
+    assert patched_restore["sql_neutralize"] == ["testdb"]
+    assert patched_restore["neutralize"] == []
+    assert "using SQL fallback" in result.output

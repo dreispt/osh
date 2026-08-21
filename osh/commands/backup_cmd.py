@@ -208,6 +208,15 @@ def backup(
         # Use detected format as the source of truth
         format_to_store = detected_format if detected_format else parsed.original_format
 
+        # Keep cached filenames consistent with the actual content so `osh restore`
+        # and directory listings are not misleading (e.g. a .sql file that is
+        # actually a compressed pg_dump).
+        if detected_format:
+            final_path = output_path.with_suffix(f".{detected_format}")
+            if final_path != output_path:
+                output_path.rename(final_path)
+                output_path = final_path
+
         write_metadata(
             output_path,
             source=source,

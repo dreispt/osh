@@ -208,6 +208,32 @@ def resolve_test_db_name(base, current_db, test_db):
     return sanitize_db_name(f"{base.name}-{branch}-test")
 
 
+def get_database_version(base, db_name):
+    """Return the installed Odoo version of *db_name* as a (major, minor) tuple.
+
+    This reads the ``latest_version`` of the ``base`` module, which tracks the
+    Odoo version used when the database was installed/last updated.
+    """
+    conn_args, env = get_pg_credentials(base)
+    psql_args = [
+        "psql",
+        "-d",
+        db_name,
+        "-t",
+        "-A",
+        "-c",
+        "SELECT latest_version FROM ir_module_module WHERE name = 'base'",
+        *conn_args,
+    ]
+    returncode, stdout, _ = run_subprocess(psql_args, env=env)
+    if returncode != 0 or not stdout:
+        return None
+    match = re.search(r"(\d+)\.(\d+)", stdout.strip().splitlines()[0])
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)))
+
+
 _MIN_NEUTRALIZE_VERSION = (16, 0)
 
 

@@ -1,7 +1,7 @@
 """`osh restore` command implementation."""
 
+import importlib.resources
 import os
-import re
 import shutil
 import tempfile
 import zipfile
@@ -22,15 +22,17 @@ from ..db import (
     create_db,
     db_exists,
     drop_db,
+    get_database_version,
     get_pg_credentials,
-    get_project_config,
     resolve_db_name,
     resolve_run_target,
     run_psql_script,
     sanitize_db_name,
 )
 from ..utils.cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
+from ..utils.odoo_layout import find_odoo_executable
 from ..utils.plugin_loader import load_backends
+from ..utils.version import get_version_tuple
 from .env_cmd import prepare_env_context
 from .helpers import collect_diagnostics
 from .odoo_cmd import odoo
@@ -200,38 +202,85 @@ def restore(
     if not no_neutralize:
         _neutralize(ctx, base, db_name, backend_name, dry_run=dry_run)
 
-    if dry_run:
-        echo.info(f"Would restore '{db_name}' from {dump_path}", err=True)
-    else:
-        echo.info(f"Restored database '{db_name}' from {dump_path}", err=True)
+    if not dry_run:
+        if no_neutralize:
+            echo.info(
+                f"Restored database '{db_name}' from {dump_path} "
+                "(neutralization skipped)",
+                err=True,
+            )
+        else:
+            echo.info(
+                f"Restored and neutralized database '{db_name}' from {dump_path}",
+                err=True,
+            )
 
 
 def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
-    """Neutralize the restored database using Odoo's command and/or project SQL scripts."""
-    version = get_project_config(base, "init", "version", fallback=None)
-    major = _major_version_from_string(version)
+    """Neutralize the restored database using Odoo's command and/or SQL scripts.
 
-    # For Odoo >= 16.0 (or unknown versions) try the built-in neutralize subcommand.
-    if major is None or major >= 16:
+    The neutralization method is chosen from the *database* version, not the
+    *local* Odoo version. This lets a user restore an older dump (e.g. 14.0)
+    into a newer project (e.g. 19.0) without the built-in ``odoo-bin neutralize``
+    failing on missing tables/columns.
+    """
+    if dry_run:
+        # The database does not exist in dry-run mode, so just preview the
+        # built-in neutralize command. The real method is decided after restore.
         ctx.invoke(
             odoo,
-            dry_run=dry_run,
+            dry_run=True,
             backend_name=backend_name,
             compose_file=None,
             no_db_filter=True,
             skip_config=False,
             extra_args=("neutralize", "-d", db_name),
         )
+        _run_project_neutralize_scripts(base, db_name, dry_run=True)
+        return
+
+    db_version = get_database_version(base, db_name)
+    exe = find_odoo_executable(base)
+    local_version = get_version_tuple(exe) if exe else None
+
+    use_odoo = (
+        db_version is not None
+        and db_version >= (16, 0)
+        and local_version is not None
+        and db_version == local_version
+    )
+
+    if use_odoo:
+        ctx.invoke(
+            odoo,
+            dry_run=False,
+            backend_name=backend_name,
+            compose_file=None,
+            no_db_filter=True,
+            skip_config=False,
+            extra_args=("neutralize", "-d", db_name),
+        )
+    else:
+        if db_version is None:
+            echo.warning(
+                f"Could not determine database version for '{db_name}'; "
+                "using SQL fallback neutralization."
+            )
+        elif local_version is not None and db_version != local_version:
+            echo.warning(
+                f"Database is {db_version[0]}.{db_version[1]}, local Odoo is "
+                f"{local_version[0]}.{local_version[1]}; using SQL fallback "
+                "neutralization."
+            )
+        _neutralize_with_sql(base, db_name)
 
     _run_project_neutralize_scripts(base, db_name, dry_run=dry_run)
 
 
-def _major_version_from_string(version):
-    """Return the first integer in *version*, or None if not found."""
-    if not version:
-        return None
-    match = re.search(r"(\d+)", str(version))
-    return int(match.group(1)) if match else None
+def _neutralize_with_sql(base, db_name):
+    """Run the bundled SQL fallback neutralization script."""
+    with importlib.resources.path("osh.data", "neutralize_fallback.sql") as script_path:
+        run_psql_script(base, db_name, script_path)
 
 
 def _run_project_neutralize_scripts(base, db_name, *, dry_run=False):
@@ -340,19 +389,20 @@ def _restore_dump(base, dump_path, target_db, *, dry_run=False):
                     f"Could not determine backup format from file: {dump_path}"
                 )
 
-    echo.info(
-        f"Restoring database '{target_db}' from {dump_path} (format: {backup_format})",
-        err=True,
-    )
-
     conn_args, env = get_pg_credentials(base)
 
     if dry_run:
         echo.info(
-            f"Would restore database '{target_db}' from {dump_path}",
+            f"Would restore database '{target_db}' from {dump_path} "
+            f"(format: {backup_format})",
             err=True,
         )
         return
+
+    echo.info(
+        f"Restoring database '{target_db}' from {dump_path} (format: {backup_format})",
+        err=True,
+    )
 
     if backup_format == "dump":
         ensure_tool("pg_restore")

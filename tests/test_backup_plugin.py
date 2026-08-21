@@ -75,10 +75,10 @@ def test_download_https_posts_payload(in_project, monkeypatch):
     requests = []
 
     class FakeResponse:
-        headers = {"Content-Length": "11"}
+        headers = {"Content-Length": "15"}
 
         def __init__(self):
-            self._data = b"zip content"
+            self._data = b"PK\x03\x04zip content"
 
         def read(self, size=-1):
             data, self._data = self._data, b""
@@ -117,7 +117,7 @@ def test_download_https_posts_payload(in_project, monkeypatch):
 
     cache_dir = in_project / ".osh" / "backups"
     zip_file = next(cache_dir.glob("*.zip"))
-    assert zip_file.read_bytes() == b"zip content"
+    assert zip_file.read_bytes() == b"PK\x03\x04zip content"
 
 
 def test_download_odoosh_dry_run(in_project):
