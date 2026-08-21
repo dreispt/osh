@@ -7,6 +7,7 @@ with the root click group in `cli.py`.
 from . import (
     backup_cmd,
     config_cmd,
+    db_cmd,
     doctor_cmd,
     env_cmd,
     init_cmd,
@@ -24,6 +25,7 @@ COMMANDS = [
     restore_cmd.restore,
     backup_cmd.backup,
     config_cmd.config,
+    db_cmd.db,
     plug_cmd.plug,
     version_cmd.version,
 ]

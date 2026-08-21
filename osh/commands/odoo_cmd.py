@@ -139,9 +139,6 @@ def odoo(
 
     explicit_db = _parse_explicit_db(extra_args)
     db_name = explicit_db or diagnostics.info.get("Project", {}).get("dbname")
-    if db_name and not dry_run:
-        branch = diagnostics.info.get("Project", {}).get("git_branch", "default")
-        set_project_config(base, "db", values={branch: db_name, "last": db_name})
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")

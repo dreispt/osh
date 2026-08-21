@@ -74,6 +74,7 @@ Run `osh <command> --help` for detailed options and examples.
 - `osh odoo` — run Odoo with automatic addons-path, database and dbfilter.
 - `osh doctor` — check the project setup and report diagnostics.
 - `osh config` — manage branch/database mappings and preferences.
+- `osh db` — show, pin and unpin branch-to-database mappings.
 - `osh plug` — install, list and remove plugins from git repositories.
 - `osh backup <source>` — download or dump a backup into `.osh/backups/`.
 - `osh restore [<dump>]` — restore and neutralize a backup.
@@ -93,18 +94,38 @@ osh test --all
 
 ### Database name
 
-`osh odoo` tracks the database to use for each git branch in `.osh/config`.
-The first time you run `osh odoo` on a branch, it asks for a database name:
+`osh` resolves the database to use for the current git branch from `.osh/config.toml`.
+By default each branch gets its own generated `<project>-<branch>` database, so
+switching branches never accidentally reuses another branch's database.
 
-- If the branch has already been configured, it uses that database.
-- If a previous database exists, it suggests that one and asks for confirmation.
-- Otherwise it suggests a generated name and asks you to confirm or edit it.
+Branches are matched in this order:
 
-You can also set the database manually with `osh config db`.
+1. Exact branch name in `[db]` (e.g. `main`).
+2. Longest matching glob pattern in `[db]` (e.g. `feature/*`).
+3. The special `default` key.
+4. Generated `<project>-<branch>` if nothing is configured.
 
-The generated suggestion is based on the project directory name and the git branch
-(or short commit hash in detached `HEAD` state). Special characters are sanitized
-to keep the name safe for PostgreSQL and for Odoo's `--db-filter`.
+Use `osh db` or `osh config db` to manage mappings:
+
+```bash
+osh db pin myproject-main --branch main
+osh db pin myproject-staging --branch staging
+osh db pin auto --branch "feature/*"   # generated name for every feature branch
+osh db show
+osh db unpin --branch feature/old-thing
+```
+
+`osh config db` works the same way:
+
+```bash
+osh config db myproject-dev --branch main
+osh config db auto --branch "feature/*"
+```
+
+Use `auto` for a mapping value to mean the generated default. The generated name
+is based on the project directory name and the git branch (or `default` in
+detached `HEAD` state). Special characters are sanitized to keep the name safe
+for PostgreSQL and for Odoo's `--db-filter`.
 
 ### Addons path discovery
 

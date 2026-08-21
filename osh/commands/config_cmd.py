@@ -8,9 +8,9 @@ from ..config import get_project_config_path, save_user_preference
 from ..db import (
     get_current_branch,
     load_osh_config,
-    sanitize_db_name,
     save_osh_config,
     set_project_config,
+    validate_db_name,
 )
 
 
@@ -26,43 +26,35 @@ def config(ctx):  # noqa: D401
     "--branch",
     help="Branch to associate the database with (defaults to current branch).",
 )
-@click.option(
-    "--default",
-    "set_default",
-    is_flag=True,
-    help="Also set this database as the default/last used.",
-)
 @click.pass_context
 def db(
     ctx,
     db_name,
     branch,
-    set_default,
 ):  # noqa: D401
-    """Set the preferred database for a branch.
+    """Set the preferred database for a branch or pattern.
 
     By default the current git branch is used. Use --branch to target another
-    branch. Use --default to also store this database as the last used default.
+    branch or a glob pattern (e.g. ``feature/*``). Set DB_NAME to ``auto`` to
+    use the generated ``<project>-<branch>`` name.
+
+    For a friendlier interface, prefer ``osh db pin``.
 
     Examples:
 
     \b
       osh config db myproject-dev
       osh config db myproject-dev --branch main
-      osh config db myproject-dev --default
+      osh config db auto --branch fix/123
+      osh config db auto --branch "feature/*"
     """
 
     base = find_project_root(required=True)
     if branch is None:
         branch = get_current_branch(base) or "default"
 
-    db_name = sanitize_db_name(db_name)
-    if not db_name:
-        raise click.ClickException("A database name is required.")
-
+    db_name = validate_db_name(db_name)
     set_project_config(base, "db", branch, db_name)
-    if set_default:
-        set_project_config(base, "db", "last", db_name)
 
     echo.info(f"Set database for branch '{branch}' to '{db_name}'")
 

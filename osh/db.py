@@ -5,6 +5,7 @@ shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 """
 
 import configparser
+import fnmatch
 import importlib.resources
 import os
 import re
@@ -22,6 +23,13 @@ from .common import (
 from .utils.odoo_layout import build_addons_paths
 from .utils.version import get_version_tuple
 
+AUTO_DB = "auto"
+
+
+def is_auto_db_value(value):
+    """Return True if *value* is the ``auto`` marker for a generated name."""
+    return isinstance(value, str) and value.strip().lower() == AUTO_DB
+
 
 def sanitize_db_name(name):
     """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
@@ -29,6 +37,26 @@ def sanitize_db_name(name):
     name = re.sub(r"[^a-z0-9_]+", "-", name)
     name = name.strip("-")
     return name or "db"
+
+
+def validate_db_name(name):
+    """Return *name* stripped, warning when it is not a safe database name.
+
+    User-provided names are stored as given so that existing databases with
+    unusual names remain reachable. A warning is emitted when the name is not
+    what ``sanitize_db_name`` would produce, since Odoo's ``--db-filter`` and
+    PostgreSQL may not handle it well.
+    """
+    name = (name or "").strip()
+    if not name:
+        raise click.ClickException("A database name is required.")
+    safe = sanitize_db_name(name)
+    if safe != name:
+        echo.warning(
+            f"'{name}' may not be safe for PostgreSQL or --db-filter; "
+            f"a safe equivalent would be '{safe}'."
+        )
+    return name
 
 
 def load_osh_config(base):
@@ -56,6 +84,11 @@ def set_project_config(
 ):
     """Set one or more values in ``.osh/config``, creating the section if absent."""
     _config.set_project_config(base, section, option, value, values=values)
+
+
+def unset_project_config(base, section, option):
+    """Remove *option* from *section* in ``.osh/config`` if it exists."""
+    _config.unset_project_config(base, section, option)
 
 
 def resolve_run_target(base, default_target, ctx):
@@ -169,25 +202,73 @@ def run_psql_script(base, db_name, script_path):
         )
 
 
-def resolve_db_name(base, verbose=False):
+def resolve_db_name(base, verbose=False, branch=None):
     """Resolve the database name for the current context.
 
-    Returns the configured database for the current branch, or the last used
-    database, or a sanitized ``<project>-<branch>`` default so runs on both
-    local and Docker targets consistently use the branch name.
+    Returns the configured database for the current branch, a database matching
+    a glob pattern, the configured default, or a generated ``<project>-<branch>``
+    name. There is no global "last used" fallback.
     """
-    branch = get_current_branch(base) or "default"
-    db_name = get_project_config(base, "db", branch)
-    if db_name:
-        return db_name
+    if branch is None:
+        branch = get_current_branch(base) or "default"
+    db_name = _resolve_config_db_name(base, branch)
+    if db_name is None:
+        db_name = _branch_db_name(base, branch)
+    if verbose:
+        echo.info(f"Using database: {db_name}", err=True)
+    return db_name
 
-    # Fall back to last used database
-    last_db = get_project_config(base, "db", "last")
-    if last_db:
-        if verbose:
-            echo.info(f"Using last database: {last_db}", err=True)
-        return last_db
 
+def _resolve_config_db_name(base, branch):
+    """Return the configured database for *branch*, or None if unconfigured.
+
+    Values are returned as stored so that hand-written names keep working; only
+    the ``auto`` marker is expanded to the generated ``<project>-<branch>`` name.
+    """
+    cfg = load_osh_config(base)
+    if not cfg.has_section("db"):
+        return None
+
+    entry = _find_db_entry(cfg, branch)
+    if entry is None:
+        return None
+
+    key, value = entry
+    if is_auto_db_value(value):
+        return _branch_db_name(base, branch)
+    if not isinstance(value, str) or not value.strip():
+        raise click.ClickException(
+            f"Invalid database name for '{key}' in the [db] section of "
+            f".osh/config.toml: {value!r}. Use a database name or '{AUTO_DB}'."
+        )
+    return value.strip()
+
+
+def _find_db_entry(cfg, branch):
+    """Return the ``(key, value)`` mapping in ``[db]`` that applies to *branch*.
+
+    Priority: exact branch name, then the longest matching glob pattern, then
+    the ``default`` key. Returns None when nothing matches.
+    """
+    if cfg.has_option("db", branch):
+        return branch, cfg.get("db", branch)
+
+    matches = [
+        (key, value)
+        for key, value in cfg.items("db")
+        if key != "default" and fnmatch.fnmatchcase(branch, key)
+    ]
+    if matches:
+        return max(matches, key=lambda item: len(item[0]))
+
+    if cfg.has_option("db", "default"):
+        return "default", cfg.get("db", "default")
+
+    return None
+
+
+def _branch_db_name(base, branch):
+    """Return the auto-generated database name for a git branch."""
     return sanitize_db_name(f"{base.name}-{branch}")
 
 
