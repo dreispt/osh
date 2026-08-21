@@ -5,12 +5,12 @@ import click
 from .. import echo
 from ..common import find_project_root
 from ..db import (
+    _require_db_name,
     db_exists,
     get_current_branch,
     resolve_db_name,
     set_project_config,
     unset_project_config,
-    validate_db_name,
 )
 
 
@@ -75,9 +75,8 @@ def pin(ctx, db_name, branch):  # noqa: D401
     ``feature/*``. Use ``auto`` for DB_NAME to let the branch use the generated
     ``<project>-<branch>`` database name.
 
-    The name is stored as given, so existing databases with unusual names stay
-    reachable. A warning is shown when the name may not be safe for PostgreSQL
-    or Odoo's ``--db-filter``.
+    The name is sanitized before it is stored to keep it safe for PostgreSQL
+    and Odoo's ``--db-filter``.
 
     Examples:
 
@@ -85,13 +84,12 @@ def pin(ctx, db_name, branch):  # noqa: D401
       osh db pin myproject-main
       osh db pin myproject-shared --branch staging
       osh db pin auto --branch "feature/*"
-      osh config db myproject-dev --branch main
     """
     base = find_project_root(required=True)
     if branch is None:
         branch = get_current_branch(base) or "default"
 
-    value = validate_db_name(db_name)
+    value = _require_db_name(db_name)
     set_project_config(base, "db", branch, value)
     echo.info(f"Pinned branch '{branch}' to database '{value}'")
 

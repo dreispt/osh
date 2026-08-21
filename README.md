@@ -105,7 +105,7 @@ Branches are matched in this order:
 3. The special `default` key.
 4. Generated `<project>-<branch>` if nothing is configured.
 
-Use `osh db` or `osh config db` to manage mappings:
+Use `osh db` to manage mappings:
 
 ```bash
 osh db pin myproject-main --branch main
@@ -113,13 +113,6 @@ osh db pin myproject-staging --branch staging
 osh db pin auto --branch "feature/*"   # generated name for every feature branch
 osh db show
 osh db unpin --branch feature/old-thing
-```
-
-`osh config db` works the same way:
-
-```bash
-osh config db myproject-dev --branch main
-osh config db auto --branch "feature/*"
 ```
 
 Use `auto` for a mapping value to mean the generated default. The generated name
