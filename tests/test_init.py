@@ -652,6 +652,19 @@ class TestInitEdition:
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
+    def test_cli_flag_overrides_env_var_edition(self, tmp_project, monkeypatch):
+        """An explicit edition alias wins over OSH_INIT_EDITION."""
+        self._make_local_sources(tmp_project)
+        real_git_only_subprocess(monkeypatch)
+
+        runner = CliRunner(env={"OSH_INIT_EDITION": "sh"})
+        result = runner.invoke(main, ["init", "19.0", "--ce", str(tmp_project)])
+
+        assert result.exit_code == 0
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert not (tmp_project / ".osh" / "enterprise").exists()
+        assert not (tmp_project / ".osh" / "design-themes").exists()
+
     def test_user_config_sets_default_edition(self, tmp_project, monkeypatch):
         """~/.config/osh/config.toml sets the default edition."""
         self._make_local_sources(tmp_project)
