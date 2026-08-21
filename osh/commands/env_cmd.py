@@ -242,12 +242,7 @@ def env(
         args.pop(0)
 
     explicit_db = _parse_explicit_db(args)
-    db_name = explicit_db or diagnostics.info.get("Project", {}).get("dbname")
-    if db_name and not dry_run:
-        branch = diagnostics.info.get("Project", {}).get("git_branch", "default")
-        db_module.set_project_config(
-            base, "db", values={branch: db_name, "last": db_name}
-        )
+    db_name = explicit_db
 
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,

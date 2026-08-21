@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import os
 import sys
 from pathlib import Path
 
@@ -177,9 +178,9 @@ class TodoPlan:
     "--edition",
     type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
     default=None,
-    envvar="OSH_INIT_EDITION",
     help="Edition to initialize: ce (Community), ee (Enterprise), "
-    "sh (Odoo.sh with Enterprise + design-themes).",
+    "sh (Odoo.sh with Enterprise + design-themes). "
+    "Defaults to $OSH_INIT_EDITION, then the saved configuration.",
 )
 @click.option(
     "--ce",
@@ -276,9 +277,7 @@ def init(
                 raise click.ClickException("Aborted.")
 
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
-        edition = get_project_config(target, "init", "edition") or edition
-        user_cfg = load_user_init_config()
-        edition = user_cfg.get("edition") or edition
+        edition = _default_edition(target) or edition
         if not edition and not dry_run and not assume_yes and sys.stdin.isatty():
             edition = click.prompt(
                 "Edition",
@@ -375,6 +374,21 @@ def init(
             "Warning: project initialisation did not complete successfully.",
             err=True,
         )
+
+
+def _default_edition(target):
+    """Return the default edition from the environment or saved configuration.
+
+    ``OSH_INIT_EDITION`` is read explicitly rather than through Click's
+    ``envvar``: the ``--ce``/``--ee``/``--sh`` aliases share the ``edition``
+    parameter with ``--edition`` and are parsed last, so they would overwrite
+    an environment-provided value with their own empty default.
+    """
+    return (
+        os.environ.get("OSH_INIT_EDITION")
+        or load_user_init_config().get("edition")
+        or get_project_config(target, "init", "edition")
+    )
 
 
 # Register target-specific options from all backends so Click can parse them.

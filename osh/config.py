@@ -195,6 +195,11 @@ class ConfigStore:
         """Set *option* in *section* to *value*."""
         self._ensure_section(section)[option] = value
 
+    def remove(self, section, option):
+        """Remove *option* from *section* if it exists."""
+        if self.has_option(section, option):
+            del self._data[section][option]
+
     def items(self, section):
         """Return ``(key, value)`` pairs for *section*."""
         if not self.has_section(section):
@@ -294,6 +299,15 @@ def set_project_config(base, section, option=None, value=None, *, values=None):
     if values is not None:
         for opt, val in values.items():
             cfg.set(section, opt, val)
+    save_project_config(base, cfg)
+
+
+def unset_project_config(base, section, option):
+    """Remove *option* from *section* in ``.osh/config.toml`` if it exists."""
+    cfg = load_project_config(base)
+    if not cfg.has_option(section, option):
+        return
+    cfg.remove(section, option)
     save_project_config(base, cfg)
 
 
