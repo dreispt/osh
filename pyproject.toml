@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "AGPL-3.0-only"}
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 keywords = ["odoo", "cli", "shell", "development"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -17,8 +17,6 @@ classifiers = [
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

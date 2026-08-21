@@ -1,5 +1,7 @@
 """`osh init` command implementation."""
 
+from __future__ import annotations
+
 import configparser
 import sys
 from pathlib import Path
