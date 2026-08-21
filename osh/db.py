@@ -33,30 +33,17 @@ def is_auto_db_value(value):
 
 def sanitize_db_name(name):
     """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
-    name = name.lower()
+    name = (name or "").strip().lower()
     name = re.sub(r"[^a-z0-9_]+", "-", name)
     name = name.strip("-")
     return name or "db"
 
 
-def validate_db_name(name):
-    """Return *name* stripped, warning when it is not a safe database name.
-
-    User-provided names are stored as given so that existing databases with
-    unusual names remain reachable. A warning is emitted when the name is not
-    what ``sanitize_db_name`` would produce, since Odoo's ``--db-filter`` and
-    PostgreSQL may not handle it well.
-    """
-    name = (name or "").strip()
-    if not name:
+def _require_db_name(name):
+    """Return a sanitized database name or raise if one is not given."""
+    if not name or not str(name).strip():
         raise click.ClickException("A database name is required.")
-    safe = sanitize_db_name(name)
-    if safe != name:
-        echo.warning(
-            f"'{name}' may not be safe for PostgreSQL or --db-filter; "
-            f"a safe equivalent would be '{safe}'."
-        )
-    return name
+    return sanitize_db_name(name)
 
 
 def load_osh_config(base):
@@ -222,8 +209,9 @@ def resolve_db_name(base, verbose=False, branch=None):
 def _resolve_config_db_name(base, branch):
     """Return the configured database for *branch*, or None if unconfigured.
 
-    Values are returned as stored so that hand-written names keep working; only
-    the ``auto`` marker is expanded to the generated ``<project>-<branch>`` name.
+    The ``auto`` marker expands to the generated ``<project>-<branch>`` name.
+    Explicit values are sanitized to keep the resolved name safe for PostgreSQL
+    and Odoo's ``--db-filter``.
     """
     cfg = load_osh_config(base)
     if not cfg.has_section("db"):
@@ -241,7 +229,7 @@ def _resolve_config_db_name(base, branch):
             f"Invalid database name for '{key}' in the [db] section of "
             f".osh/config.toml: {value!r}. Use a database name or '{AUTO_DB}'."
         )
-    return value.strip()
+    return sanitize_db_name(value)
 
 
 def _find_db_entry(cfg, branch):
