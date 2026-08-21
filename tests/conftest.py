@@ -99,7 +99,7 @@ def subprocess_check_call_capture(monkeypatch):
     calls = []
 
     def fake_check_call(cmd, *args, **kwargs):
-        calls.append(list(cmd) if isinstance(cmd, (list, tuple)) else [cmd])
+        calls.append(list(cmd) if isinstance(cmd, list | tuple) else [cmd])
         return 0
 
     monkeypatch.setattr(subprocess, "check_call", fake_check_call)
@@ -125,23 +125,23 @@ def real_git_only_subprocess(monkeypatch):
     calls = []
 
     def _name(cmd):
-        if isinstance(cmd, (list, tuple)):
+        if isinstance(cmd, list | tuple):
             return Path(str(cmd[0])).name
         return Path(str(cmd)).name
 
     def fake_run_subprocess(args, **kwargs):
-        cmd = args[0] if isinstance(args, (list, tuple)) else args
+        cmd = args[0] if isinstance(args, list | tuple) else args
         kwargs.pop("error_msg", None)
         kwargs.pop("dry_run", None)
         kwargs.pop("stdout", None)
         kwargs.pop("stderr", None)
 
-        if isinstance(args, (list, tuple)):
+        if isinstance(args, list | tuple):
             calls.append(list(args))
         else:
             calls.append([args])
 
-        if isinstance(cmd, (list, tuple)) and "git" in cmd:
+        if isinstance(cmd, list | tuple) and "git" in cmd:
             result = subprocess.run(
                 args,
                 capture_output=True,
