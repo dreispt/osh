@@ -26,34 +26,37 @@ def test_env_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
     venv_bin.mkdir(parents=True, exist_ok=True)
     (venv_bin / "odoo").write_text("#!/bin/sh\necho odoo")
     (venv_bin / "odoo").chmod(0o755)
+    # The fake .odoorc credentials are under test here, so the real
+    # database-existence probe (which would use them) is stubbed out.
     (tmp_project / ".odoorc").write_text(
         "[options]\ndb_host = localhost\ndb_port = 5432\ndb_user = odoo\n"
     )
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
 
     monkeypatch.chdir(tmp_project)
     monkeypatch.setenv("SHELL", "/bin/zsh")
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvp",
-        lambda exe, args: calls.append((exe, list(args))),
+        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
     runner = CliRunner()
     result = runner.invoke(env, [])
 
     assert result.exit_code == 0, result.output
-    assert calls == [("/bin/zsh", ["/bin/zsh"])]
-    assert os.environ["VIRTUAL_ENV"] == str(tmp_project / ".venv")
-    assert os.environ["PATH"].startswith(str(venv_bin) + os.pathsep)
-    assert "ODOO_RC" in os.environ
-    assert os.environ.get("PGHOST") == "localhost"
-    assert os.environ.get("PGPORT") == "5432"
-    assert os.environ.get("PGUSER") == "odoo"
+    exe, args, exec_env = calls[0]
+    assert (exe, args) == ("/bin/zsh", ["/bin/zsh"])
+    assert exec_env["VIRTUAL_ENV"] == str(tmp_project / ".venv")
+    assert exec_env["PATH"].startswith(str(venv_bin) + os.pathsep)
+    assert "ODOO_RC" in exec_env
+    assert exec_env.get("PGHOST") == "localhost"
+    assert exec_env.get("PGPORT") == "5432"
+    assert exec_env.get("PGUSER") == "odoo"
 
 
-def test_env_runs_command_in_environment(tmp_project, monkeypatch):
+def test_env_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
     """``osh env <cmd>`` executes the command with the env active."""
     venv_bin = tmp_project / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
@@ -61,24 +64,24 @@ def test_env_runs_command_in_environment(tmp_project, monkeypatch):
     (venv_bin / "psql").chmod(0o755)
 
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvp",
-        lambda exe, args: calls.append((exe, list(args))),
+        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
     runner = CliRunner()
-    result = runner.invoke(env, ["psql", "-c", "SELECT 1"])
+    result = runner.invoke(env, ["psql", "-l"])
 
     assert result.exit_code == 0, result.output
-    assert calls == [("psql", ["psql", "-c", "SELECT 1"])]
-    assert os.environ["VIRTUAL_ENV"] == str(tmp_project / ".venv")
-    assert "ODOO_RC" in os.environ
+    exe, args, exec_env = calls[0]
+    assert (exe, args) == ("psql", ["psql", "-l"])
+    assert exec_env["VIRTUAL_ENV"] == str(tmp_project / ".venv")
+    assert "ODOO_RC" in exec_env
 
 
-def test_env_generates_dynamic_odoo_config(tmp_project, monkeypatch):
+def test_env_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch):
     """``osh env`` creates a branch/db specific config in ``.osh/cache/env``."""
     _setup_venv(tmp_project)
     osh_dir = tmp_project / ".osh"
@@ -86,31 +89,29 @@ def test_env_generates_dynamic_odoo_config(tmp_project, monkeypatch):
     (osh_dir / "odoo.conf").write_text("[options]\nlimit_time_cpu = 0\n")
 
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvp",
-        lambda exe, args: None,
+        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        lambda exe, args, env: None,
     )
 
     runner = CliRunner()
     result = runner.invoke(env, ["odoo-bin", "--version"])
 
     assert result.exit_code == 0, result.output
-    conf = tmp_project / ".osh" / "cache" / "env" / "default-project-default.conf"
+    conf = tmp_project / ".osh" / "cache" / "env" / f"default-{branch_db}.conf"
     assert conf.exists()
     text = conf.read_text()
     assert "limit_time_cpu = 0" in text
     assert "addons_path" in text
-    assert "db_name = project-default" in text
-    assert "dbfilter = ^project-default$" in text
+    assert f"db_name = {branch_db}" in text
+    assert f"dbfilter = ^{branch_db}$" in text
 
 
-def test_env_dry_run_writes_config(tmp_project, monkeypatch):
+def test_env_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
     """``osh env --dry-run`` writes the generated config so it can be inspected."""
     _setup_venv(tmp_project)
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
 
     runner = CliRunner()
     result = runner.invoke(env, ["--dry-run"])
@@ -126,12 +127,11 @@ def test_env_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     """An explicit ``--config`` argument disables the generated config."""
     _setup_venv(tmp_project)
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvp",
-        lambda exe, args: calls.append((exe, list(args))),
+        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args))),
     )
 
     runner = CliRunner()
@@ -142,7 +142,7 @@ def test_env_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     assert calls[0][1] == ["odoo-bin", "--config", "/other/odoo.conf"]
 
 
-def test_env_docker_runs_container_with_env_vars(tmp_project, monkeypatch):
+def test_env_docker_runs_container_with_env_vars(tmp_project, branch_db, monkeypatch):
     """``osh env --target docker`` builds a docker compose invocation with env vars."""
     osh_dir = tmp_project / ".osh"
     docker_toml = osh_dir / "docker.toml"
@@ -204,33 +204,31 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     assert "dbfilter" not in text
 
 
-def test_env_records_last_used_database(tmp_project, monkeypatch):
+def test_env_records_last_used_database(tmp_project, branch_db, monkeypatch):
     """``osh env`` records the resolved database as last used when it runs."""
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
     monkeypatch.setenv("SHELL", "/bin/zsh")
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvp",
-        lambda exe, args: None,
+        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        lambda exe, args, env: None,
     )
 
     runner = CliRunner()
     result = runner.invoke(env, [])
 
     assert result.exit_code == 0, result.output
-    assert get_last_db(tmp_project) == "project-default"
+    assert get_last_db(tmp_project) == branch_db
 
 
-def test_env_dry_run_does_not_record_last_used(tmp_project, monkeypatch):
+def test_env_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeypatch):
     """``osh env --dry-run`` does not touch the last used database record."""
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
 
     runner = CliRunner()
     result = runner.invoke(env, ["--dry-run"])

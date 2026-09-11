@@ -115,7 +115,7 @@ def backup(
       osh backup https://my.odoo.com?db=prod
 
     The downloaded backup is not neutralized. Neutralize after restoring with
-    ``osh restore`` (which neutralizes by default), or on a running database
+    ``osh db restore`` (which neutralizes by default), or on a running database
     with ``osh odoo neutralize -d DB``.
 
     Odoo.sh quick start:
@@ -128,7 +128,7 @@ def backup(
 
     The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
     is optional. Add `--filestore` to also download the filestore over SSH and
-    produce a full `.zip` backup that `osh restore` can restore directly.
+    produce a full `.zip` backup that `osh db restore` can restore directly.
 
     Generic SSH (VPS / disabled dbmanager):
 

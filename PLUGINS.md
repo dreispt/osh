@@ -135,7 +135,7 @@ These are not part of the stable plugin API.
 
 Plugins can extend `osh` in two ways: **commands** and **backends**. Commands are
 Click commands added under `osh <command>`. Backends implement the lifecycle
-interface used by `osh init`, `osh odoo`, `osh restore`, `osh test` and
+interface used by `osh init`, `osh odoo`, `osh db restore`, `osh test` and
 `osh doctor` for a particular execution target (e.g. local virtualenv, Docker).
 
 ### Command plugins
@@ -274,7 +274,7 @@ def get_backup_sources():
 
 ### EnvSpec
 
-`osh odoo`, `osh env` and `osh restore` pass an `EnvSpec` dataclass (from
+`osh odoo`, `osh env` and `osh db restore` pass an `EnvSpec` dataclass (from
 `osh/backends.py`) to `Backend.env()`. It describes a command to execute inside
 the prepared target environment:
 

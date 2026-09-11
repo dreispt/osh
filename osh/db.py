@@ -7,7 +7,6 @@ shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 import configparser
 import fnmatch
 import importlib.resources
-import os
 import re
 import sys
 
@@ -19,6 +18,8 @@ from .common import (
     decode_stderr,
     ensure_tool,
     get_odoo_config_path,
+    get_osh_odoo_config_path,
+    merged_env,
     resolve_config_file,
     run_shell_pipeline,
     run_subprocess,
@@ -117,9 +118,11 @@ def get_pg_credentials(base):
     command and before the database-specific arguments. ``env`` contains
     ``PGPASSWORD`` when a password is configured.
     """
-    odoo_rc = get_odoo_config_path(base)
+    odoo_rc = get_osh_odoo_config_path(base)
+    if not odoo_rc.exists():
+        odoo_rc = get_odoo_config_path(base)
     args = []
-    env = dict(os.environ)
+    env = merged_env()
 
     if not odoo_rc.exists():
         return args, env
@@ -189,7 +192,7 @@ def copy_db(base, from_db, to_db):
     run_shell_pipeline(
         [
             ["pg_dump", "-Fc", *conn_args, from_db],
-            ["pg_restore", "--no-owner", "-d", to_db, *conn_args, "-"],
+            ["pg_restore", "--no-owner", "-d", to_db, *conn_args],
         ],
         env=env,
         text=True,
@@ -309,7 +312,7 @@ def _prompt_for_missing_db(base, branch, db_name, last_db):
     if not db_exists(base, chosen):
         raise click.ClickException(
             f"Database '{chosen}' does not exist. "
-            "Run 'osh db create' or 'osh db copy' first."
+            "Run 'osh db copy' or 'osh db restore' first."
         )
     set_project_config(base, "db", branch, chosen)
     return chosen
@@ -321,11 +324,10 @@ def _raise_missing_db_error(base, branch, db_name, last_db):
         f"Database '{db_name}' does not exist.",
         "Use one of:",
         f"  osh db use <db> --branch {branch}",
-        f"  osh db create {db_name}",
+        f"  osh db copy {last_db or '<from>'} {db_name}",
+        "  osh db restore <backup>",
+        "  osh odoo -d <db>",
     ]
-    if last_db:
-        lines.append(f"  osh db copy {last_db} {db_name}")
-    lines.append("  osh odoo -d <db>")
     raise click.ClickException("\n".join(lines))
 
 

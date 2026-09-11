@@ -1,7 +1,5 @@
 """Tests for ``osh odoo`` command assembly."""
 
-import os
-
 from click.testing import CliRunner
 
 from osh.cli import main
@@ -10,7 +8,7 @@ from osh.commands.odoo_cmd import odoo
 from osh.plugins.osh_backend_docker.backends import DockerBackend
 
 
-def _dynamic_conf_path(tmp_project, branch="default", db="testdb"):
+def _dynamic_conf_path(tmp_project, db, branch="default"):
     return tmp_project / ".osh" / "cache" / "env" / f"{branch}-{db}.conf"
 
 
@@ -19,7 +17,7 @@ def test_odoo_dry_run_prints_command_and_database(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
-    patch_resolve_db_name,
+    test_db,
 ):
     """Dry-run prints the command and writes the generated config to cache."""
     monkeypatch.chdir(tmp_project)
@@ -30,17 +28,17 @@ def test_odoo_dry_run_prints_command_and_database(
     odoo_conf = osh_source_dirs / "odoo.conf"
     assert "Would run:" in result.output
     assert str(fake_odoo_executable) in result.output
-    assert "Using database: testdb" in result.output
+    assert f"Using database: {test_db}" in result.output
     # Dynamic options are stored in the generated config, not on the command line
     assert "--addons-path" not in result.output
-    assert "-d testdb" not in result.output
+    assert f"-d {test_db}" not in result.output
     assert "--db-filter" not in result.output
     assert "--config" not in result.output
     assert "--save" not in result.output
     assert not odoo_conf.exists()
-    dynamic_conf = _dynamic_conf_path(tmp_project)
+    dynamic_conf = _dynamic_conf_path(tmp_project, test_db)
     assert dynamic_conf.exists()
-    assert "db_name = testdb" in dynamic_conf.read_text()
+    assert f"db_name = {test_db}" in dynamic_conf.read_text()
 
 
 def test_odoo_generates_dynamic_config_and_sets_env(
@@ -48,7 +46,7 @@ def test_odoo_generates_dynamic_config_and_sets_env(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
-    patch_resolve_db_name,
+    test_db,
     capture_execvp,
 ):
     """``osh odoo`` creates a branch/db specific config in ``.osh/cache/env``."""
@@ -60,26 +58,26 @@ def test_odoo_generates_dynamic_config_and_sets_env(
     odoo_conf = osh_source_dirs / "odoo.conf"
     assert not odoo_conf.exists()
 
-    dynamic_conf = _dynamic_conf_path(tmp_project)
+    dynamic_conf = _dynamic_conf_path(tmp_project, test_db)
     assert dynamic_conf.exists()
     text = dynamic_conf.read_text()
     assert "addons_path" in text
     assert str(osh_source_dirs / "odoo" / "addons") in text
     assert str(osh_source_dirs / "enterprise") in text
     assert str(osh_source_dirs / "design-themes") in text
-    assert "db_name = testdb" in text
-    assert "dbfilter = ^testdb$" in text
+    assert f"db_name = {test_db}" in text
+    assert f"dbfilter = ^{test_db}$" in text
 
     assert len(capture_execvp) == 1
-    exe, final_args = capture_execvp[0]
+    exe, final_args, exec_env = capture_execvp[0]
     assert exe == str(fake_odoo_executable)
     joined = " ".join(final_args)
     assert "--config" not in joined
-    assert "-d testdb" not in joined
+    assert f"-d {test_db}" not in joined
     assert "--db-filter" not in joined
     assert "--save" not in joined
 
-    assert os.environ.get("ODOO_RC") == str(dynamic_conf)
+    assert exec_env["ODOO_RC"] == str(dynamic_conf)
 
 
 def test_odoo_does_not_overwrite_existing_source_config(
@@ -87,7 +85,7 @@ def test_odoo_does_not_overwrite_existing_source_config(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
-    patch_resolve_db_name,
+    test_db,
     capture_execvp,
 ):
     """An existing ``.osh/odoo.conf`` is copied into the dynamic config, not overwritten."""
@@ -101,7 +99,7 @@ def test_odoo_does_not_overwrite_existing_source_config(
 
     assert result.exit_code == 0
     assert odoo_conf.read_text().startswith("# custom header")
-    dynamic_conf = _dynamic_conf_path(tmp_project)
+    dynamic_conf = _dynamic_conf_path(tmp_project, test_db)
     assert dynamic_conf.exists()
     assert "[options]" in dynamic_conf.read_text()
     assert len(capture_execvp) == 1
@@ -112,7 +110,7 @@ def test_odoo_uses_explicit_config_without_save(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
-    patch_resolve_db_name,
+    test_db,
     capture_execvp,
 ):
     """An explicit --config disables the automatic dynamic config."""
@@ -122,9 +120,9 @@ def test_odoo_uses_explicit_config_without_save(
 
     assert result.exit_code == 0
     assert not (osh_source_dirs / "odoo.conf").exists()
-    assert not _dynamic_conf_path(tmp_project).exists()
+    assert not _dynamic_conf_path(tmp_project, test_db).exists()
     assert len(capture_execvp) == 1
-    _, final_args = capture_execvp[0]
+    _, final_args, _ = capture_execvp[0]
     joined = " ".join(final_args)
     # User provided space format, so it should be preserved
     assert "--config /other/odoo.conf" in joined
@@ -136,7 +134,7 @@ def test_odoo_keeps_explicit_addons_path(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
-    patch_resolve_db_name,
+    test_db,
     capture_execvp,
 ):
     """An explicit --addons-path is kept on the command line."""
@@ -145,9 +143,9 @@ def test_odoo_keeps_explicit_addons_path(
     result = runner.invoke(odoo, ["--", "--addons-path", "/custom/addons"])
 
     assert result.exit_code == 0
-    assert _dynamic_conf_path(tmp_project).exists()
+    assert _dynamic_conf_path(tmp_project, test_db).exists()
     assert len(capture_execvp) == 1
-    _, final_args = capture_execvp[0]
+    _, final_args, _ = capture_execvp[0]
     joined = " ".join(final_args)
     assert "--config" not in joined
     assert "--save" not in joined

@@ -445,6 +445,9 @@ def test_osh_run_docker_uses_branch_database(
     (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
 
     _patch_docker_tools(monkeypatch)
+    # Command assembly only: the generated database name is what is asserted,
+    # so the existence probe is stubbed rather than creating a real database.
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()

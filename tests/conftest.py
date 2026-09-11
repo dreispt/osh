@@ -2,9 +2,23 @@
 
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolated_env(monkeypatch):
+    """Remove Osh-managed variables from the ambient environment.
+
+    A developer's shell may export ``VIRTUAL_ENV`` (running pytest inside a
+    venv) or ``ODOO_RC``; tests build these values fresh, so ambient values
+    are removed to keep results deterministic. ``PG*`` variables are kept:
+    they may be required to reach the test PostgreSQL server.
+    """
+    for var in ("VIRTUAL_ENV", "ODOO_RC"):
+        monkeypatch.delenv(var, raising=False)
 
 
 @pytest.fixture
@@ -45,21 +59,100 @@ def osh_source_dirs(tmp_project):
     return osh_dir
 
 
+def unique_db_name():
+    """Return a database name that cannot collide with real development work."""
+    return f"osh-test-{uuid.uuid4().hex[:16]}"
+
+
 @pytest.fixture
-def patch_resolve_db_name(monkeypatch):
-    """Patch ``osh.db.resolve_db_name`` to return ``testdb``."""
+def pg_db():
+    """Create uniquely-named real PostgreSQL databases, dropped on teardown.
+
+    A local PostgreSQL server is assumed to be available. Names use a random
+    ``osh-test-`` prefix so they can never collide with real databases on a
+    shared development server. Plain ``createdb``/``dropdb``/``psql`` calls are
+    used so project ``.odoorc`` credentials do not affect test databases.
+    """
+    try:
+        probe = subprocess.run(
+            ["psql", "-d", "postgres", "-c", "SELECT 1"], capture_output=True
+        )
+        available = probe.returncode == 0
+    except FileNotFoundError:
+        available = False
+    if not available:
+        pytest.skip("local PostgreSQL not available")
+
+    created = []
+
+    class _PgDb:
+        @staticmethod
+        def name():
+            """Return a unique database name (not created)."""
+            return unique_db_name()
+
+        def create(self, name=None):
+            """Create a real database and return its name."""
+            name = name or self.name()
+            try:
+                subprocess.run(["createdb", name], check=True, capture_output=True)
+            except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+                pytest.skip(f"local PostgreSQL not available: {exc}")
+            created.append(name)
+            return name
+
+        def track(self, name):
+            """Register an externally created database for teardown."""
+            created.append(name)
+
+        def exists(self, name):
+            """Return True if the database exists (direct ``psql`` probe)."""
+            return (
+                subprocess.run(
+                    ["psql", "-d", name, "-c", "SELECT 1"], capture_output=True
+                ).returncode
+                == 0
+            )
+
+    yield _PgDb()
+
+    for name in created:
+        # ``--if-exists`` and the osh-test- prefix guarantee we only ever
+        # drop databases this fixture created.
+        subprocess.run(["dropdb", "--if-exists", name], capture_output=True)
+
+
+@pytest.fixture
+def branch_db(tmp_project, pg_db):
+    """Map the project to a real uniquely-named database and return its name."""
+    from osh.config import set_project_config
+
+    name = pg_db.create()
+    set_project_config(tmp_project, "db", "default", name)
+    return name
+
+
+@pytest.fixture
+def test_db(pg_db, monkeypatch):
+    """Create a real uniquely-named database and resolve the branch to it."""
+    name = pg_db.create()
     monkeypatch.setattr(
-        "osh.db.resolve_db_name", lambda base, verbose=False, branch=None: "testdb"
+        "osh.db.resolve_db_name", lambda base, verbose=False, branch=None: name
     )
+    return name
 
 
 @pytest.fixture
 def capture_execvp(monkeypatch):
-    """Capture ``osh.plugins.osh_backend_local.backends.os.execvp`` calls and return them."""
+    """Capture ``osh.plugins.osh_backend_local.backends.os.execvpe`` calls.
+
+    Each entry is ``(exe, args, env)``; ``env`` is the full environment the
+    child process would have received.
+    """
     exec_calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvp",
-        lambda exe, args: exec_calls.append((exe, args)),
+        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        lambda exe, args, env: exec_calls.append((exe, args, env)),
     )
     return exec_calls
 
@@ -168,12 +261,6 @@ def real_git_only_subprocess(monkeypatch):
         monkeypatch.setattr(target, fake_run_subprocess)
     monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls
-
-
-@pytest.fixture(autouse=True)
-def _fake_db_exists(monkeypatch):
-    """Pretend PostgreSQL databases exist so unit tests do not need a server."""
-    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
 
 
 @pytest.fixture(autouse=True, scope="session")
