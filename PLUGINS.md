@@ -43,8 +43,15 @@ OSH_PLUGIN_MANIFEST = {"commands": [hello]}
 ### Local plugin development
 
 User plugins are loaded from `~/.config/osh/plugins/` (or
-`$XDG_CONFIG_HOME/osh/plugins/`). During development you can copy or symlink
-your plugin directory there:
+`$XDG_CONFIG_HOME/osh/plugins/`). During development, install a working
+copy in editable mode — the directory is symlinked into the plugin dir, so
+edits are picked up on the next `osh` run (like `pip install -e`):
+
+```bash
+osh plug install -e /path/to/my_plugin
+```
+
+Or symlink it manually:
 
 ```bash
 mkdir -p ~/.config/osh/plugins
@@ -73,6 +80,12 @@ For local repositories you can use a `file://` URL:
 
 ```bash
 osh plug install file:///absolute/path/to/repo
+```
+
+Or link a local checkout directly in editable mode:
+
+```bash
+osh plug install -e /absolute/path/to/repo
 ```
 
 Manage installed plugins with:

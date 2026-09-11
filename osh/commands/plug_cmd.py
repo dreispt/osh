@@ -1,6 +1,7 @@
 """`osh plug` command for managing user-installed plugins."""
 
 import shutil
+from pathlib import Path
 
 import click
 
@@ -28,40 +29,73 @@ def plug(ctx):  # noqa: D401
 
 
 @plug.command(name="install")
-@click.argument("url")
+@click.argument("source")
+@click.option(
+    "-e",
+    "--editable",
+    is_flag=True,
+    help="Install a local plugin directory as a symlink (editable install) "
+    "instead of cloning a git URL.",
+)
 @click.option(
     "--trust",
     is_flag=True,
     help="Skip the security warning and install without confirmation.",
 )
 @click.pass_context
-def install(ctx, url, trust):  # noqa: D401
-    """Install a plugin from a git URL.
+def install(ctx, source, editable, trust):  # noqa: D401
+    """Install a plugin from a git URL or a local directory.
 
     The repository must declare an `OSH_PLUGIN_MANIFEST` dict.
     Use --trust to skip the security warning.
-    """
 
-    if not url.startswith(("https://", "git@", "http://", "git://", "file://")):
-        raise click.ClickException("URL must be a git repository.")
+    With ``-e/--editable``, SOURCE is a local directory that is symlinked
+    into the plugins directory — edits are picked up on the next `osh` run,
+    like ``pip install -e``.
+    """
+    src_path = None
+    if editable:
+        src_path = Path(source).expanduser().resolve()
+        if not src_path.is_dir():
+            raise click.ClickException(
+                f"Editable install requires a local directory: {source}"
+            )
+        if (
+            not (src_path / "__init__.py").is_file()
+            and not (src_path / "osh_plugin.py").is_file()
+        ):
+            raise click.ClickException(
+                f"'{src_path}' does not look like a plugin package "
+                "(no __init__.py or osh_plugin.py)."
+            )
+        name = src_path.name
+    else:
+        if not source.startswith(("https://", "git@", "http://", "git://", "file://")):
+            raise click.ClickException("URL must be a git repository.")
+        name = _repo_name_from_url(source)
 
     if not trust:
         echo.warning("plugins are arbitrary code. Only install from trusted sources.")
         if not click.confirm("Install this plugin?", default=False, err=True):
             ctx.exit(0)
 
-    name = _repo_name_from_url(url)
     plugin_dir = _user_plugin_dir() / name
-    if plugin_dir.exists():
+    if plugin_dir.exists() or plugin_dir.is_symlink():
         raise click.ClickException(
             f"Plugin '{name}' is already installed. Remove it first."
         )
 
     plugin_dir.parent.mkdir(parents=True, exist_ok=True)
-    run_subprocess(
-        ["git", "clone", "--depth", "1", url, str(plugin_dir)],
-        error_msg="git clone failed",
-    )
+    if src_path is not None:
+        try:
+            plugin_dir.symlink_to(src_path)
+        except OSError as exc:
+            raise click.ClickException(f"Could not create symlink: {exc}") from exc
+    else:
+        run_subprocess(
+            ["git", "clone", "--depth", "1", source, str(plugin_dir)],
+            error_msg="git clone failed",
+        )
 
     echo.info(f"Installed plugin '{name}' at {plugin_dir}")
     echo.friendly("Restart `osh` to load the plugin's commands.")
@@ -88,7 +122,8 @@ def list_(ctx):  # noqa: D401
 
     echo.info("Installed plugins:")
     for p in plugins:
-        echo.info(f"  - {p.name}")
+        marker = " (editable)" if p.is_symlink() else ""
+        echo.info(f"  - {p.name}{marker}")
 
 
 @plug.command(name="uninstall")
@@ -105,14 +140,19 @@ def uninstall(ctx, name, yes):  # noqa: D401
     Use --yes to skip the confirmation prompt.
     """
     plugin_dir = _user_plugin_dir() / name
-    if not plugin_dir.exists():
+    if not plugin_dir.exists() and not plugin_dir.is_symlink():
         raise click.ClickException(f"Plugin '{name}' is not installed.")
 
     if not yes:
-        if not click.confirm(
-            f"Remove plugin '{name}' and all its files?", default=False, err=True
-        ):
+        if plugin_dir.is_symlink():
+            prompt = f"Remove plugin '{name}' (the link, not its files)?"
+        else:
+            prompt = f"Remove plugin '{name}' and all its files?"
+        if not click.confirm(prompt, default=False, err=True):
             ctx.exit(0)
 
-    shutil.rmtree(plugin_dir)
+    if plugin_dir.is_symlink():
+        plugin_dir.unlink()
+    else:
+        shutil.rmtree(plugin_dir)
     echo.info(f"Removed plugin '{name}'.")
