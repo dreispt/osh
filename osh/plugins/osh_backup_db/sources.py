@@ -1,13 +1,12 @@
 """Backup source for dumping a local PostgreSQL database."""
 
-import os
 import tempfile
 import zipfile
 from pathlib import Path
 
 from ... import echo
 from ...commands.backup_sources import BackupSource, SourceError, _now_stamp
-from ...common import decode_stderr, get_odoo_data_dir, run_subprocess
+from ...common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
 from ...db import get_pg_credentials
 
 
@@ -69,7 +68,7 @@ Examples:
 
     def _credentials(self):
         if self.base is None:
-            return [], dict(os.environ)
+            return [], merged_env()
         return get_pg_credentials(self.base)
 
     def _run_dump(self, args, env, output):

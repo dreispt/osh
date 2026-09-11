@@ -1,4 +1,4 @@
-"""Tests for the `osh restore` command."""
+"""Tests for the `osh db restore` command."""
 
 import json
 from pathlib import Path
@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osh.commands.db_cmd import restore
 from osh.commands.helpers import Diagnostics
-from osh.commands.restore_cmd import restore
 from osh.db import set_project_config
 
 
@@ -17,58 +17,59 @@ def _setup_fake_db_config(project, db_name="testdb"):
 
 
 @pytest.fixture
-def patched_restore(monkeypatch, in_project):
-    """Patch external dependencies used by `osh restore` for isolated tests."""
+def patched_restore(monkeypatch, in_project, pg_db):
+    """Patch external dependencies used by `osh db restore` for isolated tests.
+
+    The branch database is mapped to a unique name that is guaranteed not to
+    exist, so the real ``db_exists`` check drives the create path.
+    """
+    db_name = pg_db.name()
     state = {
+        "db_name": db_name,
         "restore": [],
         "neutralize": [],
         "sql_neutralize": [],
         "dropped": [],
         "created": [],
-        "db_exists": False,
     }
-    _setup_fake_db_config(in_project)
+    _setup_fake_db_config(in_project, db_name)
 
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.db_exists",
-        lambda base, db: state["db_exists"],
-    )
-    monkeypatch.setattr(
-        "osh.commands.restore_cmd.drop_db",
+        "osh.commands.db_cmd.drop_db",
         lambda base, db: state["dropped"].append(db),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.create_db",
+        "osh.commands.db_cmd.create_db",
         lambda base, db: state["created"].append(db),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd._restore_dump",
+        "osh.db_restore.restore_dump",
         lambda base, dump_path, db_name, *, dry_run=False: state["restore"].append(
             (dump_path, db_name, dry_run)
         ),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.get_database_version",
+        "osh.commands.db_cmd.get_database_version",
         lambda base, db: (19, 0),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.find_odoo_executable",
+        "osh.commands.db_cmd.find_odoo_executable",
         lambda base: str(in_project / ".venv" / "bin" / "odoo"),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.get_version_tuple",
+        "osh.commands.db_cmd.get_version_tuple",
         lambda exe: (19, 0),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd._neutralize_with_sql",
+        "osh.db_restore.neutralize_with_sql",
         lambda base, db: state["sql_neutralize"].append(db),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.odoo",
+        "osh.commands.db_cmd.odoo",
         lambda **kwargs: state["neutralize"].append(kwargs),
     )
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.collect_diagnostics",
+        "osh.commands.db_cmd.collect_diagnostics",
         lambda *args, **kwargs: Diagnostics(
             backend="local", info={}, warnings=[], errors=[]
         ),
@@ -89,15 +90,16 @@ def test_restore_uses_latest_cache(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(restore, [])
 
+    db_name = patched_restore["db_name"]
     assert result.exit_code == 0, result.output
-    assert patched_restore["restore"] == [(new, "testdb", False)]
-    assert patched_restore["created"] == ["testdb"]
+    assert patched_restore["restore"] == [(new, db_name, False)]
+    assert patched_restore["created"] == [db_name]
     assert patched_restore["dropped"] == []
     assert patched_restore["neutralize"]
     assert patched_restore["neutralize"][0]["extra_args"] == (
         "neutralize",
         "-d",
-        "testdb",
+        db_name,
     )
 
 
@@ -114,7 +116,7 @@ def test_restore_cache_id(patched_restore, in_project):
     result = runner.invoke(restore, ["cache:2"])
 
     assert result.exit_code == 0, result.output
-    assert patched_restore["restore"] == [(first, "testdb", False)]
+    assert patched_restore["restore"] == [(first, patched_restore["db_name"], False)]
 
 
 def test_restore_explicit_file(patched_restore, in_project):
@@ -126,7 +128,9 @@ def test_restore_explicit_file(patched_restore, in_project):
     result = runner.invoke(restore, [str(dump)])
 
     assert result.exit_code == 0, result.output
-    assert patched_restore["restore"] == [(dump.resolve(), "testdb", False)]
+    assert patched_restore["restore"] == [
+        (dump.resolve(), patched_restore["db_name"], False)
+    ]
 
 
 def test_restore_no_cache_error(in_project):
@@ -151,22 +155,21 @@ def test_restore_dry_run(patched_restore, in_project):
     result = runner.invoke(restore, ["--dry-run"])
 
     assert result.exit_code == 0, result.output
-    assert patched_restore["restore"] == [(dump, "testdb", True)]
+    assert patched_restore["restore"] == [(dump, patched_restore["db_name"], True)]
     assert patched_restore["dropped"] == []
     assert patched_restore["created"] == []
     assert patched_restore["neutralize"]
     assert patched_restore["neutralize"][0]["dry_run"] is True
 
 
-def test_restore_db_exists_no_force(in_project, monkeypatch):
-    """`osh restore` fails non-interactively when the database exists without --force."""
-    _setup_fake_db_config(in_project)
+def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
+    """`osh db restore` fails when the target database exists without --force."""
+    _setup_fake_db_config(in_project, pg_db.create())
     dump = in_project / "dump.dump"
     dump.write_bytes(b"x")
 
-    monkeypatch.setattr("osh.commands.restore_cmd.db_exists", lambda base, db: True)
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.collect_diagnostics",
+        "osh.commands.db_cmd.collect_diagnostics",
         lambda *args, **kwargs: Diagnostics(
             backend="local", info={}, warnings=[], errors=[]
         ),
@@ -238,7 +241,7 @@ def test_restore_list_outside_project(monkeypatch, tmp_path):
 
 def test_restore_uses_metadata_format(monkeypatch, in_project):
     """`osh restore` uses metadata format when available, not just file extension."""
-    from osh.commands.restore_cmd import _restore_dump
+    from osh.db_restore import restore_dump
     from osh.utils.cache import write_metadata
 
     cache_dir = in_project / ".osh" / "backups"
@@ -265,14 +268,12 @@ def test_restore_uses_metadata_format(monkeypatch, in_project):
     def mock_ensure_tool(tool):
         pass
 
-    monkeypatch.setattr("osh.commands.restore_cmd.run_subprocess", mock_run_subprocess)
-    monkeypatch.setattr("osh.commands.restore_cmd.ensure_tool", mock_ensure_tool)
-    monkeypatch.setattr(
-        "osh.commands.restore_cmd.get_pg_credentials", lambda base: ([], {})
-    )
+    monkeypatch.setattr("osh.db_restore.run_subprocess", mock_run_subprocess)
+    monkeypatch.setattr("osh.db_restore.ensure_tool", mock_ensure_tool)
+    monkeypatch.setattr("osh.db_restore.get_pg_credentials", lambda base: ([], {}))
 
     # Call the restore function directly
-    _restore_dump(in_project, dump, "testdb", dry_run=False)
+    restore_dump(in_project, dump, "testdb", dry_run=False)
 
     # Should use pg_restore because metadata says "dump", not psql because of .sql extension
     assert "pg_restore" in restore_calls
@@ -361,8 +362,8 @@ def test_detect_format_by_content_unknown(tmp_path):
 
 def test_restore_uses_content_detection(monkeypatch, in_project):
     """`osh restore` falls back to content detection when metadata and extension fail."""
-    from osh.commands.restore_cmd import _restore_dump
     from osh.common import detect_backup_format_by_content
+    from osh.db_restore import restore_dump
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -388,15 +389,13 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
     def mock_restore_zip(base, dump_path, target_db, conn_args, env):
         restore_calls.append("restore_zip")
 
-    monkeypatch.setattr("osh.commands.restore_cmd.run_subprocess", mock_run_subprocess)
-    monkeypatch.setattr("osh.commands.restore_cmd.ensure_tool", mock_ensure_tool)
-    monkeypatch.setattr(
-        "osh.commands.restore_cmd.get_pg_credentials", lambda base: ([], {})
-    )
-    monkeypatch.setattr("osh.commands.restore_cmd._restore_zip", mock_restore_zip)
+    monkeypatch.setattr("osh.db_restore.run_subprocess", mock_run_subprocess)
+    monkeypatch.setattr("osh.db_restore.ensure_tool", mock_ensure_tool)
+    monkeypatch.setattr("osh.db_restore.get_pg_credentials", lambda base: ([], {}))
+    monkeypatch.setattr("osh.db_restore._restore_zip", mock_restore_zip)
 
     # Call the restore function directly
-    _restore_dump(in_project, backup, "testdb", dry_run=False)
+    restore_dump(in_project, backup, "testdb", dry_run=False)
 
     # Should use restore_zip because content detection identified ZIP format
     assert "restore_zip" in restore_calls
@@ -405,7 +404,7 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
 def test_restore_older_db_uses_sql_fallback(patched_restore, in_project, monkeypatch):
     """Restoring a 14.0 dump into a 19.0 project falls back to SQL neutralization."""
     monkeypatch.setattr(
-        "osh.commands.restore_cmd.get_database_version",
+        "osh.commands.db_cmd.get_database_version",
         lambda base, db: (14, 0),
     )
 
@@ -418,6 +417,42 @@ def test_restore_older_db_uses_sql_fallback(patched_restore, in_project, monkeyp
     result = runner.invoke(restore, [str(dump)])
 
     assert result.exit_code == 0, result.output
-    assert patched_restore["sql_neutralize"] == ["testdb"]
+    assert patched_restore["sql_neutralize"] == [patched_restore["db_name"]]
     assert patched_restore["neutralize"] == []
     assert "using SQL fallback" in result.output
+
+
+def test_restore_available_under_db_group(patched_restore, in_project):
+    """`osh db restore` is the primary command and behaves identically."""
+    from osh.commands.db_cmd import db
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    runner = CliRunner()
+    result = runner.invoke(db, ["restore", str(dump)])
+
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"]
+
+
+def test_restore_top_level_alias_is_hidden(patched_restore, in_project):
+    """The top-level `osh restore` still works but is hidden from help."""
+    from osh.cli import main
+
+    cmd = main.commands.get("restore")
+    assert cmd is not None
+    assert cmd.hidden
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["restore", str(dump)])
+
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"]

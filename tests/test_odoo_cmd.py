@@ -10,6 +10,7 @@ def test_odoo_uses_dynamic_config_for_subcommand(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
+    branch_db,
 ):
     """``osh odoo shell`` uses the env config (addons path and db_name)."""
     (tmp_project / ".odoorc").write_text("[options]\n")
@@ -124,6 +125,7 @@ def test_odoo_subcommand_auto_injects_db_when_not_provided(
     monkeypatch,
     fake_odoo_executable,
     osh_source_dirs,
+    branch_db,
 ):
     """``osh odoo neutralize`` auto-injects database name when not provided."""
     monkeypatch.chdir(tmp_project)
@@ -131,4 +133,25 @@ def test_odoo_subcommand_auto_injects_db_when_not_provided(
     result = runner.invoke(odoo, ["--dry-run", "neutralize"])
 
     assert result.exit_code == 0
-    assert "Using database: project-default" in result.output
+    assert f"Using database: {branch_db}" in result.output
+
+
+def test_odoo_fails_with_instructions_when_branch_db_missing_in_non_tty(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+):
+    """``osh odoo`` fails with a helpful message when the branch db is missing and non-TTY."""
+    from osh.config import set_project_config
+
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--dry-run"])
+
+    assert result.exit_code != 0
+    assert f"Database '{missing}' does not exist" in result.output
+    assert "osh db use" in result.output

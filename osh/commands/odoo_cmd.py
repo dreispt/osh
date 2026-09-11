@@ -138,7 +138,7 @@ def odoo(
         raise click.ClickException("\n".join(diagnostics.errors))
 
     explicit_db = _parse_explicit_db(extra_args)
-    db_name = explicit_db or diagnostics.info.get("Project", {}).get("dbname")
+    db_name = explicit_db
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")
@@ -158,6 +158,7 @@ def odoo(
         no_db_filter=no_db_filter,
         skip_config=skip_config,
         extra_args=extra_args,
+        dry_run=dry_run,
     )
     if conf_path:
         echo.info(f"Using config: {conf_path}")

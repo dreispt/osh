@@ -2,6 +2,7 @@
 
 import click
 import pytest
+from click.testing import CliRunner
 
 from osh.commands.db_cmd import pin
 from osh.config import set_project_config
@@ -95,7 +96,119 @@ def test_require_db_name_rejects_empty():
 def test_pin_sanitizes_name(tmp_project, monkeypatch):
     """`osh db pin` stores the sanitized database name."""
     monkeypatch.chdir(tmp_project)
-    runner = click.testing.CliRunner()
+    runner = CliRunner()
     result = runner.invoke(pin, [" My Legacy.DB ", "--branch", "main"])
     assert result.exit_code == 0
     assert "my-legacy-db" in result.output
+
+
+def test_use_is_an_alias_for_pin(tmp_project, monkeypatch):
+    """`osh db use` performs the same mapping as the hidden `pin` command."""
+    from osh.commands.db_cmd import use
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(use, [" My Legacy.DB ", "--branch", "main"])
+    assert result.exit_code == 0
+    assert "my-legacy-db" in result.output
+
+
+def test_db_group_command_surface():
+    """`osh db` exposes restore but no longer exposes create."""
+    from osh.commands.db_cmd import db
+
+    assert "restore" in db.commands
+    assert "create" not in db.commands
+
+
+def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):
+    """`osh db copy` copies a real database to a new name."""
+    from osh.commands.db_cmd import copy
+
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(copy, [src, dst])
+    assert result.exit_code == 0
+    assert f"Copied database '{src}' to '{dst}'" in result.output
+    assert pg_db.exists(dst)
+
+
+def test_copy_command_refuses_missing_source(tmp_project, pg_db, monkeypatch):
+    """`osh db copy` fails when the source database does not exist."""
+    from osh.commands.db_cmd import copy
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(copy, [pg_db.name(), pg_db.name()])
+    assert result.exit_code != 0
+    assert "Source database" in result.output
+
+
+def test_resolve_db_name_for_run_returns_existing_branch_db(tmp_project, branch_db):
+    """An existing branch database is returned without prompt."""
+    from osh.db import resolve_db_name_for_run
+
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == branch_db
+
+
+def test_resolve_db_name_for_run_missing_db_in_non_tty(tmp_project, pg_db, monkeypatch):
+    """A missing branch database raises a clear error in non-interactive mode."""
+    from osh.db import resolve_db_name_for_run
+
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    with pytest.raises(
+        click.ClickException, match=f"Database '{missing}' does not exist"
+    ):
+        resolve_db_name_for_run(tmp_project)
+
+
+def test_resolve_db_name_for_run_tty_prompt_reuse(tmp_project, pg_db, monkeypatch):
+    """In TTY, a missing branch database prompts and reuses the last used one."""
+    from osh.db import resolve_db_name_for_run
+
+    previous = pg_db.create()
+    missing = pg_db.name()
+    set_project_config(
+        tmp_project, "db", values={"default": missing, "last_db": previous}
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "1")
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == previous
+
+
+def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, pg_db, monkeypatch):
+    """In TTY, a missing branch database can be created empty."""
+    from osh.db import resolve_db_name_for_run
+
+    missing = pg_db.name()
+    pg_db.track(missing)
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "2")
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == missing
+    assert pg_db.exists(missing)
+
+
+def test_resolve_db_name_for_run_tty_prompt_copy(tmp_project, pg_db, monkeypatch):
+    """In TTY, a missing branch database can be copied from the last used one."""
+    from osh.db import resolve_db_name_for_run
+
+    previous = pg_db.create()
+    missing = pg_db.name()
+    pg_db.track(missing)
+    set_project_config(
+        tmp_project, "db", values={"default": missing, "last_db": previous}
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "3")
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == missing
+    assert pg_db.exists(missing)

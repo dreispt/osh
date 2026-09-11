@@ -20,7 +20,7 @@ retrieve direct live system databases.
 ```bash
 cd my-odoo-project && git checkout my-branch
 osh init 19.0 --ce  # set up venv + Odoo sources
-osh restore ./path-to/my-backup.zip
+osh db restore ./path-to/my-backup.zip
 osh doctor          # sanity-check the project
 osh odoo            # go
 ```
@@ -38,7 +38,7 @@ osh odoo            # go
 - **Zero-config Odoo runs** — `osh odoo` builds the correct `odoo.conf`,
   `addons_path`, `db_name` and `dbfilter` from the project layout.
 - **Backup and restore** — `osh backup` fetches or dumps backups from multiple
-  sources; `osh restore` restores them and neutralizes the database.
+  sources; `osh db restore` restores them and neutralizes the database.
 - **Custom neutralization** — drop `.sql` scripts into `.osh/neutralize/` to run
   project-specific scrubbing after every restore.
 - **Pluggable backends** — run locally in a virtualenv or inside Docker Compose by
@@ -74,10 +74,10 @@ Run `osh <command> --help` for detailed options and examples.
 - `osh odoo` — run Odoo with automatic addons-path, database and dbfilter.
 - `osh doctor` — check the project setup and report diagnostics.
 - `osh config` — manage branch/database mappings and preferences.
-- `osh db` — show, pin and unpin branch-to-database mappings.
+- `osh db` — manage branch-to-database mappings; copy and restore databases.
 - `osh plug` — install, list and remove plugins from git repositories.
 - `osh backup <source>` — download or dump a backup into `.osh/backups/`.
-- `osh restore [<dump>]` — restore and neutralize a backup.
+- `osh db restore [<dump>]` — restore and neutralize a backup.
 - `osh test` — run Odoo tests for project modules.
 - `osh version` — show the installed `osh` version.
 
@@ -108,9 +108,9 @@ Branches are matched in this order:
 Use `osh db` to manage mappings:
 
 ```bash
-osh db pin myproject-main --branch main
-osh db pin myproject-staging --branch staging
-osh db pin auto --branch "feature/*"   # generated name for every feature branch
+osh db use myproject-main --branch main
+osh db use myproject-staging --branch staging
+osh db use auto --branch "feature/*"   # generated name for every feature branch
 osh db show
 osh db unpin --branch feature/old-thing
 ```

@@ -112,6 +112,7 @@ def prepare_env_context(
     no_db_filter=False,
     skip_config=False,
     extra_args=(),
+    dry_run=False,
 ):
     """Build the dynamic Odoo config and environment variables for a backend.
 
@@ -123,7 +124,10 @@ def prepare_env_context(
     explicit_config = _has_arg(extra_args, "--config", short="-c")
     no_db_filter = no_db_filter or _has_arg(extra_args, "--db-filter")
     if not db_name and not explicit_config and not skip_config:
-        db_name = db_module.resolve_db_name(base, verbose=False)
+        db_name = db_module.resolve_db_name_for_run(base, verbose=False)
+
+    if db_name and not dry_run:
+        db_module.set_last_db(base, db_name)
 
     if explicit_config or skip_config:
         conf_path = None
@@ -251,6 +255,7 @@ def env(
         no_db_filter=no_db_filter,
         skip_config=skip_config,
         extra_args=args,
+        dry_run=dry_run,
     )
     if conf_path:
         echo.info(f"Using config: {conf_path}")

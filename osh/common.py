@@ -29,8 +29,12 @@ def get_venv_bin(base):
     return Path(base) / ".venv" / ("Scripts" if os.name == "nt" else "bin")
 
 
-def activate_venv(base):
-    """Put the project's ``.venv`` first on ``PATH`` and set ``VIRTUAL_ENV``.
+def venv_env(base):
+    """Return the environment additions that activate the project's ``.venv``.
+
+    The result puts ``.venv/bin`` first on ``PATH`` and sets ``VIRTUAL_ENV``.
+    Callers merge it into the environment passed to spawned processes;
+    ``os.environ`` is never mutated.
 
     Raises a ``click.ClickException`` if the virtualenv does not exist.
     """
@@ -40,11 +44,23 @@ def activate_venv(base):
             "No virtualenv found. Run `osh init --target local` to create one."
         )
     venv_path = str(venv_bin)
-    old_path = os.environ.get("PATH", "")
-    if venv_path not in old_path.split(os.pathsep):
-        os.environ["PATH"] = f"{venv_path}{os.pathsep}{old_path}"
-    os.environ["VIRTUAL_ENV"] = str(venv_bin.parent)
-    return venv_bin
+    path = os.environ.get("PATH", "")
+    if venv_path not in path.split(os.pathsep):
+        path = f"{venv_path}{os.pathsep}{path}"
+    return {"PATH": path, "VIRTUAL_ENV": str(venv_bin.parent)}
+
+
+def merged_env(*updates):
+    """Return ``os.environ`` overlaid with each of the *updates* dicts.
+
+    This is the single place where the environment for spawned processes is
+    assembled: commands never mutate ``os.environ`` — they pass the merged
+    result explicitly (``env=`` arguments, ``os.execvpe``).
+    """
+    env = dict(os.environ)
+    for update in updates:
+        env.update(update)
+    return env
 
 
 def find_shell():
@@ -207,6 +223,7 @@ def run_command(
     args,
     *,
     cwd=None,
+    env=None,
     check=False,
     capture_output=True,
     text=True,
@@ -229,6 +246,7 @@ def run_command(
             proc = subprocess.Popen(
                 args,
                 cwd=cwd,
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=text,
@@ -260,6 +278,7 @@ def run_command(
         return subprocess.run(
             args,
             cwd=cwd,
+            env=env,
             check=check,
             capture_output=capture_output,
             text=text,
@@ -513,7 +532,7 @@ def setup_project_neutralize_scripts(target, version):
 
     User scripts from ``~/.config/osh/neutralize/`` are copied first. For Odoo
     versions older than 16.0, the bundled fallback SQL script is also copied so
-    ``osh restore`` can neutralize the database without the ``odoo-bin neutralize``
+    ``osh db restore`` can neutralize the database without the ``odoo-bin neutralize``
     subcommand.
     """
     neutralize_dir = Path(target) / ".osh" / "neutralize"

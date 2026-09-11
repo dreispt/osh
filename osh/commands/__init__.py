@@ -13,7 +13,6 @@ from . import (
     init_cmd,
     odoo_cmd,
     plug_cmd,
-    restore_cmd,
     version_cmd,
 )
 
@@ -22,7 +21,7 @@ COMMANDS = [
     doctor_cmd.doctor,
     env_cmd.env,
     odoo_cmd.odoo,
-    restore_cmd.restore,
+    db_cmd.restore_alias,
     backup_cmd.backup,
     config_cmd.config,
     db_cmd.db,

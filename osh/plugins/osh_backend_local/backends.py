@@ -244,11 +244,9 @@ class LocalBackend(Backend):
         if not isinstance(env_spec, EnvSpec):
             env_spec = EnvSpec(argv=list(env_spec))
 
-        from ...common import activate_venv, find_shell
+        from ...common import find_shell, merged_env, venv_env
 
-        activate_venv(base)
-        if env_spec.env:
-            os.environ.update(env_spec.env)
+        env = merged_env(venv_env(base), env_spec.env)
 
         args = list(env_spec.argv)
         if not args:
@@ -273,10 +271,10 @@ class LocalBackend(Backend):
         wait = options.pop("wait", False)
         echo.info(f"Running: {command}", err=True)
         if wait:
-            run_command(args, check=True, stream=True)
+            run_command(args, env=env, check=True, stream=True)
             return
 
         try:
-            os.execvp(args[0], args)
+            os.execvpe(args[0], args, env)
         except OSError as exc:
             raise click.ClickException(str(exc)) from exc
