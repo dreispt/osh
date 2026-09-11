@@ -5,6 +5,7 @@ resolve, cache and install Odoo, Enterprise and design-themes sources under
 ``.osh/``.
 """
 
+import configparser
 import fnmatch
 import os
 import shutil
@@ -74,6 +75,8 @@ def ensure_osh_sources(
     if not source_defs:
         return {"odoo": None, "enterprise": None, "design-themes": None}
 
+    _warn_uninitialized_submodules(base, source_defs, assume_yes=assume_yes)
+
     source_plans = {}
     for name, flag, names, files, url in source_defs:
         project_source, requires_confirmation = _find_local_source(base, names, files)
@@ -105,6 +108,101 @@ def ensure_osh_sources(
     for key in ("odoo", "enterprise", "design-themes"):
         sources.setdefault(key, None)
     return sources
+
+
+def _warn_uninitialized_submodules(base, source_defs, assume_yes=False):
+    """Warn when required sources are configured as uninitialized git submodules."""
+    gitmodules = base / ".gitmodules"
+    if not gitmodules.is_file() or not _is_git_repo(base):
+        return
+
+    submodule_info = _read_gitmodules(base)
+    if not submodule_info:
+        return
+
+    returncode, stdout, _ = run_subprocess(
+        ["git", "-C", str(base), "submodule", "status"]
+    )
+    if returncode != 0:
+        return
+
+    uninitialized = set()
+    for line in stdout.splitlines():
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].startswith("-"):
+            uninitialized.add(parts[1])
+
+    needed_names = {name for name, flag, *_ in source_defs if flag is None}
+    matches = []
+    for path, url in submodule_info.items():
+        if path not in uninitialized:
+            continue
+        source_name = _submodule_source_name(path, url)
+        if source_name and source_name in needed_names:
+            matches.append((path, source_name))
+
+    if not matches:
+        return
+
+    details = ", ".join(f"{path} ({source_name})" for path, source_name in matches)
+    paths = " ".join(path for path, _ in matches)
+    echo.warning(
+        f"Uninitialized git submodules detected: {details}. "
+        f"Run 'git submodule update --init --recursive {paths}' to use them, "
+        "or Osh will fetch fresh copies instead."
+    )
+    if not assume_yes and sys.stdin.isatty():
+        if not echo.confirm("Continue and fetch fresh copies instead?", default=False):
+            raise click.ClickException(
+                "Aborted. Initialize the submodules and run 'osh init' again."
+            )
+
+
+def _read_gitmodules(base):
+    """Return a mapping of {path: url} for submodules in *base/.gitmodules*."""
+    gitmodules = base / ".gitmodules"
+    try:
+        cfg = configparser.ConfigParser(interpolation=None)
+        cfg.read(gitmodules, encoding="utf-8")
+    except (OSError, configparser.Error):
+        return {}
+
+    result = {}
+    for section in cfg.sections():
+        if not section.startswith("submodule "):
+            continue
+        path = cfg.get(section, "path", fallback=None)
+        url = cfg.get(section, "url", fallback=None)
+        if path:
+            result[path] = url
+    return result
+
+
+def _submodule_source_name(path, url=None):
+    """Guess whether a submodule path is for odoo, enterprise or design-themes."""
+    name = _repo_name_from_url(url) if url else None
+    if not name:
+        name = str(path).lower().rstrip("/").split("/")[-1]
+    if name in ("odoo", "enterprise"):
+        return name
+    if name in ("design-themes", "design_themes", "themes"):
+        return "design-themes"
+    return None
+
+
+def _repo_name_from_url(url):
+    """Return the repository name from a git URL or path."""
+    if not url:
+        return None
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    for sep in ("/", ":"):
+        if sep in url:
+            return url.split(sep)[-1].lower()
+    return url.lower()
 
 
 def _display_source_plan(
