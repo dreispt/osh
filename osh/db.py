@@ -9,6 +9,7 @@ import fnmatch
 import importlib.resources
 import os
 import re
+import sys
 
 import click
 
@@ -16,8 +17,10 @@ from . import config as _config
 from . import echo
 from .common import (
     decode_stderr,
+    ensure_tool,
     get_odoo_config_path,
     resolve_config_file,
+    run_shell_pipeline,
     run_subprocess,
 )
 from .utils.odoo_layout import build_addons_paths
@@ -176,6 +179,25 @@ def create_db(base, db_name):
         )
 
 
+def copy_db(base, from_db, to_db):
+    """Copy *from_db* to *to_db*, replacing the target if it exists."""
+    conn_args, env = get_pg_credentials(base)
+    ensure_tool("pg_dump")
+    ensure_tool("pg_restore")
+    drop_db(base, to_db)
+    create_db(base, to_db)
+    run_shell_pipeline(
+        [
+            ["pg_dump", "-Fc", *conn_args, from_db],
+            ["pg_restore", "--no-owner", "-d", to_db, *conn_args, "-"],
+        ],
+        env=env,
+        text=True,
+        error_msg=f"Could not copy database '{from_db}' to '{to_db}'",
+        not_found_msg="Could not locate `pg_dump` or `pg_restore`.",
+    )
+
+
 def run_psql_script(base, db_name, script_path):
     """Execute a SQL script against *db_name* using psql."""
     conn_args, env = get_pg_credentials(base)
@@ -204,6 +226,107 @@ def resolve_db_name(base, verbose=False, branch=None):
     if verbose:
         echo.info(f"Using database: {db_name}", err=True)
     return db_name
+
+
+def get_last_db(base):
+    """Return the last used database name recorded for the project, or None."""
+    return get_project_config(base, "db", "last_db")
+
+
+def set_last_db(base, db_name):
+    """Record *db_name* as the most recently used database."""
+    if db_name:
+        set_project_config(base, "db", "last_db", db_name)
+
+
+def resolve_db_name_for_run(base, verbose=False):
+    """Resolve the database name for the current context, prompting if missing.
+
+    If the branch's resolved database does not exist, prompt in an interactive
+    terminal to reuse, copy or create it. In non-interactive mode raise a
+    ``click.ClickException`` with instructions.
+    """
+    branch = get_current_branch(base) or "default"
+    db_name = resolve_db_name(base, verbose=False, branch=branch)
+    if db_exists(base, db_name):
+        if verbose:
+            echo.info(f"Using database: {db_name}", err=True)
+        return db_name
+
+    last_db = get_last_db(base)
+    if last_db == db_name:
+        last_db = None
+
+    if sys.stdin.isatty():
+        return _prompt_for_missing_db(base, branch, db_name, last_db)
+    _raise_missing_db_error(base, branch, db_name, last_db)
+    return None  # unreachable
+
+
+def _prompt_for_missing_db(base, branch, db_name, last_db):
+    """Prompt the user when the branch's database is missing and return a name."""
+    choices = []
+    if last_db and db_exists(base, last_db):
+        choices.append(("1", f"Reuse '{last_db}' in place", "reuse"))
+    choices.append(("2", f"Create new empty '{db_name}'", "create"))
+    if last_db and db_exists(base, last_db):
+        choices.append(("3", f"Copy '{last_db}' to '{db_name}'", "copy"))
+    choices.append(("4", "Choose another database", "choose"))
+
+    echo.warning(f"Database '{db_name}' does not exist.")
+    echo.info("What would you like to do?")
+    for num, label, _ in choices:
+        default_marker = "  (default)" if num == choices[0][0] else ""
+        echo.info(f"  [{num}] {label}{default_marker}")
+
+    valid = [num for num, _, _ in choices]
+    choice = click.prompt(
+        "Choice",
+        type=click.Choice(valid),
+        default=choices[0][0],
+        show_choices=False,
+    )
+
+    action = next(action for num, _, action in choices if num == choice)
+
+    if action == "reuse":
+        set_project_config(base, "db", branch, last_db)
+        return last_db
+
+    if action == "create":
+        create_db(base, db_name)
+        set_project_config(base, "db", branch, AUTO_DB)
+        return db_name
+
+    if action == "copy":
+        copy_db(base, last_db, db_name)
+        set_project_config(base, "db", branch, AUTO_DB)
+        return db_name
+
+    # action == "choose"
+    chosen = click.prompt("Database name")
+    chosen = _require_db_name(chosen)
+    if not db_exists(base, chosen):
+        raise click.ClickException(
+            f"Database '{chosen}' does not exist. "
+            "Run 'osh db create' or 'osh db copy' first."
+        )
+    set_project_config(base, "db", branch, chosen)
+    return chosen
+
+
+def _raise_missing_db_error(base, branch, db_name, last_db):
+    """Raise a clear error when the branch's database is missing in non-TTY."""
+    lines = [
+        f"Database '{db_name}' does not exist.",
+        "Use one of:",
+        f"  osh db use <db> --branch {branch}",
+        f"  osh db create {db_name}",
+    ]
+    if last_db:
+        lines.append(f"  osh db copy {last_db} {db_name}")
+    lines.append("  osh odoo -d <db>")
+    raise click.ClickException("\n".join(lines))
 
 
 def _resolve_config_db_name(base, branch):

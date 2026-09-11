@@ -48,7 +48,9 @@ def osh_source_dirs(tmp_project):
 @pytest.fixture
 def patch_resolve_db_name(monkeypatch):
     """Patch ``osh.db.resolve_db_name`` to return ``testdb``."""
-    monkeypatch.setattr("osh.db.resolve_db_name", lambda base, verbose: "testdb")
+    monkeypatch.setattr(
+        "osh.db.resolve_db_name", lambda base, verbose=False, branch=None: "testdb"
+    )
 
 
 @pytest.fixture
@@ -166,6 +168,12 @@ def real_git_only_subprocess(monkeypatch):
         monkeypatch.setattr(target, fake_run_subprocess)
     monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls
+
+
+@pytest.fixture(autouse=True)
+def _fake_db_exists(monkeypatch):
+    """Pretend PostgreSQL databases exist so unit tests do not need a server."""
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
 
 
 @pytest.fixture(autouse=True, scope="session")

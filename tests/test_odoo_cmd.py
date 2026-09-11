@@ -132,3 +132,20 @@ def test_odoo_subcommand_auto_injects_db_when_not_provided(
 
     assert result.exit_code == 0
     assert "Using database: project-default" in result.output
+
+
+def test_odoo_fails_with_instructions_when_branch_db_missing_in_non_tty(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+):
+    """``osh odoo`` fails with a helpful message when the branch db is missing and non-TTY."""
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: False)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--dry-run"])
+
+    assert result.exit_code != 0
+    assert "Database 'project-default' does not exist" in result.output
+    assert "osh db use" in result.output

@@ -2,6 +2,7 @@
 
 import click
 import pytest
+from click.testing import CliRunner
 
 from osh.commands.db_cmd import pin
 from osh.config import set_project_config
@@ -95,7 +96,151 @@ def test_require_db_name_rejects_empty():
 def test_pin_sanitizes_name(tmp_project, monkeypatch):
     """`osh db pin` stores the sanitized database name."""
     monkeypatch.chdir(tmp_project)
-    runner = click.testing.CliRunner()
+    runner = CliRunner()
     result = runner.invoke(pin, [" My Legacy.DB ", "--branch", "main"])
     assert result.exit_code == 0
     assert "my-legacy-db" in result.output
+
+
+def test_use_is_an_alias_for_pin(tmp_project, monkeypatch):
+    """`osh db use` performs the same mapping as the hidden `pin` command."""
+    from osh.commands.db_cmd import use
+
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(use, [" My Legacy.DB ", "--branch", "main"])
+    assert result.exit_code == 0
+    assert "my-legacy-db" in result.output
+
+
+def test_create_command_creates_empty_db(tmp_project, monkeypatch):
+    """`osh db create` calls create_db with the sanitized name."""
+    from osh.commands.db_cmd import create
+
+    created = []
+    monkeypatch.setattr(
+        "osh.commands.db_cmd.create_db", lambda base, name: created.append(name)
+    )
+    monkeypatch.setattr("osh.commands.db_cmd.db_exists", lambda base, name: False)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(create, [" mydb "])
+    assert result.exit_code == 0
+    assert "Created database 'mydb'" in result.output
+    assert created == ["mydb"]
+
+
+def test_create_command_refuses_existing_db(tmp_project, monkeypatch):
+    """`osh db create` fails if the database already exists."""
+    from osh.commands.db_cmd import create
+
+    monkeypatch.setattr("osh.commands.db_cmd.db_exists", lambda base, name: True)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(create, ["mydb"])
+    assert result.exit_code != 0
+    assert "already exists" in result.output
+
+
+def test_copy_command_copies_db(tmp_project, monkeypatch):
+    """`osh db copy` calls copy_db when the source database exists."""
+    from osh.commands.db_cmd import copy
+
+    copied = []
+    monkeypatch.setattr(
+        "osh.commands.db_cmd.copy_db",
+        lambda base, from_db, to_db: copied.append((from_db, to_db)),
+    )
+    monkeypatch.setattr(
+        "osh.commands.db_cmd.db_exists",
+        lambda base, name: name == "source",
+    )
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(copy, ["source", " target "])
+    assert result.exit_code == 0
+    assert "Copied database 'source' to 'target'" in result.output
+    assert copied == [("source", "target")]
+
+
+def test_copy_command_refuses_missing_source(tmp_project, monkeypatch):
+    """`osh db copy` fails when the source database does not exist."""
+    from osh.commands.db_cmd import copy
+
+    monkeypatch.setattr("osh.commands.db_cmd.db_exists", lambda base, name: False)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(copy, ["missing", "target"])
+    assert result.exit_code != 0
+    assert "Source database" in result.output
+
+
+def test_resolve_db_name_for_run_returns_existing_branch_db(tmp_project, monkeypatch):
+    """An existing branch database is returned without prompt."""
+    from osh.db import resolve_db_name_for_run
+
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == "project-default"
+
+
+def test_resolve_db_name_for_run_missing_db_in_non_tty(tmp_project, monkeypatch):
+    """A missing branch database raises a clear error in non-interactive mode."""
+    from osh.db import resolve_db_name_for_run
+
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    with pytest.raises(
+        click.ClickException, match="Database 'project-default' does not exist"
+    ):
+        resolve_db_name_for_run(tmp_project)
+
+
+def test_resolve_db_name_for_run_tty_prompt_reuse(tmp_project, monkeypatch):
+    """In TTY, a missing branch database prompts and reuses the last used one."""
+    from osh.db import resolve_db_name_for_run
+
+    monkeypatch.setattr(
+        "osh.db.db_exists",
+        lambda base, name: name == "project-main",
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("osh.db.get_last_db", lambda base: "project-main")
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "1")
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == "project-main"
+
+
+def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, monkeypatch):
+    """In TTY, a missing branch database can be created empty."""
+    from osh.db import resolve_db_name_for_run
+
+    created = []
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name: False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "2")
+    monkeypatch.setattr("osh.db.create_db", lambda base, name: created.append(name))
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == "project-default"
+    assert created == ["project-default"]
+
+
+def test_resolve_db_name_for_run_tty_prompt_copy(tmp_project, monkeypatch):
+    """In TTY, a missing branch database can be copied from the last used one."""
+    from osh.db import resolve_db_name_for_run
+
+    copied = []
+    monkeypatch.setattr(
+        "osh.db.db_exists",
+        lambda base, name: name == "project-main",
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("osh.db.get_last_db", lambda base: "project-main")
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "3")
+    monkeypatch.setattr(
+        "osh.db.copy_db",
+        lambda base, from_db, to_db: copied.append((from_db, to_db)),
+    )
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == "project-default"
+    assert copied == [("project-main", "project-default")]

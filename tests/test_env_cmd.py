@@ -202,3 +202,38 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     text = conf.read_text()
     assert "db_name = mydb" in text
     assert "dbfilter" not in text
+
+
+def test_env_records_last_used_database(tmp_project, monkeypatch):
+    """``osh env`` records the resolved database as last used when it runs."""
+    from osh.db import get_last_db
+
+    _setup_venv(tmp_project)
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_local.backends.os.execvp",
+        lambda exe, args: None,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(env, [])
+
+    assert result.exit_code == 0, result.output
+    assert get_last_db(tmp_project) == "project-default"
+
+
+def test_env_dry_run_does_not_record_last_used(tmp_project, monkeypatch):
+    """``osh env --dry-run`` does not touch the last used database record."""
+    from osh.db import get_last_db
+
+    _setup_venv(tmp_project)
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+
+    runner = CliRunner()
+    result = runner.invoke(env, ["--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert get_last_db(tmp_project) is None

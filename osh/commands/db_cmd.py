@@ -6,6 +6,8 @@ from .. import echo
 from ..common import find_project_root
 from ..db import (
     _require_db_name,
+    copy_db,
+    create_db,
     db_exists,
     get_current_branch,
     resolve_db_name,
@@ -16,11 +18,11 @@ from ..db import (
 
 @click.group(name="db")
 def db():  # noqa: D401
-    """Manage branch-to-database mappings.
+    """Manage databases and branch-to-database mappings.
 
-    Each git branch can be pinned to a specific PostgreSQL database, or left
-    unpinned to fall back to the generated ``<project>-<branch>`` name.
-    Mappings are stored in ``.osh/config.toml`` under the ``[db]`` section.
+    Each git branch can be mapped to a specific PostgreSQL database, or left
+    unmapped to fall back to the generated ``<project>-<branch>`` name. Mappings
+    are stored in ``.osh/config.toml`` under the ``[db]`` section.
 
     Branches are matched in this order:
 
@@ -35,9 +37,10 @@ def db():  # noqa: D401
 
     \b
       osh db show
-      osh db pin myproject-main --branch main
-      osh db pin myproject-staging --branch staging
-      osh db pin auto --branch feature/new-thing
+      osh db use myproject-main --branch main
+      osh db use auto --branch feature/new-thing
+      osh db create myproject-new
+      osh db copy myproject-main myproject-fix-123
       osh db unpin
       osh db unpin --branch feature/old-thing
     """
@@ -61,15 +64,24 @@ def show(ctx):  # noqa: D401
     echo.info(f"Exists:   {'yes' if exists else 'no'}")
 
 
-@db.command(name="pin")
+def _set_branch_db(base, db_name, branch):
+    """Record *db_name* as the database for *branch* and return both names."""
+    if branch is None:
+        branch = get_current_branch(base) or "default"
+    value = _require_db_name(db_name)
+    set_project_config(base, "db", branch, value)
+    return branch, value
+
+
+@db.command(name="use")
 @click.argument("db_name")
 @click.option(
     "--branch",
-    help="Branch to pin (defaults to current branch). May be a glob pattern.",
+    help="Branch to use the database for (defaults to current branch). May be a glob pattern.",
 )
 @click.pass_context
-def pin(ctx, db_name, branch):  # noqa: D401
-    """Pin a branch or pattern to a database.
+def use(ctx, db_name, branch):  # noqa: D401
+    """Use a database for the current or specified branch.
 
     The branch can be an exact git branch name or a glob pattern such as
     ``feature/*``. Use ``auto`` for DB_NAME to let the branch use the generated
@@ -81,17 +93,55 @@ def pin(ctx, db_name, branch):  # noqa: D401
     Examples:
 
     \b
-      osh db pin myproject-main
-      osh db pin myproject-shared --branch staging
-      osh db pin auto --branch "feature/*"
+      osh db use myproject-main
+      osh db use myproject-shared --branch staging
+      osh db use auto --branch "feature/*"
     """
     base = find_project_root(required=True)
-    if branch is None:
-        branch = get_current_branch(base) or "default"
+    branch, value = _set_branch_db(base, db_name, branch)
+    echo.info(f"Branch '{branch}' will use database '{value}'")
 
-    value = _require_db_name(db_name)
-    set_project_config(base, "db", branch, value)
+
+@db.command(name="pin", hidden=True)
+@click.argument("db_name")
+@click.option(
+    "--branch",
+    help="Branch to pin (defaults to current branch). May be a glob pattern.",
+)
+@click.pass_context
+def pin(ctx, db_name, branch):  # noqa: D401
+    """Alias for ``osh db use``."""
+    base = find_project_root(required=True)
+    branch, value = _set_branch_db(base, db_name, branch)
     echo.info(f"Pinned branch '{branch}' to database '{value}'")
+
+
+@db.command(name="create")
+@click.argument("db_name")
+@click.pass_context
+def create(ctx, db_name):  # noqa: D401
+    """Create a new empty PostgreSQL database."""
+    base = find_project_root(required=True)
+    name = _require_db_name(db_name)
+    if db_exists(base, name):
+        raise click.ClickException(f"Database '{name}' already exists.")
+    create_db(base, name)
+    echo.info(f"Created database '{name}'")
+
+
+@db.command(name="copy")
+@click.argument("from_db")
+@click.argument("to_db")
+@click.pass_context
+def copy(ctx, from_db, to_db):  # noqa: D401
+    """Copy a PostgreSQL database to a new name, replacing the target if it exists."""
+    base = find_project_root(required=True)
+    from_name = _require_db_name(from_db)
+    to_name = _require_db_name(to_db)
+    if not db_exists(base, from_name):
+        raise click.ClickException(f"Source database '{from_name}' does not exist.")
+    copy_db(base, from_name, to_name)
+    echo.info(f"Copied database '{from_name}' to '{to_name}'")
 
 
 @db.command(name="unpin")

@@ -178,6 +178,7 @@ def restore(
         no_db_filter=True,
         skip_config=True,
         extra_args=(),
+        dry_run=dry_run,
     )
     if env_vars:
         os.environ.update(env_vars)
