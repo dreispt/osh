@@ -4,9 +4,10 @@ Loads built-in plugins from `osh.plugins`, third-party plugins registered as
 Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
 A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
-`commands`, `backends` and `backup_sources` keys mapping to lists. Plugins
-are expected to be Python packages (directories with `__init__.py`) or a
-single `osh_plugin.py` file.
+`commands`, `backends` and `backup_sources` keys mapping to lists, plus an
+optional `hooks` key mapping hook point names (see `osh.hooks`) to callables
+or lists of implementations. Plugins are expected to be Python packages
+(directories with `__init__.py`) or a single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -194,6 +195,25 @@ def load_plugins():
     for source, module in _iter_plugin_modules():
         commands.extend((source, cmd) for cmd in _load_commands_from_module(module))
     return commands
+
+
+def load_hooks(name=None):
+    """Aggregate the ``hooks`` manifest key across all plugins.
+
+    With *name*, return the flat list of implementations registered for that
+    hook point. Without it, return the full ``{name: [impls]}`` dict.
+    Single (non-list) values are normalized to lists; a non-dict ``hooks``
+    entry is ignored.
+    """
+    result = {}
+    for source, module in _iter_plugin_modules():
+        hooks = _plugin_manifest(module).get("hooks", {})
+        if not isinstance(hooks, dict):
+            continue
+        for hook_name, impl in hooks.items():
+            items = impl if isinstance(impl, list) else [impl]
+            result.setdefault(hook_name, []).extend(items)
+    return result if name is None else result.get(name, [])
 
 
 def load_backends(backend_type=None):
