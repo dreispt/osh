@@ -13,7 +13,9 @@ dict whose keys map capability names to lists:
 
 - `commands` — `click.Command` objects,
 - `backends` — `Backend` subclasses,
-- `backup_sources` — `BackupSource` subclasses.
+- `backup_sources` — `BackupSource` subclasses,
+- `hooks` — a dict mapping hook point names (see `osh.hooks`) to
+  implementations or lists of implementations.
 
 All keys are optional; a plugin can provide any combination of them.
 
@@ -41,8 +43,15 @@ OSH_PLUGIN_MANIFEST = {"commands": [hello]}
 ### Local plugin development
 
 User plugins are loaded from `~/.config/osh/plugins/` (or
-`$XDG_CONFIG_HOME/osh/plugins/`). During development you can copy or symlink
-your plugin directory there:
+`$XDG_CONFIG_HOME/osh/plugins/`). During development, install a working
+copy in editable mode — the directory is symlinked into the plugin dir, so
+edits are picked up on the next `osh` run (like `pip install -e`):
+
+```bash
+osh plug install -e /path/to/my_plugin
+```
+
+Or symlink it manually:
 
 ```bash
 mkdir -p ~/.config/osh/plugins
@@ -71,6 +80,12 @@ For local repositories you can use a `file://` URL:
 
 ```bash
 osh plug install file:///absolute/path/to/repo
+```
+
+Or link a local checkout directly in editable mode:
+
+```bash
+osh plug install -e /absolute/path/to/repo
 ```
 
 Manage installed plugins with:
@@ -118,6 +133,7 @@ notice.
   `osh backup` with new source schemes.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
+- `osh.hooks` — hook point name constants for the `hooks` manifest key.
 - `osh.db` — database helpers: `get_pg_credentials`, `create_db`, `drop_db`,
   `db_exists`, `resolve_db_name`, `get_current_branch`.
 - `osh.sources` — source installation helpers: `ensure_osh_sources`,
@@ -275,6 +291,63 @@ Example:
 
 OSH_PLUGIN_MANIFEST = {"backup_sources": [S3BackupSource]}
 ```
+
+### Hook plugins
+
+Plugins can hook into core command lifecycle points by declaring a `hooks`
+dict in their manifest, mapping hook point names to an implementation or a
+list of implementations:
+
+```python
+OSH_PLUGIN_MANIFEST = {
+    "hooks": {
+        "odoo.options": [my_option],
+        "odoo.pre_env": [my_hook],
+    },
+}
+```
+
+Hook point names are defined as constants in `osh.hooks`:
+
+- `odoo.options` (`HOOK_ODOO_OPTIONS`) — each item is a `click.Parameter`
+  (typically a `click.Option`) appended to `osh odoo`'s parameters at parse
+  time. Declared options parse normally and their values land in
+  `ctx.params` — use them to add flags such as `--open` to `osh odoo`
+  without modifying core.
+- `odoo.pre_env` (`HOOK_ODOO_PRE_ENV`) — each item is a callable
+  `hook(ctx, base, env_spec)` invoked right before `Backend.env()` runs the
+  command. `ctx.params` holds the parsed CLI values (including
+  `extra_args`, `dry_run` and plugin-injected options); `env_spec` is the
+  assembled `EnvSpec` (`argv`, `env`, `db_name`, `config_path`).
+
+Pre-env hooks run for every `osh odoo` invocation — exec and `--wait`
+paths, `--dry-run` and subcommands included — so hooks must self-filter via
+`ctx.params`. Raising `click.ClickException` aborts the run with an error
+message.
+
+Since `osh odoo` execs Odoo, a pre-env hook is also the place to spawn
+detached sidecar processes that must outlive the `osh` process itself.
+
+### Multi-plugin repositories
+
+A plugin directory can also be a _repository_ of plugins — like an Odoo
+addons repo. When a directory installed in `~/.config/osh/plugins/` contains
+subpackages, each direct subpackage declaring an `OSH_PLUGIN_MANIFEST` is
+loaded as a plugin of its own. No aggregation code is needed, and the repo
+root doesn't even require an `__init__.py`:
+
+```
+my_plugins/
+└── osh_example/
+    ├── __init__.py      # declares OSH_PLUGIN_MANIFEST = {...}
+    ├── README.md
+    └── tests/
+```
+
+Each subplugin is loaded as a real package, so relative imports inside it
+work normally, and gets its own source name (`osh-example`) for
+command-collision prefixes. A root-level `OSH_PLUGIN_MANIFEST`, if the repo
+root happens to be a package too, is loaded alongside the subplugins'.
 
 ### EnvSpec
 

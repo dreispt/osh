@@ -4,9 +4,10 @@ Loads built-in plugins from `osh.plugins`, third-party plugins registered as
 Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
 A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
-`commands`, `backends` and `backup_sources` keys mapping to lists. Plugins
-are expected to be Python packages (directories with `__init__.py`) or a
-single `osh_plugin.py` file.
+`commands`, `backends` and `backup_sources` keys mapping to lists, plus an
+optional `hooks` key mapping hook point names (see `osh.hooks`) to callables
+or lists of implementations. Plugins are expected to be Python packages
+(directories with `__init__.py`) or a single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -60,7 +61,9 @@ def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
     module_name = f"{prefix}_{_plugin_name_from_path(plugin_dir)}"
 
     if init_file.is_file():
-        spec = importlib.util.spec_from_file_location(module_name, init_file)
+        spec = importlib.util.spec_from_file_location(
+            module_name, init_file, submodule_search_locations=[str(plugin_dir)]
+        )
     elif module_file.is_file():
         spec = importlib.util.spec_from_file_location(module_name, module_file)
     else:
@@ -139,12 +142,47 @@ def _iter_plugin_modules():
                 continue
             try:
                 module = _import_plugin_from_dir(child)
-                if module is not None:
-                    source = _plugin_source_name(child.name)
-                    yield source, module
             except (ImportError, SyntaxError, ValueError, OSError) as exc:
                 echo.warning(f"Could not load user plugin '{child}': {exc}", err=True)
                 continue
+            if module is not None:
+                yield _plugin_source_name(child.name), module
+            yield from _iter_subplugins(child)
+
+
+def _iter_subplugins(repo_dir):
+    """Yield ``(source, module)`` pairs for plugin packages inside *repo_dir*.
+
+    A plugin directory may also be a "repository" of plugins — like an Odoo
+    addons repo: every direct subpackage declaring ``OSH_PLUGIN_MANIFEST``
+    is a plugin of its own, so multi-plugin repos need no aggregation code
+    and the repo root does not even need an ``__init__.py``.
+    """
+    prefix = f"osh_user_plugin_{_plugin_name_from_path(repo_dir)}"
+    for child in _plugin_subdirs(repo_dir):
+        try:
+            module = _import_plugin_from_dir(child, prefix=prefix)
+        except Exception as exc:
+            echo.warning(f"Could not load plugin '{child}': {exc}", err=True)
+            continue
+        if module is not None and _plugin_manifest(module):
+            yield _plugin_source_name(child.name), module
+
+
+def _plugin_subdirs(directory):
+    """Yield direct subdirectories of *directory* that are Python packages."""
+    try:
+        children = sorted(directory.iterdir())
+    except OSError:
+        return
+    for child in children:
+        if (
+            child.is_dir()
+            and not child.name.startswith(".")
+            and child.name.isidentifier()
+            and (child / "__init__.py").is_file()
+        ):
+            yield child
 
 
 def _plugin_manifest(module):
@@ -194,6 +232,25 @@ def load_plugins():
     for source, module in _iter_plugin_modules():
         commands.extend((source, cmd) for cmd in _load_commands_from_module(module))
     return commands
+
+
+def load_hooks(name=None):
+    """Aggregate the ``hooks`` manifest key across all plugins.
+
+    With *name*, return the flat list of implementations registered for that
+    hook point. Without it, return the full ``{name: [impls]}`` dict.
+    Single (non-list) values are normalized to lists; a non-dict ``hooks``
+    entry is ignored.
+    """
+    result = {}
+    for source, module in _iter_plugin_modules():
+        hooks = _plugin_manifest(module).get("hooks", {})
+        if not isinstance(hooks, dict):
+            continue
+        for hook_name, impl in hooks.items():
+            items = impl if isinstance(impl, list) else [impl]
+            result.setdefault(hook_name, []).extend(items)
+    return result if name is None else result.get(name, [])
 
 
 def load_backends(backend_type=None):

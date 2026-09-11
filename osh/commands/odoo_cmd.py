@@ -15,13 +15,24 @@ from .. import echo
 from ..backends import EnvSpec
 from ..common import find_project_root
 from ..db import resolve_run_target, set_project_config
-from ..utils.plugin_loader import load_backends
+from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
+from ..utils.plugin_loader import load_backends, load_hooks
 from .env_cmd import _parse_explicit_db, prepare_env_context
 from .helpers import collect_diagnostics
 
 
 class OdooCommand(click.Command):
     """Click command that appends a Targets section to `osh odoo --help`."""
+
+    def get_params(self, ctx):
+        """Append plugin-declared options from the ``odoo.options`` hook."""
+        params = [*super().get_params(ctx)]
+        params.extend(
+            param
+            for param in load_hooks(HOOK_ODOO_OPTIONS)
+            if isinstance(param, click.Parameter)
+        )
+        return params
 
     def format_help_text(self, ctx, formatter):
         """Write the docstring followed by the list of available backends."""
@@ -94,6 +105,7 @@ def odoo(
     skip_config,
     wait_for_exit,
     extra_args,
+    **_plugin_params,
 ):  # noqa: D401
     """Run the project's Odoo executable.
 
@@ -172,4 +184,6 @@ def odoo(
         db_name=resolved_db,
         config_path=str(conf_path) if conf_path else None,
     )
+    for hook in load_hooks(HOOK_ODOO_PRE_ENV):
+        hook(ctx, base, env_spec)
     backend.env(ctx, base, env_spec, dry_run=dry_run, wait=wait_for_exit)
