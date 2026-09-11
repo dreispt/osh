@@ -328,6 +328,27 @@ message.
 Since `osh odoo` execs Odoo, a pre-env hook is also the place to spawn
 detached sidecar processes that must outlive the `osh` process itself.
 
+### Multi-plugin repositories
+
+A plugin directory can also be a _repository_ of plugins — like an Odoo
+addons repo. When a directory installed in `~/.config/osh/plugins/` contains
+subpackages, each direct subpackage declaring an `OSH_PLUGIN_MANIFEST` is
+loaded as a plugin of its own. No aggregation code is needed, and the repo
+root doesn't even require an `__init__.py`:
+
+```
+my_plugins/
+└── osh_example/
+    ├── __init__.py      # declares OSH_PLUGIN_MANIFEST = {...}
+    ├── README.md
+    └── tests/
+```
+
+Each subplugin is loaded as a real package, so relative imports inside it
+work normally, and gets its own source name (`osh-example`) for
+command-collision prefixes. A root-level `OSH_PLUGIN_MANIFEST`, if the repo
+root happens to be a package too, is loaded alongside the subplugins'.
+
 ### EnvSpec
 
 `osh odoo`, `osh env` and `osh db restore` pass an `EnvSpec` dataclass (from

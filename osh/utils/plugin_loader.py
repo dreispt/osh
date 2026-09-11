@@ -61,7 +61,9 @@ def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
     module_name = f"{prefix}_{_plugin_name_from_path(plugin_dir)}"
 
     if init_file.is_file():
-        spec = importlib.util.spec_from_file_location(module_name, init_file)
+        spec = importlib.util.spec_from_file_location(
+            module_name, init_file, submodule_search_locations=[str(plugin_dir)]
+        )
     elif module_file.is_file():
         spec = importlib.util.spec_from_file_location(module_name, module_file)
     else:
@@ -140,12 +142,47 @@ def _iter_plugin_modules():
                 continue
             try:
                 module = _import_plugin_from_dir(child)
-                if module is not None:
-                    source = _plugin_source_name(child.name)
-                    yield source, module
             except (ImportError, SyntaxError, ValueError, OSError) as exc:
                 echo.warning(f"Could not load user plugin '{child}': {exc}", err=True)
                 continue
+            if module is not None:
+                yield _plugin_source_name(child.name), module
+            yield from _iter_subplugins(child)
+
+
+def _iter_subplugins(repo_dir):
+    """Yield ``(source, module)`` pairs for plugin packages inside *repo_dir*.
+
+    A plugin directory may also be a "repository" of plugins — like an Odoo
+    addons repo: every direct subpackage declaring ``OSH_PLUGIN_MANIFEST``
+    is a plugin of its own, so multi-plugin repos need no aggregation code
+    and the repo root does not even need an ``__init__.py``.
+    """
+    prefix = f"osh_user_plugin_{_plugin_name_from_path(repo_dir)}"
+    for child in _plugin_subdirs(repo_dir):
+        try:
+            module = _import_plugin_from_dir(child, prefix=prefix)
+        except Exception as exc:
+            echo.warning(f"Could not load plugin '{child}': {exc}", err=True)
+            continue
+        if module is not None and _plugin_manifest(module):
+            yield _plugin_source_name(child.name), module
+
+
+def _plugin_subdirs(directory):
+    """Yield direct subdirectories of *directory* that are Python packages."""
+    try:
+        children = sorted(directory.iterdir())
+    except OSError:
+        return
+    for child in children:
+        if (
+            child.is_dir()
+            and not child.name.startswith(".")
+            and child.name.isidentifier()
+            and (child / "__init__.py").is_file()
+        ):
+            yield child
 
 
 def _plugin_manifest(module):

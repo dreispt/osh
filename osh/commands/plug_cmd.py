@@ -7,7 +7,7 @@ import click
 
 from .. import echo
 from ..common import run_subprocess
-from ..utils.plugin_loader import _user_plugin_dir
+from ..utils.plugin_loader import _plugin_subdirs, _user_plugin_dir
 
 
 def _repo_name_from_url(url):
@@ -60,13 +60,13 @@ def install(ctx, source, editable, trust):  # noqa: D401
             raise click.ClickException(
                 f"Editable install requires a local directory: {source}"
             )
-        if (
-            not (src_path / "__init__.py").is_file()
-            and not (src_path / "osh_plugin.py").is_file()
-        ):
+        has_plugin_marker = (src_path / "__init__.py").is_file() or (
+            src_path / "osh_plugin.py"
+        ).is_file()
+        if not has_plugin_marker and not any(_plugin_subdirs(src_path)):
             raise click.ClickException(
-                f"'{src_path}' does not look like a plugin package "
-                "(no __init__.py or osh_plugin.py)."
+                f"'{src_path}' does not look like a plugin package or plugin "
+                "repo (no __init__.py, osh_plugin.py, or plugin subdirectories)."
             )
         name = src_path.name
     else:

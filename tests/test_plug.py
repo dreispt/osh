@@ -65,6 +65,22 @@ def test_install_editable_requires_plugin_package(plugin_home, tmp_path):
     assert "does not look like a plugin package" in result.output
 
 
+def test_install_editable_accepts_bare_plugin_repo(plugin_home, tmp_path):
+    """``-e`` accepts an addons-style repo: bare dir of plugin subpackages."""
+    repo = tmp_path / "osh-contrib"
+    sub = repo / "osh_example"
+    sub.mkdir(parents=True)
+    (sub / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["install", "--trust", "-e", str(repo)])
+
+    assert result.exit_code == 0, result.output
+    link = plugin_home / "osh-contrib"
+    assert link.is_symlink()
+    assert link.resolve() == repo.resolve()
+
+
 def test_install_clones_git_url(plugin_home, monkeypatch):
     """A plain install still runs ``git clone`` into the plugin dir."""
     calls = []
