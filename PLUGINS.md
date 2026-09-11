@@ -8,10 +8,14 @@ For general `osh` development, see `DEVELOP.md`. For using `osh`, see `README.md
 ## Plugin conventions
 
 A plugin must be a Python package (a directory with `__init__.py`) or a single
-`osh_plugin.py` file. It must expose one of the following:
+`osh_plugin.py` file. It declares what it provides in an `OSH_PLUGIN_MANIFEST`
+dict whose keys map capability names to lists:
 
-- a `get_commands()` function that returns a list of `click.Command` objects, or
-- a `COMMANDS` list of `click.Command` objects.
+- `commands` — `click.Command` objects,
+- `backends` — `Backend` subclasses,
+- `backup_sources` — `BackupSource` subclasses.
+
+All keys are optional; a plugin can provide any combination of them.
 
 The command name is the `name` passed to the `click.command()` decorator or the
 function name by default. Make sure the name does not collide with an existing
@@ -31,15 +35,7 @@ def hello(name):
     click.echo(f"Hello, {name}!")
 
 
-def get_commands():
-    return [hello]
-```
-
-You can also expose the commands directly:
-
-```python
-# my_plugin/__init__.py
-COMMANDS = [hello]
+OSH_PLUGIN_MANIFEST = {"commands": [hello]}
 ```
 
 ### Local plugin development
@@ -90,13 +86,13 @@ Plugins shipped with `osh` live in `osh/plugins/`. They are loaded
 automatically through the `osh.plugins` package. The `osh_test` plugin is the
 canonical built-in example:
 
-- `osh/plugins/osh_test/__init__.py` exposes `get_commands()`.
+- `osh/plugins/osh_test/__init__.py` declares `OSH_PLUGIN_MANIFEST`.
 - `osh/plugins/osh_test/commands.py` implements the `test` command.
 
 To add a new built-in plugin:
 
 1. Create a new package under `osh/plugins/<name>/`.
-2. Add an `__init__.py` that exports `get_commands()` or `COMMANDS`.
+2. Add an `__init__.py` that declares `OSH_PLUGIN_MANIFEST`.
 3. Implement your Click commands in one or more modules.
 4. Run `python -m osh --help` to verify the new command appears.
 
@@ -133,17 +129,20 @@ These are not part of the stable plugin API.
 
 ## Plugin API Reference
 
-Plugins can extend `osh` in two ways: **commands** and **backends**. Commands are
-Click commands added under `osh <command>`. Backends implement the lifecycle
-interface used by `osh init`, `osh odoo`, `osh db restore`, `osh test` and
-`osh doctor` for a particular execution target (e.g. local virtualenv, Docker).
+Plugins can extend `osh` in three ways: **commands**, **backends** and
+**backup sources**, all declared in a single `OSH_PLUGIN_MANIFEST` dict.
+Commands are Click commands added under `osh <command>`. Backends implement
+the lifecycle interface used by `osh init`, `osh odoo`, `osh db restore`,
+`osh test` and `osh doctor` for a particular execution target (e.g. local
+virtualenv, Docker).
 
 ### Command plugins
 
-A command plugin must expose one of the following:
+A command plugin declares its commands under the `commands` manifest key:
 
-- `get_commands()` returning a list of `click.Command` objects, or
-- `COMMANDS` as a list of `click.Command` objects.
+```python
+OSH_PLUGIN_MANIFEST = {"commands": [hello]}
+```
 
 Commands are loaded from:
 
@@ -160,10 +159,11 @@ example.
 
 ### Backend plugins
 
-A backend plugin must expose one of the following:
+A backend plugin declares its backends under the `backends` manifest key:
 
-- `get_backends()` returning a list of `Backend` subclasses, or
-- `BACKENDS` as a list of `Backend` subclasses.
+```python
+OSH_PLUGIN_MANIFEST = {"backends": [MyBackend]}
+```
 
 Backends are registered under `osh odoo --target <name>`. Built-in examples:
 
@@ -212,8 +212,13 @@ class MyBackend(Backend):
 ### Backup source plugins
 
 Plugins can add new backup sources that `osh backup <scheme>://...`
-understands. Expose `get_backup_sources()` returning a list of source classes,
-or a `BACKUP_SOURCES` list. A source class must:
+understands. Declare them under the `backup_sources` manifest key:
+
+```python
+OSH_PLUGIN_MANIFEST = {"backup_sources": [MySource]}
+```
+
+A source class must:
 
 - Define a `scheme` class attribute (e.g. `scheme = "s3"`).
 - Optionally set a short `description` attribute; it is shown in
@@ -233,7 +238,7 @@ Built-in sources ship as separate plugins under `osh/plugins/`:
 - `osh/plugins/osh_backup_odoosh` — `odoosh://`
 - `osh/plugins/osh_backup_ssh` — `ssh://`
 
-Each plugin exposes `BACKUP_SOURCES` in its `__init__.py`.
+Each plugin declares `OSH_PLUGIN_MANIFEST` in its `__init__.py`.
 
 Example plugin source:
 
@@ -268,8 +273,7 @@ Example:
         # download from S3 into output
 
 
-def get_backup_sources():
-    return [S3BackupSource]
+OSH_PLUGIN_MANIFEST = {"backup_sources": [S3BackupSource]}
 ```
 
 ### EnvSpec
@@ -331,6 +335,9 @@ class EchoBackend(Backend):
     def env(self, ctx, base, env_spec, *, dry_run=False, **options):
         command = ' '.join(env_spec.argv) if env_spec.argv else '<interactive shell>'
         click.echo(f"Would run in {self.name} environment: {command}")
+
+
+OSH_PLUGIN_MANIFEST = {"backends": [EchoBackend]}
 ```
 
 Register it with `osh --target echo` or `osh init --target echo` once the

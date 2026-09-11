@@ -2,4 +2,4 @@
 
 from .sources import OdooshSource
 
-BACKUP_SOURCES = [OdooshSource]
+OSH_PLUGIN_MANIFEST = {"backup_sources": [OdooshSource]}

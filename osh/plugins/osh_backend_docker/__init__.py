@@ -6,12 +6,4 @@ by reading an existing Docker Compose stack configuration from ``.osh/docker.tom
 
 from .backends import DockerBackend
 
-
-def get_backends():
-    """Return backend classes exposed by this plugin."""
-    return [DockerBackend]
-
-
-def get_commands():
-    """Return Click commands exposed by this plugin."""
-    return []
+OSH_PLUGIN_MANIFEST = {"backends": [DockerBackend]}

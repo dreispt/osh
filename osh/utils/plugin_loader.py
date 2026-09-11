@@ -3,9 +3,10 @@
 Loads built-in plugins from `osh.plugins`, third-party plugins registered as
 Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
-A plugin must expose a `get_commands()` function returning a list of Click
-commands, or a `COMMANDS` list. Plugins are expected to be Python packages
-(directories with `__init__.py`) or a single `osh_plugin.py` file.
+A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
+`commands`, `backends` and `backup_sources` keys mapping to lists. Plugins
+are expected to be Python packages (directories with `__init__.py`) or a
+single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -146,15 +147,15 @@ def _iter_plugin_modules():
                 continue
 
 
+def _plugin_manifest(module):
+    """Return the plugin's ``OSH_PLUGIN_MANIFEST`` dict (empty if absent)."""
+    manifest = getattr(module, "OSH_PLUGIN_MANIFEST", None)
+    return manifest if isinstance(manifest, dict) else {}
+
+
 def _load_commands_from_module(module):
     """Return Click commands exposed by a plugin module."""
-    if hasattr(module, "get_commands"):
-        commands = module.get_commands()
-    elif hasattr(module, "COMMANDS"):
-        commands = module.COMMANDS
-    else:
-        commands = []
-
+    commands = _plugin_manifest(module).get("commands", [])
     if not isinstance(commands, list):
         commands = [commands]
     return [cmd for cmd in commands if isinstance(cmd, click.Command)]
@@ -164,12 +165,7 @@ def _load_backends_from_module(module, backend_type):
     """Return backend classes of *backend_type* exposed by a plugin module."""
     from ..backends import Backend
 
-    if hasattr(module, "get_backends"):
-        backends = module.get_backends()
-    elif hasattr(module, "BACKENDS"):
-        backends = module.BACKENDS
-    else:
-        backends = []
+    backends = _plugin_manifest(module).get("backends", [])
 
     if not isinstance(backends, list):
         backends = [backends]
@@ -227,12 +223,7 @@ def load_backends(backend_type=None):
 
 def _load_backup_sources_from_module(module):
     """Return backup source classes exposed by a plugin module."""
-    if hasattr(module, "get_backup_sources"):
-        sources = module.get_backup_sources()
-    elif hasattr(module, "BACKUP_SOURCES"):
-        sources = module.BACKUP_SOURCES
-    else:
-        sources = []
+    sources = _plugin_manifest(module).get("backup_sources", [])
 
     if not isinstance(sources, list):
         sources = [sources]
@@ -245,8 +236,8 @@ def _load_backup_sources_from_module(module):
 def load_backup_sources():
     """Return a mapping of backup source scheme to source class.
 
-    Source classes are loaded from plugins that expose ``get_backup_sources()``
-    or a ``BACKUP_SOURCES`` list. A valid source class must have a ``scheme``
+    Source classes are loaded from the ``backup_sources`` key of each
+    plugin's ``OSH_PLUGIN_MANIFEST``. A valid source class must have a ``scheme``
     class attribute (e.g. ``scheme = "s3"``) and implement the backup source
     interface.
     """

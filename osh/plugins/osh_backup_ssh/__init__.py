@@ -2,4 +2,4 @@
 
 from .sources import SshSource
 
-BACKUP_SOURCES = [SshSource]
+OSH_PLUGIN_MANIFEST = {"backup_sources": [SshSource]}

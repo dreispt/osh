@@ -2,4 +2,4 @@
 
 from .sources import DbSource
 
-BACKUP_SOURCES = [DbSource]
+OSH_PLUGIN_MANIFEST = {"backup_sources": [DbSource]}

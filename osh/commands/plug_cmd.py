@@ -38,7 +38,7 @@ def plug(ctx):  # noqa: D401
 def install(ctx, url, trust):  # noqa: D401
     """Install a plugin from a git URL.
 
-    The repository must expose a `get_commands()` function or a `COMMANDS` list.
+    The repository must declare an `OSH_PLUGIN_MANIFEST` dict.
     Use --trust to skip the security warning.
     """
 
