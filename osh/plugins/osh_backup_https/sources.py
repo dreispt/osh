@@ -30,6 +30,8 @@ class HttpsSource(BackupSource):
         self.original_url = url
         query = parse_qs(parsed.query)
         self.db_name = self._first_or_none(query.get("db"))
+        if not self.db_name:
+            raise SourceError("Database name is required. Use ?db=<name> in the URL.")
         format_value = self._first_or_none(query.get("format"))
         self.backup_format = (
             format_value if format_value else self._resolve_backup_format()
@@ -62,12 +64,10 @@ class HttpsSource(BackupSource):
 
     def default_output_name(self):
         safe_host = _safe_name(self.host)
-        safe_db = _safe_name(self.db_name or "backup")
+        safe_db = _safe_name(self.db_name)
         return f"{safe_host}_{safe_db}_{_now_stamp()}.{self.backup_format}"
 
     def fetch(self, output, *, dry_run=False):
-        if not self.db_name:
-            raise SourceError("Database name is required. Use ?db=<name> in the URL.")
         master_pwd = self._resolve_master_password()
         payload = urlencode(
             {

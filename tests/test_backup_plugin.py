@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 from osh.commands.backup_cmd import backup
 from osh.commands.backup_sources import BackupSource, SourceError
+from osh.plugins.osh_backup_https.sources import HttpsSource
 from osh.plugins.osh_backup_odoosh.sources import OdooshSource
 from osh.plugins.osh_backup_ssh.sources import SshSource
 
@@ -118,6 +119,12 @@ def test_download_https_posts_payload(in_project, monkeypatch):
     cache_dir = in_project / ".osh" / "backups"
     zip_file = next(cache_dir.glob("*.zip"))
     assert zip_file.read_bytes() == b"PK\x03\x04zip content"
+
+
+def test_https_source_requires_db_name():
+    """The HTTPS source rejects URLs without a ?db= query parameter."""
+    with pytest.raises(SourceError, match="Database name is required"):
+        HttpsSource("https://demo.odoo.com")
 
 
 def test_download_odoosh_dry_run(in_project):
