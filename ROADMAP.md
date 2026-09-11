@@ -5,4 +5,4 @@ This document tracks planned improvements and future development work for the Os
 ## Plugin API improvements
 
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
-- Consider a plugin manifest (e.g. `pyproject.toml` `[tool.osh.plugins]`) so metadata such as dependencies and target names can be declared statically.
+- Extend the `OSH_PLUGIN_MANIFEST` dict with optional metadata (e.g. description, dependencies, minimum `osh` version) and surface it in `osh plug list`.

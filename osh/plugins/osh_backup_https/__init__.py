@@ -2,4 +2,4 @@
 
 from .sources import HttpSource, HttpsSource
 
-BACKUP_SOURCES = [HttpsSource, HttpSource]
+OSH_PLUGIN_MANIFEST = {"backup_sources": [HttpsSource, HttpSource]}

@@ -16,7 +16,7 @@ def _write_fake_plugin(plugin_dir, name, command_name):
         f"@click.command(name='{command_name}')\n"
         f"def {command_name}():\n"
         f"    click.echo('from {name}')\n\n"
-        f"COMMANDS = [{command_name}]\n"
+        f"OSH_PLUGIN_MANIFEST = {{'commands': [{command_name}]}}\n"
     )
 
 

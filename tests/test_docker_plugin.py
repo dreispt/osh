@@ -476,9 +476,9 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
         backend_type = "backend"
 
     first = types.ModuleType("first")
-    first.BACKENDS = [FakeBackend]
+    first.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
     second = types.ModuleType("second")
-    second.BACKENDS = [FakeBackend]
+    second.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
 
     monkeypatch.setattr(
         plugin_loader,
@@ -499,7 +499,7 @@ def test_entry_point_plugin_loading(monkeypatch):
     fake_cmd = click.Command(name="fake-cmd")
 
     fake_module = types.ModuleType("fake_entry_plugin")
-    fake_module.get_commands = lambda: [fake_cmd]
+    fake_module.OSH_PLUGIN_MANIFEST = {"commands": [fake_cmd]}
     monkeypatch.setitem(sys.modules, "fake_entry_plugin", fake_module)
 
     class FakeEntryPoint:

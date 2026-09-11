@@ -3,15 +3,9 @@
 from .backends import LocalBackend
 from .commands import prune
 
+OSH_PLUGIN_MANIFEST = {
+    "commands": [prune],
+    "backends": [LocalBackend],
+}
 
-def get_backends():
-    """Return backend classes exposed by this plugin."""
-    return [LocalBackend]
-
-
-def get_commands():
-    """Return Click commands exposed by this plugin."""
-    return [prune]
-
-
-__all__ = ["LocalBackend", "prune", "get_backends", "get_commands"]
+__all__ = ["LocalBackend", "prune", "OSH_PLUGIN_MANIFEST"]

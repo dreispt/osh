@@ -32,8 +32,8 @@ class BackupSource:
     implement ``from_source()``, ``default_output_name()``, and ``fetch()``.
     They may also set ``description`` to a short human-readable summary shown
     in ``osh backup download --help``.
-    Plugins register subclasses through ``get_backup_sources()`` or the
-    ``BACKUP_SOURCES`` list.
+    Plugins register subclasses through the ``backup_sources`` key of their
+    ``OSH_PLUGIN_MANIFEST``.
     """
 
     scheme = ""
