@@ -4,6 +4,10 @@ Plugins declare hook implementations under the ``hooks`` key of their
 ``OSH_PLUGIN_MANIFEST`` dict, mapping a hook point name to a callable or a
 list of callables/objects. Hook points are the extension points where core
 commands invoke plugin-provided behaviour.
+
+Hook point names are just namespaced strings — plugins can define their own
+hook points (e.g. ``"osh_backup.sources"`` defined by the ``osh_backup``
+plugin) for other plugins to subscribe to.
 """
 
 # ``odoo.options`` — items are ``click.Parameter`` instances (typically

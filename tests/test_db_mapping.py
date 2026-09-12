@@ -4,7 +4,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from osh.commands.db_cmd import pin
+from osh.commands.db_cmd import use
 from osh.config import set_project_config
 from osh.db import _require_db_name, is_auto_db_value, resolve_db_name
 
@@ -93,19 +93,8 @@ def test_require_db_name_rejects_empty():
         _require_db_name(None)
 
 
-def test_pin_sanitizes_name(tmp_project, monkeypatch):
-    """`osh db pin` stores the sanitized database name."""
-    monkeypatch.chdir(tmp_project)
-    runner = CliRunner()
-    result = runner.invoke(pin, [" My Legacy.DB ", "--branch", "main"])
-    assert result.exit_code == 0
-    assert "my-legacy-db" in result.output
-
-
-def test_use_is_an_alias_for_pin(tmp_project, monkeypatch):
-    """`osh db use` performs the same mapping as the hidden `pin` command."""
-    from osh.commands.db_cmd import use
-
+def test_use_sanitizes_name(tmp_project, monkeypatch):
+    """`osh db use` stores the sanitized database name."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(use, [" My Legacy.DB ", "--branch", "main"])
@@ -114,11 +103,19 @@ def test_use_is_an_alias_for_pin(tmp_project, monkeypatch):
 
 
 def test_db_group_command_surface():
-    """`osh db` exposes restore but no longer exposes create."""
+    """`osh db` exposes neither the dropped pin alias nor a create command."""
     from osh.commands.db_cmd import db
 
-    assert "restore" in db.commands
+    assert "pin" not in db.commands
     assert "create" not in db.commands
+
+
+def test_db_restore_comes_from_plugin():
+    """`osh db restore` is contributed by the osh_backup plugin."""
+    from osh.cli import main
+
+    assert "restore" in main.commands["db"].commands
+    assert "restore" not in main.commands
 
 
 def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):

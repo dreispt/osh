@@ -7,8 +7,8 @@ from urllib.request import Request, urlopen
 
 import click
 
-from ... import echo
-from ...commands.backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
+from .... import echo
+from ....backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
 
 
 class HttpsSource(BackupSource):

@@ -12,7 +12,7 @@ from ... import echo
 from ...backends import copy_odoo_rc_to_osh_conf
 from ...common import run_subprocess
 from ...sources import ensure_osh_sources
-from ...utils.python_versions import resolve_python_for_odoo
+from .python_versions import resolve_python_for_odoo
 
 
 def init_project(

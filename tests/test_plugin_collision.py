@@ -132,5 +132,143 @@ def test_double_collision_is_ignored(monkeypatch, tmp_path, capsys):
     assert cli.main.commands["source-custom"].callback is second_custom.callback
     assert "source-source-custom" not in cli.main.commands
     assert (
-        "conflicts with an existing command and is ignored" in capsys.readouterr().out
+        "conflicts with an existing command and is ignored" in capsys.readouterr().err
     )
+
+
+def test_collision_warns_on_every_load(monkeypatch, tmp_path, capsys):
+    """A renamed plugin command prints a warning on every CLI load."""
+
+    @click.command(name="init")
+    def plugin_init():
+        click.echo("plugin init")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_plugins",
+        lambda: [("fake", plugin_init)],
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    err = capsys.readouterr().err
+    assert "plugin 'fake' command 'init' conflicts" in err
+    assert "registered as 'fake-init'" in err
+    assert "osh plug alias fake init <name>" in err
+
+
+def test_alias_registers_chosen_name(monkeypatch, tmp_path, capsys):
+    """A configured alias wins over both the declared and fallback names."""
+
+    @click.command(name="init")
+    def plugin_init():
+        click.echo("plugin init")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_plugins",
+        lambda: [("fake", plugin_init)],
+    )
+    monkeypatch.setattr(
+        "osh.config.get_plugin_aliases",
+        lambda source: {"init": "project-init"} if source == "fake" else {},
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    assert cli.main.commands["project-init"].callback is plugin_init.callback
+    assert "fake-init" not in cli.main.commands
+    err = capsys.readouterr().err
+    assert "'fake'" not in err
+
+
+def test_alias_collision_is_skipped_with_error(monkeypatch, tmp_path, capsys):
+    """An alias that collides with an existing command is not registered."""
+
+    @click.command(name="mycmd")
+    def plugin_cmd():
+        click.echo("plugin cmd")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_plugins",
+        lambda: [("fake", plugin_cmd)],
+    )
+    monkeypatch.setattr(
+        "osh.config.get_plugin_aliases",
+        lambda source: {"mycmd": "init"} if source == "fake" else {},
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    assert cli.main.commands["init"].callback.__module__ == "osh.commands.init_cmd"
+    assert "mycmd" not in cli.main.commands
+    assert "is ignored" in capsys.readouterr().err
+
+
+def test_alias_renames_non_colliding_command(monkeypatch, tmp_path):
+    """Aliases work for plugin commands that do not collide at all."""
+
+    @click.command(name="scan")
+    def plugin_scan():
+        click.echo("scan")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_plugins",
+        lambda: [("fake", plugin_scan)],
+    )
+    monkeypatch.setattr(
+        "osh.config.get_plugin_aliases",
+        lambda source: {"scan": "audit"} if source == "fake" else {},
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    assert cli.main.commands["audit"].callback is plugin_scan.callback
+    assert "scan" not in cli.main.commands
+
+
+def test_group_subcommand_collision_renamed(monkeypatch, tmp_path, capsys):
+    """A plugin group subcommand colliding on the target group is renamed."""
+
+    @click.command(name="show")
+    def plugin_show():
+        click.echo("plugin show")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_group_commands",
+        lambda: {"db": [("fake", plugin_show)]},
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    db_group = cli.main.commands["db"]
+    assert db_group.commands["show"].callback.__module__ == "osh.commands.db_cmd"
+    assert db_group.commands["fake-show"].callback is plugin_show.callback
+    assert "'db.show' conflicts" in capsys.readouterr().err
+
+
+def test_group_subcommand_unknown_group_is_skipped(monkeypatch, tmp_path, capsys):
+    """A group command targeting a non-group command is skipped with an error."""
+
+    @click.command(name="sub")
+    def plugin_sub():
+        click.echo("plugin sub")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_group_commands",
+        lambda: {"init": [("fake", plugin_sub)]},
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    assert "not a command group" in capsys.readouterr().err

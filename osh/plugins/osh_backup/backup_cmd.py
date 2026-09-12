@@ -4,15 +4,12 @@ from pathlib import Path
 
 import click
 
-from .. import echo
-from ..common import detect_backup_format_by_content, find_project_root
-from ..utils.cache import ensure_cache_dir, write_metadata
-from .backup_sources import (
-    SourceError,
-    get_backup_source_help,
-    list_backup_schemes,
-    parse_source,
-)
+from ... import echo
+from ...backup_sources import SourceError
+from ...common import find_project_root
+from .cache import ensure_cache_dir, write_metadata
+from .format_detect import detect_backup_format_by_content
+from .registry import get_backup_source_help, list_backup_schemes, parse_source
 
 
 def _print_scheme_help(ctx, param, value):
@@ -208,7 +205,7 @@ def backup(
         # Use detected format as the source of truth
         format_to_store = detected_format if detected_format else parsed.original_format
 
-        # Keep cached filenames consistent with the actual content so `osh restore`
+        # Keep cached filenames consistent with the actual content so `osh db restore`
         # and directory listings are not misleading (e.g. a .sql file that is
         # actually a compressed pg_dump).
         if detected_format:

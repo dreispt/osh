@@ -4,10 +4,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from ... import echo
-from ...commands.backup_sources import BackupSource, SourceError, _now_stamp
-from ...common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
-from ...db import get_pg_credentials
+from .... import echo
+from ....backup_sources import BackupSource, SourceError, _now_stamp
+from ....common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
+from ....db import get_pg_credentials
 
 
 class DbSource(BackupSource):

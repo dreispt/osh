@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osh.commands.db_cmd import restore
 from osh.commands.helpers import Diagnostics
 from osh.db import set_project_config
+from osh.plugins.osh_backup.restore_cmd import restore
 
 
 def _setup_fake_db_config(project, db_name="testdb"):
@@ -35,41 +35,41 @@ def patched_restore(monkeypatch, in_project, pg_db):
     _setup_fake_db_config(in_project, db_name)
 
     monkeypatch.setattr(
-        "osh.commands.db_cmd.drop_db",
+        "osh.plugins.osh_backup.restore_cmd.drop_db",
         lambda base, db: state["dropped"].append(db),
     )
     monkeypatch.setattr(
-        "osh.commands.db_cmd.create_db",
+        "osh.plugins.osh_backup.restore_cmd.create_db",
         lambda base, db: state["created"].append(db),
     )
     monkeypatch.setattr(
-        "osh.db_restore.restore_dump",
+        "osh.plugins.osh_backup.restore_ops.restore_dump",
         lambda base, dump_path, db_name, *, dry_run=False: state["restore"].append(
             (dump_path, db_name, dry_run)
         ),
     )
     monkeypatch.setattr(
-        "osh.commands.db_cmd.get_database_version",
+        "osh.plugins.osh_backup.restore_cmd.get_database_version",
         lambda base, db: (19, 0),
     )
     monkeypatch.setattr(
-        "osh.commands.db_cmd.find_odoo_executable",
+        "osh.plugins.osh_backup.restore_cmd.find_odoo_executable",
         lambda base: str(in_project / ".venv" / "bin" / "odoo"),
     )
     monkeypatch.setattr(
-        "osh.commands.db_cmd.get_version_tuple",
+        "osh.plugins.osh_backup.restore_cmd.get_version_tuple",
         lambda exe: (19, 0),
     )
     monkeypatch.setattr(
-        "osh.db_restore.neutralize_with_sql",
+        "osh.plugins.osh_backup.restore_ops.neutralize_with_sql",
         lambda base, db: state["sql_neutralize"].append(db),
     )
     monkeypatch.setattr(
-        "osh.commands.db_cmd.odoo",
+        "osh.plugins.osh_backup.restore_cmd.odoo",
         lambda **kwargs: state["neutralize"].append(kwargs),
     )
     monkeypatch.setattr(
-        "osh.commands.db_cmd.collect_diagnostics",
+        "osh.plugins.osh_backup.restore_cmd.collect_diagnostics",
         lambda *args, **kwargs: Diagnostics(
             backend="local", info={}, warnings=[], errors=[]
         ),
@@ -79,7 +79,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
 
 
 def test_restore_uses_latest_cache(patched_restore, in_project):
-    """`osh restore` with no argument uses the newest cached backup."""
+    """`osh db restore` with no argument uses the newest cached backup."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     old = cache_dir / "old.dump"
@@ -104,7 +104,7 @@ def test_restore_uses_latest_cache(patched_restore, in_project):
 
 
 def test_restore_cache_id(patched_restore, in_project):
-    """`osh restore cache:<id>` selects the correct cached backup."""
+    """`osh db restore cache:<id>` selects the correct cached backup."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     first = cache_dir / "first.dump"
@@ -120,7 +120,7 @@ def test_restore_cache_id(patched_restore, in_project):
 
 
 def test_restore_explicit_file(patched_restore, in_project):
-    """`osh restore <path>` restores an explicit file outside the cache."""
+    """`osh db restore <path>` restores an explicit file outside the cache."""
     dump = in_project / "custom.sql"
     dump.write_text("SELECT 1;")
 
@@ -134,7 +134,7 @@ def test_restore_explicit_file(patched_restore, in_project):
 
 
 def test_restore_no_cache_error(in_project):
-    """`osh restore` without an argument fails when the cache is empty."""
+    """`osh db restore` without an argument fails when the cache is empty."""
     _setup_fake_db_config(in_project)
 
     runner = CliRunner()
@@ -145,7 +145,7 @@ def test_restore_no_cache_error(in_project):
 
 
 def test_restore_dry_run(patched_restore, in_project):
-    """`osh restore --dry-run` does not execute subprocesses."""
+    """`osh db restore --dry-run` does not execute subprocesses."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
@@ -169,7 +169,7 @@ def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
     dump.write_bytes(b"x")
 
     monkeypatch.setattr(
-        "osh.commands.db_cmd.collect_diagnostics",
+        "osh.plugins.osh_backup.restore_cmd.collect_diagnostics",
         lambda *args, **kwargs: Diagnostics(
             backend="local", info={}, warnings=[], errors=[]
         ),
@@ -184,7 +184,7 @@ def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
 
 
 def test_restore_no_neutralize(patched_restore, in_project):
-    """`osh restore --no-neutralize` skips neutralization."""
+    """`osh db restore --no-neutralize` skips neutralization."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
@@ -199,7 +199,7 @@ def test_restore_no_neutralize(patched_restore, in_project):
 
 
 def test_restore_list_cached_backups(in_project):
-    """`osh restore --list` shows cached backups newest first."""
+    """`osh db restore --list` shows cached backups newest first."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True, exist_ok=True)
     first = cache_dir / "first.dump"
@@ -229,7 +229,7 @@ def test_restore_list_cached_backups(in_project):
 
 
 def test_restore_list_outside_project(monkeypatch, tmp_path):
-    """`osh restore --list` reports when run outside an Osh project."""
+    """`osh db restore --list` reports when run outside an Osh project."""
     monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
@@ -240,9 +240,9 @@ def test_restore_list_outside_project(monkeypatch, tmp_path):
 
 
 def test_restore_uses_metadata_format(monkeypatch, in_project):
-    """`osh restore` uses metadata format when available, not just file extension."""
-    from osh.db_restore import restore_dump
-    from osh.utils.cache import write_metadata
+    """`osh db restore` uses metadata format when available, not just file extension."""
+    from osh.plugins.osh_backup.cache import write_metadata
+    from osh.plugins.osh_backup.restore_ops import restore_dump
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -268,9 +268,15 @@ def test_restore_uses_metadata_format(monkeypatch, in_project):
     def mock_ensure_tool(tool):
         pass
 
-    monkeypatch.setattr("osh.db_restore.run_subprocess", mock_run_subprocess)
-    monkeypatch.setattr("osh.db_restore.ensure_tool", mock_ensure_tool)
-    monkeypatch.setattr("osh.db_restore.get_pg_credentials", lambda base: ([], {}))
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.run_subprocess", mock_run_subprocess
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.ensure_tool", mock_ensure_tool
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.get_pg_credentials", lambda base: ([], {})
+    )
 
     # Call the restore function directly
     restore_dump(in_project, dump, "testdb", dry_run=False)
@@ -282,7 +288,7 @@ def test_restore_uses_metadata_format(monkeypatch, in_project):
 
 def test_detect_format_by_content_zip(tmp_path):
     """Content detection correctly identifies ZIP format."""
-    from osh.common import detect_backup_format_by_content
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Create a file with ZIP magic bytes
     zip_file = tmp_path / "test.unknown"
@@ -294,7 +300,7 @@ def test_detect_format_by_content_zip(tmp_path):
 
 def test_detect_format_by_content_gzip(tmp_path):
     """Content detection correctly identifies GZIP format."""
-    from osh.common import detect_backup_format_by_content
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Create a file with GZIP magic bytes
     gzip_file = tmp_path / "test.unknown"
@@ -306,7 +312,7 @@ def test_detect_format_by_content_gzip(tmp_path):
 
 def test_detect_format_by_content_dump(tmp_path):
     """Content detection correctly identifies PostgreSQL custom format."""
-    from osh.common import detect_backup_format_by_content
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Create a file with PostgreSQL custom format magic bytes
     dump_file = tmp_path / "test.unknown"
@@ -318,7 +324,7 @@ def test_detect_format_by_content_dump(tmp_path):
 
 def test_detect_format_by_content_sql(tmp_path):
     """Content detection correctly identifies plain SQL format."""
-    from osh.common import detect_backup_format_by_content
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Create a file with SQL content
     sql_file = tmp_path / "test.unknown"
@@ -330,7 +336,7 @@ def test_detect_format_by_content_sql(tmp_path):
 
 def test_detect_format_by_content_sql_keywords(tmp_path):
     """Content detection identifies SQL by keywords."""
-    from osh.common import detect_backup_format_by_content
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Test various SQL keywords
     for keyword in [
@@ -350,7 +356,7 @@ def test_detect_format_by_content_sql_keywords(tmp_path):
 
 def test_detect_format_by_content_unknown(tmp_path):
     """Content detection returns None for unknown formats."""
-    from osh.common import detect_backup_format_by_content
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Create a file with unknown binary content
     unknown_file = tmp_path / "test.unknown"
@@ -361,9 +367,9 @@ def test_detect_format_by_content_unknown(tmp_path):
 
 
 def test_restore_uses_content_detection(monkeypatch, in_project):
-    """`osh restore` falls back to content detection when metadata and extension fail."""
-    from osh.common import detect_backup_format_by_content
-    from osh.db_restore import restore_dump
+    """`osh db restore` falls back to content detection when metadata and extension fail."""
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
+    from osh.plugins.osh_backup.restore_ops import restore_dump
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -389,10 +395,18 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
     def mock_restore_zip(base, dump_path, target_db, conn_args, env):
         restore_calls.append("restore_zip")
 
-    monkeypatch.setattr("osh.db_restore.run_subprocess", mock_run_subprocess)
-    monkeypatch.setattr("osh.db_restore.ensure_tool", mock_ensure_tool)
-    monkeypatch.setattr("osh.db_restore.get_pg_credentials", lambda base: ([], {}))
-    monkeypatch.setattr("osh.db_restore._restore_zip", mock_restore_zip)
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.run_subprocess", mock_run_subprocess
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.ensure_tool", mock_ensure_tool
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.get_pg_credentials", lambda base: ([], {})
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops._restore_zip", mock_restore_zip
+    )
 
     # Call the restore function directly
     restore_dump(in_project, backup, "testdb", dry_run=False)
@@ -404,7 +418,7 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
 def test_restore_older_db_uses_sql_fallback(patched_restore, in_project, monkeypatch):
     """Restoring a 14.0 dump into a 19.0 project falls back to SQL neutralization."""
     monkeypatch.setattr(
-        "osh.commands.db_cmd.get_database_version",
+        "osh.plugins.osh_backup.restore_cmd.get_database_version",
         lambda base, db: (14, 0),
     )
 
@@ -424,7 +438,7 @@ def test_restore_older_db_uses_sql_fallback(patched_restore, in_project, monkeyp
 
 def test_restore_available_under_db_group(patched_restore, in_project):
     """`osh db restore` is the primary command and behaves identically."""
-    from osh.commands.db_cmd import db
+    from osh.cli import main
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -432,19 +446,17 @@ def test_restore_available_under_db_group(patched_restore, in_project):
     dump.write_bytes(b"x")
 
     runner = CliRunner()
-    result = runner.invoke(db, ["restore", str(dump)])
+    result = runner.invoke(main, ["db", "restore", str(dump)])
 
     assert result.exit_code == 0, result.output
     assert patched_restore["restore"]
 
 
-def test_restore_top_level_alias_is_hidden(patched_restore, in_project):
-    """The top-level `osh restore` still works but is hidden from help."""
+def test_restore_top_level_alias_is_gone(patched_restore, in_project):
+    """The top-level `osh restore` alias was dropped with the db move."""
     from osh.cli import main
 
-    cmd = main.commands.get("restore")
-    assert cmd is not None
-    assert cmd.hidden
+    assert main.commands.get("restore") is None
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -454,5 +466,5 @@ def test_restore_top_level_alias_is_hidden(patched_restore, in_project):
     runner = CliRunner()
     result = runner.invoke(main, ["restore", str(dump)])
 
-    assert result.exit_code == 0, result.output
-    assert patched_restore["restore"]
+    assert result.exit_code != 0
+    assert not patched_restore["restore"]

@@ -75,10 +75,14 @@ class Backend(ABC):
         return []
 
     def detect_odoo_version(self, base):
-        """Return the installed Odoo version for *base*, or None if unknown."""
-        from .utils.version import detect_odoo_version
+        """Return the installed Odoo version for *base*, or None if unknown.
 
-        return detect_odoo_version(base, self)
+        The default reads the version from the checked-out Odoo sources;
+        backends override this to try backend-specific detection first.
+        """
+        from .utils.version import get_version_from_sources
+
+        return get_version_from_sources(base)
 
     def diagnose_sections_for_phase(self, phase):
         """Return the diagnose sections to run for *phase*.

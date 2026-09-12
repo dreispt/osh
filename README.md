@@ -71,11 +71,12 @@ pipx install osh
 Run `osh <command> --help` for detailed options and examples.
 
 - `osh init <version>` — set up a project (venv, sources, config).
+- `osh run [<cmd>]` — enter the project's runtime environment or run a command in it.
 - `osh odoo` — run Odoo with automatic addons-path, database and dbfilter.
 - `osh doctor` — check the project setup and report diagnostics.
 - `osh config` — manage branch/database mappings and preferences.
 - `osh db` — manage branch-to-database mappings; copy and restore databases.
-- `osh plug` — install, list and remove plugins from git repositories.
+- `osh plug` — install, enable, alias and remove plugins from git repositories.
 - `osh backup <source>` — download or dump a backup into `.osh/backups/`.
 - `osh db restore [<dump>]` — restore and neutralize a backup.
 - `osh test` — run Odoo tests for project modules.

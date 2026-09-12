@@ -12,16 +12,20 @@ A plugin must be a Python package (a directory with `__init__.py`) or a single
 dict whose keys map capability names to lists:
 
 - `commands` — `click.Command` objects,
+- `group_commands` — a dict mapping the name of an existing `osh` command
+  group (e.g. `"db"`) to `click.Command` objects attached as subcommands,
 - `backends` — `Backend` subclasses,
-- `backup_sources` — `BackupSource` subclasses,
-- `hooks` — a dict mapping hook point names (see `osh.hooks`) to
-  implementations or lists of implementations.
+- `hooks` — a dict mapping hook point names to implementations or lists of
+  implementations. Core hook points are defined in `osh.hooks`; plugins can
+  also define their own hook points for other plugins to extend them (e.g.
+  `osh_backup` discovers backup source schemes via `"osh_backup.sources"`).
 
 All keys are optional; a plugin can provide any combination of them.
 
 The command name is the `name` passed to the `click.command()` decorator or the
-function name by default. Make sure the name does not collide with an existing
-`osh` command.
+function name by default. If the name collides with an existing command, `osh`
+registers it under a source-qualified fallback (`<plugin>-<name>`) and warns —
+see [Command name collisions](#command-name-collisions).
 
 ### Minimal plugin example
 
@@ -92,8 +96,66 @@ Manage installed plugins with:
 
 ```bash
 osh plug list
+osh plug enable REPO [PLUGIN ...]
+osh plug disable REPO [PLUGIN ...]
 osh plug uninstall REPO
+osh plug alias PLUGIN COMMAND NAME
+osh plug unalias PLUGIN COMMAND
 ```
+
+### Multi-plugin repositories and selective install
+
+A repository can ship several plugins — like an Odoo addons repo. Every
+direct subpackage declaring an `OSH_PLUGIN_MANIFEST` is a plugin of its own:
+
+```
+osh-contrib/
+├── osh_scan/
+│   └── __init__.py      # OSH_PLUGIN_MANIFEST = {"commands": [scan]}
+├── osh_audit/
+│   └── __init__.py      # OSH_PLUGIN_MANIFEST = {"commands": [audit]}
+└── tools/osh_misc/
+    └── osh_plugin.py    # single-file plugin works too
+```
+
+(Note: only _direct_ subdirectories of the repo are scanned, so put
+`osh_plugin.py` plugins at the top level, e.g. `osh_misc/osh_plugin.py`.)
+
+Choose which plugins to enable at install time:
+
+```bash
+osh plug install -e osh-contrib --all                # everything
+osh plug install -e osh-contrib --plugin osh-scan    # just one (repeatable)
+```
+
+Without flags, a multi-plugin repo prompts per plugin when interactive, or
+fails with a hint in scripts. Selections are stored in
+`~/.config/osh/config.toml` under `[plugins.<repo>] enabled = [...]`, and
+disabled plugins are never imported — their code does not run. Toggle later
+with `osh plug enable`/`disable`.
+
+### Command name collisions
+
+Plugin commands always register under their declared name. If that name is
+already taken (by a core command or an earlier plugin), `osh` registers it as
+`<plugin>-<name>` and prints a warning on every load:
+
+```
+⚠️ plugin 'osh-scan' command 'init' conflicts with the existing 'init'
+  command; registered as 'osh-scan-init'. Choose a permanent name with:
+  osh plug alias osh-scan init <name>
+```
+
+Use `osh plug alias` to pick a permanent name; it is stored in
+`~/.config/osh/config.toml` under `[plugin-aliases.<plugin>]` and applies to
+any plugin command, not just colliding ones. Group subcommands are referenced
+as `<group>.<name>` (e.g. `db.restore`). An alias that itself collides, or a
+fallback name that collides, is reported as an error and the command is
+skipped.
+
+Backend and backup source names are functional identifiers (used by
+`--target` and `<scheme>://`), so they cannot be renamed — a collision is
+reported as an error and the conflicting plugin contribution is skipped.
 
 ### Built-in plugins
 
@@ -129,8 +191,8 @@ notice.
   `get_odoo_config_path`, `resolve_config_file`, `discover_addons_paths`,
   `decode_stderr`.
 - `osh.backends` — `Backend`, `EnvSpec`, and `copy_odoo_rc_to_osh_conf`.
-- `osh.commands.backup_sources` — `BackupSource` and `SourceError` for extending
-  `osh backup` with new source schemes.
+- `osh.backup_sources` — `BackupSource` and `SourceError`, the interface for
+  extending `osh backup` with new source schemes.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.hooks` — hook point name constants for the `hooks` manifest key.
@@ -139,9 +201,10 @@ notice.
 - `osh.sources` — source installation helpers: `ensure_osh_sources`,
   `pull_odoo_sources`, etc.
 
-Internal implementation modules live in `osh/utils/` (layout, version, cache,
-plugin loading) and `osh/commands/` (CLI command logic and `Diagnostics`).
-These are not part of the stable plugin API.
+Internal implementation modules live in `osh/utils/` (layout, version,
+plugin loading) and `osh/commands/` (CLI command logic). `Diagnostics` in
+`osh.commands.helpers` is the one exception — it is part of the backend
+contract.
 
 ## Plugin API Reference
 
@@ -167,8 +230,9 @@ Commands are loaded from:
    group.
 3. User-installed packages in `~/.config/osh/plugins/`.
 
-If a command name collides with an existing command, the plugin source is prefixed
-automatically, so both commands remain available.
+If a command name collides with an existing command, it is registered under a
+source-qualified fallback with a warning — see
+[Command name collisions](#command-name-collisions).
 
 See the [Plugin conventions](#plugin-conventions) section above for a minimal
 example.
@@ -205,9 +269,10 @@ class MyBackend(Backend):
   help formatter groups the option under the right backend heading.
 
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
-  _base_, or `None` if it cannot be determined. The base implementation in
-  `Backend` delegates to `osh/utils/version.py`, but backends may override it for
-  target-specific discovery.
+  _base_, or `None` if it cannot be determined. The base implementation reads
+  the version from the checked-out Odoo sources; backends override it to try
+  target-specific detection first (e.g. the local executable, a compose image
+  tag).
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
   Return a `Diagnostics` object. `osh doctor`, `osh init` and `osh odoo` all use
@@ -227,11 +292,12 @@ class MyBackend(Backend):
 
 ### Backup source plugins
 
-Plugins can add new backup sources that `osh backup <scheme>://...`
-understands. Declare them under the `backup_sources` manifest key:
+The built-in `osh_backup` plugin defines a hook point, `osh_backup.sources`,
+that other plugins can use to add schemes `osh backup <scheme>://...`
+understands. Declare them under the `hooks` manifest key:
 
 ```python
-OSH_PLUGIN_MANIFEST = {"backup_sources": [MySource]}
+OSH_PLUGIN_MANIFEST = {"hooks": {"osh_backup.sources": [MySource]}}
 ```
 
 A source class must:
@@ -247,20 +313,15 @@ A source class must:
 - Implement `default_output_name()` returning the default filename.
 - Implement `fetch(output, *, dry_run=False)` to write the backup to `output`.
 
-Built-in sources ship as separate plugins under `osh/plugins/`:
-
-- `osh/plugins/osh_backup_db` — `db://`
-- `osh/plugins/osh_backup_https` — `https://` / `http://`
-- `osh/plugins/osh_backup_odoosh` — `odoosh://`
-- `osh/plugins/osh_backup_ssh` — `ssh://`
-
-Each plugin declares `OSH_PLUGIN_MANIFEST` in its `__init__.py`.
+The built-in sources ship in the consolidated `osh/plugins/osh_backup/`
+plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` — alongside
+the `osh backup` command and the `osh db restore` group subcommand.
 
 Example plugin source:
 
 ```python
 # ~/.config/osh/plugins/my_backup/__init__.py
-from osh.commands.backup_sources import BackupSource
+from osh.backup_sources import BackupSource
 
 
 class S3BackupSource(BackupSource):
@@ -289,7 +350,7 @@ Example:
         # download from S3 into output
 
 
-OSH_PLUGIN_MANIFEST = {"backup_sources": [S3BackupSource]}
+OSH_PLUGIN_MANIFEST = {"hooks": {"osh_backup.sources": [S3BackupSource]}}
 ```
 
 ### Hook plugins
@@ -328,30 +389,44 @@ message.
 Since `osh odoo` execs Odoo, a pre-env hook is also the place to spawn
 detached sidecar processes that must outlive the `osh` process itself.
 
-### Multi-plugin repositories
+Hook points are not limited to core. A plugin can define its own hook point
+simply by documenting a name and consuming `load_hooks(<name>)` (or
+`load_hook_entries(<name>)` when it needs to know which plugin contributed
+each item). `osh_backup` uses this for backup sources — see
+[Backup source plugins](#backup-source-plugins) — so `osh` core carries no
+backup-specific extension machinery.
+
+### How multi-plugin repositories load
 
 A plugin directory can also be a _repository_ of plugins — like an Odoo
-addons repo. When a directory installed in `~/.config/osh/plugins/` contains
-subpackages, each direct subpackage declaring an `OSH_PLUGIN_MANIFEST` is
-loaded as a plugin of its own. No aggregation code is needed, and the repo
-root doesn't even require an `__init__.py`:
-
-```
-my_plugins/
-└── osh_example/
-    ├── __init__.py      # declares OSH_PLUGIN_MANIFEST = {...}
-    ├── README.md
-    └── tests/
-```
-
-Each subplugin is loaded as a real package, so relative imports inside it
-work normally, and gets its own source name (`osh-example`) for
-command-collision prefixes. A root-level `OSH_PLUGIN_MANIFEST`, if the repo
+addons repo (see
+[Multi-plugin repositories and selective install](#multi-plugin-repositories-and-selective-install)
+for the install side). Each direct subpackage declaring an
+`OSH_PLUGIN_MANIFEST` is loaded as a plugin of its own — the repo root
+doesn't even require an `__init__.py`. Each subplugin is loaded as a real
+package, so relative imports inside it work normally, and gets its own source
+name (`osh-example`) used for `osh plug alias`, `osh plug list`, and
+collision-fallback prefixes. A root-level `OSH_PLUGIN_MANIFEST`, if the repo
 root happens to be a package too, is loaded alongside the subplugins'.
+
+### Group subcommands
+
+A plugin can attach subcommands to an existing `osh` command group with the
+`group_commands` manifest key:
+
+```python
+OSH_PLUGIN_MANIFEST = {"group_commands": {"db": [my_subcommand]}}
+```
+
+The command then appears as `osh db my-subcommand`. The group must already
+exist (targeting a non-group command is an error). Collision and alias
+handling work the same as for top-level commands — the alias key is
+`<group>.<name>` (e.g. `osh plug alias my-plugin db.my-subcommand other-name`),
+and the collision fallback is `<plugin>-<name>` inside the group.
 
 ### EnvSpec
 
-`osh odoo`, `osh env` and `osh db restore` pass an `EnvSpec` dataclass (from
+`osh odoo`, `osh run` and `osh db restore` pass an `EnvSpec` dataclass (from
 `osh/backends.py`) to `Backend.env()`. It describes a command to execute inside
 the prepared target environment:
 
@@ -382,7 +457,7 @@ happen; `osh doctor` reports everything via `report_diagnostics()`.
 # ~/.config/osh/plugins/my_backend/__init__.py
 import click
 from osh.backends import Backend, EnvSpec
-from osh.diagnostics import Diagnostics
+from osh.commands.helpers import Diagnostics
 
 
 class EchoBackend(Backend):

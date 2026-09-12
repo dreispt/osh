@@ -4,9 +4,10 @@ Loads built-in plugins from `osh.plugins`, third-party plugins registered as
 Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
 A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
-`commands`, `backends` and `backup_sources` keys mapping to lists, plus an
-optional `hooks` key mapping hook point names (see `osh.hooks`) to callables
-or lists of implementations. Plugins are expected to be Python packages
+`commands`, `backends` and `group_commands` keys, plus an optional `hooks`
+key mapping hook point names (see `osh.hooks`) to callables or lists of
+implementations. Plugins may also define their own hook points — e.g. the
+`osh_backup` plugin discovers backup sources via ``"osh_backup.sources"``. Plugins are expected to be Python packages
 (directories with `__init__.py`) or a single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
@@ -24,6 +25,7 @@ from pathlib import Path
 import click
 
 from .. import echo
+from ..config import get_enabled_plugins
 
 try:
     import importlib.metadata as _metadata
@@ -72,9 +74,20 @@ def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
     if spec is None or spec.loader is None:
         return None
 
+    cached = sys.modules.get(module_name)
+    if cached is not None and getattr(cached, "__file__", None) in (
+        str(init_file),
+        str(module_file),
+    ):
+        return cached
+
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(module_name, None)
+        raise
     return module
 
 
@@ -106,10 +119,8 @@ def _iter_entry_point_modules(group="osh.plugins"):
         try:
             module = importlib.import_module(ep.value)
             yield ep.name, module
-        except (ImportError, ValueError) as exc:
-            echo.warning(
-                f"Could not load entry-point plugin '{ep.value}': {exc}", err=True
-            )
+        except Exception as exc:
+            echo.error(f"Could not load entry-point plugin '{ep.value}': {exc}")
             continue
 
 
@@ -125,10 +136,8 @@ def _iter_plugin_modules():
                 module = importlib.import_module(module_name)
                 source = _plugin_source_name(module_name)
                 yield source, module
-            except (ImportError, ValueError) as exc:
-                echo.warning(
-                    f"Could not load built-in plugin '{module_name}': {exc}", err=True
-                )
+            except Exception as exc:
+                echo.error(f"Could not load built-in plugin '{module_name}': {exc}")
                 continue
     except ImportError:
         pass
@@ -137,36 +146,47 @@ def _iter_plugin_modules():
 
     plugin_dir = _user_plugin_dir()
     if plugin_dir.is_dir():
-        for child in plugin_dir.iterdir():
+        for child in sorted(plugin_dir.iterdir()):
             if not child.is_dir() or child.name.startswith("."):
                 continue
-            try:
-                module = _import_plugin_from_dir(child)
-            except (ImportError, SyntaxError, ValueError, OSError) as exc:
-                echo.warning(f"Could not load user plugin '{child}': {exc}", err=True)
-                continue
+            enabled = get_enabled_plugins(child.name)
+            if enabled is not None and _plugin_source_name(child.name) not in enabled:
+                module = None
+            else:
+                try:
+                    module = _import_plugin_from_dir(child)
+                except Exception as exc:
+                    echo.error(f"Could not load user plugin '{child}': {exc}")
+                    continue
             if module is not None:
                 yield _plugin_source_name(child.name), module
-            yield from _iter_subplugins(child)
+            yield from _iter_subplugins(child, enabled=enabled)
 
 
-def _iter_subplugins(repo_dir):
+def _iter_subplugins(repo_dir, enabled=None):
     """Yield ``(source, module)`` pairs for plugin packages inside *repo_dir*.
 
     A plugin directory may also be a "repository" of plugins — like an Odoo
     addons repo: every direct subpackage declaring ``OSH_PLUGIN_MANIFEST``
     is a plugin of its own, so multi-plugin repos need no aggregation code
     and the repo root does not even need an ``__init__.py``.
+
+    *enabled* is the repo's configured enabled-plugin list (see
+    ``config.get_enabled_plugins``); ``None`` enables everything. Disabled
+    subplugins are skipped before import, so their code never executes.
     """
     prefix = f"osh_user_plugin_{_plugin_name_from_path(repo_dir)}"
     for child in _plugin_subdirs(repo_dir):
+        source = _plugin_source_name(child.name)
+        if enabled is not None and source not in enabled:
+            continue
         try:
             module = _import_plugin_from_dir(child, prefix=prefix)
         except Exception as exc:
-            echo.warning(f"Could not load plugin '{child}': {exc}", err=True)
+            echo.error(f"Could not load plugin '{child}': {exc}")
             continue
         if module is not None and _plugin_manifest(module):
-            yield _plugin_source_name(child.name), module
+            yield source, module
 
 
 def _plugin_subdirs(directory):
@@ -234,6 +254,46 @@ def load_plugins():
     return commands
 
 
+def _load_group_commands_from_module(module):
+    """Return the ``{group_name: [click.Command]}`` mapping from a plugin."""
+    groups = _plugin_manifest(module).get("group_commands", {})
+    if not isinstance(groups, dict):
+        return {}
+    result = {}
+    for group_name, commands in groups.items():
+        if not isinstance(commands, list):
+            commands = [commands]
+        valid = [cmd for cmd in commands if isinstance(cmd, click.Command)]
+        if valid:
+            result.setdefault(group_name, []).extend(valid)
+    return result
+
+
+def load_group_commands():
+    """Return ``{group_name: [(source, command)]}`` for all loaded plugins.
+
+    Plugins attach subcommands to existing command groups (e.g. ``db``) via
+    the ``group_commands`` key of their ``OSH_PLUGIN_MANIFEST``.
+    """
+    result = {}
+    for source, module in _iter_plugin_modules():
+        for group_name, commands in _load_group_commands_from_module(module).items():
+            result.setdefault(group_name, []).extend((source, c) for c in commands)
+    return result
+
+
+def _iter_hook_entries():
+    """Yield ``(source, hook_name, impl)`` for every hook item in plugins."""
+    for source, module in _iter_plugin_modules():
+        hooks = _plugin_manifest(module).get("hooks", {})
+        if not isinstance(hooks, dict):
+            continue
+        for hook_name, impl in hooks.items():
+            items = impl if isinstance(impl, list) else [impl]
+            for item in items:
+                yield source, hook_name, item
+
+
 def load_hooks(name=None):
     """Aggregate the ``hooks`` manifest key across all plugins.
 
@@ -243,14 +303,19 @@ def load_hooks(name=None):
     entry is ignored.
     """
     result = {}
-    for source, module in _iter_plugin_modules():
-        hooks = _plugin_manifest(module).get("hooks", {})
-        if not isinstance(hooks, dict):
-            continue
-        for hook_name, impl in hooks.items():
-            items = impl if isinstance(impl, list) else [impl]
-            result.setdefault(hook_name, []).extend(items)
+    for _source, hook_name, impl in _iter_hook_entries():
+        result.setdefault(hook_name, []).append(impl)
     return result if name is None else result.get(name, [])
+
+
+def load_hook_entries(name):
+    """Return ``(source, impl)`` pairs for hook point *name*.
+
+    Like ``load_hooks`` but keeps the contributing plugin's source name —
+    useful when the consumer reports which plugin provided what (e.g. for
+    collision errors).
+    """
+    return [(s, i) for s, n, i in _iter_hook_entries() if n == name]
 
 
 def load_backends(backend_type=None):
@@ -268,46 +333,10 @@ def load_backends(backend_type=None):
             if not name:
                 continue
             if name in result:
-                echo.warning(
+                echo.error(
                     f"backend '{name}' from '{source}' conflicts with "
-                    f"an existing backend and is ignored.",
-                    err=True,
+                    f"an existing backend and is ignored."
                 )
                 continue
             result[name] = backend
-    return result
-
-
-def _load_backup_sources_from_module(module):
-    """Return backup source classes exposed by a plugin module."""
-    sources = _plugin_manifest(module).get("backup_sources", [])
-
-    if not isinstance(sources, list):
-        sources = [sources]
-
-    return [
-        src for src in sources if isinstance(src, type) and getattr(src, "scheme", None)
-    ]
-
-
-def load_backup_sources():
-    """Return a mapping of backup source scheme to source class.
-
-    Source classes are loaded from the ``backup_sources`` key of each
-    plugin's ``OSH_PLUGIN_MANIFEST``. A valid source class must have a ``scheme``
-    class attribute (e.g. ``scheme = "s3"``) and implement the backup source
-    interface.
-    """
-    result = {}
-    for source, module in _iter_plugin_modules():
-        for src_cls in _load_backup_sources_from_module(module):
-            scheme = getattr(src_cls, "scheme")
-            if scheme in result:
-                echo.warning(
-                    f"backup source '{scheme}' from '{source}' conflicts with "
-                    f"an existing source and is ignored.",
-                    err=True,
-                )
-                continue
-            result[scheme] = src_cls
     return result

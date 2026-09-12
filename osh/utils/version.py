@@ -1,57 +1,9 @@
 """Centralized Odoo version detection helpers."""
 
 import re
-from pathlib import Path
 
 from .. import echo
 from ..common import run_subprocess
-from .odoo_layout import find_odoo_executable
-
-
-def detect_odoo_version(base, backend):
-    """Return the installed Odoo version for *base* and *backend*, or None."""
-    backend_name = (
-        backend if isinstance(backend, str) else getattr(backend, "name", None)
-    )
-
-    if backend_name == "local":
-        exe = find_odoo_executable(base)
-        if exe:
-            version = get_version_from_executable(exe)
-            if version:
-                return version
-        return get_version_from_sources(base)
-
-    if backend_name == "docker":
-        version = get_version_from_sources(base)
-        if version:
-            return version
-
-        from ..plugins.osh_backend_docker.utils import (
-            _COMPOSE_FILE,
-            _load_docker_config,
-        )
-
-        cfg = _load_docker_config(base)
-        compose_file = (cfg or {}).get("compose_file") or str(_COMPOSE_FILE)
-        compose_path = base / Path(compose_file)
-        if not compose_path.is_file():
-            return None
-
-        text = compose_path.read_text()
-        match = re.search(r"image:\s*\S+/(odoo):(\S+)", text)
-        if not match:
-            match = re.search(r"image:\s*(odoo):(\S+)", text)
-        if not match:
-            return None
-
-        tag = match.group(2)
-        version_match = re.match(r"(\d+\.\d+)", tag)
-        if version_match:
-            return f"odoo {version_match.group(1)}"
-        return None
-
-    return None
 
 
 def get_version_from_executable(exe):

@@ -13,16 +13,11 @@ from pathlib import Path
 
 import click
 
-from . import echo
-from .common import (
-    detect_backup_format_by_content,
-    ensure_tool,
-    get_odoo_data_dir,
-    run_shell_pipeline,
-    run_subprocess,
-)
-from .db import get_pg_credentials, run_psql_script
-from .utils.cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
+from ... import echo
+from ...common import ensure_tool, get_odoo_data_dir, run_shell_pipeline, run_subprocess
+from ...db import get_pg_credentials, run_psql_script
+from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
+from .format_detect import detect_backup_format_by_content
 
 SOURCE_COLUMN_WIDTH = 40
 SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")

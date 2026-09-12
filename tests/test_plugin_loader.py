@@ -159,3 +159,115 @@ def test_bare_repo_without_plugins_loads_nothing(plugin_dir, capsys):
 
     assert plugin_loader.load_hooks("point") == []
     assert capsys.readouterr().err == ""
+
+
+def test_disabled_subplugins_are_not_imported(plugin_dir, monkeypatch, tmp_path):
+    """Disabled subplugins are filtered before import — code never runs."""
+    marker = tmp_path / "imported"
+    repo = _write_package(
+        plugin_dir,
+        "repo_j",
+        "OSH_PLUGIN_MANIFEST = {'hooks': {'point': ['root']}}\n",
+    )
+    _write_package(
+        repo,
+        "osh_on",
+        "OSH_PLUGIN_MANIFEST = {'hooks': {'point': ['on']}}\n",
+    )
+    _write_package(
+        repo,
+        "osh_off",
+        f"import pathlib\n"
+        f"pathlib.Path({str(marker)!r}).write_text('ran')\n"
+        f"OSH_PLUGIN_MANIFEST = {{'hooks': {{'point': ['off']}}}}\n",
+    )
+    monkeypatch.setattr(
+        plugin_loader,
+        "get_enabled_plugins",
+        lambda source: ["repo-j", "osh-on"] if source == "repo_j" else None,
+    )
+
+    assert sorted(plugin_loader.load_hooks("point")) == ["on", "root"]
+    assert not marker.exists()
+
+
+def test_broken_plugin_leaves_no_sys_modules_entry(plugin_dir, capsys):
+    """A plugin that fails to import is removed from ``sys.modules``."""
+    import sys
+
+    _write_package(plugin_dir, "repo_k", "1/0\n")
+
+    assert plugin_loader.load_hooks("point") == []
+    assert "Could not load user plugin" in capsys.readouterr().err
+    assert "osh_user_plugin_repo_k" not in sys.modules
+
+
+def test_user_plugin_backends_and_sources(plugin_dir, capsys):
+    """User plugins can contribute backends, sources and group commands."""
+    _write_package(
+        plugin_dir,
+        "repo_l",
+        "import click\n"
+        "from osh.backends import Backend\n"
+        "from osh.backup_sources import BackupSource\n\n"
+        "class MyBackend(Backend):\n"
+        "    name = 'mybackend'\n"
+        "    backend_type = 'backend'\n\n"
+        "class MySource(BackupSource):\n"
+        "    scheme = 'myscheme'\n\n"
+        "@click.command(name='mysub')\n"
+        "def mysub():\n"
+        "    pass\n\n"
+        "OSH_PLUGIN_MANIFEST = {\n"
+        "    'backends': [MyBackend],\n"
+        "    'hooks': {'osh_backup.sources': [MySource]},\n"
+        "    'group_commands': {'db': [mysub]},\n"
+        "}\n",
+    )
+
+    assert "mybackend" in plugin_loader.load_backends()
+    entries = plugin_loader.load_hook_entries("osh_backup.sources")
+    assert any(
+        s == "repo-l" and getattr(i, "scheme", None) == "myscheme" for s, i in entries
+    )
+    groups = plugin_loader.load_group_commands()
+    assert any(c.name == "mysub" for _s, c in groups["db"])
+    assert capsys.readouterr().err == ""
+
+
+def test_backend_name_collision_is_skipped(plugin_dir, capsys):
+    """A second backend with the same name is skipped with an error."""
+    src = (
+        "from osh.backends import Backend\n\n"
+        "class LocalAgain(Backend):\n"
+        "    name = 'local'\n"
+        "    backend_type = 'backend'\n\n"
+        "OSH_PLUGIN_MANIFEST = {'backends': [LocalAgain]}\n"
+    )
+    _write_package(plugin_dir, "repo_m", src)
+
+    backends = plugin_loader.load_backends()
+    assert backends["local"].__module__ == "osh.plugins.osh_backend_local.backends"
+    assert "conflicts" in capsys.readouterr().err
+
+
+def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
+    """A second backup source with the same scheme is skipped with an error."""
+    src = (
+        "from osh.backup_sources import BackupSource\n\n"
+        "class DbAgain(BackupSource):\n"
+        "    scheme = 'db'\n\n"
+        "OSH_PLUGIN_MANIFEST = {'hooks': {'osh_backup.sources': [DbAgain]}}\n"
+    )
+    _write_package(plugin_dir, "repo_n", src)
+
+    from osh.plugins.osh_backup import registry
+
+    registry._SOURCE_REGISTRY = None
+    try:
+        sources = registry._source_registry()
+    finally:
+        registry._SOURCE_REGISTRY = None
+
+    assert sources["db"].__module__.startswith("osh.plugins.osh_backup.")
+    assert "conflicts" in capsys.readouterr().err
