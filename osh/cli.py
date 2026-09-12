@@ -8,7 +8,8 @@ import click
 
 from . import __version__, echo
 from .commands import COMMANDS
-from .utils.plugin_loader import load_plugins
+from .config import get_plugin_aliases
+from .utils.plugin_loader import load_group_commands, load_plugins
 
 
 class NaturalOrderGroup(click.Group):
@@ -76,7 +77,7 @@ def main(ctx, verbosity):  # noqa: D401
     to accelerate your development and staging workflows.
 
     Use `osh init` to initialize an Odoo environment in a project.
-    Use `osh env` to enter the runtime environment or run any command inside it.
+    Use `osh run` to enter the runtime environment or run any command inside it.
     Use `osh odoo` to run Odoo in that environment, using an available
     backend (local, docker, etc.).
     Add the `--help` option to a command to learn more.
@@ -97,18 +98,60 @@ def main(ctx, verbosity):  # noqa: D401
 for _cmd in COMMANDS:
     main.add_command(_cmd)
 
+
+def _register_plugin_command(group, cmd, source, qualified):
+    """Register plugin command *cmd* on *group*, honoring aliases/collisions.
+
+    *qualified* is the alias key stored in the user config — the command name
+    for top-level commands, or ``<group>.<name>`` for group subcommands.
+    """
+    name = cmd.name
+    alias = get_plugin_aliases(source).get(qualified)
+    if alias is not None:
+        if alias in group.commands:
+            echo.error(
+                f"plugin '{source}' command alias '{alias}' for '{qualified}' "
+                "conflicts with an existing command and is ignored."
+            )
+            return
+        group.add_command(cmd, name=alias)
+        return
+    if name in group.commands:
+        fallback = f"{source}-{name}"
+        if fallback in group.commands:
+            echo.error(
+                f"plugin '{source}' command '{qualified}' conflicts with an "
+                "existing command and is ignored."
+            )
+            return
+        echo.warning(
+            f"plugin '{source}' command '{qualified}' conflicts with the "
+            f"existing '{name}' command; registered as '{fallback}'. "
+            f"Choose a permanent name with: osh plug alias {source} "
+            f"{qualified} <name>",
+            err=True,
+        )
+        name = fallback
+    group.add_command(cmd, name=name)
+
+
 # Register commands from built-in and user-installed plugins.
 # A plugin command whose name collides with a command that is already
 # registered (core command or an earlier plugin) is prefixed with its
-# plugin source, so both commands remain available in the CLI.
+# plugin source and reported, so both commands remain available in the CLI.
 for plugin_source, plugin_cmd in load_plugins():
-    name = plugin_cmd.name
-    if name in main.commands:
-        prefixed = f"{plugin_source}-{name}"
-        if prefixed in main.commands:
-            echo.warning(
-                f"plugin command '{name}' from '{plugin_source}' conflicts with an existing command and is ignored."
+    _register_plugin_command(main, plugin_cmd, plugin_source, plugin_cmd.name)
+
+# Register plugin-provided subcommands on existing command groups
+# (``group_commands`` manifest key).
+for group_name, entries in load_group_commands().items():
+    target = main.commands.get(group_name)
+    if not isinstance(target, click.Group):
+        for source, _cmd in entries:
+            echo.error(
+                f"plugin '{source}' group command target '{group_name}' is "
+                "not a command group; ignored."
             )
-            continue
-        name = prefixed
-    main.add_command(plugin_cmd, name=name)
+        continue
+    for source, _cmd in entries:
+        _register_plugin_command(target, _cmd, source, f"{group_name}.{_cmd.name}")

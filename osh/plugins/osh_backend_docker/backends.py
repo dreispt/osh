@@ -1,6 +1,7 @@
 """Docker Compose backend implementation for ``osh init`` and ``osh odoo``."""
 
 import os
+import re
 from pathlib import Path
 
 import click
@@ -68,6 +69,31 @@ class DockerBackend(Backend):
         "service",
         "sources",
     )
+
+    def detect_odoo_version(self, base):
+        """Return the Odoo version from sources or the compose image tag."""
+        version = super().detect_odoo_version(base)
+        if version:
+            return version
+
+        cfg = _load_docker_config(base)
+        compose_file = (cfg or {}).get("compose_file") or str(_COMPOSE_FILE)
+        compose_path = base / Path(compose_file)
+        if not compose_path.is_file():
+            return None
+
+        text = compose_path.read_text()
+        match = re.search(r"image:\s*\S+/(odoo):(\S+)", text)
+        if not match:
+            match = re.search(r"image:\s*(odoo):(\S+)", text)
+        if not match:
+            return None
+
+        tag = match.group(2)
+        version_match = re.match(r"(\d+\.\d+)", tag)
+        if version_match:
+            return f"odoo {version_match.group(1)}"
+        return None
 
     def diagnose_sections_for_phase(self, phase):
         """Skip the expensive Odoo version check in ``init`` and ``run``."""

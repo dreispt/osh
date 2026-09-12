@@ -1,5 +1,7 @@
 """Tests for ``osh plug`` install/list/uninstall."""
 
+from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
@@ -62,7 +64,7 @@ def test_install_editable_requires_plugin_package(plugin_home, tmp_path):
     result = runner.invoke(plug, ["install", "--trust", "-e", str(empty)])
 
     assert result.exit_code != 0
-    assert "does not look like a plugin package" in result.output
+    assert "does not contain any plugin" in result.output
 
 
 def test_install_editable_accepts_bare_plugin_repo(plugin_home, tmp_path):
@@ -84,10 +86,15 @@ def test_install_editable_accepts_bare_plugin_repo(plugin_home, tmp_path):
 def test_install_clones_git_url(plugin_home, monkeypatch):
     """A plain install still runs ``git clone`` into the plugin dir."""
     calls = []
-    monkeypatch.setattr(
-        "osh.commands.plug_cmd.run_subprocess",
-        lambda args, **kw: calls.append(args) or (0, "", ""),
-    )
+
+    def fake_clone(args, **kw):
+        calls.append(args)
+        dest = Path(args[-1])
+        dest.mkdir(parents=True)
+        (dest / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
+        return 0, "", ""
+
+    monkeypatch.setattr("osh.commands.plug_cmd.run_subprocess", fake_clone)
     runner = CliRunner()
     result = runner.invoke(
         plug, ["install", "--trust", "https://github.com/acme/osh-foo.git"]
@@ -167,3 +174,169 @@ def test_list_marks_editable_plugins(plugin_home, src_plugin):
     assert "my_plugin (editable)" in result.output
     assert "cloned_plugin" in result.output
     assert "cloned_plugin (editable)" not in result.output
+
+
+@pytest.fixture
+def user_config(tmp_path, monkeypatch):
+    """Redirect the user config file to a temporary location."""
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr("osh.config.get_user_config_path", lambda: config_file)
+    return config_file
+
+
+def _make_multi_repo(tmp_path, names=("plug_a", "plug_b", "plug_c")):
+    """Create a repo directory containing one plugin package per name."""
+    repo = tmp_path / "osh-contrib"
+    for name in names:
+        sub = repo / name
+        sub.mkdir(parents=True)
+        (sub / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
+    return repo
+
+
+def test_install_multi_plugin_all(plugin_home, user_config, tmp_path):
+    """``--all`` enables every plugin in a multi-plugin repo."""
+    repo = _make_multi_repo(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["install", "--trust", "-e", "--all", str(repo)])
+
+    assert result.exit_code == 0, result.output
+    from osh.config import get_enabled_plugins
+
+    assert get_enabled_plugins("osh-contrib") is None
+
+
+def test_install_multi_plugin_subset(plugin_home, user_config, tmp_path):
+    """``--plugin`` enables only the selected plugins."""
+    repo = _make_multi_repo(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        plug,
+        ["install", "--trust", "-e", "--plugin", "plug-a", str(repo)],
+    )
+
+    assert result.exit_code == 0, result.output
+    from osh.config import get_enabled_plugins
+
+    assert get_enabled_plugins("osh-contrib") == ["plug-a"]
+
+
+def test_install_multi_plugin_requires_selection(plugin_home, tmp_path):
+    """A multi-plugin repo without selection flags fails with a hint."""
+    repo = _make_multi_repo(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["install", "--trust", "-e", str(repo)])
+
+    assert result.exit_code != 0
+    assert "--all" in result.output
+
+
+def test_install_multi_plugin_unknown_name(plugin_home, tmp_path):
+    """``--plugin`` with an unknown name fails listing available plugins."""
+    repo = _make_multi_repo(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        plug, ["install", "--trust", "-e", "--plugin", "nope", str(repo)]
+    )
+
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "plug-a" in result.output
+
+
+def _install_repo(plugin_home, tmp_path, names=("plug_a", "plug_b")):
+    """Symlink a multi-plugin repo into the plugin dir, all enabled."""
+    repo = _make_multi_repo(tmp_path, names)
+    plugin_home.mkdir(parents=True, exist_ok=True)
+    (plugin_home / "osh-contrib").symlink_to(repo.resolve())
+    return repo
+
+
+def test_enable_disable_roundtrip(plugin_home, user_config, tmp_path):
+    """``osh plug enable``/``disable`` update the repo's enabled list."""
+    _install_repo(plugin_home, tmp_path)
+    from osh.config import get_enabled_plugins
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["disable", "osh-contrib", "plug-b"])
+    assert result.exit_code == 0, result.output
+    assert get_enabled_plugins("osh-contrib") == ["plug-a"]
+
+    result = runner.invoke(plug, ["enable", "osh-contrib", "plug-b"])
+    assert result.exit_code == 0, result.output
+    assert sorted(get_enabled_plugins("osh-contrib")) == ["plug-a", "plug-b"]
+
+    result = runner.invoke(plug, ["disable", "osh-contrib"])
+    assert result.exit_code == 0, result.output
+    assert get_enabled_plugins("osh-contrib") == []
+
+    result = runner.invoke(plug, ["enable", "osh-contrib"])
+    assert result.exit_code == 0, result.output
+    assert get_enabled_plugins("osh-contrib") is None
+
+
+def test_enable_unknown_plugin_errors(plugin_home, user_config, tmp_path):
+    """Enabling a plugin name that does not exist in the repo fails."""
+    _install_repo(plugin_home, tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["enable", "osh-contrib", "nope"])
+
+    assert result.exit_code != 0
+    assert "not found" in result.output
+
+
+def test_alias_and_unalias_persist(plugin_home, user_config, tmp_path):
+    """``osh plug alias`` stores a permanent name; ``unalias`` removes it."""
+    _install_repo(plugin_home, tmp_path)
+    from osh.config import get_plugin_aliases
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["alias", "plug-a", "db.restore", "load-db"])
+    assert result.exit_code == 0, result.output
+    assert get_plugin_aliases("plug-a") == {"db.restore": "load-db"}
+
+    result = runner.invoke(plug, ["unalias", "plug-a", "db.restore"])
+    assert result.exit_code == 0, result.output
+    assert get_plugin_aliases("plug-a") == {}
+
+
+def test_unalias_without_alias_errors(plugin_home, user_config, tmp_path):
+    """``unalias`` on a command with no alias fails cleanly."""
+    _install_repo(plugin_home, tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["unalias", "plug-a", "scan"])
+
+    assert result.exit_code != 0
+    assert "no alias" in result.output
+
+
+def test_alias_rejects_invalid_name(plugin_home, user_config, tmp_path):
+    """An alias with illegal characters is rejected."""
+    _install_repo(plugin_home, tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["alias", "plug-a", "scan", "not a name!"])
+
+    assert result.exit_code != 0
+    assert "Invalid command name" in result.output
+
+
+def test_uninstall_clears_enabled_list(plugin_home, user_config, tmp_path):
+    """``osh plug uninstall`` drops the repo's enabled list from config."""
+    _install_repo(plugin_home, tmp_path)
+    from osh.config import get_enabled_plugins, set_enabled_plugins
+
+    set_enabled_plugins("osh-contrib", ["plug-a"])
+    assert get_enabled_plugins("osh-contrib") == ["plug-a"]
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["uninstall", "--yes", "osh-contrib"])
+
+    assert result.exit_code == 0, result.output
+    assert get_enabled_plugins("osh-contrib") is None

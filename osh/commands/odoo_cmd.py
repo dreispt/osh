@@ -6,7 +6,7 @@ for executing Odoo, including subcommands such as ``shell``, ``neutralize`` and
 ``scaffold``.
 
 Environment preparation – addons path, database name and dbfilter – is handled
-by ``osh env`` via the dynamic config in ``.osh/cache/env``.
+by ``osh run`` via the dynamic config in ``.osh/cache/env``.
 """
 
 import click
@@ -17,8 +17,8 @@ from ..common import find_project_root
 from ..db import resolve_run_target, set_project_config
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
-from .env_cmd import _parse_explicit_db, prepare_env_context
 from .helpers import collect_diagnostics
+from .run_cmd import _parse_explicit_db, prepare_env_context
 
 
 class OdooCommand(click.Command):
@@ -113,7 +113,7 @@ def odoo(
     ``shell``, ``neutralize`` or ``scaffold`` are supported.
 
     Environment preparation – addons path, database name and dbfilter – is handled
-    by ``osh env`` through the dynamic config in ``.osh/cache/env``.
+    by ``osh run`` through the dynamic config in ``.osh/cache/env``.
 
     Examples:
 

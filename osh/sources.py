@@ -20,7 +20,7 @@ from .common import run_subprocess
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
 DEFAULT_THEMES_URL = "https://github.com/odoo/design-themes.git"
-SOURCE_CACHE_DIR = Path.home() / ".utils.cache" / "osh"
+SOURCE_CACHE_DIR = Path.home() / ".cache" / "osh"
 
 
 def ensure_osh_sources(

@@ -48,6 +48,11 @@ def _format_toml_key(key):
     return f'"{escaped}"'
 
 
+def _format_toml_section(section):
+    """Return a TOML-safe section header body, quoting each dotted segment."""
+    return ".".join(_format_toml_key(part) for part in section.split("."))
+
+
 def _format_toml_value(value):
     """Return a simple TOML representation of *value*."""
     if isinstance(value, bool):
@@ -59,6 +64,8 @@ def _format_toml_value(value):
         return f"'{escaped}'"
     if isinstance(value, int | float):
         return str(value)
+    if isinstance(value, list | tuple):
+        return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
     raise ValueError(f"Unsupported TOML value type: {type(value)}")
 
 
@@ -95,9 +102,10 @@ def _find_toml_section_key(lines, section, key):
     in_section = False
     section_start = None
     key_pattern = re.compile(rf'^\s*(?:"{re.escape(key)}"|{re.escape(key)})\s*=.*$')
+    section_header = f"[{_format_toml_section(section)}]"
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if stripped == f"[{section}]":
+        if stripped == section_header:
             in_section = True
             section_start = i
             continue
@@ -123,7 +131,7 @@ def _append_new_toml_section(lines, section, new_line):
         lines[-1] += "\n"
     if lines and lines[-1].strip() != "":
         lines.append("\n")
-    lines.append(f"[{section}]\n")
+    lines.append(f"[{_format_toml_section(section)}]\n")
     lines.append(new_line)
 
 
@@ -150,6 +158,18 @@ def _write_toml_section_key(path, section, key, value):
     else:
         _append_new_toml_section(lines, section, f"{formatted_key} = {formatted}\n")
 
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def _remove_toml_section_key(path, section, key):
+    """Remove ``key`` from *section* in *path* if present."""
+    if not path.exists():
+        return
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    key_line, _ = _find_toml_section_key(lines, section, key)
+    if key_line is None:
+        return
+    del lines[key_line]
     path.write_text("".join(lines), encoding="utf-8")
 
 
@@ -238,6 +258,73 @@ def load_user_init_config():
 def save_user_preference(key, value, section="user"):
     """Persist *key* = *value* in the specified section of the user config."""
     _write_toml_section_key(get_user_config_path(), section, key, value)
+
+
+# ---------------------------------------------------------------------------
+# Plugin config (user config TOML)
+#
+# Two plugin-related tables live in the user config:
+#
+# - ``[plugins.<repo>]`` — per installed plugin directory. ``enabled`` holds a
+#   list of plugin names; when absent every plugin in the repo is enabled.
+# - ``[plugin-aliases.<source>]`` — maps a plugin command name to the name it
+#   should be registered as (e.g. ``"db.restore" = 'myrestore'``).
+
+
+def _plugin_table(source, table="plugins"):
+    """Return the ``<table>.<source>`` mapping from the user config."""
+    data = _load_toml(get_user_config_path())
+    section = data.get(table)
+    if not isinstance(section, dict):
+        return {}
+    entry = section.get(source)
+    return entry if isinstance(entry, dict) else {}
+
+
+def get_enabled_plugins(source):
+    """Return the enabled plugin names for a plugin directory, or None.
+
+    ``None`` means "no explicit list" — every plugin found in the directory is
+    enabled. An empty list means the directory is fully disabled.
+    """
+    enabled = _plugin_table(source).get("enabled")
+    if enabled is None:
+        return None
+    if isinstance(enabled, list):
+        return [str(name) for name in enabled]
+    return None
+
+
+def set_enabled_plugins(source, names):
+    """Persist the enabled plugin names for a plugin directory."""
+    _write_toml_section_key(
+        get_user_config_path(), f"plugins.{source}", "enabled", sorted(names)
+    )
+
+
+def clear_enabled_plugins(source):
+    """Remove the enabled list for a plugin directory (all plugins enabled)."""
+    _remove_toml_section_key(get_user_config_path(), f"plugins.{source}", "enabled")
+
+
+def get_plugin_aliases(source):
+    """Return the ``{command_name: alias}`` mapping configured for *source*."""
+    aliases = _plugin_table(source, table="plugin-aliases")
+    return {str(k): str(v) for k, v in aliases.items()}
+
+
+def set_plugin_alias(source, command, alias):
+    """Register *alias* as the name for *command* provided by *source*."""
+    _write_toml_section_key(
+        get_user_config_path(), f"plugin-aliases.{source}", command, alias
+    )
+
+
+def remove_plugin_alias(source, command):
+    """Remove the alias configured for *command* provided by *source*."""
+    _remove_toml_section_key(
+        get_user_config_path(), f"plugin-aliases.{source}", command
+    )
 
 
 # ---------------------------------------------------------------------------

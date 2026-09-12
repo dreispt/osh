@@ -3,9 +3,9 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ... import echo
-from ...commands.backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
-from ...common import run_subprocess
+from .... import echo
+from ....backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
+from ....common import run_subprocess
 
 
 class SshSource(BackupSource):
