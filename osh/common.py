@@ -130,6 +130,63 @@ def _not_in_project():
     raise SystemExit(0)
 
 
+def _is_git_repo(path):
+    """Return True when *path* looks like a usable git repository root.
+
+    A ``.git`` file (worktree or submodule pointer) is trusted as-is; a
+    ``.git`` directory must contain ``HEAD``, so an empty or incomplete
+    ``.git`` does not count.
+    """
+    git = Path(path) / ".git"
+    if git.is_file():
+        return True
+    return (git / "HEAD").exists()
+
+
+def find_project_repos(base, *, max_depth=4):
+    """Return the git repositories that make up the project rooted at *base*.
+
+    When *base* is itself a git repository, ``[base]`` is returned. Otherwise
+    sub-directories are scanned up to *max_depth* levels for repositories,
+    supporting projects that are a collection of repositories instead of a
+    single one. Repositories are not descended into, so git submodules are
+    not reported.
+
+    Directories starting with ``.`` or ``__`` are ignored.
+    """
+    base = Path(base)
+    if _is_git_repo(base):
+        return [base]
+
+    repos = []
+
+    def _walk(current, depth):
+        if depth > max_depth:
+            return
+        for child in current.iterdir():
+            if child.name.startswith(".") or child.name.startswith("__"):
+                continue
+            if child.is_dir():
+                if _is_git_repo(child):
+                    repos.append(child)
+                else:
+                    _walk(child, depth + 1)
+
+    _walk(base, 0)
+    return sorted(repos)
+
+
+def git_current_branch(path):
+    """Return the current branch of the git repository at *path*, or None."""
+    returncode, branch, _ = run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=path,
+    )
+    if returncode != 0 or not branch:
+        return None
+    return branch.strip()
+
+
 def get_odoo_config_path(base):
     """Return path to the Odoo configuration file (.odoorc) in the project root."""
     return base / ".odoorc"

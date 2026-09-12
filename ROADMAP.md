@@ -10,4 +10,4 @@ This document tracks planned improvements and future development work for the Os
 
 ## `osh switch`
 
-- Handle git-managed subdirectories (submodules and nested source clones such as `odoo`/`enterprise`/`design-themes`): iterate them and switch the branch in all of them, not just the project root. `git submodule update --init` may be needed afterwards to materialize newly referenced submodules.
+- For git-rooted projects, also handle git-managed subdirectories (submodules and nested source clones such as `odoo`/`enterprise`/`design-themes`): switch the branch in all of them, not just the project root, and run `git submodule update --init` afterwards to materialize newly referenced submodules. Git-less project roots already switch every repository found below them.
