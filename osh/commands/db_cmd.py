@@ -3,6 +3,7 @@
 import click
 
 from .. import echo
+from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
 from ..db import (
     _require_db_name,
@@ -15,7 +16,7 @@ from ..db import (
 )
 
 
-@click.group(name="db")
+@click.group(name="db", cls=NaturalOrderGroup)
 def db():  # noqa: D401
     """Manage databases and branch-to-database mappings.
 

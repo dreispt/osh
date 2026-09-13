@@ -10,6 +10,7 @@ from ...common import find_project_root
 from .cache import ensure_cache_dir, write_metadata
 from .format_detect import detect_backup_format_by_content
 from .registry import get_backup_source_help, list_backup_schemes, parse_source
+from .remotes import resolve_remote_source
 
 
 def _print_scheme_help(ctx, param, value):
@@ -152,6 +153,7 @@ def get(
       osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
     base = find_project_root()
+    source = resolve_remote_source(base, source)
     parsed = parse_source(
         source,
         base=base,

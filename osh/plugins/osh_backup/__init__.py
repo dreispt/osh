@@ -10,11 +10,12 @@ to add schemes.
 
 from .backup_cmd import get
 from .registry import SOURCES_HOOK
+from .remotes import remote
 from .restore_cmd import restore
 from .sources import DbSource, HttpSource, HttpsSource, OdooshSource, SshSource
 
 OSH_PLUGIN_MANIFEST = {
-    "group_commands": {"db": [get, restore]},
+    "group_commands": {"db": [get, restore, remote]},
     "hooks": {
         SOURCES_HOOK: [DbSource, HttpSource, HttpsSource, OdooshSource, SshSource],
     },

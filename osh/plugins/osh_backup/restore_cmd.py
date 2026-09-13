@@ -20,6 +20,7 @@ from ...utils.odoo_layout import find_odoo_executable
 from ...utils.plugin_loader import load_backends
 from ...utils.version import get_version_tuple
 from . import restore_ops
+from .remotes import newest_cache_for_remote
 
 
 @click.command(name="restore")
@@ -124,7 +125,9 @@ def restore(
         restore_ops.list_cached_backups(base, limit=limit, reverse=reverse)
         return
 
-    dump_path = restore_ops.resolve_backup_path(base, dump)
+    dump_path = newest_cache_for_remote(base, dump)
+    if dump_path is None:
+        dump_path = restore_ops.resolve_backup_path(base, dump)
 
     db_name = (
         sanitize_db_name(target_db)
