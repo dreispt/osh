@@ -7,9 +7,9 @@ from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
 from ..db import (
     _require_db_name,
+    _resolve_branch,
     copy_db,
     db_exists,
-    get_current_branch,
     resolve_db_name,
     set_project_config,
     unset_project_config,
@@ -55,7 +55,7 @@ def show(ctx):  # noqa: D401
     ``osh odoo`` would use before starting Odoo.
     """
     base = find_project_root(required=True)
-    branch = get_current_branch(base) or "default"
+    branch = _resolve_branch(base, None)
     db_name = resolve_db_name(base, verbose=False)
     exists = db_exists(base, db_name)
     echo.info(f"Branch:   {branch}")
@@ -65,8 +65,7 @@ def show(ctx):  # noqa: D401
 
 def _set_branch_db(base, db_name, branch):
     """Record *db_name* as the database for *branch* and return both names."""
-    if branch is None:
-        branch = get_current_branch(base) or "default"
+    branch = _resolve_branch(base, branch)
     value = _require_db_name(db_name)
     set_project_config(base, "db", branch, value)
     return branch, value
@@ -136,8 +135,7 @@ def unpin(ctx, branch):  # noqa: D401
       osh db unpin --branch feature/old-thing
     """
     base = find_project_root(required=True)
-    if branch is None:
-        branch = get_current_branch(base) or "default"
+    branch = _resolve_branch(base, branch)
 
     unset_project_config(base, "db", branch)
     echo.info(f"Unpinned branch '{branch}'")

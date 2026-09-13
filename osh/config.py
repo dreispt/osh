@@ -33,6 +33,16 @@ def get_docker_config_path(base):
     return Path(base) / ".osh" / "docker.toml"
 
 
+def get_local_config_path(base):
+    """Return the path to per-machine project state (``.osh/local.toml``).
+
+    Unlike ``.osh/config.toml`` — which is shared, committable project
+    config — this file tracks machine-local state such as the active
+    environment in git-less projects.
+    """
+    return Path(base) / ".osh" / "local.toml"
+
+
 # ---------------------------------------------------------------------------
 # TOML helpers
 

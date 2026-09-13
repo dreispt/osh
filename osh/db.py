@@ -106,6 +106,35 @@ def get_current_branch(base):
     return branch.strip()
 
 
+def get_active_env(base):
+    """Return the active environment name of a git-less project, or None.
+
+    Stored in ``.osh/local.toml`` — per-machine state, not the shared
+    project config — by ``osh switch`` when there is no git repository.
+    """
+    data = _config._load_toml(_config.get_local_config_path(base))
+    section = data.get("env")
+    return section.get("active") if isinstance(section, dict) else None
+
+
+def set_active_env(base, name):
+    """Record *name* as the active environment of a git-less project."""
+    _config._write_toml_section_key(
+        _config.get_local_config_path(base), "env", "active", name
+    )
+
+
+def _resolve_branch(base, branch):
+    """Return *branch*, or the current branch/environment, or ``default``.
+
+    The environment is the git branch when inside a repository, or the
+    git-less active environment name recorded by ``osh switch``.
+    """
+    if branch is not None:
+        return branch
+    return get_current_branch(base) or get_active_env(base) or "default"
+
+
 def get_pg_credentials(base):
     """Return PostgreSQL connection args and an environment dict.
 
@@ -217,8 +246,7 @@ def resolve_db_name(base, verbose=False, branch=None):
     a glob pattern, the configured default, or a generated ``<project>-<branch>``
     name. There is no global "last used" fallback.
     """
-    if branch is None:
-        branch = get_current_branch(base) or "default"
+    branch = _resolve_branch(base, branch)
     db_name = _resolve_config_db_name(base, branch)
     if db_name is None:
         db_name = _branch_db_name(base, branch)
@@ -245,7 +273,7 @@ def resolve_db_name_for_run(base, verbose=False):
     terminal to reuse, copy or create it. In non-interactive mode raise a
     ``click.ClickException`` with instructions.
     """
-    branch = get_current_branch(base) or "default"
+    branch = _resolve_branch(base, None)
     db_name = resolve_db_name(base, verbose=False, branch=branch)
     if db_exists(base, db_name):
         if verbose:
@@ -394,7 +422,7 @@ def resolve_test_db_name(base, current_db, test_db):
         current = resolve_db_name(base, verbose=False)
         if current:
             return current
-    branch = get_current_branch(base) or "default"
+    branch = _resolve_branch(base, None)
     return sanitize_db_name(f"{base.name}-{branch}-test")
 
 
