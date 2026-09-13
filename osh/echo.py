@@ -80,6 +80,11 @@ def internal(message, err=False):
     _get_cached_echo().internal(message, err=err)
 
 
+def debug(message, err=False):
+    """Log diagnostics (subprocess exit codes, timing) — debug level only."""
+    _get_cached_echo().debug(message, err=err)
+
+
 _EMOJI_PREFIXES = {
     "error": "❌ ",
     "warning": "⚠️ ",
@@ -95,32 +100,49 @@ class Echo:
 
     This helper implements the verbosity level system that balances friendly
     onboarding for new users with pragmatic output for seasoned developers.
+
+    ``friendly`` is an internal nuance of ``normal`` — it is auto-detected
+    for new users, never user-selectable. ``debug`` is a superset of
+    ``verbose``.
     """
 
-    LEVELS = ["quiet", "normal", "friendly", "verbose"]
+    LEVELS = ["silent", "normal", "friendly", "verbose", "debug"]
+    _ALIASES = {"quiet": "silent"}  # level name used before the flag rename
 
     def __init__(self, level="normal"):
         """Initialize echo helper with the given verbosity level.
 
         Args:
-            level: One of "quiet", "normal", "friendly", "verbose"
+            level: One of "silent", "normal", "verbose", "debug"
+            ("friendly" is internal; "quiet" is accepted as an alias for
+            "silent" for previously stored configuration values)
         """
+        level = self._ALIASES.get(level, level)
         self.level = level if level in self.LEVELS else "normal"
 
     def should_show(self, category):
         """Return True if message category should be shown at current level.
 
         Args:
-            category: Message category (error, warning, info, friendly, internal)
+            category: Message category (error, warning, info, friendly,
+            internal, debug)
 
         Returns:
             True if the category should be displayed at current verbosity level
         """
         rules = {
-            "quiet": ["error"],
+            "silent": ["error"],
             "normal": ["error", "warning", "info", "success"],
             "friendly": ["error", "warning", "info", "success", "friendly"],
             "verbose": ["error", "warning", "info", "success", "internal"],
+            "debug": [
+                "error",
+                "warning",
+                "info",
+                "success",
+                "internal",
+                "debug",
+            ],
         }
         return category in rules.get(self.level, [])
 
@@ -175,6 +197,10 @@ class Echo:
         """Log internal debugging information (shown at verbose level)."""
         self._echo("internal", message, err=err)
 
+    def debug(self, message, err=False):
+        """Log diagnostics (shown at debug level only)."""
+        self._echo("debug", message, err=err)
+
 
 def confirm(message, default=True, abort=False):
     """Ask the user for confirmation.
@@ -207,14 +233,14 @@ def _detect_verbosity(base):
     """
     # Check project config first (highest priority after CLI)
     if base is not None and (base / ".osh").exists():
-        verbosity = read_project_config(base, "verbosity")
+        verbosity = _normalize_level(read_project_config(base, "verbosity"))
         if verbosity and verbosity in Echo.LEVELS:
             return verbosity
 
     # Fall back to global user config
     user_cfg = load_user_init_config()
     if "verbosity" in user_cfg:
-        verbosity = user_cfg["verbosity"]
+        verbosity = _normalize_level(user_cfg["verbosity"])
         if verbosity in Echo.LEVELS:
             return verbosity
 
@@ -224,3 +250,10 @@ def _detect_verbosity(base):
 
     # If config exists but no explicit setting, assume normal (experienced user)
     return "normal"
+
+
+def _normalize_level(level):
+    """Map legacy level names (e.g. ``quiet``) to the current vocabulary."""
+    if not isinstance(level, str):
+        return level
+    return Echo._ALIASES.get(level, level)

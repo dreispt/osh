@@ -347,6 +347,8 @@ def run_subprocess(
             raise click.ClickException(f"{error_msg}: command not found") from exc
         return None, "", f"Command not found: {cmd} ({exc})"
 
+    echo.debug(f"exit {result.returncode}: {cmd}")
+
     if error_msg and result.returncode != 0:
 
         def _as_text(data):

@@ -38,17 +38,27 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     help="Show the version and exit.",
 )
 @click.option(
-    "--verbosity",
-    "-v",
-    type=click.Choice(["quiet", "normal", "friendly", "verbose"]),
-    default=None,
-    help="Output verbosity level (default: auto-detect based on experience)",
+    "--silent",
+    is_flag=True,
+    help="Only show errors.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Show detailed output, including the commands being run.",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Verbose output plus internal diagnostics (exit codes, timing).",
 )
 @click.pass_context
-def main(ctx, verbosity):  # noqa: D401
+def main(ctx, silent, verbose, debug):  # noqa: D401
     """
     Odoo Shell – your toolkit for Odoo environments
     to accelerate your development and staging workflows.
+
+    Usage: osh [--silent | --verbose | --debug] <command> [args]
 
     Use `osh init` to initialize an Odoo environment in a project.
     Use `osh shell` to enter the runtime environment or run any command inside it.
@@ -57,6 +67,16 @@ def main(ctx, verbosity):  # noqa: D401
     Add the `--help` option to a command to learn more.
     """
     ctx.ensure_object(dict)
+    selected = [
+        name
+        for name, on in (("silent", silent), ("verbose", verbose), ("debug", debug))
+        if on
+    ]
+    if len(selected) > 1:
+        raise click.UsageError(
+            "--silent, --verbose and --debug are mutually exclusive."
+        )
+    verbosity = selected[0] if selected else None
     ctx.obj["verbosity"] = verbosity
 
     # Reset cache and set configuration based on CLI context

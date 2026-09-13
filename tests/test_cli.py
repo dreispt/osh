@@ -33,3 +33,35 @@ def test_version_subcommand_removed():
 
     assert result.exit_code != 0
     assert "No such command" in result.output
+
+
+def test_global_flags_are_mutually_exclusive():
+    """Passing any two of --silent/--verbose/--debug is a usage error."""
+    runner = CliRunner()
+    for flags in (
+        ["--silent", "--verbose"],
+        ["--verbose", "--debug"],
+        ["--silent", "--debug"],
+        ["--silent", "--verbose", "--debug"],
+    ):
+        result = runner.invoke(main, flags + ["db"])
+        assert result.exit_code != 0, flags
+        assert "mutually exclusive" in result.output
+
+
+def test_silent_and_verbose_map_to_levels(monkeypatch):
+    """Global flags map onto the internal verbosity levels."""
+    seen = []
+
+    def _capture(verbosity=None, base=None):
+        seen.append(verbosity)
+
+    monkeypatch.setattr("osh.cli.echo._set_config", _capture)
+
+    runner = CliRunner()
+    runner.invoke(main, ["--silent", "db"])
+    runner.invoke(main, ["--verbose", "db"])
+    runner.invoke(main, ["--debug", "db"])
+    runner.invoke(main, ["db"])
+
+    assert seen == ["silent", "verbose", "debug", None]

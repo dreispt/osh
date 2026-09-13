@@ -53,7 +53,7 @@ def user(ctx):  # noqa: D401
 
 
 @user.command(name="verbosity")
-@click.argument("level", type=click.Choice(["quiet", "normal", "friendly", "verbose"]))
+@click.argument("level", type=click.Choice(["silent", "normal", "verbose", "debug"]))
 @click.option(
     "--global",
     "global_setting",
@@ -69,16 +69,16 @@ def verbosity(
     """Set the verbosity level for Osh commands.
 
     Levels:
-      quiet     - Only errors
-      normal    - Essential information (default for experienced users)
-      friendly  - Helpful guidance and next steps (default for new users)
+      silent    - Only errors
+      normal    - Essential information
       verbose   - Detailed information about what's happening
+      debug     - Verbose plus internal diagnostics (exit codes, timing)
 
     Examples:
 
     \b
       osh config user verbosity normal
-      osh config user verbosity quiet --global
+      osh config user verbosity silent --global
     """
     if global_setting:
         # Set in global user config
