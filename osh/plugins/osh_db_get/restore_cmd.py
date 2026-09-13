@@ -187,14 +187,7 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     if dry_run:
         # The database does not exist in dry-run mode, so just preview the
         # built-in neutralize command. The real method is decided after restore.
-        ctx.invoke(
-            odoo,
-            dry_run=True,
-            backend_name=backend_name,
-            compose_file=None,
-            no_db_filter=True,
-            extra_args=("neutralize", "-d", db_name),
-        )
+        _odoo_neutralize(ctx, backend_name, db_name, dry_run=True)
         restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=True, ctx=ctx)
         return
 
@@ -210,14 +203,7 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     )
 
     if use_odoo:
-        ctx.invoke(
-            odoo,
-            dry_run=False,
-            backend_name=backend_name,
-            compose_file=None,
-            no_db_filter=True,
-            extra_args=("neutralize", "-d", db_name),
-        )
+        _odoo_neutralize(ctx, backend_name, db_name, dry_run=False)
     else:
         if db_version is None:
             echo.warning(
@@ -233,3 +219,15 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
         restore_ops.neutralize_with_sql(base, db_name, ctx=ctx)
 
     restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=dry_run, ctx=ctx)
+
+
+def _odoo_neutralize(ctx, backend_name, db_name, *, dry_run):
+    """Run ``odoo neutralize -d <db_name>`` through the ``osh odoo`` command."""
+    ctx.invoke(
+        odoo,
+        dry_run=dry_run,
+        backend_name=backend_name,
+        compose_file=None,
+        no_db_filter=True,
+        extra_args=("neutralize", "-d", db_name),
+    )

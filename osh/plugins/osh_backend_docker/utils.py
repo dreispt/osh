@@ -34,6 +34,11 @@ def _save_docker_config(
     dry_run=False,
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
+    if not service:
+        echo.warning(
+            "no --service provided; defaulting to 'odoo'. "
+            f"Edit {base / _DOCKER_TOML} if your compose service is named differently."
+        )
     service = service or "odoo"
     command = command or "odoo"
     if not isinstance(command, str):
@@ -68,11 +73,6 @@ def _save_docker_config(
 
     docker_toml = base / _DOCKER_TOML
     echo.info(f"Wrote Docker backend config to {docker_toml}.", err=True)
-    if not service:
-        echo.warning(
-            "no --service provided; defaulting to 'odoo'. "
-            f"Edit {docker_toml} if your compose service is named differently."
-        )
 
 
 def _docker_command(service, command):

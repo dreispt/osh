@@ -378,7 +378,6 @@ def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):
     if sys.stdin.isatty():
         return _prompt_for_missing_db(base, branch, db_name, last_db, ctx=ctx)
     _raise_missing_db_error(base, branch, db_name, last_db)
-    return None  # unreachable
 
 
 def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):

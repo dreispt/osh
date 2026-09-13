@@ -108,6 +108,21 @@ class Echo:
 
     LEVELS = ["silent", "normal", "friendly", "verbose", "debug"]
     _ALIASES = {"quiet": "silent"}  # level name used before the flag rename
+    # Message categories shown at each verbosity level.
+    _RULES = {
+        "silent": ["error"],
+        "normal": ["error", "warning", "info", "success"],
+        "friendly": ["error", "warning", "info", "success", "friendly"],
+        "verbose": ["error", "warning", "info", "success", "internal"],
+        "debug": [
+            "error",
+            "warning",
+            "info",
+            "success",
+            "internal",
+            "debug",
+        ],
+    }
 
     def __init__(self, level="normal"):
         """Initialize echo helper with the given verbosity level.
@@ -130,21 +145,7 @@ class Echo:
         Returns:
             True if the category should be displayed at current verbosity level
         """
-        rules = {
-            "silent": ["error"],
-            "normal": ["error", "warning", "info", "success"],
-            "friendly": ["error", "warning", "info", "success", "friendly"],
-            "verbose": ["error", "warning", "info", "success", "internal"],
-            "debug": [
-                "error",
-                "warning",
-                "info",
-                "success",
-                "internal",
-                "debug",
-            ],
-        }
-        return category in rules.get(self.level, [])
+        return category in self._RULES.get(self.level, [])
 
     def format_message(self, category, message):
         """Format message based on category and current level.

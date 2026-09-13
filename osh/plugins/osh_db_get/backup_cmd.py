@@ -186,44 +186,46 @@ def get(
 
     # Write metadata only when the file landed in the project cache.
     if base is not None and _is_in_cache(base, output_path):
-        # Always detect the actual format from file content
-        detected_format = detect_backup_format_by_content(output_path)
-
-        # Determine if user explicitly requested a format
-        format_was_explicit = getattr(parsed, "format_was_explicit", False)
-        requested_format = parsed.original_format if format_was_explicit else None
-
-        # Inform user if their explicit request differs from detected format
-        if (
-            format_was_explicit
-            and detected_format
-            and detected_format != parsed.original_format
-        ):
-            echo.info(
-                f"Detected backup format '{detected_format}' (requested '{parsed.original_format}')",
-                err=True,
-            )
-
-        # Use detected format as the source of truth
-        format_to_store = detected_format if detected_format else parsed.original_format
-
-        # Keep cached filenames consistent with the actual content so `osh db restore`
-        # and directory listings are not misleading (e.g. a .sql file that is
-        # actually a compressed pg_dump).
-        if detected_format:
-            final_path = output_path.with_suffix(f".{detected_format}")
-            if final_path != output_path:
-                output_path.rename(final_path)
-                output_path = final_path
-
-        write_metadata(
-            output_path,
-            source=source,
-            format=format_to_store,
-            requested_format=requested_format,
-        )
+        output_path = _record_cache_metadata(output_path, source, parsed)
 
     echo.info(str(output_path))
+
+
+def _record_cache_metadata(output_path, source, parsed):
+    """Normalize the cached filename to the detected format and write metadata.
+
+    The detected content format is the source of truth, so the extension and
+    metadata never mislead `osh db restore` or directory listings (e.g. a
+    ``.sql`` file that is actually a compressed pg_dump). Returns the final
+    path after any extension fix-up.
+    """
+    detected_format = detect_backup_format_by_content(output_path)
+    format_was_explicit = getattr(parsed, "format_was_explicit", False)
+    requested_format = parsed.original_format if format_was_explicit else None
+
+    if (
+        format_was_explicit
+        and detected_format
+        and detected_format != parsed.original_format
+    ):
+        echo.info(
+            f"Detected backup format '{detected_format}' (requested '{parsed.original_format}')",
+            err=True,
+        )
+
+    if detected_format:
+        final_path = output_path.with_suffix(f".{detected_format}")
+        if final_path != output_path:
+            output_path.rename(final_path)
+            output_path = final_path
+
+    write_metadata(
+        output_path,
+        source=source,
+        format=detected_format or parsed.original_format,
+        requested_format=requested_format,
+    )
+    return output_path
 
 
 def _is_in_cache(base, path):

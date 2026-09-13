@@ -45,3 +45,15 @@ class NaturalOrderGroup(click.Group):
                 continue
             i += 1
         return super().parse_args(ctx, head + tail)
+
+
+def format_targets_section(formatter, backends):
+    """Write a Targets help section listing each backend name and description."""
+    if not backends:
+        return
+    records = [
+        (name, getattr(backends[name], "description", "") or "")
+        for name in sorted(backends)
+    ]
+    with formatter.section("Targets"):
+        formatter.write_dl(records)

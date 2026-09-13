@@ -21,6 +21,7 @@ import click
 from . import echo
 from .common import (
     find_shell,
+    format_cmd,
     get_odoo_config_path,
     get_odoo_port,
     get_osh_odoo_config_path,
@@ -284,19 +285,16 @@ class LocalBackend(Backend):
                 odoo_version = self.detect_odoo_version(base)
                 if odoo_version:
                     d.add_info("odoo_version", odoo_version)
-                else:
-                    if exe and phase == "doctor":
-                        d.add_warning("Could not determine installed Odoo version.")
-                    elif not exe:
-                        if phase == "init":
-                            d.add_warning(
-                                "Odoo executable not found; "
-                                "it will be resolved from PATH at run time."
-                            )
-                        else:
-                            d.add_error(
-                                "Odoo executable not found. " "Run 'osh init' first."
-                            )
+                elif exe and phase == "doctor":
+                    d.add_warning("Could not determine installed Odoo version.")
+                elif not exe:
+                    if phase == "init":
+                        d.add_warning(
+                            "Odoo executable not found; "
+                            "it will be resolved from PATH at run time."
+                        )
+                    else:
+                        d.add_error("Odoo executable not found. Run 'osh init' first.")
 
         if "config" in sections:
             odoo_rc = get_odoo_config_path(base)
@@ -363,8 +361,7 @@ class LocalBackend(Backend):
 
         args = list(env_spec.argv)
         if not args:
-            shell = find_shell()
-            args = [shell]
+            args = [find_shell()]
         elif "ODOO_RC" not in env_spec.env and not has_arg(args, "--addons-path"):
             # Subcommands such as ``odoo shell`` or ``odoo neutralize`` do not
             # use the generated config, so inject the addons path explicitly.
@@ -376,7 +373,7 @@ class LocalBackend(Backend):
                         1, f"--addons-path={','.join(str(p) for p in addons_paths)}"
                     )
 
-        command = " ".join(shlex.quote(str(a)) for a in args)
+        command = format_cmd(args)
         if dry_run and not capture:
             echo.info(f"Would run: {command}", err=True)
             return

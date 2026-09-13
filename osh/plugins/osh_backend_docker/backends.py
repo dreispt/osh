@@ -94,14 +94,11 @@ class DockerBackend(Backend):
             return None
 
         text = compose_path.read_text()
-        match = re.search(r"image:\s*\S+/(odoo):(\S+)", text)
-        if not match:
-            match = re.search(r"image:\s*(odoo):(\S+)", text)
+        match = re.search(r"image:\s*(?:\S+/)?odoo:(\S+)", text)
         if not match:
             return None
 
-        tag = match.group(2)
-        version_match = re.match(r"(\d+\.\d+)", tag)
+        version_match = re.match(r"(\d+\.\d+)", match.group(1))
         if version_match:
             return f"odoo {version_match.group(1)}"
         return None
@@ -310,8 +307,6 @@ class DockerBackend(Backend):
             _generate_compose_file(target, version, port=port or 8069, dry_run=dry_run)
             compose_file = str(_COMPOSE_FILE)
 
-        copy_odoo_rc_to_osh_conf(target)
-
         if dry_run:
             _save_docker_config(
                 target,
@@ -334,6 +329,8 @@ class DockerBackend(Backend):
                 themes_source=options.get("themes_source"),
             )
             return True
+
+        copy_odoo_rc_to_osh_conf(target)
 
         compose_tool = _find_compose_tool()
         if compose_tool is None:
@@ -466,33 +463,9 @@ class DockerBackend(Backend):
         compose_file = cli_params.get("compose_file")
         compose_cmd = _compose_base_command(base, compose_file=compose_file)
 
-        args = list(env_spec.argv)
-        command = _cfg_value(cfg, "command") or "odoo"
-        if args and args[0] == "odoo":
-            args = command.split() + args[1:]
-        elif args and args[0].startswith("-"):
-            # Entrypoint-style odoo flags get the configured command prepended,
-            # since ``compose exec`` bypasses the image entrypoint.
-            args = command.split() + args
-
-        if not args:
-            container_argv = ["sh", "-c", _PG_ENV_SHELL_SCRIPT]
-        else:
-            container_argv = _container_command(args)
-
-        env = dict(env_spec.env)
-        if "ODOO_RC" in env:
-            host_path = Path(env["ODOO_RC"])
-            container_path = str(host_path).replace(str(base), "/mnt/extra-addons")
-            env["ODOO_RC"] = container_path
-
-        docker_args = [*compose_cmd, "exec"]
-        if capture or env_spec.input is not None or not sys.stdin.isatty():
-            docker_args.append("-T")
-        for key, value in env.items():
-            docker_args.extend(["-e", f"{key}={value}"])
-        docker_args.append(service)
-        docker_args.extend(_containerize_arg(a, base) for a in container_argv)
+        docker_args = self._exec_args(
+            base, compose_cmd, service, cfg, env_spec, capture
+        )
 
         if dry_run:
             if capture:
@@ -537,6 +510,36 @@ class DockerBackend(Backend):
             )
         except OSError as exc:  # pragma: no cover
             raise click.ClickException(f"Could not run docker: {exc}") from exc
+
+    def _exec_args(self, base, compose_cmd, service, cfg, env_spec, capture):
+        """Assemble the ``compose exec`` argument vector for *env_spec*."""
+        args = list(env_spec.argv)
+        command = _cfg_value(cfg, "command") or "odoo"
+        if args and args[0] == "odoo":
+            args = command.split() + args[1:]
+        elif args and args[0].startswith("-"):
+            # Entrypoint-style odoo flags get the configured command prepended,
+            # since ``compose exec`` bypasses the image entrypoint.
+            args = command.split() + args
+
+        if not args:
+            container_argv = ["sh", "-c", _PG_ENV_SHELL_SCRIPT]
+        else:
+            container_argv = _container_command(args)
+
+        env = dict(env_spec.env)
+        if "ODOO_RC" in env:
+            host_path = Path(env["ODOO_RC"])
+            env["ODOO_RC"] = str(host_path).replace(str(base), "/mnt/extra-addons")
+
+        docker_args = [*compose_cmd, "exec"]
+        if capture or env_spec.input is not None or not sys.stdin.isatty():
+            docker_args.append("-T")
+        for key, value in env.items():
+            docker_args.extend(["-e", f"{key}={value}"])
+        docker_args.append(service)
+        docker_args.extend(_containerize_arg(a, base) for a in container_argv)
+        return docker_args
 
 
 def _service_running(compose_cmd, service, base):

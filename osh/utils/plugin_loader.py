@@ -7,8 +7,9 @@ A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
 `commands`, `backends` and `group_commands` keys, plus an optional `hooks`
 key mapping hook point names (see `osh.hooks`) to callables or lists of
 implementations. Plugins may also define their own hook points — e.g. the
-`osh_db_get` plugin discovers backup sources via ``"osh_db_get.sources"``. Plugins are expected to be Python packages
-(directories with `__init__.py`) or a single `osh_plugin.py` file.
+`osh_db_get` plugin discovers backup sources via ``"osh_db_get.sources"``.
+Plugins are expected to be Python packages (directories with `__init__.py`)
+or a single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -150,16 +151,14 @@ def _iter_plugin_modules():
             if not child.is_dir() or child.name.startswith("."):
                 continue
             enabled = get_enabled_plugins(child.name)
-            if enabled is not None and plugin_source_name(child.name) not in enabled:
-                module = None
-            else:
+            if enabled is None or plugin_source_name(child.name) in enabled:
                 try:
                     module = _import_plugin_from_dir(child)
                 except Exception as exc:
                     echo.error(f"Could not load user plugin '{child}': {exc}")
-                    continue
-            if module is not None:
-                yield plugin_source_name(child.name), module
+                    module = None
+                if module is not None:
+                    yield plugin_source_name(child.name), module
             yield from _iter_subplugins(child, enabled=enabled)
 
 

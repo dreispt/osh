@@ -37,7 +37,7 @@ def build_dynamic_odoo_config(
     if conf_path is None:
         cache_dir = base / ".osh" / "cache" / "env"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        branch = db_module.resolve_branch(base, None)
+        branch = db_module.sanitize_db_name(db_module.resolve_branch(base, None))
         safe_db = db_module.sanitize_db_name(db_name) if db_name else "none"
         conf_path = cache_dir / f"{branch}-{safe_db}.conf"
     else:
@@ -95,17 +95,12 @@ def prepare_env_context(
     if db_name and not dry_run:
         db_module.set_last_db(base, db_name)
 
-    if explicit_config:
-        conf_path = None
-    else:
-        branch = db_module.sanitize_db_name(db_module.resolve_branch(base, None))
-        safe_db = db_module.sanitize_db_name(db_name) if db_name else "none"
-        conf_path = base / ".osh" / "cache" / "env" / f"{branch}-{safe_db}.conf"
+    conf_path = None
+    if not explicit_config:
         conf_path = build_dynamic_odoo_config(
             base,
             db_name,
             backend,
-            conf_path=conf_path,
             no_db_filter=no_db_filter,
             extra_args=extra_args,
         )
@@ -183,14 +178,11 @@ def shell(
     if args and args[0] == "--":
         args.pop(0)
 
-    explicit_db = parse_explicit_db(args)
-    db_name = explicit_db
-
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,
         backend,
         ctx=ctx,
-        db_name=db_name,
+        db_name=parse_explicit_db(args),
         extra_args=args,
         dry_run=dry_run,
     )

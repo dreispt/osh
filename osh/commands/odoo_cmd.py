@@ -15,6 +15,7 @@ import click
 
 from .. import echo
 from ..backends import EnvSpec
+from ..cli_utils import format_targets_section
 from ..common import find_project_root, has_arg
 from ..config import get_user_preference
 from ..db import get_project_config, resolve_backend, set_project_config
@@ -40,20 +41,7 @@ class OdooCommand(click.Command):
     def format_help_text(self, ctx, formatter):
         """Write the docstring followed by the list of available backends."""
         super().format_help_text(ctx, formatter)
-        _format_odoo_targets(formatter)
-
-
-def _format_odoo_targets(formatter):
-    """Write a Targets section listing each backend name and description."""
-    backends = load_backends()
-    if not backends:
-        return
-    records = [
-        (name, getattr(backends[name], "description", "") or "")
-        for name in sorted(backends)
-    ]
-    with formatter.section("Targets"):
-        formatter.write_dl(records)
+        format_targets_section(formatter, load_backends())
 
 
 @click.command(
@@ -143,8 +131,7 @@ def odoo(
     # default too; for now it is applied uniformly on every backend.
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
-    explicit_db = parse_explicit_db(extra_args)
-    db_name = explicit_db
+    db_name = parse_explicit_db(extra_args)
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")
@@ -152,8 +139,9 @@ def odoo(
         no_db_filter = True
 
     if backend.host_executable:
-        exe = diagnostics.info.get(backend.name, {}).get("odoo_executable")
-        executable = exe if exe else "odoo-bin"
+        executable = (
+            diagnostics.info.get(backend.name, {}).get("odoo_executable") or "odoo-bin"
+        )
     else:
         executable = "odoo"
 

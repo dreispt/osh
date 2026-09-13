@@ -1,7 +1,6 @@
 """Local ``osh init`` implementation helpers."""
 
 import os
-import shlex
 import sys
 import venv
 from pathlib import Path
@@ -10,7 +9,7 @@ import click
 
 from ... import echo
 from ...backends import copy_odoo_rc_to_osh_conf
-from ...common import run_subprocess
+from ...common import format_cmd, run_subprocess
 from ...sources import ensure_osh_sources
 from .python_versions import resolve_python_for_odoo
 
@@ -184,7 +183,7 @@ def _pip_install(pip_exe, *args):
     command = [str(pip_exe), *args]
     returncode, stdout, stderr = run_subprocess(command)
     if returncode is None or returncode != 0:
-        command_str = " ".join(shlex.quote(str(arg)) for arg in command)
+        command_str = format_cmd(command)
         status = "not found" if returncode is None else returncode
         output = "\n".join(
             part for part in [stdout or "", stderr or ""] if part

@@ -107,22 +107,11 @@ def find_project_root(start=None, *, required=False):
     start = (start or Path.cwd()).resolve()
     home = Path.home()
 
+    # Inside a git repo the search starts at the repo root (``.osh`` lives
+    # there); outside git it starts at *start* itself.
     git_root = _find_git_root(start)
-    if git_root is not None:
-        if (git_root / ".osh").exists():
-            return git_root
-        # Submodule case: walk up from git root looking for .osh
-        for p in [git_root] + list(git_root.parents):
-            if (p / ".osh").exists():
-                return p
-            if p == home:
-                break
-        if required:
-            _not_in_project()
-        return None
-
-    # No git repo: walk up looking for .osh (supports non-git projects).
-    for p in [start] + list(start.parents):
+    walk_from = git_root if git_root is not None else start
+    for p in [walk_from] + list(walk_from.parents):
         if (p / ".osh").exists():
             return p
         if p == home:
@@ -190,6 +179,11 @@ def _is_short_with_value(arg, short):
     return arg.startswith(short) and len(arg) > len(short) and arg[len(short)] != "-"
 
 
+def format_cmd(args):
+    """Return *args* as a single shell-quoted command line string."""
+    return " ".join(shlex.quote(str(a)) for a in args)
+
+
 def _stream_output(pipe, err=False):
     """Read *pipe* line-by-line and echo it to the user."""
     for line in iter(pipe.readline, ""):
@@ -232,8 +226,9 @@ def run_command(
                 text=text,
             )
         except FileNotFoundError as exc:
-            cmd = " ".join(shlex.quote(str(a)) for a in args)
-            raise click.ClickException(f"Command not found: {cmd}") from exc
+            raise click.ClickException(
+                f"Command not found: {format_cmd(args)}"
+            ) from exc
 
         out_thread = threading.Thread(
             target=_stream_output, args=(proc.stdout, False), daemon=True
@@ -250,8 +245,9 @@ def run_command(
 
         result = subprocess.CompletedProcess(args=args, returncode=returncode)
         if check and returncode:
-            cmd = " ".join(shlex.quote(str(a)) for a in args)
-            raise click.ClickException(f"Command failed (exit {returncode}): {cmd}")
+            raise click.ClickException(
+                f"Command failed (exit {returncode}): {format_cmd(args)}"
+            )
         return result
 
     try:
@@ -304,7 +300,7 @@ def run_subprocess(
 
     If *silent* is True, both stdout and stderr are discarded to ``/dev/null``.
     """
-    cmd = " ".join(shlex.quote(str(a)) for a in args)
+    cmd = format_cmd(args)
     if dry_run:
         echo.info(f"Would run: {cmd}", err=True)
         return 0, "", ""
@@ -367,9 +363,7 @@ def run_shell_pipeline(
     a ``click.ClickException`` using that message.  *not_found_msg* overrides
     the message used when the executable is missing.
     """
-    pipeline = " | ".join(
-        " ".join(shlex.quote(str(a)) for a in cmd) for cmd in commands
-    )
+    pipeline = " | ".join(format_cmd(cmd) for cmd in commands)
     returncode, out, stderr = run_subprocess(
         ["sh", "-c", pipeline], stdout=stdout, env=env, text=text
     )
