@@ -9,6 +9,8 @@ Environment preparation – addons path, database name and dbfilter – is handl
 by ``osh shell`` via the dynamic config in ``.osh/cache/env``.
 """
 
+import os
+
 import click
 
 from .. import echo
@@ -73,26 +75,9 @@ def _format_odoo_targets(formatter):
 @click.option(
     "--compose-file",
     default=None,
-    help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
-)
-@click.option(
-    "--no-db-filter",
-    is_flag=True,
-    hidden=True,
-    help="Do not inject dbfilter into the generated config.",
-)
-@click.option(
-    "--skip-config",
-    is_flag=True,
-    hidden=True,
-    help="Skip generating the dynamic config file.",
-)
-@click.option(
-    "--wait",
-    "wait_for_exit",
-    is_flag=True,
-    hidden=True,
-    help="Wait for the command to finish instead of exec/replacing the process.",
+    envvar="OSH_COMPOSE_FILE",
+    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+    "Defaults to $OSH_COMPOSE_FILE.",
 )
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
@@ -101,10 +86,9 @@ def odoo(
     dry_run,
     backend_name,
     compose_file,
-    no_db_filter,
-    skip_config,
-    wait_for_exit,
     extra_args,
+    no_db_filter=False,
+    wait_for_exit=None,
     **_plugin_params,
 ):  # noqa: D401
     """Run the project's Odoo executable.
@@ -114,6 +98,19 @@ def odoo(
 
     Environment preparation – addons path, database name and dbfilter – is handled
     by ``osh shell`` through the dynamic config in ``.osh/cache/env``.
+    ``ODOO_RC`` and the ``PG*`` connection variables are already exported into
+    the subprocess environment.
+
+    Passing an explicit ``--config``/``-c`` argument suppresses the generated
+    config, and passing ``--db-filter`` overrides the one ``osh`` injects –
+    same as calling ``odoo-bin`` directly.
+
+    Environment variables:
+
+    \b
+      OSH_RUN_TARGET     execution target (same as --target)
+      OSH_COMPOSE_FILE   compose file (same as --compose-file)
+      OSH_WAIT           wait for the command instead of exec/replacing it
 
     Examples:
 
@@ -168,7 +165,6 @@ def odoo(
         backend,
         db_name=db_name,
         no_db_filter=no_db_filter,
-        skip_config=skip_config,
         extra_args=extra_args,
         dry_run=dry_run,
     )
@@ -184,6 +180,13 @@ def odoo(
         db_name=resolved_db,
         config_path=str(conf_path) if conf_path else None,
     )
+    if wait_for_exit is None:
+        wait_for_exit = _env_flag("OSH_WAIT")
     for hook in load_hooks(HOOK_ODOO_PRE_ENV):
         hook(ctx, base, env_spec)
     backend.env(ctx, base, env_spec, dry_run=dry_run, wait=wait_for_exit)
+
+
+def _env_flag(name):
+    """Return True when environment variable *name* holds a truthy value."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")

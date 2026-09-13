@@ -202,6 +202,81 @@ def test_test_dropdb_dry_run_does_not_drop_database(
     assert "-i my_module" in result.output
 
 
+def test_odoo_db_filter_passthrough_suppresses_generated_dbfilter(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """An explicit --db-filter is kept and the generated config drops its own."""
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--db-filter", "^custom$"])
+
+    assert result.exit_code == 0
+    dynamic_conf = _dynamic_conf_path(tmp_project, test_db)
+    assert dynamic_conf.exists()
+    text = dynamic_conf.read_text()
+    assert f"db_name = {test_db}" in text
+    assert "dbfilter" not in text
+    _, final_args, _ = capture_execvp[0]
+    assert "--db-filter ^custom$" in " ".join(final_args)
+
+
+def test_odoo_osh_wait_env_var_waits_for_process(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """OSH_WAIT=1 makes ``osh odoo`` wait on a subprocess instead of exec."""
+    monkeypatch.setenv("OSH_WAIT", "1")
+    monkeypatch.chdir(tmp_project)
+
+    calls = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_local.backends.run_command",
+        lambda args, **kwargs: calls.append(list(args)),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(odoo, [])
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0][0] == str(fake_odoo_executable)
+    assert not capture_execvp
+
+
+def test_odoo_compose_file_from_env_var(
+    tmp_project,
+    monkeypatch,
+    test_db,
+):
+    """OSH_COMPOSE_FILE is honored like --compose-file for the docker target."""
+    osh_dir = tmp_project / ".osh"
+    (osh_dir / "docker.toml").write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
+    monkeypatch.setenv("OSH_COMPOSE_FILE", "devel.yaml")
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
+    monkeypatch.chdir(tmp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--target", "docker", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert " -f devel.yaml " in result.output
+
+
 def test_dynamic_config_translates_addons_path_for_docker(
     tmp_project,
     osh_source_dirs,

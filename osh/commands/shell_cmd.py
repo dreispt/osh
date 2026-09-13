@@ -110,26 +110,24 @@ def prepare_env_context(
     *,
     db_name=None,
     no_db_filter=False,
-    skip_config=False,
     extra_args=(),
     dry_run=False,
 ):
     """Build the dynamic Odoo config and environment variables for a backend.
 
     Returns ``(config_path, env_vars, db_name)``. ``config_path`` is ``None``
-    when ``skip_config`` is True or the user passed an explicit ``--config``
-    argument. ``env_vars`` contains ``ODOO_RC`` and PostgreSQL connection
-    variables when available.
+    when the user passed an explicit ``--config`` argument. ``env_vars``
+    contains ``ODOO_RC`` and PostgreSQL connection variables when available.
     """
     explicit_config = _has_arg(extra_args, "--config", short="-c")
     no_db_filter = no_db_filter or _has_arg(extra_args, "--db-filter")
-    if not db_name and not explicit_config and not skip_config:
+    if not db_name and not explicit_config:
         db_name = db_module.resolve_db_name_for_run(base, verbose=False)
 
     if db_name and not dry_run:
         db_module.set_last_db(base, db_name)
 
-    if explicit_config or skip_config:
+    if explicit_config:
         conf_path = None
     else:
         branch = db_module.sanitize_db_name(
@@ -175,19 +173,9 @@ def prepare_env_context(
 @click.option(
     "--compose-file",
     default=None,
-    help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
-)
-@click.option(
-    "--no-db-filter",
-    is_flag=True,
-    hidden=True,
-    help="Do not set dbfilter in the generated config.",
-)
-@click.option(
-    "--skip-config",
-    is_flag=True,
-    hidden=True,
-    help="Skip generating the dynamic config file.",
+    envvar="OSH_COMPOSE_FILE",
+    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+    "Defaults to $OSH_COMPOSE_FILE.",
 )
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
@@ -196,17 +184,19 @@ def shell(
     dry_run,
     backend_name,
     compose_file,
-    no_db_filter,
-    skip_config,
     extra_args,
 ):  # noqa: D401
     """Enter the project's runtime environment or run a command in it.
 
     Without arguments this opens an interactive shell in the active target
     (local virtualenv or Docker container) with ``ODOO_RC`` and PostgreSQL
-    connection variables already configured for the current branch and
-    database. Any arguments are passed through as a command to run inside the
-    environment.
+    connection variables (``PGHOST``, ``PGUSER``, ...) already configured for
+    the current branch and database. Any arguments are passed through as a
+    command to run inside the environment.
+
+    Passing an explicit ``--config``/``-c`` or ``--db-filter`` argument
+    suppresses the generated config and dbfilter, exactly as when calling
+    ``odoo-bin`` directly.
 
     Examples:
 
@@ -252,8 +242,6 @@ def shell(
         base,
         backend,
         db_name=db_name,
-        no_db_filter=no_db_filter,
-        skip_config=skip_config,
         extra_args=args,
         dry_run=dry_run,
     )

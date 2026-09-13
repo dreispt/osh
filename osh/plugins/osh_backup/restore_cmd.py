@@ -207,7 +207,6 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
             backend_name=backend_name,
             compose_file=None,
             no_db_filter=True,
-            skip_config=False,
             extra_args=("neutralize", "-d", db_name),
         )
         restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=True)
@@ -231,7 +230,6 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
             backend_name=backend_name,
             compose_file=None,
             no_db_filter=True,
-            skip_config=False,
             extra_args=("neutralize", "-d", db_name),
         )
     else:
