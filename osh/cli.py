@@ -149,3 +149,27 @@ for group_name, entries in load_group_commands().items():
         continue
     for source, _cmd in entries:
         _register_plugin_command(target, _cmd, source, f"{group_name}.{_cmd.name}")
+
+# Order the top-level command list to match the documented command surface.
+# Plugin-provided commands (including the bundled `test`) are interleaved by
+# name; anything else keeps its registration order at the end.
+_COMMAND_ORDER = [
+    "init",
+    "odoo",
+    "switch",
+    "shell",
+    "update",
+    "test",
+    "db",
+    "doctor",
+    "config",
+    "plug",
+]
+
+_ordered = {
+    name: main.commands[name] for name in _COMMAND_ORDER if name in main.commands
+}
+_ordered.update(
+    (name, cmd) for name, cmd in main.commands.items() if name not in _ordered
+)
+main.commands = _ordered

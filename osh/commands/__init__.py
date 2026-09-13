@@ -18,13 +18,13 @@ from . import (
 
 COMMANDS = [
     init_cmd.init,
-    doctor_cmd.doctor,
-    shell_cmd.shell,
     odoo_cmd.odoo,
     switch_cmd.switch,
+    shell_cmd.shell,
     update_cmd.update,
-    config_cmd.config,
     db_cmd.db,
+    doctor_cmd.doctor,
+    config_cmd.config,
     plug_cmd.plug,
 ]
 
