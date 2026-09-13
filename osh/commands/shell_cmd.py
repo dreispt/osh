@@ -1,6 +1,6 @@
-"""`osh run` command implementation.
+"""`osh shell` command implementation.
 
-``osh run`` enters the project's runtime environment (local virtualenv or
+``osh shell`` enters the project's runtime environment (local virtualenv or
 Docker container) with ``ODOO_RC`` and PostgreSQL connection variables already
 set for the active branch/database. Other commands, such as ``osh odoo``, build
 on top of it.
@@ -157,7 +157,7 @@ def prepare_env_context(
 
 
 @click.command(
-    name="run",
+    name="shell",
     context_settings=dict(ignore_unknown_options=True),
 )
 @click.option(
@@ -191,7 +191,7 @@ def prepare_env_context(
 )
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def run(
+def shell(
     ctx,
     dry_run,
     backend_name,
@@ -211,10 +211,10 @@ def run(
     Examples:
 
     \b
-      osh run
-      osh run odoo --version
-      osh run psql
-      osh run --target docker odoo -i base
+      osh shell
+      osh shell odoo --version
+      osh shell psql
+      osh shell --target docker odoo -i base
     """
     base = find_project_root(required=True)
 

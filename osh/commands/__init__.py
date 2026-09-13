@@ -11,14 +11,14 @@ from . import (
     init_cmd,
     odoo_cmd,
     plug_cmd,
-    run_cmd,
+    shell_cmd,
     version_cmd,
 )
 
 COMMANDS = [
     init_cmd.init,
     doctor_cmd.doctor,
-    run_cmd.run,
+    shell_cmd.shell,
     odoo_cmd.odoo,
     config_cmd.config,
     db_cmd.db,

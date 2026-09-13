@@ -4,7 +4,7 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands.odoo_cmd import odoo
-from osh.commands.run_cmd import build_dynamic_odoo_config
+from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.plugins.osh_backend_docker.backends import DockerBackend
 
 

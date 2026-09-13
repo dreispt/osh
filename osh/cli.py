@@ -77,7 +77,7 @@ def main(ctx, verbosity):  # noqa: D401
     to accelerate your development and staging workflows.
 
     Use `osh init` to initialize an Odoo environment in a project.
-    Use `osh run` to enter the runtime environment or run any command inside it.
+    Use `osh shell` to enter the runtime environment or run any command inside it.
     Use `osh odoo` to run Odoo in that environment, using an available
     backend (local, docker, etc.).
     Add the `--help` option to a command to learn more.

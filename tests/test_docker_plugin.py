@@ -397,7 +397,7 @@ def test_docker_backend_env_dash_args_run_odoo_directly(tmp_project, capsys):
 
 
 def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):
-    """An interactive ``osh run`` shell also gets the libpq variables."""
+    """An interactive ``osh shell`` session also gets the libpq variables."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
