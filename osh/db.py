@@ -385,27 +385,26 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     last_db_exists = bool(last_db) and db_exists(base, last_db, ctx=ctx)
     choices = []
     if last_db_exists:
-        choices.append(("1", f"Reuse '{last_db}' in place", "reuse"))
-    choices.append(("2", f"Create new empty '{db_name}'", "create"))
+        choices.append((f"Reuse '{last_db}' in place", "reuse"))
+    choices.append((f"Create new empty '{db_name}'", "create"))
     if last_db_exists:
-        choices.append(("3", f"Copy '{last_db}' to '{db_name}'", "copy"))
-    choices.append(("4", "Choose another database", "choose"))
+        choices.append((f"Copy '{last_db}' to '{db_name}'", "copy"))
+    choices.append(("Choose another database", "choose"))
 
     echo.warning(f"Database '{db_name}' does not exist.")
     echo.info("What would you like to do?")
-    for num, label, _ in choices:
-        default_marker = "  (default)" if num == choices[0][0] else ""
+    for num, (label, _) in enumerate(choices, 1):
+        default_marker = "  (default)" if num == 1 else ""
         echo.info(f"  [{num}] {label}{default_marker}")
 
-    valid = [num for num, _, _ in choices]
     choice = click.prompt(
         "Choice",
-        type=click.Choice(valid),
-        default=choices[0][0],
+        type=click.Choice([str(n) for n in range(1, len(choices) + 1)]),
+        default="1",
         show_choices=False,
     )
 
-    action = next(action for num, _, action in choices if num == choice)
+    action = choices[int(choice) - 1][1]
 
     if action == "reuse":
         set_project_config(base, "db", branch, last_db)
