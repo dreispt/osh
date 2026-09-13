@@ -123,6 +123,7 @@ def test_plugin_commands_listed_in_separate_help_section(monkeypatch, tmp_path):
     core_section, _, plugin_section = result.output.partition("Plugin Commands:")
     assert "init" in core_section and "unique" not in core_section
     assert "unique" in plugin_section
+    assert "[fake]" in plugin_section
 
 
 def test_group_plugin_subcommand_listed_in_separate_section(monkeypatch, tmp_path):
@@ -148,6 +149,7 @@ def test_group_plugin_subcommand_listed_in_separate_section(monkeypatch, tmp_pat
     core_section, _, plugin_section = result.output.partition("Plugin Commands:")
     assert "audit" not in core_section
     assert "audit" in plugin_section
+    assert "[fake]" in plugin_section
 
 
 def test_double_collision_is_ignored(monkeypatch, tmp_path, capsys):

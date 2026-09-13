@@ -135,12 +135,12 @@ def _register_plugin_command(group, cmd, source, qualified):
 # A plugin command whose name collides with a command that is already
 # registered (core command or an earlier plugin) is prefixed with its
 # plugin source and reported, so both commands remain available in the CLI.
-_plugin_names = set()
+_plugin_commands = {}
 for plugin_source, plugin_cmd in load_plugins():
     name = _register_plugin_command(main, plugin_cmd, plugin_source, plugin_cmd.name)
     if name is not None:
-        _plugin_names.add(name)
-main.plugin_commands = _plugin_names
+        _plugin_commands[name] = plugin_source
+main.plugin_commands = _plugin_commands
 
 # Register plugin-provided subcommands on existing command groups
 # (``group_commands`` manifest key).
@@ -158,8 +158,9 @@ for group_name, entries in load_group_commands().items():
             target, _cmd, source, f"{group_name}.{_cmd.name}"
         )
         if name is not None:
-            target.plugin_commands = set(getattr(target, "plugin_commands", ())) | {
-                name
+            target.plugin_commands = {
+                **getattr(target, "plugin_commands", {}),
+                name: source,
             }
 
 # Order the top-level command list to match the documented command surface.

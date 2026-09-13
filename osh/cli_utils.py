@@ -9,11 +9,12 @@ class NaturalOrderGroup(click.Group):
     Also allows group-level options (e.g. ``-v``) to appear after the
     subcommand name, so they do not have to be redeclared on every command.
 
-    Commands whose names are in ``plugin_commands`` (assigned by ``cli.py``
-    after plugin registration) are listed in a separate help section.
+    Commands whose names are in ``plugin_commands`` — a ``{name: source}``
+    mapping assigned by ``cli.py`` after plugin registration — are listed
+    in a separate help section, annotated with their plugin source.
     """
 
-    plugin_commands = ()
+    plugin_commands = {}
 
     def list_commands(self, ctx):  # noqa: D401
         return list(self.commands)  # retain insertion order
@@ -32,8 +33,13 @@ class NaturalOrderGroup(click.Group):
         core_rows = []
         plugin_rows = []
         for name, cmd in commands:
-            row = (name, cmd.get_short_help_str(limit))
-            (plugin_rows if name in self.plugin_commands else core_rows).append(row)
+            source = self.plugin_commands.get(name)
+            if source is None:
+                core_rows.append((name, cmd.get_short_help_str(limit)))
+            else:
+                suffix = f" [{source}]"
+                help_text = cmd.get_short_help_str(limit - len(suffix))
+                plugin_rows.append((name, help_text + suffix))
         if core_rows:
             with formatter.section("Commands"):
                 formatter.write_dl(core_rows)
