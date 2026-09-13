@@ -8,10 +8,38 @@ class NaturalOrderGroup(click.Group):
 
     Also allows group-level options (e.g. ``-v``) to appear after the
     subcommand name, so they do not have to be redeclared on every command.
+
+    Commands whose names are in ``plugin_commands`` (assigned by ``cli.py``
+    after plugin registration) are listed in a separate help section.
     """
+
+    plugin_commands = ()
 
     def list_commands(self, ctx):  # noqa: D401
         return list(self.commands)  # retain insertion order
+
+    def format_commands(self, ctx, formatter):
+        """Print core commands and plugin commands in separate sections."""
+        commands = []
+        for name in self.list_commands(ctx):
+            cmd = self.get_command(ctx, name)
+            if cmd is None or cmd.hidden:
+                continue
+            commands.append((name, cmd))
+        if not commands:
+            return
+        limit = formatter.width - 6 - max(len(name) for name, _ in commands)
+        core_rows = []
+        plugin_rows = []
+        for name, cmd in commands:
+            row = (name, cmd.get_short_help_str(limit))
+            (plugin_rows if name in self.plugin_commands else core_rows).append(row)
+        if core_rows:
+            with formatter.section("Commands"):
+                formatter.write_dl(core_rows)
+        if plugin_rows:
+            with formatter.section("Plugin Commands"):
+                formatter.write_dl(plugin_rows)
 
     def parse_args(self, ctx, args):
         """Move group-level options to the front so Click parses them first."""

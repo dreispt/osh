@@ -98,6 +98,7 @@ def _register_plugin_command(group, cmd, source, qualified):
 
     *qualified* is the alias key stored in the user config — the command name
     for top-level commands, or ``<group>.<name>`` for group subcommands.
+    Returns the name the command was registered under, or None if skipped.
     """
     name = cmd.name
     alias = get_plugin_aliases(source).get(qualified)
@@ -107,9 +108,9 @@ def _register_plugin_command(group, cmd, source, qualified):
                 f"plugin '{source}' command alias '{alias}' for '{qualified}' "
                 "conflicts with an existing command and is ignored."
             )
-            return
+            return None
         group.add_command(cmd, name=alias)
-        return
+        return alias
     if name in group.commands:
         fallback = f"{source}-{name}"
         if fallback in group.commands:
@@ -117,7 +118,7 @@ def _register_plugin_command(group, cmd, source, qualified):
                 f"plugin '{source}' command '{qualified}' conflicts with an "
                 "existing command and is ignored."
             )
-            return
+            return None
         echo.warning(
             f"plugin '{source}' command '{qualified}' conflicts with the "
             f"existing '{name}' command; registered as '{fallback}'. "
@@ -127,14 +128,19 @@ def _register_plugin_command(group, cmd, source, qualified):
         )
         name = fallback
     group.add_command(cmd, name=name)
+    return name
 
 
 # Register commands from built-in and user-installed plugins.
 # A plugin command whose name collides with a command that is already
 # registered (core command or an earlier plugin) is prefixed with its
 # plugin source and reported, so both commands remain available in the CLI.
+_plugin_names = set()
 for plugin_source, plugin_cmd in load_plugins():
-    _register_plugin_command(main, plugin_cmd, plugin_source, plugin_cmd.name)
+    name = _register_plugin_command(main, plugin_cmd, plugin_source, plugin_cmd.name)
+    if name is not None:
+        _plugin_names.add(name)
+main.plugin_commands = _plugin_names
 
 # Register plugin-provided subcommands on existing command groups
 # (``group_commands`` manifest key).
@@ -148,11 +154,17 @@ for group_name, entries in load_group_commands().items():
             )
         continue
     for source, _cmd in entries:
-        _register_plugin_command(target, _cmd, source, f"{group_name}.{_cmd.name}")
+        name = _register_plugin_command(
+            target, _cmd, source, f"{group_name}.{_cmd.name}"
+        )
+        if name is not None:
+            target.plugin_commands = set(getattr(target, "plugin_commands", ())) | {
+                name
+            }
 
 # Order the top-level command list to match the documented command surface.
-# Plugin-provided commands (including the bundled `test`) are interleaved by
-# name; anything else keeps its registration order at the end.
+# Plugin-provided commands keep their registration order at the end and are
+# listed in a separate help section (see NaturalOrderGroup.format_commands).
 _COMMAND_ORDER = [
     "init",
     "odoo",
