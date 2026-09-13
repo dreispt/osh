@@ -12,12 +12,30 @@ from .commands import COMMANDS
 from .config import get_plugin_aliases
 from .utils.plugin_loader import load_group_commands, load_plugins
 
+
+def _print_version(ctx, param, value):
+    """Eager ``--version`` callback printing the version and exiting.
+
+    ``__version__`` already carries the ``+<commit>`` local suffix when osh
+    runs from a git checkout (see ``osh.__init__._get_version``).
+    """
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(f"osh, version {__version__}")
+    ctx.exit()
+
+
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
 @click.group(context_settings=CONTEXT_SETTINGS, cls=NaturalOrderGroup)
-@click.version_option(
-    version=__version__, prog_name="osh", help="Show the version and exit."
+@click.option(
+    "--version",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_print_version,
+    help="Show the version and exit.",
 )
 @click.option(
     "--verbosity",

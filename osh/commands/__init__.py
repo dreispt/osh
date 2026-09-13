@@ -14,7 +14,6 @@ from . import (
     shell_cmd,
     switch_cmd,
     update_cmd,
-    version_cmd,
 )
 
 COMMANDS = [
@@ -27,7 +26,6 @@ COMMANDS = [
     config_cmd.config,
     db_cmd.db,
     plug_cmd.plug,
-    version_cmd.version,
 ]
 
 __all__ = ["COMMANDS"]
