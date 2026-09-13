@@ -35,7 +35,7 @@ def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "init")
 
-    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -76,7 +76,7 @@ def test_no_collision_registers_plugin_command(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "unique")
 
-    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -91,7 +91,7 @@ def test_renamed_command_appears_in_help(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "init")
 
-    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 

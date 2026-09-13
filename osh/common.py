@@ -41,7 +41,7 @@ def venv_env(base):
     venv_bin = get_venv_bin(base)
     if not venv_bin.is_dir():
         raise click.ClickException(
-            "No virtualenv found. Run `osh init --target local` to create one."
+            "No virtualenv found. Run `osh init --target venv` to create one."
         )
     venv_path = str(venv_bin)
     path = os.environ.get("PATH", "")
@@ -136,7 +136,7 @@ def _not_in_project():
     """Print a helpful message and exit when no Osh project is found."""
     echo.info(
         "Not inside an Osh project. "
-        "Run 'osh init --target <local|docker> <version>' to create one."
+        "Run 'osh init --target <venv|docker> <version>' to create one."
     )
     raise SystemExit(0)
 
@@ -151,7 +151,27 @@ def get_osh_odoo_config_path(base):
     return base / ".osh" / "odoo.conf"
 
 
-def _has_arg(args, long, short=None):
+def get_odoo_port(base):
+    """Return the Odoo HTTP port configured for *base* (default ``8069``).
+
+    Reads ``http_port`` (or the legacy ``xmlrpc_port``) from the first
+    existing of ``.osh/odoo.conf`` and ``.odoorc``.
+    """
+    for conf in (get_osh_odoo_config_path(base), get_odoo_config_path(base)):
+        if not conf.exists():
+            continue
+        cfg = configparser.ConfigParser()
+        cfg.read(conf, encoding="utf-8")
+        if not cfg.has_section("options"):
+            continue
+        for key in ("http_port", "xmlrpc_port"):
+            value = cfg["options"].get(key)
+            if value and str(value).strip().isdigit():
+                return int(str(value).strip())
+    return 8069
+
+
+def has_arg(args, long, short=None):
     """Return True if *args* contains the given long (and optional short) option."""
     for arg in args:
         if arg == long or arg.startswith(f"{long}="):
@@ -168,46 +188,6 @@ def _has_arg(args, long, short=None):
 def _is_short_with_value(arg, short):
     """Return True when *arg* is *short* followed by a value (not another flag)."""
     return arg.startswith(short) and len(arg) > len(short) and arg[len(short)] != "-"
-
-
-def resolve_config_file(base, extra_args, *, for_run=False):
-    """Return the appropriate Odoo config file path to use.
-
-    Args:
-        base: Project root directory
-        extra_args: Command line arguments to check for explicit config
-        for_run: If True, create .osh/odoo.conf if it doesn't exist (for run command)
-
-    Returns:
-        Path to config file to use, or None if no config should be used
-    """
-    has_explicit_config = _has_arg(extra_args, "--config", short="-c")
-    if has_explicit_config:
-        return None
-
-    osh_odoo_conf = get_osh_odoo_config_path(base)
-    odoo_rc = get_odoo_config_path(base)
-
-    # Prefer .osh/odoo.conf, fall back to .odoorc
-    config_to_use = None
-    if osh_odoo_conf.exists():
-        config_to_use = osh_odoo_conf
-    elif odoo_rc.exists():
-        config_to_use = odoo_rc
-
-    # For run command, create .osh/odoo.conf if it doesn't exist
-    if for_run and config_to_use is None:
-        osh_odoo_conf.parent.mkdir(parents=True, exist_ok=True)
-        osh_odoo_conf.touch()
-        config_to_use = osh_odoo_conf
-
-    return config_to_use
-
-
-def ensure_tool(tool):
-    """Raise a ClickException if *tool* is not available on PATH."""
-    if not shutil.which(tool):
-        raise click.ClickException(f"Required tool '{tool}' is not available on PATH.")
 
 
 def _stream_output(pipe, err=False):

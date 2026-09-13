@@ -8,12 +8,12 @@ from . import (
     config_cmd,
     db_cmd,
     doctor_cmd,
+    down_cmd,
     init_cmd,
     odoo_cmd,
     plug_cmd,
     shell_cmd,
     switch_cmd,
-    update_cmd,
 )
 
 COMMANDS = [
@@ -21,7 +21,7 @@ COMMANDS = [
     odoo_cmd.odoo,
     switch_cmd.switch,
     shell_cmd.shell,
-    update_cmd.update,
+    down_cmd.down,
     db_cmd.db,
     doctor_cmd.doctor,
     config_cmd.config,

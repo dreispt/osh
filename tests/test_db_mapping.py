@@ -111,7 +111,7 @@ def test_db_group_command_surface():
 
 
 def test_db_restore_comes_from_plugin():
-    """`osh db restore` is contributed by the osh_backup plugin."""
+    """`osh db restore` is contributed by the osh_db_get plugin."""
     from osh.cli import main
 
     assert "restore" in main.commands["db"].commands

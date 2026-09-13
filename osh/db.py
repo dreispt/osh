@@ -7,7 +7,10 @@ shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 import configparser
 import fnmatch
 import re
+import shlex
+import shutil
 import sys
+from pathlib import Path
 
 import click
 
@@ -15,11 +18,8 @@ from . import config as _config
 from . import echo
 from .common import (
     decode_stderr,
-    ensure_tool,
     get_odoo_config_path,
     get_osh_odoo_config_path,
-    merged_env,
-    run_shell_pipeline,
     run_subprocess,
 )
 
@@ -112,19 +112,15 @@ def get_active_env(base):
     Stored in ``.osh/local.toml`` — per-machine state, not the shared
     project config — by ``osh switch`` when there is no git repository.
     """
-    data = _config._load_toml(_config.get_local_config_path(base))
-    section = data.get("env")
-    return section.get("active") if isinstance(section, dict) else None
+    return _config.get_local_config(base, "env", "active")
 
 
 def set_active_env(base, name):
     """Record *name* as the active environment of a git-less project."""
-    _config._write_toml_section_key(
-        _config.get_local_config_path(base), "env", "active", name
-    )
+    _config.set_local_config(base, "env", "active", name)
 
 
-def _resolve_branch(base, branch):
+def resolve_branch(base, branch):
     """Return *branch*, or the current branch/environment, or ``default``.
 
     The environment is the git branch when inside a repository, or the
@@ -135,70 +131,161 @@ def _resolve_branch(base, branch):
     return get_current_branch(base) or get_active_env(base) or "default"
 
 
-def get_pg_credentials(base):
-    """Return PostgreSQL connection args and an environment dict.
+def get_pg_env(base):
+    """Return PostgreSQL connection variables from the Odoo config as a dict.
 
-    The returned tuple is ``(args, env)`` where ``args`` can be inserted
-    after any ``psql``/``pg_dump``/``pg_restore``/``dropdb``/``createdb``
-    command and before the database-specific arguments. ``env`` contains
-    ``PGPASSWORD`` when a password is configured.
+    Reads ``.osh/odoo.conf`` if it exists, otherwise falls back to ``.odoorc``.
+    Maps ``db_host``, ``db_port``, ``db_user`` and ``db_password`` to the
+    standard ``PGHOST``, ``PGPORT``, ``PGUSER`` and ``PGPASSWORD`` environment
+    variables so tools like ``psql`` and ``pg_restore`` connect automatically
+    to the same database Odoo uses.
     """
     odoo_rc = get_osh_odoo_config_path(base)
     if not odoo_rc.exists():
         odoo_rc = get_odoo_config_path(base)
-    args = []
-    env = merged_env()
-
+    env = {}
     if not odoo_rc.exists():
-        return args, env
+        return env
 
     cfg = configparser.ConfigParser()
-    cfg.read(odoo_rc)
+    cfg.read(odoo_rc, encoding="utf-8")
     if not cfg.has_section("options"):
-        return args, env
+        return env
 
+    mapping = {
+        "db_host": "PGHOST",
+        "db_port": "PGPORT",
+        "db_user": "PGUSER",
+        "db_password": "PGPASSWORD",
+    }
     options = cfg["options"]
-    for key, arg in [
-        ("db_host", "--host"),
-        ("db_port", "--port"),
-        ("db_user", "--username"),
-    ]:
-        value = options.get(key, fallback=None)
+    for key, var in mapping.items():
+        value = options.get(key)
         if value:
-            args.extend([arg, value])
-
-    password = options.get("db_password", fallback=None)
-    if password:
-        env["PGPASSWORD"] = password
-
-    return args, env
+            env[var] = value
+    return env
 
 
-def db_exists(base, db_name):
-    """Return True if the PostgreSQL database exists."""
-    conn_args, env = get_pg_credentials(base)
-    pg_args = ["psql", "-d", db_name, "-c", "SELECT 1", *conn_args]
-    returncode, _, _ = run_subprocess(pg_args, env=env, silent=True)
+def resolve_backend(ctx, base, default="local"):
+    """Instantiate the backend configured for *base*.
+
+    Resolves the run target the same way ``osh odoo``/``osh shell`` do: an
+    explicit ``--target`` on the invoking command wins, otherwise the
+    configured project target from ``.osh/config.toml`` is used, falling back
+    to *default*. This is the supported way for commands and plugins to
+    obtain the active backend instance.
+    """
+    from .utils.plugin_loader import load_backends
+
+    if ctx is not None:
+        target = resolve_run_target(base, default, ctx)
+    else:
+        target = get_project_config(base, "run", "target", fallback=default)
+    backend_cls = load_backends().get(target)
+    if backend_cls is None:
+        raise click.ClickException(f"Unknown target: {target}")
+    return backend_cls()
+
+
+def run_in_backend(
+    ctx,
+    base,
+    argv,
+    env=None,
+    dry_run=False,
+    *,
+    capture=True,
+    input=None,
+    stdout=None,
+    text=True,
+):
+    """Run *argv* inside the active backend's environment.
+
+    PostgreSQL connection variables from the project Odoo config are merged
+    into the command environment, so ``psql``/``createdb``/... connect the
+    same way Odoo itself does, in the same execution context Odoo runs in.
+    These helpers deliberately know nothing about which backend is active.
+
+    This is the supported public API for plugins that need to run commands
+    in the project's execution context (e.g. database tooling).
+
+    With ``capture=True`` (the default) returns ``(returncode, stdout,
+    stderr)``; a missing executable reports ``returncode=None``. With
+    ``capture=False`` the command's output is streamed and a non-zero exit
+    raises ``click.ClickException``.
+    """
+    from .backends import EnvSpec
+
+    backend = resolve_backend(ctx, base)
+    merged = {**get_pg_env(base), **(env or {})}
+    env_spec = EnvSpec(argv=[str(a) for a in argv], env=merged, input=input)
+    result = backend.env(
+        ctx,
+        base,
+        env_spec,
+        dry_run=dry_run,
+        wait=True,
+        capture=capture,
+        stdout=stdout,
+        text=text,
+    )
+    # ``None`` comes back from dry-run and streamed (capture=False) runs; a
+    # streamed failure already raised inside the backend.
+    if result is None:
+        return 0, "", ""
+    return result
+
+
+def restore_cache_dir(base):
+    """Return a writable ``.osh/cache/restore`` directory under the project."""
+    cache = Path(base) / ".osh" / "cache" / "restore"
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
+
+
+def stage_under_base(base, path):
+    """Return *path* when it lives under *base*, else copy it to ``.osh/cache``.
+
+    Backend execution environments (e.g. Docker) only see files under the
+    project root, so files given by paths outside *base* are staged where
+    the backend can reach them.
+    """
+    path = Path(path)
+    try:
+        path.resolve().relative_to(Path(base).resolve())
+        return path
+    except ValueError:
+        dest = restore_cache_dir(base) / path.name
+        if dest != path:
+            shutil.copy2(path, dest)
+        return dest
+
+
+def db_exists(base, db_name, ctx=None, *, dry_run=False):
+    """Return True if the PostgreSQL database exists.
+
+    In *dry_run* mode the probe still runs where it is side-effect free
+    (local backend); backends where probing would start a container report
+    "does not exist" unless the stack is already up.
+    """
+    returncode, _, _ = run_in_backend(
+        ctx, base, ["psql", "-d", db_name, "-c", "SELECT 1"], dry_run=dry_run
+    )
     # A failed connection means the database does not exist (or psql is
     # missing); in either case the database is not usable here.
     return returncode == 0
 
 
-def drop_db(base, db_name):
+def drop_db(base, db_name, ctx=None):
     """Drop a PostgreSQL database if it exists."""
-    conn_args, env = get_pg_credentials(base)
-    drop_args = ["dropdb", *conn_args, db_name]
-    # `dropdb` is expected to fail when the database does not exist. Use
-    # `run_subprocess` without raising so callers can call this defensively
-    # without handling an error for the common "database is already gone" case.
-    run_subprocess(drop_args, env=env, silent=True)
+    # `dropdb` is expected to fail when the database does not exist; the
+    # result is ignored so callers can call this defensively.
+    run_in_backend(ctx, base, ["dropdb", db_name])
 
 
-def create_db(base, db_name):
+def create_db(base, db_name, ctx=None):
     """Create a fresh PostgreSQL database."""
-    conn_args, env = get_pg_credentials(base)
-    create_args = ["createdb", *conn_args, db_name]
-    returncode, _, stderr = run_subprocess(create_args, env=env, text=False)
+    returncode, _, stderr = run_in_backend(ctx, base, ["createdb", db_name], text=False)
     if returncode is None:
         raise RuntimeError("Could not locate `createdb`. Is PostgreSQL installed?")
     if returncode != 0:
@@ -207,30 +294,33 @@ def create_db(base, db_name):
         )
 
 
-def copy_db(base, from_db, to_db):
+def copy_db(base, from_db, to_db, ctx=None):
     """Copy *from_db* to *to_db*, replacing the target if it exists."""
-    conn_args, env = get_pg_credentials(base)
-    ensure_tool("pg_dump")
-    ensure_tool("pg_restore")
-    drop_db(base, to_db)
-    create_db(base, to_db)
-    run_shell_pipeline(
-        [
-            ["pg_dump", "-Fc", *conn_args, from_db],
-            ["pg_restore", "--no-owner", "-d", to_db, *conn_args],
-        ],
-        env=env,
-        text=True,
-        error_msg=f"Could not copy database '{from_db}' to '{to_db}'",
-        not_found_msg="Could not locate `pg_dump` or `pg_restore`.",
+    drop_db(base, to_db, ctx=ctx)
+    create_db(base, to_db, ctx=ctx)
+    pipeline = (
+        f"pg_dump -Fc {shlex.quote(from_db)}"
+        f" | pg_restore --no-owner -d {shlex.quote(to_db)}"
     )
+    returncode, _, stderr = run_in_backend(ctx, base, ["sh", "-c", pipeline])
+    if returncode is None:
+        raise RuntimeError(
+            "Could not locate `pg_dump` or `pg_restore`. Is PostgreSQL installed?"
+        )
+    if returncode != 0:
+        raise RuntimeError(
+            f"Could not copy database '{from_db}' to '{to_db}': {stderr}"
+        )
 
 
-def run_psql_script(base, db_name, script_path):
+def run_psql_script(base, db_name, script_path, ctx=None):
     """Execute a SQL script against *db_name* using psql."""
-    conn_args, env = get_pg_credentials(base)
-    psql_args = ["psql", "-d", db_name, "-f", str(script_path), *conn_args]
-    returncode, _, stderr = run_subprocess(psql_args, env=env, text=False)
+    returncode, _, stderr = run_in_backend(
+        ctx,
+        base,
+        ["psql", "-d", db_name],
+        input=script_path.read_text(encoding="utf-8"),
+    )
     if returncode is None:
         raise RuntimeError("Could not locate `psql`. Is PostgreSQL installed?")
     if returncode != 0:
@@ -246,7 +336,7 @@ def resolve_db_name(base, verbose=False, branch=None):
     a glob pattern, the configured default, or a generated ``<project>-<branch>``
     name. There is no global "last used" fallback.
     """
-    branch = _resolve_branch(base, branch)
+    branch = resolve_branch(base, branch)
     db_name = _resolve_config_db_name(base, branch)
     if db_name is None:
         db_name = _branch_db_name(base, branch)
@@ -266,16 +356,17 @@ def set_last_db(base, db_name):
         set_project_config(base, "db", "last_db", db_name)
 
 
-def resolve_db_name_for_run(base, verbose=False):
+def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):
     """Resolve the database name for the current context, prompting if missing.
 
     If the branch's resolved database does not exist, prompt in an interactive
     terminal to reuse, copy or create it. In non-interactive mode raise a
-    ``click.ClickException`` with instructions.
+    ``click.ClickException`` with instructions. In *dry_run* mode the
+    existence probe only runs where it is side-effect free.
     """
-    branch = _resolve_branch(base, None)
+    branch = resolve_branch(base, None)
     db_name = resolve_db_name(base, verbose=False, branch=branch)
-    if db_exists(base, db_name):
+    if db_exists(base, db_name, ctx=ctx, dry_run=dry_run):
         if verbose:
             echo.info(f"Using database: {db_name}", err=True)
         return db_name
@@ -285,18 +376,19 @@ def resolve_db_name_for_run(base, verbose=False):
         last_db = None
 
     if sys.stdin.isatty():
-        return _prompt_for_missing_db(base, branch, db_name, last_db)
+        return _prompt_for_missing_db(base, branch, db_name, last_db, ctx=ctx)
     _raise_missing_db_error(base, branch, db_name, last_db)
     return None  # unreachable
 
 
-def _prompt_for_missing_db(base, branch, db_name, last_db):
+def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     """Prompt the user when the branch's database is missing and return a name."""
+    last_db_exists = bool(last_db) and db_exists(base, last_db, ctx=ctx)
     choices = []
-    if last_db and db_exists(base, last_db):
+    if last_db_exists:
         choices.append(("1", f"Reuse '{last_db}' in place", "reuse"))
     choices.append(("2", f"Create new empty '{db_name}'", "create"))
-    if last_db and db_exists(base, last_db):
+    if last_db_exists:
         choices.append(("3", f"Copy '{last_db}' to '{db_name}'", "copy"))
     choices.append(("4", "Choose another database", "choose"))
 
@@ -321,19 +413,19 @@ def _prompt_for_missing_db(base, branch, db_name, last_db):
         return last_db
 
     if action == "create":
-        create_db(base, db_name)
+        create_db(base, db_name, ctx=ctx)
         set_project_config(base, "db", branch, AUTO_DB)
         return db_name
 
     if action == "copy":
-        copy_db(base, last_db, db_name)
+        copy_db(base, last_db, db_name, ctx=ctx)
         set_project_config(base, "db", branch, AUTO_DB)
         return db_name
 
     # action == "choose"
     chosen = click.prompt("Database name")
     chosen = _require_db_name(chosen)
-    if not db_exists(base, chosen):
+    if not db_exists(base, chosen, ctx=ctx):
         raise click.ClickException(
             f"Database '{chosen}' does not exist. "
             "Run 'osh db copy' or 'osh db restore' first."
@@ -422,28 +514,29 @@ def resolve_test_db_name(base, current_db, test_db):
         current = resolve_db_name(base, verbose=False)
         if current:
             return current
-    branch = _resolve_branch(base, None)
+    branch = resolve_branch(base, None)
     return sanitize_db_name(f"{base.name}-{branch}-test")
 
 
-def get_database_version(base, db_name):
+def get_database_version(base, db_name, ctx=None):
     """Return the installed Odoo version of *db_name* as a (major, minor) tuple.
 
     This reads the ``latest_version`` of the ``base`` module, which tracks the
     Odoo version used when the database was installed/last updated.
     """
-    conn_args, env = get_pg_credentials(base)
-    psql_args = [
-        "psql",
-        "-d",
-        db_name,
-        "-t",
-        "-A",
-        "-c",
-        "SELECT latest_version FROM ir_module_module WHERE name = 'base'",
-        *conn_args,
-    ]
-    returncode, stdout, _ = run_subprocess(psql_args, env=env)
+    returncode, stdout, _ = run_in_backend(
+        ctx,
+        base,
+        [
+            "psql",
+            "-d",
+            db_name,
+            "-t",
+            "-A",
+            "-c",
+            "SELECT latest_version FROM ir_module_module WHERE name = 'base'",
+        ],
+    )
     if returncode != 0 or not stdout:
         return None
     match = re.search(r"(\d+)\.(\d+)", stdout.strip().splitlines()[0])

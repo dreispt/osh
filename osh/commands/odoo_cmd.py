@@ -1,7 +1,7 @@
 """`osh odoo` command implementation.
 
 ``osh odoo`` runs the project's Odoo executable inside the active target
-environment (local virtualenv or Docker container). It is the main entry point
+environment (local host, virtualenv, or Docker container). It is the main entry point
 for executing Odoo, including subcommands such as ``shell``, ``neutralize`` and
 ``scaffold``.
 
@@ -15,13 +15,13 @@ import click
 
 from .. import echo
 from ..backends import EnvSpec
-from ..common import _has_arg, find_project_root
+from ..common import find_project_root, has_arg
 from ..config import get_user_preference
-from ..db import get_project_config, resolve_run_target, set_project_config
+from ..db import get_project_config, resolve_backend, set_project_config
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
-from .helpers import collect_diagnostics
-from .shell_cmd import _parse_explicit_db, prepare_env_context
+from .helpers import check_run_diagnostics
+from .shell_cmd import parse_explicit_db, prepare_env_context
 
 
 class OdooCommand(click.Command):
@@ -71,7 +71,7 @@ def _format_odoo_targets(formatter):
     "backend_name",
     default="local",
     envvar="OSH_RUN_TARGET",
-    help="Execution target: local virtualenv or a plugin backend.",
+    help="Execution target: local host, managed venv, or a plugin backend.",
 )
 @click.option(
     "--compose-file",
@@ -134,34 +134,16 @@ def odoo(
     """
     base = find_project_root(required=True)
 
-    backend_name = resolve_run_target(base, backend_name, ctx)
-    set_project_config(base, "run", "target", backend_name)
+    backend = resolve_backend(ctx, base, backend_name)
+    set_project_config(base, "run", "target", backend.name)
 
-    backends = load_backends()
-    backend_cls = backends.get(backend_name)
-    if backend_cls is None:
-        raise click.ClickException(f"Unknown target: {backend_name}")
-    backend = backend_cls()
-
-    diagnostics = collect_diagnostics(
-        base,
-        backend,
-        ctx,
-        target=backend_name,
-        phase="run",
-        compose_file=compose_file,
-        sections=backend.diagnose_sections_for_phase("run"),
-    )
-    for warning_msg in diagnostics.warnings:
-        echo.warning(warning_msg)
-    if diagnostics.errors:
-        raise click.ClickException("\n".join(diagnostics.errors))
+    diagnostics = check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
 
     # TODO: decide whether non-local --target backends should get the dev
     # default too; for now it is applied uniformly on every backend.
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
-    explicit_db = _parse_explicit_db(extra_args)
+    explicit_db = parse_explicit_db(extra_args)
     db_name = explicit_db
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
@@ -169,8 +151,8 @@ def odoo(
     if has_subcommand:
         no_db_filter = True
 
-    if backend_name == "local":
-        exe = diagnostics.info.get("local", {}).get("odoo_executable")
+    if backend.host_executable:
+        exe = diagnostics.info.get(backend.name, {}).get("odoo_executable")
         executable = exe if exe else "odoo-bin"
     else:
         executable = "odoo"
@@ -178,6 +160,7 @@ def odoo(
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,
         backend,
+        ctx=ctx,
         db_name=db_name,
         no_db_filter=no_db_filter,
         extra_args=extra_args,
@@ -209,7 +192,7 @@ def _env_flag(name):
 
 def _with_dev_default(base, extra_args, *, no_dev):
     """Append the configured ``--dev`` default unless the user passed one."""
-    if _has_arg(extra_args, "--dev"):
+    if has_arg(extra_args, "--dev"):
         return extra_args
     dev = _resolve_dev_default(base, no_dev=no_dev)
     if dev is None:

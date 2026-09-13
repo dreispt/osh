@@ -2,9 +2,9 @@
 
 from click.testing import CliRunner
 
+from osh.backends import LocalBackend
 from osh.cli import main
 from osh.db import set_project_config
-from osh.plugins.osh_backend_local.backends import LocalBackend
 
 
 class TestDoctorVersionReporting:

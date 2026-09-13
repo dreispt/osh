@@ -55,11 +55,11 @@ def capture_get_restore(monkeypatch):
     """Capture ctx.invoke calls to the get/restore command functions."""
     calls = {"get": [], "restore": []}
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.backup_cmd.get",
+        "osh.plugins.osh_db_get.backup_cmd.get",
         lambda **kw: calls["get"].append(kw),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.restore_cmd.restore",
+        "osh.plugins.osh_db_get.restore_cmd.restore",
         lambda **kw: calls["restore"].append(kw),
     )
     return calls
@@ -182,7 +182,7 @@ def test_switch_refresh_source_fetches_first(in_project, capture_get_restore):
 
 def test_switch_refresh_remote_end_to_end(in_project, patched_restore):
     """--refresh=<remote> restores that remote's newest cached backup."""
-    from osh.plugins.osh_backup.remotes import remote
+    from osh.plugins.osh_db_get.remotes import remote
 
     runner = CliRunner()
     runner.invoke(remote, ["add", "prod", "db://proddb"])

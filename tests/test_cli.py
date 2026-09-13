@@ -56,7 +56,7 @@ def test_silent_and_verbose_map_to_levels(monkeypatch):
     def _capture(verbosity=None, base=None):
         seen.append(verbosity)
 
-    monkeypatch.setattr("osh.cli.echo._set_config", _capture)
+    monkeypatch.setattr("osh.cli.echo.set_config", _capture)
 
     runner = CliRunner()
     runner.invoke(main, ["--silent", "db"])

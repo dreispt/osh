@@ -80,12 +80,12 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     ctx.obj["verbosity"] = verbosity
 
     # Reset cache and set configuration based on CLI context
-    echo._reset_cache()
+    echo.reset_cache()
     from .common import find_project_root
 
     base = find_project_root(required=False)
     # Set config with CLI verbosity override
-    echo._set_config(verbosity=verbosity, base=base)
+    echo.set_config(verbosity=verbosity, base=base)
 
 
 # Register all sub-commands from the dedicated package
@@ -158,7 +158,7 @@ _COMMAND_ORDER = [
     "odoo",
     "switch",
     "shell",
-    "update",
+    "down",
     "test",
     "db",
     "doctor",

@@ -4,10 +4,10 @@ import os
 
 from click.testing import CliRunner
 
+from osh.backends import LocalBackend
 from osh.cli import main
 from osh.commands.shell_cmd import build_dynamic_odoo_config, shell
 from osh.plugins.osh_backend_docker.backends import DockerBackend
-from osh.plugins.osh_backend_local.backends import LocalBackend
 
 
 def _setup_venv(project):
@@ -31,19 +31,19 @@ def test_shell_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
     (tmp_project / ".odoorc").write_text(
         "[options]\ndb_host = localhost\ndb_port = 5432\ndb_user = odoo\n"
     )
-    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: True)
 
     monkeypatch.chdir(tmp_project)
     monkeypatch.setenv("SHELL", "/bin/zsh")
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        "osh.backends.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, [])
+    result = runner.invoke(shell, ["--target", "venv"])
 
     assert result.exit_code == 0, result.output
     exe, args, exec_env = calls[0]
@@ -67,12 +67,12 @@ def test_shell_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        "osh.backends.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["psql", "-l"])
+    result = runner.invoke(shell, ["--target", "venv", "psql", "-l"])
 
     assert result.exit_code == 0, result.output
     exe, args, exec_env = calls[0]
@@ -91,12 +91,12 @@ def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch
     monkeypatch.chdir(tmp_project)
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        "osh.backends.os.execvpe",
         lambda exe, args, env: None,
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["odoo-bin", "--version"])
+    result = runner.invoke(shell, ["--target", "venv", "odoo-bin", "--version"])
 
     assert result.exit_code == 0, result.output
     conf = tmp_project / ".osh" / "cache" / "env" / f"default-{branch_db}.conf"
@@ -114,7 +114,7 @@ def test_shell_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["--dry-run"])
+    result = runner.invoke(shell, ["--target", "venv", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert "Would run:" in result.output
@@ -130,12 +130,14 @@ def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        "osh.backends.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args))),
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["--", "odoo-bin", "--config", "/other/odoo.conf"])
+    result = runner.invoke(
+        shell, ["--target", "venv", "--", "odoo-bin", "--config", "/other/odoo.conf"]
+    )
 
     assert result.exit_code == 0, result.output
     assert not (tmp_project / ".osh" / "cache").exists()
@@ -162,6 +164,19 @@ def test_shell_docker_runs_container_with_env_vars(tmp_project, branch_db, monke
         "osh.plugins.osh_backend_docker.backends.os.execvp",
         lambda exe, args: calls.append((exe, list(args))),
     )
+    # Service lifecycle: stack reports stopped, `up -d` is a no-op, no collision.
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        lambda *a, **kw: (0, "", ""),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_command",
+        lambda *a, **kw: None,
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        lambda *a, **kw: False,
+    )
 
     runner = CliRunner()
     result = runner.invoke(main, ["shell", "--target", "docker", "odoo", "-i", "base"])
@@ -170,8 +185,9 @@ def test_shell_docker_runs_container_with_env_vars(tmp_project, branch_db, monke
     assert len(calls) == 1
     exe, args = calls[0]
     assert exe == "docker"
-    assert args[:4] == ["docker", "compose", "run", "--rm"]
-    assert args[-4:] == ["odoo", "odoo", "-i", "base"]
+    assert args[:2] == ["docker", "compose"]
+    assert "exec" in args
+    assert args[-4:] == ["osh", "odoo", "-i", "base"]
     assert any("ODOO_RC" in a for a in args)
     assert any("PGDATABASE" in a for a in args)
 
@@ -212,12 +228,12 @@ def test_shell_records_last_used_database(tmp_project, branch_db, monkeypatch):
     monkeypatch.chdir(tmp_project)
     monkeypatch.setenv("SHELL", "/bin/zsh")
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        "osh.backends.os.execvpe",
         lambda exe, args, env: None,
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, [])
+    result = runner.invoke(shell, ["--target", "venv"])
 
     assert result.exit_code == 0, result.output
     assert get_last_db(tmp_project) == branch_db
@@ -231,7 +247,7 @@ def test_shell_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeyp
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["--dry-run"])
+    result = runner.invoke(shell, ["--target", "venv", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert get_last_db(tmp_project) is None

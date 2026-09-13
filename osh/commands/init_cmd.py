@@ -36,10 +36,11 @@ class InitCommand(click.Command):
     def format_options(self, ctx, formatter):
         """Write options grouped by target, then a Targets section."""
         common_opts, target_groups = _split_params_by_target(self.get_params(ctx))
+        backends = load_backends()
 
         _format_common_options(ctx, formatter, common_opts)
-        _format_target_options(ctx, formatter, target_groups)
-        _format_targets_section(formatter)
+        _format_target_options(ctx, formatter, target_groups, backends)
+        _format_targets_section(formatter, backends)
 
     def format_help_text(self, ctx, formatter):
         """Write the command docstring plus per-target help_text."""
@@ -89,9 +90,9 @@ def _format_target_options(
     ctx,
     formatter,
     target_groups,
+    backends,
 ):
     """Write one section per target with its target-specific options."""
-    backends = load_backends()
     for target_name, opts in target_groups.items():
         backend_cls = backends.get(target_name)
         label = (
@@ -105,9 +106,8 @@ def _format_target_options(
                 formatter.write_dl(records)
 
 
-def _format_targets_section(formatter):
+def _format_targets_section(formatter, backends):
     """Write the Targets section listing each backend name and description."""
-    backends = load_backends()
     if not backends:
         return
     records = [
@@ -241,7 +241,7 @@ def init(
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
-    Creates `.osh/`, resolves Odoo sources, installs the virtualenv (local) or
+    Creates `.osh/`, resolves Odoo sources, installs the virtualenv (venv) or
     writes Docker Compose configuration (docker), and prepares the project for
     `osh odoo`.
 
@@ -262,7 +262,7 @@ def init(
         backend_name = (
             get_project_config(target, "init", "target")
             or get_project_config(target, "run", "target")
-            or "local"
+            or "venv"
         )
 
     echo.friendly(f"Welcome to Osh! Let's set up your Odoo {version} project.")

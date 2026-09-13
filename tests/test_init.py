@@ -444,14 +444,14 @@ class TestInitCommand:
         monkeypatch.setattr("venv.create", lambda *a, **kw: None)
 
         monkeypatch.setattr(
-            "osh.plugins.osh_backend_local.utils.run_subprocess",
+            "osh.plugins.osh_backend_venv.utils.run_subprocess",
             lambda *args, **kwargs: (1, "", ""),
         )
 
         # Force the use of the running interpreter so venv.create is used.
         current_version = f"{sys.version_info.major}.{sys.version_info.minor}"
         monkeypatch.setattr(
-            "osh.plugins.osh_backend_local.utils.resolve_python_for_odoo",
+            "osh.plugins.osh_backend_venv.utils.resolve_python_for_odoo",
             lambda version: {
                 "exe": Path(sys.executable),
                 "version": current_version,

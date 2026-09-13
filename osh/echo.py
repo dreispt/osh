@@ -28,7 +28,7 @@ def _get_cached_echo():
     return _cached_echo
 
 
-def _set_config(verbosity=None, base=None):
+def set_config(verbosity=None, base=None):
     """Override the cached verbosity (used by CLI context)."""
     global _cached_echo
     with _cache_lock:
@@ -43,7 +43,7 @@ def _set_config(verbosity=None, base=None):
         _cached_echo = Echo(level=current_verbosity)
 
 
-def _reset_cache():
+def reset_cache():
     """Reset the cached configuration (useful for tests)."""
     global _cached_echo
     _cached_echo = None

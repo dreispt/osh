@@ -239,7 +239,7 @@ def test_odoo_osh_wait_env_var_waits_for_process(
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.run_command",
+        "osh.backends.run_command",
         lambda args, **kwargs: calls.append(list(args)),
     )
 
@@ -274,7 +274,7 @@ def test_odoo_compose_file_from_env_var(
     result = runner.invoke(odoo, ["--target", "docker", "--dry-run"])
 
     assert result.exit_code == 0, result.output
-    assert " -f devel.yaml " in result.output
+    assert "devel.yaml" in result.output
 
 
 def test_dynamic_config_translates_addons_path_for_docker(

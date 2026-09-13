@@ -423,6 +423,24 @@ def read_project_config(base, option, fallback=None):
 
 
 # ---------------------------------------------------------------------------
+# Local per-machine project state (TOML, not committed)
+
+
+def get_local_config(base, section, option, fallback=None):
+    """Return a value from ``.osh/local.toml`` or *fallback* if it is missing."""
+    data = _load_toml(get_local_config_path(base))
+    sec = data.get(section)
+    if not isinstance(sec, dict):
+        return fallback
+    return sec.get(option, fallback)
+
+
+def set_local_config(base, section, option, value):
+    """Write a value to ``.osh/local.toml``, creating the section if absent."""
+    _write_toml_section_key(get_local_config_path(base), section, option, value)
+
+
+# ---------------------------------------------------------------------------
 # Docker backend config (TOML)
 
 

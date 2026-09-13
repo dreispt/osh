@@ -47,7 +47,7 @@ from ...db import db_exists, drop_db, resolve_test_db_name
     "backend_name",
     default="local",
     envvar="OSH_RUN_TARGET",
-    help="Execution target: local virtualenv or a plugin backend.",
+    help="Execution target: local host, managed venv, or a plugin backend.",
 )
 @click.option(
     "--compose-file",
@@ -110,7 +110,7 @@ def test(
     module_list = ",".join(modules)
     db_name = resolve_test_db_name(base, current_db, test_db)
 
-    if current_db and not dry_run and not db_exists(base, db_name):
+    if current_db and not dry_run and not db_exists(base, db_name, ctx=ctx):
         raise click.ClickException(f"Current database '{db_name}' does not exist.")
 
     # In dry-run mode we skip the live database check so tests don't prompt for
@@ -119,13 +119,15 @@ def test(
     if dry_run:
         need_install = not current_db
     else:
-        need_install = not current_db and (dropdb or not db_exists(base, db_name))
+        need_install = not current_db and (
+            dropdb or not db_exists(base, db_name, ctx=ctx)
+        )
 
     if dropdb and not current_db:
         if dry_run:
             echo.info("Would drop and recreate the test database first.", err=True)
         else:
-            drop_db(base, db_name)
+            drop_db(base, db_name, ctx=ctx)
 
     # Build base Odoo arguments shared between install and test invocations.
     base_odoo_args = ["-d", db_name]

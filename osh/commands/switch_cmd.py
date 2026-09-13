@@ -87,10 +87,10 @@ def _git_switch(base, name, *, create):
 
 def _refresh(ctx, name, refresh):
     """Restore a backup into *name*'s database, fetching a raw source first."""
-    # Imported lazily: osh_backup.restore_cmd already imports osh.commands,
+    # Imported lazily: osh_db_get.restore_cmd already imports osh.commands,
     # so a top-level import here would be circular.
-    from ..plugins.osh_backup.backup_cmd import get
-    from ..plugins.osh_backup.restore_cmd import restore
+    from ..plugins.osh_db_get.backup_cmd import get
+    from ..plugins.osh_db_get.restore_cmd import restore
 
     dump = refresh or None
     if refresh and "://" in refresh:
