@@ -1,5 +1,6 @@
 """Tests for the built-in Docker backend plugin."""
 
+import os
 import subprocess
 import sys
 import types
@@ -408,7 +409,9 @@ def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert ' --db_host="$HOST" ' in err
+    # The --db_* args must be appended after the command args — exec "$@"
+    # would otherwise try to run a flag as the program name.
+    assert 'set -- "$@" --db_host="$HOST"' in err
     assert " osh odoo" in err
 
 
@@ -424,8 +427,44 @@ def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert ' --db_host="$HOST" ' in err
+    assert 'set -- "$@" --db_host="$HOST"' in err
     assert " osh odoo -d mydb" in err
+
+
+def test_odoo_db_args_script_appends_db_args():
+    """The odoo wrapper appends ``--db_*`` after the command args.
+
+    ``exec "$@"`` runs the first positional as the program, so the
+    ``--db_*`` args must come after the command — like the image
+    entrypoint's ``exec odoo "$@" "${DB_ARGS[@]}"``.
+    """
+    from osh.plugins.osh_backend_docker.backends import _ODOO_DB_ARGS_SCRIPT
+
+    script = _ODOO_DB_ARGS_SCRIPT.replace('exec "$@"', 'printf "%s\\n" "$@"')
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOST": "db",
+        "PORT": "5432",
+        "USER": "odoo",
+        "PASSWORD": "secret",
+    }
+    result = subprocess.run(
+        ["sh", "-c", script, "osh", "odoo", "--stop", "--dev=all"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        "odoo",
+        "--stop",
+        "--dev=all",
+        "--db_host=db",
+        "--db_port=5432",
+        "--db_user=odoo",
+        "--db_password=secret",
+    ]
 
 
 def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):

@@ -575,10 +575,10 @@ _PG_ENV_SHELL_SCRIPT = (
 # to ``--db_*`` argument mapping, which ``docker compose exec`` bypasses — it
 # runs the command directly without the image entrypoint.
 _ODOO_DB_ARGS_SCRIPT = (
-    'if [ -n "$HOST" ]; then set -- --db_host="$HOST" "$@"; fi;'
-    ' if [ -n "$PORT" ]; then set -- --db_port="$PORT" "$@"; fi;'
-    ' if [ -n "$USER" ]; then set -- --db_user="$USER" "$@"; fi;'
-    ' if [ -n "$PASSWORD" ]; then set -- --db_password="$PASSWORD" "$@"; fi;'
+    'if [ -n "$HOST" ]; then set -- "$@" --db_host="$HOST"; fi;'
+    ' if [ -n "$PORT" ]; then set -- "$@" --db_port="$PORT"; fi;'
+    ' if [ -n "$USER" ]; then set -- "$@" --db_user="$USER"; fi;'
+    ' if [ -n "$PASSWORD" ]; then set -- "$@" --db_password="$PASSWORD"; fi;'
     ' exec "$@"'
 )
 
