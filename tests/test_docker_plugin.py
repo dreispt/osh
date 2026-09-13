@@ -16,7 +16,7 @@ from osh.utils.plugin_loader import load_backends, load_plugins
 
 def test_docker_backends_are_registered():
     """The docker plugin registers the unified Docker backend."""
-    backends = load_backends("backend")
+    backends = load_backends()
     assert "docker" in backends
     assert backends["docker"].name == "docker"
     assert backends["docker"].backend_type == "backend"
@@ -311,6 +311,31 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
     assert not d.errors
 
 
+def test_docker_backend_diagnose_reports_container_state(tmp_project, monkeypatch):
+    """``diagnose`` reports leftover container state so users notice it."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+        'version = "19.0"\n'
+    )
+    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+    status = {"value": (True, "3 hours")}
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._container_running_status",
+        lambda *a, **kw: status["value"],
+    )
+
+    backend = DockerBackend()
+    d = backend.diagnose(tmp_project, phase="run")
+    assert d.info["docker"]["container"] == "running, started 3 hours ago"
+
+    status["value"] = (False, "")
+    d = backend.diagnose(tmp_project, phase="run")
+    assert d.info["docker"]["container"] == "not running"
+
+
 def test_docker_backend_env_dry_run(tmp_project, capsys):
     """``env`` builds and prints the docker compose command in dry-run mode."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -324,7 +349,10 @@ def test_docker_backend_env_dry_run(tmp_project, capsys):
 
     err = capsys.readouterr().err
     assert "Would run:" in err
-    assert "docker compose run --rm --service-ports app odoo" in err
+    assert "docker compose" in err
+    assert " exec " in err
+    assert " app " in err
+    assert "odoo" in err
 
 
 def test_docker_backend_env_runs_user_command(tmp_project, capsys):
@@ -364,8 +392,12 @@ def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsy
     assert "osh psql -l" in err
 
 
-def test_docker_backend_env_odoo_command_is_not_wrapped(tmp_project, capsys):
-    """The ``odoo`` command runs directly so the image entrypoint adds --db_*."""
+def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
+    """``odoo`` runs via a wrapper mapping HOST/USER/... to --db_* args.
+
+    ``compose exec`` bypasses the image entrypoint, so the backend supplies the
+    ``--db_*`` arguments itself.
+    """
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -376,12 +408,12 @@ def test_docker_backend_env_odoo_command_is_not_wrapped(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert " odoo odoo" in err
-    assert "sh -c" not in err
+    assert ' --db_host="$HOST" ' in err
+    assert " osh odoo" in err
 
 
-def test_docker_backend_env_dash_args_run_odoo_directly(tmp_project, capsys):
-    """Flags as argv[0] go to the image entrypoint, which treats them as odoo args."""
+def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
+    """Flags as argv[0] get the configured command prepended, then --db_* args."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -392,8 +424,8 @@ def test_docker_backend_env_dash_args_run_odoo_directly(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert " odoo -d mydb" in err
-    assert "sh -c" not in err
+    assert ' --db_host="$HOST" ' in err
+    assert " osh odoo -d mydb" in err
 
 
 def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):
@@ -433,7 +465,9 @@ def test_docker_backend_compose_file_from_config(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert "docker compose -f devel.yaml run" in err
+    assert "docker compose" in err
+    assert "-f" in err and "devel.yaml" in err
+    assert " exec " in err
 
 
 def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
@@ -457,7 +491,7 @@ def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
     )
 
     err = capsys.readouterr().err
-    assert "docker compose -f test.yaml run" in err
+    assert "-f" in err and "test.yaml" in err
 
 
 def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
@@ -515,7 +549,7 @@ def test_osh_run_docker_uses_branch_database(
     _patch_docker_tools(monkeypatch)
     # Command assembly only: the generated database name is what is asserted,
     # so the existence probe is stubbed rather than creating a real database.
-    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: True)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -524,7 +558,7 @@ def test_osh_run_docker_uses_branch_database(
     assert result.exit_code == 0, result.output
     assert "Using database: project-feature-x" in result.output
     assert "PGDATABASE=project-feature-x" in result.output
-    assert "odoo odoo" in result.output
+    assert " osh odoo" in result.output
     assert "-d project-feature-x" not in result.output
     assert "--db-filter" not in result.output
 

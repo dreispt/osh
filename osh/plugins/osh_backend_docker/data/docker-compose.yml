@@ -1,10 +1,13 @@
 services:
   odoo:
     image: __IMAGE__
+    # The container idles; commands are run via `docker compose exec`
+    # (e.g. `osh odoo`, `osh shell`), so the stack is reused across commands.
+    command: ["sleep", "infinity"]
     depends_on:
       - db
     ports:
-      - "8069:8069"
+      - "__PORT__:8069"
     environment:
       HOST: db
       USER: odoo

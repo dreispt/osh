@@ -1,6 +1,10 @@
 """Docker Compose utility helpers."""
 
+import hashlib
+import json
+import re
 import shlex
+import socket
 from pathlib import Path
 
 import click
@@ -26,6 +30,7 @@ def _save_docker_config(
     version=None,
     edition=None,
     compose_tool=None,
+    port=None,
     dry_run=False,
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
@@ -57,6 +62,8 @@ def _save_docker_config(
         data["edition"] = edition
     if compose_tool:
         data["compose_tool"] = compose_tool
+    if port:
+        data["port"] = port
     _config.save_docker_config(base, data)
 
     docker_toml = base / _DOCKER_TOML
@@ -86,14 +93,30 @@ def _find_compose_tool():
     return None
 
 
+def _compose_project_name(base):
+    """Return a stable Compose project name derived from the project path.
+
+    Without it Compose would name every project after the ``.osh`` directory
+    containing the generated compose file, so two Osh projects would share
+    containers. The digest keeps the name unique for same-named directories.
+    """
+    slug = re.sub(r"[^a-z0-9_-]+", "-", Path(base).resolve().name.lower()).strip("-")
+    digest = hashlib.sha256(str(Path(base).resolve()).encode()).hexdigest()[:6]
+    return f"osh-{slug or 'project'}-{digest}"
+
+
 def _compose_base_command(
     base,
     compose_file=None,
 ):
-    """Return the available Compose invocation, including any ``-f`` option."""
+    """Return the available Compose invocation, including ``-p``/``-f`` options."""
     cfg = _load_docker_config(base)
     if not compose_file:
         compose_file = cfg.get("compose_file")
+    if not compose_file and (Path(base) / _COMPOSE_FILE).is_file():
+        # Hand-written docker.toml without a compose_file still gets the
+        # generated default when it exists.
+        compose_file = str(_COMPOSE_FILE)
     compose_tool = cfg.get("compose_tool")
 
     if compose_tool:
@@ -107,9 +130,101 @@ def _compose_base_command(
             )
         cmd = tool
 
+    cmd.extend(["-p", _compose_project_name(base)])
     if compose_file:
-        cmd.extend(["-f", str(compose_file)])
+        compose_path = Path(compose_file)
+        if not compose_path.is_absolute():
+            compose_path = Path(base) / compose_path
+        cmd.extend(["-f", str(compose_path)])
     return cmd
+
+
+def _port_in_use(port, host="127.0.0.1"):
+    """Return True when a TCP connection to ``host:port`` succeeds."""
+    try:
+        with socket.create_connection((host, int(port)), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def _find_port_holder(port):
+    """Identify an Osh-managed project holding *port* via Docker labels.
+
+    Returns ``(project_path, running_for)`` when the port is published by a
+    container belonging to another Osh Docker project, or ``None`` when the
+    holder is not identifiable.
+    """
+    returncode, out, _ = run_subprocess(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            f"publish={int(port)}",
+            "--format",
+            "{{.Labels}}\t{{.RunningFor}}",
+        ]
+    )
+    if returncode != 0 or not out:
+        return None
+    for line in out.splitlines():
+        labels, _, running_for = line.partition("\t")
+        working_dir = _label_value(labels, "com.docker.compose.project.working_dir")
+        if not working_dir:
+            continue
+        project = _osh_project_for_working_dir(Path(working_dir))
+        if project is not None:
+            return str(project), running_for.strip() or "unknown uptime"
+    return None
+
+
+def _label_value(labels, name):
+    """Return the value of *name* from a comma-separated Docker label list."""
+    for item in labels.split(","):
+        key, _, value = item.partition("=")
+        if key.strip() == name:
+            return value.strip()
+    return None
+
+
+def _osh_project_for_working_dir(working_dir):
+    """Return the Osh project path for a Compose working dir, or None.
+
+    The generated compose file lives in ``.osh/``, so its working directory is
+    ``<project>/.osh``; custom compose files place it at the project root.
+    """
+    wd = Path(working_dir)
+    if wd.name == ".osh" and (wd / "docker.toml").exists():
+        return wd.parent
+    if (wd / ".osh" / "docker.toml").exists():
+        return wd
+    return None
+
+
+def _container_running_status(base, compose_cmd, service):
+    """Return ``(running, uptime)`` for *service*'s container.
+
+    ``running`` is ``None`` when the state cannot be determined (e.g. the
+    Compose tool cannot answer ``ps --format json``).
+    """
+    returncode, out, _ = run_subprocess(
+        [*compose_cmd, "ps", "--format", "json", service], cwd=base
+    )
+    if returncode != 0:
+        return None, ""
+    for line in out.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if service and entry.get("Service") not in (None, service):
+            continue
+        if entry.get("State") == "running":
+            status = entry.get("Status") or ""
+            uptime = status[3:].strip() if status.startswith("Up ") else status
+            return True, uptime
+        return False, ""
+    return False, ""
 
 
 def _run_smoke_test(target, compose_file=None):
@@ -140,7 +255,7 @@ def _run_smoke_test(target, compose_file=None):
     return True
 
 
-def _default_compose_content(version):
+def _default_compose_content(version, port=8069):
     """Return a generated Docker Compose file for a standard Odoo stack."""
     import importlib.resources
 
@@ -148,10 +263,10 @@ def _default_compose_content(version):
     template = importlib.resources.read_text(
         "osh.plugins.osh_backend_docker.data", "docker-compose.yml"
     )
-    return template.replace("__IMAGE__", image)
+    return template.replace("__IMAGE__", image).replace("__PORT__", str(port))
 
 
-def _generate_compose_file(target, version, dry_run=False):
+def _generate_compose_file(target, version, port=8069, dry_run=False):
     """Write the Osh-managed ``.osh/docker-compose.yml`` file."""
     compose_path = target / _COMPOSE_FILE
     if dry_run:
@@ -162,6 +277,6 @@ def _generate_compose_file(target, version, dry_run=False):
         )
         return True
     compose_path.parent.mkdir(parents=True, exist_ok=True)
-    compose_path.write_text(_default_compose_content(version))
+    compose_path.write_text(_default_compose_content(version, port))
     echo.info(f"Generated {compose_path}.", err=True)
     return True

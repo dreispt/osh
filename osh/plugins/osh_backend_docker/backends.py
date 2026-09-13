@@ -3,22 +3,26 @@
 import os
 import re
 import shlex
+import sys
 from pathlib import Path
 
 import click
 
 from ... import echo
-from ...backends import Backend, EnvSpec, copy_odoo_rc_to_osh_conf
+from ...backends import Backend, copy_odoo_rc_to_osh_conf
 from ...commands.helpers import Diagnostics
-from ...common import run_command
+from ...common import run_command, run_subprocess
 from ...sources import ensure_osh_sources
 from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
     _compose_base_command,
+    _container_running_status,
     _find_compose_tool,
+    _find_port_holder,
     _generate_compose_file,
     _load_docker_config,
+    _port_in_use,
     _run_smoke_test,
     _save_docker_config,
 )
@@ -57,6 +61,11 @@ class DockerBackend(Backend):
                 ["--compose-file"],
                 help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
             ),
+            click.Option(
+                ["--port"],
+                type=int,
+                help="Host port to publish Odoo on (defaults to 8069).",
+            ),
         ]
         for o in opts:
             o.target_group = cls.name
@@ -69,6 +78,7 @@ class DockerBackend(Backend):
         "odoo_version",
         "service",
         "sources",
+        "container",
     )
 
     def detect_odoo_version(self, base):
@@ -139,6 +149,8 @@ class DockerBackend(Backend):
             self._diagnose_odoo_version(d, phase, base)
         if "service" in sections:
             self._diagnose_service(d, phase, service)
+        if "container" in sections and cfg:
+            self._diagnose_container(d, base, service or "odoo")
         if (
             "sources" in sections
             and phase == "run"
@@ -221,6 +233,21 @@ class DockerBackend(Backend):
             elif phase == "run":
                 d.add_error("No Docker service configured.")
 
+    def _diagnose_container(self, d, base, service):
+        """Report whether the project's service container is running."""
+        try:
+            compose_cmd = _compose_base_command(base)
+        except click.ClickException:
+            return
+        running, uptime = _container_running_status(base, compose_cmd, service)
+        if running is None:
+            return
+        if running:
+            detail = f"running, started {uptime} ago" if uptime else "running"
+            d.add_info("container", detail)
+        else:
+            d.add_info("container", "not running")
+
     def _diagnose_sources(self, d, base, edition):
         """Check that required source copies are present for EE/SH editions."""
         required = ["enterprise"]
@@ -270,6 +297,7 @@ class DockerBackend(Backend):
         service = options.get("service")
         command = options.get("command")
         compose_file = options.get("compose_file")
+        port = options.get("port")
 
         if compose_file and not (target / compose_file).is_file():
             raise click.ClickException(
@@ -279,7 +307,7 @@ class DockerBackend(Backend):
         if not compose_file:
             if not dry_run:
                 todo.start()
-            _generate_compose_file(target, version, dry_run=dry_run)
+            _generate_compose_file(target, version, port=port or 8069, dry_run=dry_run)
             compose_file = str(_COMPOSE_FILE)
 
         copy_odoo_rc_to_osh_conf(target)
@@ -292,6 +320,7 @@ class DockerBackend(Backend):
                 compose_file,
                 version=version,
                 edition=edition,
+                port=port,
                 dry_run=True,
             )
             ensure_osh_sources(
@@ -322,6 +351,7 @@ class DockerBackend(Backend):
             version=version,
             edition=edition,
             compose_tool=" ".join(compose_tool),
+            port=port,
         )
 
         todo.start()
@@ -341,6 +371,76 @@ class DockerBackend(Backend):
 
         return True
 
+    def ensure_service_up(self, base, *, compose_file=None):
+        """Start the project's Compose stack unless it is already running.
+
+        Idempotent and cheap once the stack is up: a ``compose ps`` probe
+        short-circuits before ``compose up -d``. The configured host port is
+        checked first so a collision produces an actionable error instead of
+        a raw Compose failure.
+        """
+        cfg = _load_docker_config(base) or {}
+        service = cfg.get("service") or "odoo"
+        compose_cmd = _compose_base_command(base, compose_file=compose_file)
+
+        if _service_running(compose_cmd, service, base):
+            return
+
+        self._check_port_available(base, cfg)
+        docker_args = [*compose_cmd, "up", "-d"]
+        echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+        run_command(docker_args, cwd=base, check=True, stream=True)
+
+    def _check_port_available(self, base, cfg):
+        """Raise an actionable error when the configured host port is taken."""
+        try:
+            port = int(cfg.get("port") or 8069)
+        except (TypeError, ValueError):
+            port = 8069
+        if not _port_in_use(port):
+            return
+        holder = _find_port_holder(port)
+        if holder and Path(holder[0]) != Path(base):
+            project_path, running_for = holder
+            raise click.ClickException(
+                f"Port {port} is already used by a container for "
+                f"{project_path} (running {running_for}). Run 'osh down' "
+                "there, or 'osh init --target docker --port <n>' here."
+            )
+        raise click.ClickException(
+            f"Port {port} is already in use. If this is from a previous "
+            "'osh odoo'/'osh shell' session, run 'osh down' in that project "
+            f"to free it. Otherwise, stop whatever's using port {port}, or "
+            "run 'osh init --target docker --port <n>' here."
+        )
+
+    def down(self, ctx, base, **options):
+        """Stop and remove this project's Compose stack."""
+        cfg = _load_docker_config(base)
+        if not cfg:
+            echo.info("No Docker backend configured; nothing to stop.", err=True)
+            return
+        compose_file = (
+            options.get("compose_file") or cfg.get("compose_file") or _COMPOSE_FILE
+        )
+        compose_path = Path(compose_file)
+        if not compose_path.is_absolute():
+            compose_path = Path(base) / compose_path
+        if not compose_path.exists():
+            echo.info(
+                f"Nothing to stop: compose file {compose_file} does not exist.",
+                err=True,
+            )
+            return
+        try:
+            compose_cmd = _compose_base_command(base, compose_file=compose_file)
+        except click.ClickException as exc:
+            echo.warning(exc.format_message())
+            return
+        docker_args = [*compose_cmd, "down"]
+        echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+        run_command(docker_args, cwd=base, check=True, stream=True)
+
     def env(
         self,
         ctx,
@@ -351,9 +451,7 @@ class DockerBackend(Backend):
         **options,
     ):
         wait = options.pop("wait", False)
-
-        if not isinstance(env_spec, EnvSpec):
-            env_spec = EnvSpec(argv=list(env_spec))
+        capture = options.pop("capture", False)
 
         cfg = _load_docker_config(base)
         service = cfg.get("service")
@@ -365,15 +463,17 @@ class DockerBackend(Backend):
             )
 
         cli_params = getattr(ctx, "params", {}) or {}
-        compose_cmd = _compose_base_command(
-            base, compose_file=cli_params.get("compose_file")
-        )
+        compose_file = cli_params.get("compose_file")
+        compose_cmd = _compose_base_command(base, compose_file=compose_file)
 
         args = list(env_spec.argv)
+        command = _cfg_value(cfg, "command") or "odoo"
         if args and args[0] == "odoo":
-            command = _cfg_value(cfg, "command")
-            if command:
-                args = command.split() + args[1:]
+            args = command.split() + args[1:]
+        elif args and args[0].startswith("-"):
+            # Entrypoint-style odoo flags get the configured command prepended,
+            # since ``compose exec`` bypasses the image entrypoint.
+            args = command.split() + args
 
         if not args:
             container_argv = ["sh", "-c", _PG_ENV_SHELL_SCRIPT]
@@ -386,21 +486,48 @@ class DockerBackend(Backend):
             container_path = str(host_path).replace(str(base), "/mnt/extra-addons")
             env["ODOO_RC"] = container_path
 
-        base_docker_args = [*compose_cmd, "run", "--rm", "--service-ports"]
+        docker_args = [*compose_cmd, "exec"]
+        if capture or env_spec.input is not None or not sys.stdin.isatty():
+            docker_args.append("-T")
         for key, value in env.items():
-            base_docker_args.extend(["-e", f"{key}={value}"])
-        base_docker_args.append(service)
+            docker_args.extend(["-e", f"{key}={value}"])
+        docker_args.append(service)
+        docker_args.extend(_containerize_arg(a, base) for a in container_argv)
 
-        docker_args = [*base_docker_args, *container_argv]
         if dry_run:
+            if capture:
+                # Read-only probe: answer only when the stack is already up,
+                # without starting containers for a dry run.
+                if not _service_running(compose_cmd, service, base):
+                    return 1, "", ""
+                return run_subprocess(
+                    docker_args,
+                    cwd=base,
+                    input=env_spec.input,
+                    stdout=options.get("stdout"),
+                    text=options.get("text", True),
+                )
             echo.info(f"Would run: {shlex.join(docker_args)}", err=True)
-            return
+            return None
+
+        self.ensure_service_up(base, compose_file=compose_file)
+
+        if capture:
+            # Internal calls (probes, db helpers) are not user commands —
+            # keep them off the console.
+            echo.debug(f"Running: {shlex.join(docker_args)}")
+            return run_subprocess(
+                docker_args,
+                cwd=base,
+                input=env_spec.input,
+                stdout=options.get("stdout"),
+                text=options.get("text", True),
+            )
 
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
-
         if wait:
-            run_command(docker_args, check=True, stream=True)
-            return
+            run_command(docker_args, cwd=base, check=True, stream=True)
+            return None
 
         try:
             os.execvp(docker_args[0], docker_args)
@@ -410,6 +537,15 @@ class DockerBackend(Backend):
             )
         except OSError as exc:  # pragma: no cover
             raise click.ClickException(f"Could not run docker: {exc}") from exc
+
+
+def _service_running(compose_cmd, service, base):
+    """Return True when *service* has a running container in this project."""
+    returncode, out, _ = run_subprocess(
+        [*compose_cmd, "ps", "--status", "running", "-q", service],
+        cwd=base,
+    )
+    return returncode == 0 and bool(out.strip())
 
 
 # Maps the Odoo image's database variables to the libpq ones, keeping any
@@ -432,18 +568,49 @@ _PG_ENV_SHELL_SCRIPT = (
 )
 
 
-def _container_command(argv):
-    """Return the container argv for *argv* with libpq variables exported.
+# Replicates the Odoo image entrypoint's ``HOST``/``USER``/``PASSWORD``/``PORT``
+# to ``--db_*`` argument mapping, which ``docker compose exec`` bypasses — it
+# runs the command directly without the image entrypoint.
+_ODOO_DB_ARGS_SCRIPT = (
+    'if [ -n "$HOST" ]; then set -- --db_host="$HOST" "$@"; fi;'
+    ' if [ -n "$PORT" ]; then set -- --db_port="$PORT" "$@"; fi;'
+    ' if [ -n "$USER" ]; then set -- --db_user="$USER" "$@"; fi;'
+    ' if [ -n "$PASSWORD" ]; then set -- --db_password="$PASSWORD" "$@"; fi;'
+    ' exec "$@"'
+)
 
-    The Odoo image entrypoint converts ``HOST``/``USER``/``PASSWORD``/``PORT``
-    into ``--db_*`` arguments when the command is ``odoo`` or starts with
-    ``-``; anything else is executed verbatim. Other commands are wrapped in
-    a shell that maps those variables to the standard ``PG*`` names, so tools
-    like ``psql`` connect to the Compose database service without extra flags.
+
+def _container_command(argv):
+    """Return the container argv for *argv* with the right wrapper applied.
+
+    ``odoo`` commands run through a shell that maps the image's database
+    variables to ``--db_*`` arguments, replacing what the image entrypoint did
+    under ``compose run``. Other commands are wrapped in a shell that maps
+    those variables to the standard ``PG*`` names, so tools like ``psql``
+    connect to the Compose database service without extra flags.
     """
-    if argv[0] == "odoo" or argv[0].startswith("-"):
-        return argv
+    if Path(argv[0]).name in ("odoo", "odoo-bin") or argv[0].startswith("-"):
+        return ["sh", "-c", _ODOO_DB_ARGS_SCRIPT, "osh", *argv]
     return ["sh", "-c", _PG_ENV_SCRIPT, "osh", *argv]
+
+
+def _containerize_arg(arg, base):
+    """Translate an absolute host path under *base* to its container mount."""
+    value = str(arg)
+    if "=" in value:
+        key, _, path = value.partition("=")
+        translated = _containerize_arg(path, base)
+        if translated != path:
+            return f"{key}={translated}"
+        return value
+    path = Path(value)
+    if not path.is_absolute():
+        return value
+    try:
+        rel = path.resolve().relative_to(Path(base).resolve())
+    except (ValueError, OSError):
+        return value
+    return f"/mnt/extra-addons/{rel.as_posix()}"
 
 
 def _cfg_value(cfg, key, default=None):
