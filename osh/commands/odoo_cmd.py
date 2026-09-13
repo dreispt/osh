@@ -15,8 +15,9 @@ import click
 
 from .. import echo
 from ..backends import EnvSpec
-from ..common import find_project_root
-from ..db import resolve_run_target, set_project_config
+from ..common import _has_arg, find_project_root
+from ..config import get_user_preference
+from ..db import get_project_config, resolve_run_target, set_project_config
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
 from .helpers import collect_diagnostics
@@ -79,6 +80,11 @@ def _format_odoo_targets(formatter):
     help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
     "Defaults to $OSH_COMPOSE_FILE.",
 )
+@click.option(
+    "--no-dev",
+    is_flag=True,
+    help="Do not inject the default --dev option.",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def odoo(
@@ -86,6 +92,7 @@ def odoo(
     dry_run,
     backend_name,
     compose_file,
+    no_dev,
     extra_args,
     no_db_filter=False,
     wait_for_exit=None,
@@ -104,6 +111,10 @@ def odoo(
     Passing an explicit ``--config``/``-c`` argument suppresses the generated
     config, and passing ``--db-filter`` overrides the one ``osh`` injects –
     same as calling ``odoo-bin`` directly.
+
+    Dev mode is on by default: ``--dev=all`` is appended unless you pass
+    ``--dev`` yourself or use ``--no-dev``. The default can be changed with
+    ``osh config odoo dev <value>`` (``off`` disables the injection).
 
     Environment variables:
 
@@ -145,6 +156,10 @@ def odoo(
         echo.warning(warning_msg)
     if diagnostics.errors:
         raise click.ClickException("\n".join(diagnostics.errors))
+
+    # TODO: decide whether non-local --target backends should get the dev
+    # default too; for now it is applied uniformly on every backend.
+    extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
     explicit_db = _parse_explicit_db(extra_args)
     db_name = explicit_db
@@ -190,3 +205,31 @@ def odoo(
 def _env_flag(name):
     """Return True when environment variable *name* holds a truthy value."""
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _with_dev_default(base, extra_args, *, no_dev):
+    """Append the configured ``--dev`` default unless the user passed one."""
+    if _has_arg(extra_args, "--dev"):
+        return extra_args
+    dev = _resolve_dev_default(base, no_dev=no_dev)
+    if dev is None:
+        return extra_args
+    return (*extra_args, f"--dev={dev}")
+
+
+def _resolve_dev_default(base, *, no_dev):
+    """Return the dev-mode value to inject, or None when disabled.
+
+    Precedence: ``--no-dev`` flag > ``[odoo] dev`` in ``.osh/config.toml`` >
+    ``[odoo] dev`` in ``~/.config/osh/config.toml`` > ``all``.
+    """
+    if no_dev:
+        return None
+    value = (
+        get_project_config(base, "odoo", "dev")
+        or get_user_preference("dev", section="odoo")
+        or "all"
+    )
+    if str(value).strip().lower() in ("off", "none", "false", "0"):
+        return None
+    return value

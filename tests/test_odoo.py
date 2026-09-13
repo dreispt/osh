@@ -294,3 +294,121 @@ def test_dynamic_config_translates_addons_path_for_docker(
     assert "/mnt/extra-addons/.osh/design-themes" in text
     assert "db_name = mydb" in text
     assert "dbfilter = ^mydb$" in text
+
+
+def test_odoo_dev_all_injected_by_default(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh odoo`` appends ``--dev=all`` when no dev option is given."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=all" in final_args
+
+
+def test_odoo_no_dev_suppresses_injection(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh odoo --no-dev`` keeps ``--dev`` out of the final argv."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["--no-dev"])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert not any(a.startswith("--dev") for a in final_args)
+
+
+def test_odoo_explicit_dev_passthrough_not_duplicated(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """An explicit ``--dev`` value wins and is not double-injected."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["--dev=xml"])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=xml" in final_args
+    assert "--dev=all" not in final_args
+
+
+def test_odoo_dry_run_shows_injected_dev(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+):
+    """``osh odoo --dry-run`` output includes the injected default."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "--dev=all" in result.output
+
+
+def test_odoo_config_dev_off_suppresses_injection(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh config odoo dev off`` disables the injection for the project."""
+    from osh.db import set_project_config
+
+    set_project_config(tmp_project, "odoo", "dev", "off")
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert not any(a.startswith("--dev") for a in final_args)
+
+
+def test_odoo_config_dev_custom_value_injected(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """A configured value like ``xml,reload`` is injected instead of ``all``."""
+    from osh.db import set_project_config
+
+    set_project_config(tmp_project, "odoo", "dev", "xml,reload")
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=xml,reload" in final_args
+
+
+def test_config_odoo_dev_writes_project_config(in_project):
+    """``osh config odoo dev <value>`` stores the default under [odoo]."""
+    from osh.commands.config_cmd import config
+    from osh.db import get_project_config
+
+    result = CliRunner().invoke(config, ["odoo", "dev", "off"])
+
+    assert result.exit_code == 0, result.output
+    assert get_project_config(in_project, "odoo", "dev") == "off"

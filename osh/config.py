@@ -270,6 +270,15 @@ def save_user_preference(key, value, section="user"):
     _write_toml_section_key(get_user_config_path(), section, key, value)
 
 
+def get_user_preference(key, section="user", fallback=None):
+    """Return *key* from *section* of the user config, or *fallback*."""
+    data = _load_toml(get_user_config_path())
+    section_data = data.get(section)
+    if not isinstance(section_data, dict):
+        return fallback
+    return section_data.get(key, fallback)
+
+
 # ---------------------------------------------------------------------------
 # Plugin config (user config TOML)
 #
