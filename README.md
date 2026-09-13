@@ -51,7 +51,6 @@ Run `osh <command> --help` for full usage details.
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
-| `osh update [modules]`     | Upgrade modules whose code changed since the last run (or named ones)                                                |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
 | `osh db`                   | Show, map, copy, unpin, get, restore, or register named remote sources for project databases                         |
 | `osh doctor`               | Check the project for common setup problems                                                                          |
@@ -127,8 +126,8 @@ Your project files, virtual environment (`.venv/`), and any existing Odoo source
 
 `osh` is extensible: plugins can add commands, run targets (backends), backup
 source schemes and hooks. The bundled plugins provide `osh db get`,
-`osh db restore`, `osh db remote` and `osh test`, plus the `local` and
-`docker` run targets.
+`osh db restore`, `osh db remote` and `osh test`, plus the `local` (plain
+host), `venv` and `docker` run targets.
 
 Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib):
 

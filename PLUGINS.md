@@ -18,7 +18,7 @@ dict whose keys map capability names to lists:
 - `hooks` — a dict mapping hook point names to implementations or lists of
   implementations. Core hook points are defined in `osh.hooks`; plugins can
   also define their own hook points for other plugins to extend them (e.g.
-  `osh_backup` discovers backup source schemes via `"osh_backup.sources"`).
+  `osh_db_get` discovers backup source schemes via `"osh_db_get.sources"`).
 
 All keys are optional; a plugin can provide any combination of them.
 
@@ -196,7 +196,7 @@ notice.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.hooks` — hook point name constants for the `hooks` manifest key.
-- `osh.db` — database helpers: `get_pg_credentials`, `create_db`, `drop_db`,
+- `osh.db` — database helpers: `run_in_backend`, `create_db`, `drop_db`,
   `db_exists`, `resolve_db_name`, `get_current_branch`.
 - `osh.sources` — source installation helpers: `ensure_osh_sources`,
   `pull_odoo_sources`, etc.
@@ -292,12 +292,12 @@ class MyBackend(Backend):
 
 ### Backup source plugins
 
-The built-in `osh_backup` plugin defines a hook point, `osh_backup.sources`,
+The built-in `osh_db_get` plugin defines a hook point, `osh_db_get.sources`,
 that other plugins can use to add schemes `osh backup <scheme>://...`
 understands. Declare them under the `hooks` manifest key:
 
 ```python
-OSH_PLUGIN_MANIFEST = {"hooks": {"osh_backup.sources": [MySource]}}
+OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.sources": [MySource]}}
 ```
 
 A source class must:
@@ -313,7 +313,7 @@ A source class must:
 - Implement `default_output_name()` returning the default filename.
 - Implement `fetch(output, *, dry_run=False)` to write the backup to `output`.
 
-The built-in sources ship in the consolidated `osh/plugins/osh_backup/`
+The built-in sources ship in the consolidated `osh/plugins/osh_db_get/`
 plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` — alongside
 the `osh backup` command and the `osh db restore` group subcommand.
 
@@ -350,7 +350,7 @@ Example:
         # download from S3 into output
 
 
-OSH_PLUGIN_MANIFEST = {"hooks": {"osh_backup.sources": [S3BackupSource]}}
+OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.sources": [S3BackupSource]}}
 ```
 
 ### Hook plugins
@@ -392,7 +392,7 @@ detached sidecar processes that must outlive the `osh` process itself.
 Hook points are not limited to core. A plugin can define its own hook point
 simply by documenting a name and consuming `load_hooks(<name>)` (or
 `load_hook_entries(<name>)` when it needs to know which plugin contributed
-each item). `osh_backup` uses this for backup sources — see
+each item). `osh_db_get` uses this for backup sources — see
 [Backup source plugins](#backup-source-plugins) — so `osh` core carries no
 backup-specific extension machinery.
 
