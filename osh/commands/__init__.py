@@ -12,6 +12,7 @@ from . import (
     odoo_cmd,
     plug_cmd,
     shell_cmd,
+    update_cmd,
     version_cmd,
 )
 
@@ -20,6 +21,7 @@ COMMANDS = [
     doctor_cmd.doctor,
     shell_cmd.shell,
     odoo_cmd.odoo,
+    update_cmd.update,
     config_cmd.config,
     db_cmd.db,
     plug_cmd.plug,
