@@ -31,7 +31,7 @@ def resolve_backup_path(base, dump):
         entries = list_cache(base, limit=1)
         if not entries:
             raise click.ClickException(
-                "No cached backup found. Run 'osh backup <source>' first."
+                "No cached backup found. Run 'osh db get <source>' first."
             )
         return entries[0]["path"]
 

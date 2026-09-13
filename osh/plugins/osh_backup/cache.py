@@ -1,7 +1,7 @@
 """Project-local backup cache helpers.
 
 The backup cache lives under ``.osh/backups`` and is shared by the
-``osh backup`` and ``osh db restore`` commands. These helpers are kept in
+``osh db get`` and ``osh db restore`` commands. These helpers are kept in
 core so that both plugins can use them without depending on each other.
 """
 

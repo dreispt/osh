@@ -17,8 +17,8 @@ class SshSource(BackupSource):
 Copy an existing backup file from a remote host via SCP.
 
 The URL must contain the host and absolute path to the backup file:
-  osh backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
-  osh backup ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
+  osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
+  osh db get ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
 
 Use --ssh-key to authenticate with a specific private key.
 """

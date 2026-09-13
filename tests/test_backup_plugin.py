@@ -1,4 +1,4 @@
-"""Tests for the `osh backup` command."""
+"""Tests for the `osh db get` command."""
 
 import json
 import subprocess
@@ -8,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.backup_sources import BackupSource, SourceError
-from osh.plugins.osh_backup.backup_cmd import backup
+from osh.plugins.osh_backup.backup_cmd import get
 from osh.plugins.osh_backup.sources.https import HttpsSource
 from osh.plugins.osh_backup.sources.odoosh import OdooshSource
 from osh.plugins.osh_backup.sources.ssh import SshSource
@@ -20,7 +20,7 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
     subprocess_run_capture.stdout = b"PGDMP" + b"\x00" * 100
 
     runner = CliRunner()
-    result = runner.invoke(backup, ["db://sourcedb"])
+    result = runner.invoke(get, ["db://sourcedb"])
 
     assert result.exit_code == 0
     cache_dir = in_project / ".osh" / "backups"
@@ -40,12 +40,12 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
 def test_download_uses_cwd_outside_project(
     monkeypatch, tmp_path, subprocess_run_capture
 ):
-    """Outside a project, `backup` writes to the current directory."""
+    """Outside a project, `osh db get` writes to the current directory."""
     subprocess_run_capture.stdout = b"dump"
     monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
-    result = runner.invoke(backup, ["db://sourcedb"])
+    result = runner.invoke(get, ["db://sourcedb"])
 
     assert result.exit_code == 0
     dump_files = list(tmp_path.glob("*.dump"))
@@ -56,14 +56,14 @@ def test_download_uses_cwd_outside_project(
 def test_download_with_output_outside_project(
     monkeypatch, tmp_path, subprocess_run_capture
 ):
-    """With --output, `backup download` works outside a project."""
+    """With --output, `osh db get` works outside a project."""
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "sourcedb.dump"
 
     subprocess_run_capture.stdout = b"dump"
 
     runner = CliRunner()
-    result = runner.invoke(backup, ["db://sourcedb", str(output)])
+    result = runner.invoke(get, ["db://sourcedb", str(output)])
 
     assert result.exit_code == 0
     assert output.exists()
@@ -99,7 +99,7 @@ def test_download_https_posts_payload(in_project, monkeypatch):
 
     runner = CliRunner()
     result = runner.invoke(
-        backup,
+        get,
         [
             "https://demo.odoo.com?db=prod&format=zip",
             "--master-password",
@@ -131,7 +131,7 @@ def test_download_odoosh_dry_run(in_project):
     """odoosh:// dry-run prints the expected ssh and scp commands."""
     runner = CliRunner()
     result = runner.invoke(
-        backup,
+        get,
         [
             "odoosh://123456@my-project-master-123456.dev.odoo.com",
             "--dry-run",
@@ -148,7 +148,7 @@ def test_download_odoosh_dry_run_without_build_id(in_project):
     """odoosh:// dry-run infers the build id from the domain suffix."""
     runner = CliRunner()
     result = runner.invoke(
-        backup,
+        get,
         [
             "odoosh://my-project-master-123456.dev.odoo.com",
             "--dry-run",
@@ -212,7 +212,7 @@ def test_download_odoosh_with_filestore_dry_run(in_project):
     """--filestore dry-run reports the full backup download."""
     runner = CliRunner()
     result = runner.invoke(
-        backup,
+        get,
         [
             "odoosh://my-project-master-123456.dev.odoo.com",
             "--filestore",
@@ -367,7 +367,7 @@ def test_ssh_source_missing_host_or_path_raises():
 def test_download_ssh_source_invokes_fetch(
     monkeypatch, tmp_project, subprocess_run_capture
 ):
-    """`osh backup download ssh://...` copies the remote file into the cache."""
+    """`osh db get ssh://...` copies the remote file into the cache."""
     monkeypatch.chdir(tmp_project)
 
     def _scp_write(args, **kwargs):
@@ -378,7 +378,7 @@ def test_download_ssh_source_invokes_fetch(
     subprocess_run_capture.side_effect = _scp_write
 
     runner = CliRunner()
-    result = runner.invoke(backup, ["ssh://user@myhost/var/backups/odoo.sql.gz"])
+    result = runner.invoke(get, ["ssh://user@myhost/var/backups/odoo.sql.gz"])
 
     assert result.exit_code == 0
     cache_dir = tmp_project / ".osh" / "backups"
@@ -418,24 +418,24 @@ def test_plugin_backup_source_registry(monkeypatch):
 def test_download_help_scheme_prints_source_help():
     """``--help-scheme`` prints the detailed help for a registered source."""
     runner = CliRunner()
-    result = runner.invoke(backup, ["--help-scheme", "db"])
+    result = runner.invoke(get, ["--help-scheme", "db"])
 
     assert result.exit_code == 0, result.output
     assert "Dump a local PostgreSQL database" in result.output
-    assert "osh backup db://mydb" in result.output
+    assert "osh db get db://mydb" in result.output
 
 
 def test_download_help_scheme_unknown_reports_error():
     """``--help-scheme`` fails cleanly for an unknown scheme."""
     runner = CliRunner()
-    result = runner.invoke(backup, ["--help-scheme", "s3"])
+    result = runner.invoke(get, ["--help-scheme", "s3"])
 
     assert result.exit_code != 0
     assert "Unknown backup source scheme: s3" in result.output
 
 
 def test_backup_detects_format_mismatch(monkeypatch, in_project):
-    """`osh backup` detects format mismatch and corrects metadata."""
+    """`osh db get` detects format mismatch and corrects metadata."""
     from osh.plugins.osh_backup.cache import read_metadata, write_metadata
     from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 

@@ -1,4 +1,4 @@
-"""`osh backup` command implementation."""
+"""`osh db get` command implementation."""
 
 from pathlib import Path
 
@@ -41,7 +41,7 @@ class BackupCommand(click.Command):
             formatter.write_dl(records)
 
 
-@click.command(name="backup", cls=BackupCommand)
+@click.command(name="get", cls=BackupCommand)
 @click.option(
     "--help-scheme",
     metavar="SCHEME",
@@ -79,7 +79,7 @@ class BackupCommand(click.Command):
     help="Print the commands that would be run without executing them.",
 )
 @click.pass_context
-def backup(
+def get(
     ctx,
     source,
     output,
@@ -107,9 +107,9 @@ def backup(
     If ``format`` is omitted you will be prompted, with ``sql`` as the default.
 
     \b
-      osh backup https://my.odoo.com?db=prod&format=zip
-      osh backup https://my.odoo.com?db=prod&format=sql
-      osh backup https://my.odoo.com?db=prod
+      osh db get https://my.odoo.com?db=prod&format=zip
+      osh db get https://my.odoo.com?db=prod&format=sql
+      osh db get https://my.odoo.com?db=prod
 
     The downloaded backup is not neutralized. Neutralize after restoring with
     ``osh db restore`` (which neutralizes by default), or on a running database
@@ -121,7 +121,7 @@ def backup(
     2. Copy the domain from the SSH tab of your branch.
     3. Download the latest daily SQL dump:
 
-       osh backup odoosh://PROJECT-BRANCH-BUILD
+       osh db get odoosh://PROJECT-BRANCH-BUILD
 
     The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
     is optional. Add `--filestore` to also download the filestore over SSH and
@@ -133,23 +133,23 @@ def backup(
     an existing backup file from the server:
 
     \b
-      osh backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
-      osh backup ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
+      osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh db get ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
 
     See docs/odoo-sh-backup-howto.md for the complete guide.
 
     Examples:
 
     \b
-      osh backup db://prod_db
-      osh backup https://my.odoo.com?db=prod&format=zip
-      osh backup https://my.odoo.com?db=prod /path/to/backups/
-      osh backup https://my.odoo.com?db=prod /path/to/prod.zip
-      osh backup odoosh://my-project-master-123456
-      osh backup odoosh://my-project-master-123456 --filestore
-      osh backup odoosh://my-project-master-123456.dev.odoo.com
-      osh backup odoosh://123456@my-project-master-123456.dev.odoo.com
-      osh backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh db get db://prod_db
+      osh db get https://my.odoo.com?db=prod&format=zip
+      osh db get https://my.odoo.com?db=prod /path/to/backups/
+      osh db get https://my.odoo.com?db=prod /path/to/prod.zip
+      osh db get odoosh://my-project-master-123456
+      osh db get odoosh://my-project-master-123456 --filestore
+      osh db get odoosh://my-project-master-123456.dev.odoo.com
+      osh db get odoosh://123456@my-project-master-123456.dev.odoo.com
+      osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
     base = find_project_root()
     parsed = parse_source(

@@ -1,4 +1,4 @@
-"""Backup source interface for `osh backup`.
+"""Backup source interface for `osh db get`.
 
 Third-party plugins implement :class:`BackupSource` subclasses and register
 them through the ``"osh_backup.sources"`` hook point declared by the
@@ -33,7 +33,7 @@ class BackupSource:
     Subclasses must define a ``scheme`` class attribute (e.g. ``"s3"``) and
     implement ``from_source()``, ``default_output_name()``, and ``fetch()``.
     They may also set ``description`` to a short human-readable summary shown
-    in ``osh backup --help``.
+    in ``osh db get --help``.
     Plugins register subclasses through the ``"osh_backup.sources"`` hook
     point in their ``OSH_PLUGIN_MANIFEST``.
     """
@@ -48,7 +48,7 @@ class BackupSource:
 
         *source* is the full URL (e.g. ``s3://bucket/key``). *base* is the
         project root. Additional keyword arguments come from the
-        ``osh backup`` CLI options.
+        ``osh db get`` CLI options.
         """
         raise NotImplementedError
 

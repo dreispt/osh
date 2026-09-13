@@ -23,9 +23,9 @@ Fetch the latest daily backup from an Odoo.sh build over SSH.
 
 The URL must identify the build, either with a numeric build id or a domain
 ending in .dev.odoo.com:
-  osh backup odoosh://my-project-master-123456
-  osh backup odoosh://my-project-master-123456.dev.odoo.com
-  osh backup odoosh://123456@my-project-master-123456.dev.odoo.com
+  osh db get odoosh://my-project-master-123456
+  osh db get odoosh://my-project-master-123456.dev.odoo.com
+  osh db get odoosh://123456@my-project-master-123456.dev.odoo.com
 
 By default only the database dump is downloaded. Add --filestore to also copy
 the filestore and produce a full .zip backup.

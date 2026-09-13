@@ -1,4 +1,4 @@
-"""Backup source registry for `osh backup`.
+"""Backup source registry for `osh db get`.
 
 Sources are discovered through the ``osh_backup.sources`` hook point this
 plugin defines: any plugin may map it to ``BackupSource`` subclasses in the
