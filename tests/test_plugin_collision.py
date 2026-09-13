@@ -35,7 +35,7 @@ def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "init")
 
-    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -76,7 +76,7 @@ def test_no_collision_registers_plugin_command(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "unique")
 
-    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -91,7 +91,7 @@ def test_renamed_command_appears_in_help(monkeypatch, tmp_path):
     plugin_dir.mkdir()
     _write_fake_plugin(plugin_dir, "fake", "init")
 
-    monkeypatch.setattr("osh.utils.plugin_loader._user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -102,6 +102,54 @@ def test_renamed_command_appears_in_help(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "fake-init" in result.output
+
+
+def test_plugin_commands_listed_in_separate_help_section(monkeypatch, tmp_path):
+    """`osh --help` lists plugin commands in their own section."""
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir()
+    _write_fake_plugin(plugin_dir, "fake", "unique")
+
+    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["--help"])
+
+    assert result.exit_code == 0
+    core_section, _, plugin_section = result.output.partition("Plugin Commands:")
+    assert "init" in core_section and "unique" not in core_section
+    assert "unique" in plugin_section
+    assert "[fake]" in plugin_section
+
+
+def test_group_plugin_subcommand_listed_in_separate_section(monkeypatch, tmp_path):
+    """`osh db --help` sections plugin-provided subcommands too."""
+
+    @click.command(name="audit")
+    def plugin_audit():
+        click.echo("plugin audit")
+
+    monkeypatch.setattr(
+        "osh.utils.plugin_loader.load_group_commands",
+        lambda: {"db": [("fake", plugin_audit)]},
+    )
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["db", "--help"])
+
+    assert result.exit_code == 0
+    core_section, _, plugin_section = result.output.partition("Plugin Commands:")
+    assert "audit" not in core_section
+    assert "audit" in plugin_section
+    assert "[fake]" in plugin_section
 
 
 def test_double_collision_is_ignored(monkeypatch, tmp_path, capsys):

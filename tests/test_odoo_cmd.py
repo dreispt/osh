@@ -143,7 +143,7 @@ def test_odoo_fails_with_instructions_when_branch_db_missing_in_non_tty(
     osh_source_dirs,
     pg_db,
 ):
-    """``osh odoo`` fails with a helpful message when the branch db is missing and non-TTY."""
+    """``osh odoo`` reports a missing branch db; Odoo will create it."""
     from osh.config import set_project_config
 
     missing = pg_db.name()
@@ -152,6 +152,63 @@ def test_odoo_fails_with_instructions_when_branch_db_missing_in_non_tty(
     runner = CliRunner()
     result = runner.invoke(odoo, ["--dry-run"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 0
     assert f"Database '{missing}' does not exist" in result.output
-    assert "osh db use" in result.output
+    assert "create and initialize" in result.output
+
+
+def test_odoo_missing_db_confirms_then_runs(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+    capture_execvp,
+):
+    """Confirming the missing-db message proceeds to run Odoo."""
+    import osh.echo
+    from osh.config import set_project_config
+
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.chdir(tmp_project)
+
+    confirms = []
+    monkeypatch.setattr(
+        osh.echo, "confirm", lambda *a, **kw: confirms.append(a) or True
+    )
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert confirms, "missing-db confirmation was not asked"
+    assert len(capture_execvp) == 1
+
+
+def test_odoo_missing_db_confirm_abort(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+    capture_execvp,
+):
+    """Declining the missing-db confirmation aborts the run."""
+    import click as _click
+
+    import osh.echo
+    from osh.config import set_project_config
+
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.chdir(tmp_project)
+
+    def _decline(*a, **kw):
+        raise _click.Abort()
+
+    monkeypatch.setattr(osh.echo, "confirm", _decline)
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code != 0
+    assert capture_execvp == []

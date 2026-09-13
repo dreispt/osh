@@ -7,8 +7,9 @@ A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
 `commands`, `backends` and `group_commands` keys, plus an optional `hooks`
 key mapping hook point names (see `osh.hooks`) to callables or lists of
 implementations. Plugins may also define their own hook points — e.g. the
-`osh_backup` plugin discovers backup sources via ``"osh_backup.sources"``. Plugins are expected to be Python packages
-(directories with `__init__.py`) or a single `osh_plugin.py` file.
+`osh_db_get` plugin discovers backup sources via ``"osh_db_get.sources"``.
+Plugins are expected to be Python packages (directories with `__init__.py`)
+or a single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -33,7 +34,7 @@ except ImportError:  # pragma: no cover
     _metadata = None
 
 
-def _user_plugin_dir():
+def user_plugin_dir():
     """Return the directory where user plugins are installed."""
     config_home = os.environ.get("XDG_CONFIG_HOME")
     if config_home:
@@ -91,7 +92,7 @@ def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
     return module
 
 
-def _plugin_source_name(name):
+def plugin_source_name(name):
     """Return a CLI-friendly source identifier from a plugin module/directory name."""
     name = re.sub(r"^osh\.plugins\.", "", name)
     name = re.sub(r"[^a-zA-Z0-9]+", "-", name)
@@ -134,7 +135,7 @@ def _iter_plugin_modules():
         ):
             try:
                 module = importlib.import_module(module_name)
-                source = _plugin_source_name(module_name)
+                source = plugin_source_name(module_name)
                 yield source, module
             except Exception as exc:
                 echo.error(f"Could not load built-in plugin '{module_name}': {exc}")
@@ -144,22 +145,20 @@ def _iter_plugin_modules():
 
     yield from _iter_entry_point_modules()
 
-    plugin_dir = _user_plugin_dir()
+    plugin_dir = user_plugin_dir()
     if plugin_dir.is_dir():
         for child in sorted(plugin_dir.iterdir()):
             if not child.is_dir() or child.name.startswith("."):
                 continue
             enabled = get_enabled_plugins(child.name)
-            if enabled is not None and _plugin_source_name(child.name) not in enabled:
-                module = None
-            else:
+            if enabled is None or plugin_source_name(child.name) in enabled:
                 try:
                     module = _import_plugin_from_dir(child)
                 except Exception as exc:
                     echo.error(f"Could not load user plugin '{child}': {exc}")
-                    continue
-            if module is not None:
-                yield _plugin_source_name(child.name), module
+                    module = None
+                if module is not None:
+                    yield plugin_source_name(child.name), module
             yield from _iter_subplugins(child, enabled=enabled)
 
 
@@ -176,8 +175,8 @@ def _iter_subplugins(repo_dir, enabled=None):
     subplugins are skipped before import, so their code never executes.
     """
     prefix = f"osh_user_plugin_{_plugin_name_from_path(repo_dir)}"
-    for child in _plugin_subdirs(repo_dir):
-        source = _plugin_source_name(child.name)
+    for child in plugin_subdirs(repo_dir):
+        source = plugin_source_name(child.name)
         if enabled is not None and source not in enabled:
             continue
         try:
@@ -189,7 +188,7 @@ def _iter_subplugins(repo_dir, enabled=None):
             yield source, module
 
 
-def _plugin_subdirs(directory):
+def plugin_subdirs(directory):
     """Yield direct subdirectories of *directory* that are Python packages."""
     try:
         children = sorted(directory.iterdir())
@@ -219,31 +218,22 @@ def _load_commands_from_module(module):
     return [cmd for cmd in commands if isinstance(cmd, click.Command)]
 
 
-def _load_backends_from_module(module, backend_type):
-    """Return backend classes of *backend_type* exposed by a plugin module."""
+def _load_backends_from_module(module):
+    """Return ``Backend`` subclasses exposed by a plugin module."""
     from ..backends import Backend
 
     backends = _plugin_manifest(module).get("backends", [])
-
     if not isinstance(backends, list):
         backends = [backends]
 
-    base_map = {"backend": Backend}
-    base_cls = base_map.get(backend_type)
-    if base_cls is None:
-        return []
-
-    valid = []
-    for backend in backends:
-        if (
-            isinstance(backend, type)
-            and issubclass(backend, base_cls)
-            and backend is not base_cls
-            and getattr(backend, "backend_type", None) == backend_type
-            and getattr(backend, "name", None)
-        ):
-            valid.append(backend)
-    return valid
+    return [
+        backend
+        for backend in backends
+        if isinstance(backend, type)
+        and issubclass(backend, Backend)
+        and backend is not Backend
+        and getattr(backend, "name", None)
+    ]
 
 
 def load_plugins():
@@ -318,17 +308,18 @@ def load_hook_entries(name):
     return [(s, i) for s, n, i in _iter_hook_entries() if n == name]
 
 
-def load_backends(backend_type=None):
+def load_backends():
     """Return a mapping of backend name to class.
 
-    *backend_type* is accepted for compatibility and is ignored; only the
-    unified ``Backend`` interface is loaded.
+    Always includes the built-in ``local`` backend — the default used when
+    no other backend is configured. Plugin-provided backends follow; a plugin
+    backend reusing an existing name is skipped with an error.
     """
-    if backend_type is None:
-        backend_type = "backend"
-    result = {}
+    from ..backends import LocalBackend
+
+    result = {"local": LocalBackend}
     for source, module in _iter_plugin_modules():
-        for backend in _load_backends_from_module(module, backend_type):
+        for backend in _load_backends_from_module(module):
             name = getattr(backend, "name")
             if not name:
                 continue

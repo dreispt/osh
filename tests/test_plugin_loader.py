@@ -23,7 +23,7 @@ def plugin_dir(tmp_path, monkeypatch):
     """A fake user plugin directory used by the plugin loader."""
     directory = tmp_path / "plugins"
     directory.mkdir()
-    monkeypatch.setattr(plugin_loader, "_user_plugin_dir", lambda: directory)
+    monkeypatch.setattr(plugin_loader, "user_plugin_dir", lambda: directory)
     return directory
 
 
@@ -220,13 +220,13 @@ def test_user_plugin_backends_and_sources(plugin_dir, capsys):
         "    pass\n\n"
         "OSH_PLUGIN_MANIFEST = {\n"
         "    'backends': [MyBackend],\n"
-        "    'hooks': {'osh_backup.sources': [MySource]},\n"
+        "    'hooks': {'osh_db_get.sources': [MySource]},\n"
         "    'group_commands': {'db': [mysub]},\n"
         "}\n",
     )
 
     assert "mybackend" in plugin_loader.load_backends()
-    entries = plugin_loader.load_hook_entries("osh_backup.sources")
+    entries = plugin_loader.load_hook_entries("osh_db_get.sources")
     assert any(
         s == "repo-l" and getattr(i, "scheme", None) == "myscheme" for s, i in entries
     )
@@ -247,7 +247,7 @@ def test_backend_name_collision_is_skipped(plugin_dir, capsys):
     _write_package(plugin_dir, "repo_m", src)
 
     backends = plugin_loader.load_backends()
-    assert backends["local"].__module__ == "osh.plugins.osh_backend_local.backends"
+    assert backends["local"].__module__ == "osh.backends"
     assert "conflicts" in capsys.readouterr().err
 
 
@@ -257,11 +257,11 @@ def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
         "from osh.backup_sources import BackupSource\n\n"
         "class DbAgain(BackupSource):\n"
         "    scheme = 'db'\n\n"
-        "OSH_PLUGIN_MANIFEST = {'hooks': {'osh_backup.sources': [DbAgain]}}\n"
+        "OSH_PLUGIN_MANIFEST = {'hooks': {'osh_db_get.sources': [DbAgain]}}\n"
     )
     _write_package(plugin_dir, "repo_n", src)
 
-    from osh.plugins.osh_backup import registry
+    from osh.plugins.osh_db_get import registry
 
     registry._SOURCE_REGISTRY = None
     try:
@@ -269,5 +269,5 @@ def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
     finally:
         registry._SOURCE_REGISTRY = None
 
-    assert sources["db"].__module__.startswith("osh.plugins.osh_backup.")
+    assert sources["db"].__module__.startswith("osh.plugins.osh_db_get.")
     assert "conflicts" in capsys.readouterr().err

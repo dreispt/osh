@@ -8,22 +8,24 @@ from . import (
     config_cmd,
     db_cmd,
     doctor_cmd,
+    down_cmd,
     init_cmd,
     odoo_cmd,
     plug_cmd,
-    run_cmd,
-    version_cmd,
+    shell_cmd,
+    switch_cmd,
 )
 
 COMMANDS = [
     init_cmd.init,
-    doctor_cmd.doctor,
-    run_cmd.run,
     odoo_cmd.odoo,
-    config_cmd.config,
+    switch_cmd.switch,
+    shell_cmd.shell,
+    down_cmd.down,
     db_cmd.db,
+    doctor_cmd.doctor,
+    config_cmd.config,
     plug_cmd.plug,
-    version_cmd.version,
 ]
 
 __all__ = ["COMMANDS"]

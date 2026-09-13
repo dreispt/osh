@@ -1,5 +1,6 @@
 """Tests for the built-in Docker backend plugin."""
 
+import os
 import subprocess
 import sys
 import types
@@ -16,7 +17,7 @@ from osh.utils.plugin_loader import load_backends, load_plugins
 
 def test_docker_backends_are_registered():
     """The docker plugin registers the unified Docker backend."""
-    backends = load_backends("backend")
+    backends = load_backends()
     assert "docker" in backends
     assert backends["docker"].name == "docker"
     assert backends["docker"].backend_type == "backend"
@@ -311,6 +312,31 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
     assert not d.errors
 
 
+def test_docker_backend_diagnose_reports_container_state(tmp_project, monkeypatch):
+    """``diagnose`` reports leftover container state so users notice it."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+        'version = "19.0"\n'
+    )
+    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+    status = {"value": (True, "3 hours")}
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._container_running_status",
+        lambda *a, **kw: status["value"],
+    )
+
+    backend = DockerBackend()
+    d = backend.diagnose(tmp_project, phase="run")
+    assert d.info["docker"]["container"] == "running, started 3 hours ago"
+
+    status["value"] = (False, "")
+    d = backend.diagnose(tmp_project, phase="run")
+    assert d.info["docker"]["container"] == "not running"
+
+
 def test_docker_backend_env_dry_run(tmp_project, capsys):
     """``env`` builds and prints the docker compose command in dry-run mode."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -324,7 +350,10 @@ def test_docker_backend_env_dry_run(tmp_project, capsys):
 
     err = capsys.readouterr().err
     assert "Would run:" in err
-    assert "docker compose run --rm --service-ports app odoo" in err
+    assert "docker compose" in err
+    assert " exec " in err
+    assert " app " in err
+    assert "odoo" in err
 
 
 def test_docker_backend_env_runs_user_command(tmp_project, capsys):
@@ -362,10 +391,18 @@ def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsy
     assert 'PGHOST="${PGHOST:-$HOST}"' in err
     assert 'PGPASSWORD="${PGPASSWORD:-$PASSWORD}"' in err
     assert "osh psql -l" in err
+    # C.UTF-8 overrides the image's ungenerated LANG=en_US.UTF-8, which makes
+    # perl-based tools (pg_wrapper) warn on every exec.
+    assert "-e LC_ALL=C.UTF-8" in err
 
 
-def test_docker_backend_env_odoo_command_is_not_wrapped(tmp_project, capsys):
-    """The ``odoo`` command runs directly so the image entrypoint adds --db_*."""
+def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
+    """``odoo`` runs via a wrapper mapping HOST/USER/... to libpq variables.
+
+    ``compose exec`` bypasses the image entrypoint, which would map them to
+    ``--db_*`` arguments; the exported ``PG*`` variables reach Odoo through
+    psycopg2's libpq fallback instead.
+    """
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -376,12 +413,12 @@ def test_docker_backend_env_odoo_command_is_not_wrapped(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert " odoo odoo" in err
-    assert "sh -c" not in err
+    assert 'PGHOST="${PGHOST:-$HOST}"' in err
+    assert " osh odoo" in err
 
 
-def test_docker_backend_env_dash_args_run_odoo_directly(tmp_project, capsys):
-    """Flags as argv[0] go to the image entrypoint, which treats them as odoo args."""
+def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
+    """Flags as argv[0] get the configured command prepended."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -392,12 +429,104 @@ def test_docker_backend_env_dash_args_run_odoo_directly(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert " odoo -d mydb" in err
-    assert "sh -c" not in err
+    assert 'PGHOST="${PGHOST:-$HOST}"' in err
+    assert " osh odoo -d mydb" in err
+
+
+def test_pg_env_script_maps_image_vars_to_libpq():
+    """The wrapper exports the libpq variables from the image's DB vars.
+
+    Values already present in the environment (e.g. ``-e PGHOST=...``) are
+    kept over the image's ``HOST``/``PORT``/``USER``/``PASSWORD``.
+    """
+    from osh.plugins.osh_backend_docker.backends import _PG_ENV_SCRIPT
+
+    script = _PG_ENV_SCRIPT.replace(
+        'exec "$@"', 'printf "%s\\n" "$PGHOST:$PGPORT:$PGUSER:$PGPASSWORD"'
+    )
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOST": "db",
+        "PORT": "5432",
+        "USER": "odoo",
+        "PASSWORD": "secret",
+        "PGUSER": "preset",
+    }
+    result = subprocess.run(
+        ["sh", "-c", script, "osh", "odoo", "--stop", "--dev=all"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["db:5432:preset:secret"]
+
+
+def test_docker_addons_paths_resolve_symlinks_on_host(tmp_project):
+    """Symlinked addon dirs translate to their real path under the mount.
+
+    ``.osh/odoo`` may be a symlink to a source checkout (e.g. created by
+    ``osh init`` linking a project-local clone). Translated literally it
+    would dangle inside the container; resolving on the host first maps it
+    to the real directory under ``/mnt/extra-addons``.
+    """
+    (tmp_project / "odoo" / "odoo" / "addons").mkdir(parents=True)
+    (tmp_project / ".osh" / "odoo").symlink_to(
+        tmp_project / "odoo" / "odoo", target_is_directory=True
+    )
+
+    paths = DockerBackend().build_addons_paths(tmp_project)
+
+    assert "/mnt/extra-addons/odoo/odoo/addons" in paths
+    assert not any(".osh" in p for p in paths)
+
+
+def test_docker_addons_paths_mount_out_of_project_sources(
+    tmp_project, tmp_path, monkeypatch
+):
+    """Sources linked from outside the project get a ``/mnt/osh-src`` mount.
+
+    A generated Compose override adds them as read-only volumes, since the
+    ``/mnt/extra-addons`` project mount cannot reach them.
+    """
+    external = tmp_path / "shared-odoo"
+    (external / "addons").mkdir(parents=True)
+    (tmp_project / ".osh" / "odoo").symlink_to(external, target_is_directory=True)
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+    backend = DockerBackend()
+    paths = backend.build_addons_paths(tmp_project)
+    (container_path,) = (p for p in paths if p.startswith("/mnt/osh-src/"))
+    assert container_path.startswith("/mnt/osh-src/addons-")
+
+    # The override is generated on ensure_service_up and carries the mount.
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        lambda *a, **kw: (1, "", ""),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_command",
+        lambda *a, **kw: None,
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        lambda *a, **kw: False,
+    )
+    backend.ensure_service_up(tmp_project)
+
+    override = tmp_project / ".osh" / "docker-compose.osh.yml"
+    assert override.is_file()
+    text = override.read_text()
+    assert f"{external / 'addons'}:{container_path}:ro" in text
 
 
 def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):
-    """An interactive ``osh run`` shell also gets the libpq variables."""
+    """An interactive ``osh shell`` session also gets the libpq variables."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -433,7 +562,9 @@ def test_docker_backend_compose_file_from_config(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert "docker compose -f devel.yaml run" in err
+    assert "docker compose" in err
+    assert "-f" in err and "devel.yaml" in err
+    assert " exec " in err
 
 
 def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
@@ -457,7 +588,7 @@ def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
     )
 
     err = capsys.readouterr().err
-    assert "docker compose -f test.yaml run" in err
+    assert "-f" in err and "test.yaml" in err
 
 
 def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
@@ -515,7 +646,7 @@ def test_osh_run_docker_uses_branch_database(
     _patch_docker_tools(monkeypatch)
     # Command assembly only: the generated database name is what is asserted,
     # so the existence probe is stubbed rather than creating a real database.
-    monkeypatch.setattr("osh.db.db_exists", lambda base, name: True)
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: True)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -524,7 +655,7 @@ def test_osh_run_docker_uses_branch_database(
     assert result.exit_code == 0, result.output
     assert "Using database: project-feature-x" in result.output
     assert "PGDATABASE=project-feature-x" in result.output
-    assert "odoo odoo" in result.output
+    assert " osh odoo" in result.output
     assert "-d project-feature-x" not in result.output
     assert "--db-filter" not in result.output
 

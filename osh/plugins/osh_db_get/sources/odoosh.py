@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .... import echo
-from ....backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
+from ....backup_sources import BackupSource, SourceError, now_stamp, safe_name
 from ....common import run_shell_pipeline, run_subprocess
 
 
@@ -23,9 +23,9 @@ Fetch the latest daily backup from an Odoo.sh build over SSH.
 
 The URL must identify the build, either with a numeric build id or a domain
 ending in .dev.odoo.com:
-  osh backup odoosh://my-project-master-123456
-  osh backup odoosh://my-project-master-123456.dev.odoo.com
-  osh backup odoosh://123456@my-project-master-123456.dev.odoo.com
+  osh db get odoosh://my-project-master-123456
+  osh db get odoosh://my-project-master-123456.dev.odoo.com
+  osh db get odoosh://123456@my-project-master-123456.dev.odoo.com
 
 By default only the database dump is downloaded. Add --filestore to also copy
 the filestore and produce a full .zip backup.
@@ -89,10 +89,10 @@ Use --ssh-key to authenticate with a specific private key.
         return self._db_name
 
     def default_output_name(self):
-        safe_domain = _safe_name(self.domain)
-        safe_build = _safe_name(self.build_id)
+        safe_domain = safe_name(self.domain)
+        safe_build = safe_name(self.build_id)
         ext = "zip" if self.include_filestore else "sql.gz"
-        return f"{safe_domain}_{safe_build}_{_now_stamp()}.{ext}"
+        return f"{safe_domain}_{safe_build}_{now_stamp()}.{ext}"
 
     def fetch(self, output, *, dry_run=False):
         remote_file = self._resolve_remote_file(dry_run=dry_run)

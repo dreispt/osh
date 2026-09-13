@@ -1,95 +1,71 @@
-# Osh — Odoo Ops Shell
+# Osh – Odoo Shell
 
-### Init, restore, run. Odoo environments at your fingertips.
+`osh` is a command-line wrapper around `odoo-bin` that makes it easier to run
+Odoo in development and staging environments.
 
-Running Odoo locally means juggling venvs, `--addons-path`, `--db-filter`,
-which database to use, and remembering the right flags every
-time. `osh` handles all of that for you.
+Think of it as a lightweight project manager for Odoo: it discovers your
+addons, picks a database name for you, and runs the right virtual environment.
 
-`osh` is a lightweight command-line wrapper around `odoo-bin` for
-day-to-day Odoo development and staging work. Point it at a project and it
-discovers your addons, tracks a database per git branch, manages your
-venv, and runs Odoo with the right configuration.
-All of this without forcing you into a particular project structure,
-or lock-in into a particular workflow.
-
-It also supports easy database restore and neutralization, has a plugin
-extensibility system, and is expected to provide the ability to
-retrieve direct live system databases.
-
-```bash
-cd my-odoo-project && git checkout my-branch
-osh init 19.0 --ce  # set up venv + Odoo sources
-osh db restore ./path-to/my-backup.zip
-osh doctor          # sanity-check the project
-osh odoo            # go
-```
-
-> **Note:** `osh` is a personal/community project and is not affiliated
-> with Odoo's `odoo.sh` service. It's under active development — expect
-> some rough edges.
-
-## Features
-
-- **One-command project setup** — `osh init` creates the virtualenv, fetches or
-  links Odoo sources, and installs Odoo in editable mode.
-- **Branch-aware databases** — `osh` tracks a database per git branch, so switching
-  branches automatically picks the right database.
-- **Zero-config Odoo runs** — `osh odoo` builds the correct `odoo.conf`,
-  `addons_path`, `db_name` and `dbfilter` from the project layout.
-- **Backup and restore** — `osh backup` fetches or dumps backups from multiple
-  sources; `osh db restore` restores them and neutralizes the database.
-- **Custom neutralization** — drop `.sql` scripts into `.osh/neutralize/` to run
-  project-specific scrubbing after every restore.
-- **Pluggable backends** — run locally in a virtualenv or inside Docker Compose by
-  switching `--target`.
-- **Transparent** — `osh` prints the commands it runs and supports `--dry-run`
-  so you can inspect before executing.
+> **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
 
 ## Design principles
 
-- **Unintrusive** – provides a thin layer on top of Odoo to make common dev workflow operations easier; it won't modify your project or force you into a particular deployment or project organization mode
-- **Pluggable** – can become a powerful toolbelt by creating and using additional plugins
-- **Transparent** – the user can see what is going on at any time, what actual commands or operations are being run, what defaults or assumptions are being used, and make choices or even manually run their own modified commands. No surprises, no black boxes
-- **Friendly** – commands are script-friendly, but interactive mode experience tries to be helpful and guide the user along the way, explaining options available and suggesting next steps
+- **Say what you do** – `osh odoo` runs Odoo, just like `odoo-bin` would,
+  with the project's env pre-configured. `osh shell` gives you a shell.
+  No command's name and behavior disagree.
+- **Mirror the tool underneath** – anything you'd pass to `odoo-bin` (`shell`,
+  `-u mymodule`, `scaffold`, ...) works the same way after `osh odoo`. You're
+  not learning a second CLI vocabulary.
+- **One noun, one home** – everything that manages a branch's database
+  (mapping, get, restore) lives under `osh db`.
+- **Unintrusive** – a thin layer on top of Odoo for common dev workflows;
+  it won't modify your project or force a particular deployment or
+  organization mode.
+- **Transparent** – see what's actually running at any time. `--dry-run`
+  prints the assembled command instead of executing it, on every command
+  that runs one. Defaults you didn't ask for (like Odoo dev mode) always
+  show up in that output.
+- **Pluggable** – grow the toolbelt with plugins; `osh plug install <repo>`
+  and new commands show up alongside the built-ins.
 
-## Prerequisites
-
-- Python 3.8 or later
-- `git` (used to clone Odoo sources and to name the database)
-- `pip` and `venv` support
-- A running PostgreSQL server that Odoo can connect to
-
-## Installation
+## Quick start
 
 ```bash
-pipx install osh
+# Create a project directory
+cd my-odoo-project
+# Initialise it for Odoo 19.0
+osh init 19.0
+# Check the project status
+osh doctor
+# Run Odoo
+osh odoo
 ```
 
 ## Commands
 
-Run `osh <command> --help` for detailed options and examples.
+Run `osh <command> --help` for full usage details.
 
-- `osh init <version>` — set up a project (venv, sources, config).
-- `osh run [<cmd>]` — enter the project's runtime environment or run a command in it.
-- `osh odoo` — run Odoo with automatic addons-path, database and dbfilter.
-- `osh doctor` — check the project setup and report diagnostics.
-- `osh config` — manage branch/database mappings and preferences.
-- `osh db` — manage branch-to-database mappings; copy and restore databases.
-- `osh plug` — install, enable, alias and remove plugins from git repositories.
-- `osh backup <source>` — download or dump a backup into `.osh/backups/`.
-- `osh db restore [<dump>]` — restore and neutralize a backup.
-- `osh test` — run Odoo tests for project modules.
-- `osh version` — show the installed `osh` version.
+| Command                    | What it does                                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `osh init <version> [dir]` | Set up venv, Odoo sources, and project scaffolding                                                                   |
+| `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
+| `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
+| `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
+| `osh test`                 | Run Odoo tests for project modules                                                                                   |
+| `osh db`                   | Show, map, copy, unpin, get, restore, or register named remote sources for project databases                         |
+| `osh doctor`               | Check the project for common setup problems                                                                          |
+| `osh config`               | View or change osh settings for this project                                                                         |
+| `osh plug`                 | Install, list, or remove osh plugins                                                                                 |
 
-Quick examples:
+Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 
-```bash
-osh init 19.0
-osh doctor
-osh odoo
-osh test --all
-```
+`osh db get` fetches a database copy from anywhere (odoo.sh, a live server,
+an Odoo database manager) into the local cache; `osh db restore` applies a
+cached backup to your current branch's database — it never fetches.
+`osh db remote add <name> <source>` gives a source a short, stable name
+(git-remote style) so you can `osh db get prod` / `osh db restore prod`
+instead of retyping the full URL. `osh db` owns everything about _which_
+database a branch uses and what's in it.
 
 ## Configuration
 
@@ -135,7 +111,7 @@ The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hac
 
 To remove the Osh environment from a project, simply delete the `.osh` directory. This will remove all Osh-specific project configurations including:
 
-- Project settings (`.osh/config`)
+- Project settings (`.osh/config.toml`)
 - Generated Odoo configuration (`.osh/odoo.conf`)
 - Source symlinks and cached backups (`.osh/backups/`)
 - Docker backend configuration (`.osh/docker.toml`, `.osh/docker-compose.yml`)
@@ -146,13 +122,34 @@ rm -rf .osh
 
 Your project files, virtual environment (`.venv/`), and any existing Odoo sources will remain intact.
 
+## Plugins
+
+`osh` is extensible: plugins can add commands, run targets (backends), backup
+source schemes and hooks. The bundled plugins provide `osh db get`,
+`osh db restore`, `osh db remote` and `osh test`, plus the `local` (plain
+host), `venv` and `docker` run targets.
+
+Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib):
+
+```bash
+osh plug install https://github.com/dreispt/osh-contrib
+```
+
+Highlights include:
+
+- `osh uninstall mod_a,mod_b` — uninstall modules and their installed dependents.
+- `osh odoo --open` — print the browser URL once Odoo is ready
+  (`--open` also opens it).
+
+See [PLUGINS.md](PLUGINS.md) for how to write and publish your own plugins.
+
 ## Help
 
 Run `osh --help` or `osh <command> --help` for detailed usage information.
 
-The command list is generated automatically from the built-in commands plus any
-installed plugins, so it may include additional commands such as `backup`
-and `test`.
+The command list is generated automatically from the core commands plus bundled
+and installed plugins, so `osh --help` always reflects what is actually
+available in your setup.
 
 ## License
 

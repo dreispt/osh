@@ -11,6 +11,7 @@ import click
 
 from .. import echo
 from ..backends import copy_odoo_rc_to_osh_conf
+from ..cli_utils import format_targets_section
 from ..common import setup_project_neutralize_scripts
 from ..config import load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config
@@ -36,10 +37,11 @@ class InitCommand(click.Command):
     def format_options(self, ctx, formatter):
         """Write options grouped by target, then a Targets section."""
         common_opts, target_groups = _split_params_by_target(self.get_params(ctx))
+        backends = load_backends()
 
         _format_common_options(ctx, formatter, common_opts)
-        _format_target_options(ctx, formatter, target_groups)
-        _format_targets_section(formatter)
+        _format_target_options(ctx, formatter, target_groups, backends)
+        format_targets_section(formatter, backends)
 
     def format_help_text(self, ctx, formatter):
         """Write the command docstring plus per-target help_text."""
@@ -89,9 +91,9 @@ def _format_target_options(
     ctx,
     formatter,
     target_groups,
+    backends,
 ):
     """Write one section per target with its target-specific options."""
-    backends = load_backends()
     for target_name, opts in target_groups.items():
         backend_cls = backends.get(target_name)
         label = (
@@ -103,19 +105,6 @@ def _format_target_options(
         if records:
             with formatter.section(f"{label} options (--target {target_name})"):
                 formatter.write_dl(records)
-
-
-def _format_targets_section(formatter):
-    """Write the Targets section listing each backend name and description."""
-    backends = load_backends()
-    if not backends:
-        return
-    records = [
-        (name, getattr(backends[name], "description", "") or "")
-        for name in sorted(backends)
-    ]
-    with formatter.section("Targets"):
-        formatter.write_dl(records)
 
 
 class TodoPlan:
@@ -241,7 +230,7 @@ def init(
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
-    Creates `.osh/`, resolves Odoo sources, installs the virtualenv (local) or
+    Creates `.osh/`, resolves Odoo sources, installs the virtualenv (venv) or
     writes Docker Compose configuration (docker), and prepares the project for
     `osh odoo`.
 
@@ -262,7 +251,7 @@ def init(
         backend_name = (
             get_project_config(target, "init", "target")
             or get_project_config(target, "run", "target")
-            or "local"
+            or "venv"
         )
 
     echo.friendly(f"Welcome to Osh! Let's set up your Odoo {version} project.")
@@ -288,8 +277,7 @@ def init(
     if save and edition and not dry_run:
         save_user_preference("edition", edition, section="init")
 
-    edition_names = {"ce": "Community", "ee": "Enterprise", "sh": "Odoo.sh"}
-    echo.info(f"Using {edition_names.get(edition, edition)} edition")
+    echo.info(f"Using {_EDITION_NAMES.get(edition, edition)} edition")
 
     backends = load_backends()
     backend_cls = backends.get(backend_name)
@@ -338,15 +326,7 @@ def init(
 
         osh_conf = copy_odoo_rc_to_osh_conf(target)
         if dev:
-            odoo_cfg = configparser.ConfigParser()
-            if osh_conf.exists():
-                odoo_cfg.read(osh_conf, encoding="utf-8")
-            if not odoo_cfg.has_section("options"):
-                odoo_cfg.add_section("options")
-            odoo_cfg.set("options", "limit_time_cpu", "0")
-            odoo_cfg.set("options", "limit_time_real", "0")
-            with osh_conf.open("w", encoding="utf-8") as f:
-                odoo_cfg.write(f)
+            _write_dev_config(osh_conf)
 
         init_values = {
             "target": backend_name,
@@ -374,6 +354,22 @@ def init(
             "Warning: project initialisation did not complete successfully.",
             err=True,
         )
+
+
+_EDITION_NAMES = {"ce": "Community", "ee": "Enterprise", "sh": "Odoo.sh"}
+
+
+def _write_dev_config(osh_conf):
+    """Add development-friendly timeouts to the project's Odoo config."""
+    odoo_cfg = configparser.ConfigParser()
+    if osh_conf.exists():
+        odoo_cfg.read(osh_conf, encoding="utf-8")
+    if not odoo_cfg.has_section("options"):
+        odoo_cfg.add_section("options")
+    odoo_cfg.set("options", "limit_time_cpu", "0")
+    odoo_cfg.set("options", "limit_time_real", "0")
+    with osh_conf.open("w", encoding="utf-8") as f:
+        odoo_cfg.write(f)
 
 
 def _default_edition(target):

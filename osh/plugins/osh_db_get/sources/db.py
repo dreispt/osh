@@ -5,9 +5,9 @@ import zipfile
 from pathlib import Path
 
 from .... import echo
-from ....backup_sources import BackupSource, SourceError, _now_stamp
+from ....backup_sources import BackupSource, SourceError, now_stamp
 from ....common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
-from ....db import get_pg_credentials
+from ....db import run_in_backend
 
 
 class DbSource(BackupSource):
@@ -24,9 +24,9 @@ Supported output formats:
   --format zip    Plain SQL plus the filestore
 
 Examples:
-  osh backup db://mydb
-  osh backup db://mydb --format sql
-  osh backup db://mydb --format zip
+  osh db get db://mydb
+  osh db get db://mydb --format sql
+  osh db get db://mydb --format zip
 """
 
     def __init__(self, db_name, base, output_format="dump"):
@@ -42,19 +42,16 @@ Examples:
 
     def default_output_name(self):
         ext = {"dump": "dump", "sql": "sql", "zip": "zip"}[self.output_format]
-        return f"{self.db_name}_{_now_stamp()}.{ext}"
+        return f"{self.db_name}_{now_stamp()}.{ext}"
 
     def fetch(self, output, *, dry_run=False):
         if self.output_format in ("dump", "sql"):
             format_flag = "-Fc" if self.output_format == "dump" else "-Fp"
-            args = ["pg_dump", format_flag]
-            conn_args, env = self._credentials()
-            args.extend(conn_args)
-            args.append(self.db_name)
+            args = ["pg_dump", format_flag, self.db_name]
             if dry_run:
                 echo.info(f"Would run: {' '.join(args)} > {output}", err=True)
                 return
-            self._run_dump(args, env, output)
+            self._run_dump(args, output)
             return
 
         if self.output_format == "zip":
@@ -66,33 +63,34 @@ Examples:
                 return
             self._fetch_zip(output)
 
-    def _credentials(self):
+    def _run_pg_dump(self, args, output_file):
+        """Run pg_dump through the active backend, writing stdout to *output_file*."""
         if self.base is None:
-            return [], merged_env()
-        return get_pg_credentials(self.base)
+            # Outside a project there is no backend context — run on the host.
+            return run_subprocess(
+                args, env=merged_env(), stdout=output_file, text=False
+            )
+        return run_in_backend(None, self.base, args, stdout=output_file, text=False)
 
-    def _run_dump(self, args, env, output):
-        with output.open("wb") as f:
-            returncode, _, stderr = run_subprocess(args, env=env, stdout=f, text=False)
+    def _checked_pg_dump(self, args, output_file):
+        """Run pg_dump, raising ``SourceError`` when it is missing or fails."""
+        returncode, _, stderr = self._run_pg_dump(args, output_file)
         if returncode is None:
             raise SourceError("Could not locate `pg_dump`. Is PostgreSQL installed?")
         if returncode != 0:
             raise SourceError(f"pg_dump failed: {decode_stderr(stderr)}")
 
+    def _run_dump(self, args, output):
+        with output.open("wb") as f:
+            self._checked_pg_dump(args, f)
+
     def _fetch_zip(self, output):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             dump_sql = tmp_path / "dump.sql"
-            conn_args, env = self._credentials()
-            dump_args = ["pg_dump", "-Fp", *conn_args, self.db_name]
+            dump_args = ["pg_dump", "-Fp", self.db_name]
             with dump_sql.open("wb") as f:
-                returncode, _, stderr = run_subprocess(
-                    dump_args, env=env, stdout=f, text=False
-                )
-            if returncode is None:
-                raise SourceError("Could not locate `pg_dump`.")
-            if returncode != 0:
-                raise SourceError(f"pg_dump failed: {decode_stderr(stderr)}")
+                self._checked_pg_dump(dump_args, f)
 
             data_dir = self._data_dir()
             source_filestore = (

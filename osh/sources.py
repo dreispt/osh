@@ -335,7 +335,15 @@ def _install_source_plan(
 
     if action == "symlink":
         echo.info(f"Linking {name} \u2192 {spec}\u2026", err=True)
-        os.symlink(spec, link, target_is_directory=True)
+        # Prefer a relative link for targets under the project root so it
+        # survives host path moves and container mounts (e.g. the Docker
+        # backend's /mnt/extra-addons).
+        try:
+            Path(spec).resolve().relative_to(osh_dir.parent.resolve())
+            target = os.path.relpath(spec, link.parent)
+        except (ValueError, OSError):
+            target = str(spec)
+        os.symlink(target, link, target_is_directory=True)
         return link
 
     if action == "clone":

@@ -5,7 +5,7 @@ import click
 from .. import echo
 from ..common import find_project_root
 from ..config import get_project_config_path, save_user_preference
-from ..db import load_osh_config, save_osh_config
+from ..db import load_osh_config, save_osh_config, set_project_config
 
 
 @click.group(name="config")
@@ -53,7 +53,7 @@ def user(ctx):  # noqa: D401
 
 
 @user.command(name="verbosity")
-@click.argument("level", type=click.Choice(["quiet", "normal", "friendly", "verbose"]))
+@click.argument("level", type=click.Choice(["silent", "normal", "verbose", "debug"]))
 @click.option(
     "--global",
     "global_setting",
@@ -69,16 +69,16 @@ def verbosity(
     """Set the verbosity level for Osh commands.
 
     Levels:
-      quiet     - Only errors
-      normal    - Essential information (default for experienced users)
-      friendly  - Helpful guidance and next steps (default for new users)
+      silent    - Only errors
+      normal    - Essential information
       verbose   - Detailed information about what's happening
+      debug     - Verbose plus internal diagnostics (exit codes, timing)
 
     Examples:
 
     \b
       osh config user verbosity normal
-      osh config user verbosity quiet --global
+      osh config user verbosity silent --global
     """
     if global_setting:
         # Set in global user config
@@ -91,3 +91,41 @@ def verbosity(
         cfg.set("user", "verbosity", level)
         save_osh_config(base, cfg)
         echo.info(f"Set project verbosity to: {level}")
+
+
+@config.group(name="odoo")
+def odoo_group():  # noqa: D401
+    """Manage Odoo runtime defaults."""
+
+
+@odoo_group.command(name="dev")
+@click.argument("value")
+@click.option(
+    "--global",
+    "global_setting",
+    is_flag=True,
+    help="Set globally in ~/.config/osh/config.toml instead of project-specific.",
+)
+@click.pass_context
+def odoo_dev(ctx, value, global_setting):  # noqa: D401
+    """Set the default ``--dev`` value injected by ``osh odoo``.
+
+    VALUE is any ``--dev`` option value such as ``all`` or a comma-separated
+    list (e.g. ``xml,reload``). ``off`` disables the injection entirely —
+    equivalent to always passing ``--no-dev``.
+
+    Examples:
+
+    \b
+      osh config odoo dev all
+      osh config odoo dev xml,reload
+      osh config odoo dev off
+      osh config odoo dev all --global
+    """
+    if global_setting:
+        save_user_preference("dev", value, section="odoo")
+        echo.info(f"Set global Odoo dev mode to: {value}")
+        return
+    base = find_project_root(required=True)
+    set_project_config(base, "odoo", "dev", value)
+    echo.info(f"Set project Odoo dev mode to: {value}")

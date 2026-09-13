@@ -1,6 +1,6 @@
-"""`osh run` command implementation.
+"""`osh shell` command implementation.
 
-``osh run`` enters the project's runtime environment (local virtualenv or
+``osh shell`` enters the project's runtime environment (local virtualenv or
 Docker container) with ``ODOO_RC`` and PostgreSQL connection variables already
 set for the active branch/database. Other commands, such as ``osh odoo``, build
 on top of it.
@@ -14,47 +14,12 @@ from .. import db as db_module
 from .. import echo
 from ..backends import EnvSpec
 from ..common import (
-    _has_arg,
     find_project_root,
     get_odoo_config_path,
     get_osh_odoo_config_path,
+    has_arg,
 )
-from ..utils.plugin_loader import load_backends
-from .helpers import collect_diagnostics
-
-
-def _get_pg_env(base):
-    """Return PostgreSQL connection variables from the Odoo config as a dict.
-
-    Reads ``.osh/odoo.conf`` if it exists, otherwise falls back to ``.odoorc``.
-    Maps ``db_host``, ``db_port``, ``db_user`` and ``db_password`` to the
-    standard ``PGHOST``, ``PGPORT``, ``PGUSER`` and ``PGPASSWORD`` environment
-    variables so tools like ``psql`` and ``pg_restore`` connect automatically.
-    """
-    odoo_rc = get_osh_odoo_config_path(base)
-    if not odoo_rc.exists():
-        odoo_rc = get_odoo_config_path(base)
-    env = {}
-    if not odoo_rc.exists():
-        return env
-
-    cfg = configparser.ConfigParser()
-    cfg.read(odoo_rc, encoding="utf-8")
-    if not cfg.has_section("options"):
-        return env
-
-    mapping = {
-        "db_host": "PGHOST",
-        "db_port": "PGPORT",
-        "db_user": "PGUSER",
-        "db_password": "PGPASSWORD",
-    }
-    options = cfg["options"]
-    for key, var in mapping.items():
-        value = options.get(key)
-        if value:
-            env[var] = value
-    return env
+from .helpers import check_run_diagnostics
 
 
 def build_dynamic_odoo_config(
@@ -72,7 +37,7 @@ def build_dynamic_odoo_config(
     if conf_path is None:
         cache_dir = base / ".osh" / "cache" / "env"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        branch = db_module.get_current_branch(base) or "default"
+        branch = db_module.sanitize_db_name(db_module.resolve_branch(base, None))
         safe_db = db_module.sanitize_db_name(db_name) if db_name else "none"
         conf_path = cache_dir / f"{branch}-{safe_db}.conf"
     else:
@@ -88,7 +53,7 @@ def build_dynamic_odoo_config(
     if not cfg.has_section("options"):
         cfg.add_section("options")
 
-    if not _has_arg(extra_args, "--addons-path"):
+    if not has_arg(extra_args, "--addons-path"):
         addons_paths = backend.build_addons_paths(base, include_themes=True)
         if addons_paths:
             cfg.set("options", "addons_path", ",".join(str(p) for p in addons_paths))
@@ -108,40 +73,35 @@ def prepare_env_context(
     base,
     backend,
     *,
+    ctx=None,
     db_name=None,
     no_db_filter=False,
-    skip_config=False,
     extra_args=(),
     dry_run=False,
 ):
     """Build the dynamic Odoo config and environment variables for a backend.
 
     Returns ``(config_path, env_vars, db_name)``. ``config_path`` is ``None``
-    when ``skip_config`` is True or the user passed an explicit ``--config``
-    argument. ``env_vars`` contains ``ODOO_RC`` and PostgreSQL connection
-    variables when available.
+    when the user passed an explicit ``--config`` argument. ``env_vars``
+    contains ``ODOO_RC`` and PostgreSQL connection variables when available.
+
+    The database name is resolved without probing or prompting — commands
+    that need an existing database resolve it beforehand and pass it in.
     """
-    explicit_config = _has_arg(extra_args, "--config", short="-c")
-    no_db_filter = no_db_filter or _has_arg(extra_args, "--db-filter")
-    if not db_name and not explicit_config and not skip_config:
-        db_name = db_module.resolve_db_name_for_run(base, verbose=False)
+    explicit_config = has_arg(extra_args, "--config", short="-c")
+    no_db_filter = no_db_filter or has_arg(extra_args, "--db-filter")
+    if not db_name and not explicit_config:
+        db_name = db_module.resolve_db_name(base)
 
     if db_name and not dry_run:
         db_module.set_last_db(base, db_name)
 
-    if explicit_config or skip_config:
-        conf_path = None
-    else:
-        branch = db_module.sanitize_db_name(
-            db_module.get_current_branch(base) or "default"
-        )
-        safe_db = db_module.sanitize_db_name(db_name) if db_name else "none"
-        conf_path = base / ".osh" / "cache" / "env" / f"{branch}-{safe_db}.conf"
+    conf_path = None
+    if not explicit_config:
         conf_path = build_dynamic_odoo_config(
             base,
             db_name,
             backend,
-            conf_path=conf_path,
             no_db_filter=no_db_filter,
             extra_args=extra_args,
         )
@@ -149,7 +109,7 @@ def prepare_env_context(
     env_vars = {}
     if conf_path:
         env_vars["ODOO_RC"] = str(conf_path)
-    env_vars.update(_get_pg_env(base))
+    env_vars.update(db_module.get_pg_env(base))
     if db_name:
         env_vars["PGDATABASE"] = db_name
 
@@ -157,7 +117,7 @@ def prepare_env_context(
 
 
 @click.command(
-    name="run",
+    name="shell",
     context_settings=dict(ignore_unknown_options=True),
 )
 @click.option(
@@ -170,90 +130,60 @@ def prepare_env_context(
     "backend_name",
     default="local",
     envvar="OSH_RUN_TARGET",
-    help="Execution target: local virtualenv or a plugin backend.",
+    help="Execution target: local host, managed venv, or a plugin backend.",
 )
 @click.option(
     "--compose-file",
     default=None,
-    help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
-)
-@click.option(
-    "--no-db-filter",
-    is_flag=True,
-    hidden=True,
-    help="Do not set dbfilter in the generated config.",
-)
-@click.option(
-    "--skip-config",
-    is_flag=True,
-    hidden=True,
-    help="Skip generating the dynamic config file.",
+    envvar="OSH_COMPOSE_FILE",
+    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+    "Defaults to $OSH_COMPOSE_FILE.",
 )
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def run(
+def shell(
     ctx,
     dry_run,
     backend_name,
     compose_file,
-    no_db_filter,
-    skip_config,
     extra_args,
 ):  # noqa: D401
     """Enter the project's runtime environment or run a command in it.
 
     Without arguments this opens an interactive shell in the active target
-    (local virtualenv or Docker container) with ``ODOO_RC`` and PostgreSQL
-    connection variables already configured for the current branch and
-    database. Any arguments are passed through as a command to run inside the
-    environment.
+    (local host, virtualenv, or Docker container) with ``ODOO_RC`` and PostgreSQL
+    connection variables (``PGHOST``, ``PGUSER``, ...) already configured for
+    the current branch and database. Any arguments are passed through as a
+    command to run inside the environment.
+
+    Passing an explicit ``--config``/``-c`` or ``--db-filter`` argument
+    suppresses the generated config and dbfilter, exactly as when calling
+    ``odoo-bin`` directly.
 
     Examples:
 
     \b
-      osh run
-      osh run odoo --version
-      osh run psql
-      osh run --target docker odoo -i base
+      osh shell
+      osh shell odoo --version
+      osh shell psql
+      osh shell --target docker odoo -i base
     """
     base = find_project_root(required=True)
 
-    backend_name = db_module.resolve_run_target(base, backend_name, ctx)
-    db_module.set_project_config(base, "run", "target", backend_name)
+    backend = db_module.resolve_backend(ctx, base, backend_name)
+    db_module.set_project_config(base, "run", "target", backend.name)
 
-    backends = load_backends()
-    backend_cls = backends.get(backend_name)
-    if backend_cls is None:
-        raise click.ClickException(f"Unknown run target: {backend_name}")
-    backend = backend_cls()
-
-    diagnostics = collect_diagnostics(
-        base,
-        backend,
-        ctx,
-        target=backend_name,
-        phase="run",
-        compose_file=compose_file,
-        sections=backend.diagnose_sections_for_phase("run"),
-    )
-    for warning_msg in diagnostics.warnings:
-        echo.warning(warning_msg)
-    if diagnostics.errors:
-        raise click.ClickException("\n".join(diagnostics.errors))
+    check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
 
     args = list(extra_args)
     if args and args[0] == "--":
         args.pop(0)
 
-    explicit_db = _parse_explicit_db(args)
-    db_name = explicit_db
-
     conf_path, env_vars, resolved_db = prepare_env_context(
         base,
         backend,
-        db_name=db_name,
-        no_db_filter=no_db_filter,
-        skip_config=skip_config,
+        ctx=ctx,
+        db_name=parse_explicit_db(args),
         extra_args=args,
         dry_run=dry_run,
     )
@@ -271,7 +201,7 @@ def run(
     backend.env(ctx, base, env_spec, dry_run=dry_run)
 
 
-def _parse_explicit_db(extra_args):
+def parse_explicit_db(extra_args):
     """Return the database name explicitly passed via -d/--database, if any."""
     for i, arg in enumerate(extra_args):
         if arg in ("-d", "--database"):

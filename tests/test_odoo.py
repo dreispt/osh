@@ -4,7 +4,7 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands.odoo_cmd import odoo
-from osh.commands.run_cmd import build_dynamic_odoo_config
+from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.plugins.osh_backend_docker.backends import DockerBackend
 
 
@@ -39,6 +39,21 @@ def test_odoo_dry_run_prints_command_and_database(
     dynamic_conf = _dynamic_conf_path(tmp_project, test_db)
     assert dynamic_conf.exists()
     assert f"db_name = {test_db}" in dynamic_conf.read_text()
+
+
+def test_odoo_informs_when_database_missing(
+    tmp_project, monkeypatch, fake_odoo_executable, osh_source_dirs, capture_execvp
+):
+    """A missing branch db is reported, not prompted — Odoo creates it."""
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr("osh.commands.odoo_cmd.db_exists", lambda *a, **kw: False)
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert "does not exist" in result.output
+    assert "create and initialize" in result.output
+    assert len(capture_execvp) == 1
 
 
 def test_odoo_generates_dynamic_config_and_sets_env(
@@ -202,6 +217,81 @@ def test_test_dropdb_dry_run_does_not_drop_database(
     assert "-i my_module" in result.output
 
 
+def test_odoo_db_filter_passthrough_suppresses_generated_dbfilter(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """An explicit --db-filter is kept and the generated config drops its own."""
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--db-filter", "^custom$"])
+
+    assert result.exit_code == 0
+    dynamic_conf = _dynamic_conf_path(tmp_project, test_db)
+    assert dynamic_conf.exists()
+    text = dynamic_conf.read_text()
+    assert f"db_name = {test_db}" in text
+    assert "dbfilter" not in text
+    _, final_args, _ = capture_execvp[0]
+    assert "--db-filter ^custom$" in " ".join(final_args)
+
+
+def test_odoo_osh_wait_env_var_waits_for_process(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """OSH_WAIT=1 makes ``osh odoo`` wait on a subprocess instead of exec."""
+    monkeypatch.setenv("OSH_WAIT", "1")
+    monkeypatch.chdir(tmp_project)
+
+    calls = []
+    monkeypatch.setattr(
+        "osh.backends.run_command",
+        lambda args, **kwargs: calls.append(list(args)),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(odoo, [])
+
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert calls[0][0] == str(fake_odoo_executable)
+    assert not capture_execvp
+
+
+def test_odoo_compose_file_from_env_var(
+    tmp_project,
+    monkeypatch,
+    test_db,
+):
+    """OSH_COMPOSE_FILE is honored like --compose-file for the docker target."""
+    osh_dir = tmp_project / ".osh"
+    (osh_dir / "docker.toml").write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
+    monkeypatch.setenv("OSH_COMPOSE_FILE", "devel.yaml")
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
+    monkeypatch.chdir(tmp_project)
+
+    runner = CliRunner()
+    result = runner.invoke(odoo, ["--target", "docker", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "devel.yaml" in result.output
+
+
 def test_dynamic_config_translates_addons_path_for_docker(
     tmp_project,
     osh_source_dirs,
@@ -219,3 +309,121 @@ def test_dynamic_config_translates_addons_path_for_docker(
     assert "/mnt/extra-addons/.osh/design-themes" in text
     assert "db_name = mydb" in text
     assert "dbfilter = ^mydb$" in text
+
+
+def test_odoo_dev_all_injected_by_default(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh odoo`` appends ``--dev=all`` when no dev option is given."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=all" in final_args
+
+
+def test_odoo_no_dev_suppresses_injection(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh odoo --no-dev`` keeps ``--dev`` out of the final argv."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["--no-dev"])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert not any(a.startswith("--dev") for a in final_args)
+
+
+def test_odoo_explicit_dev_passthrough_not_duplicated(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """An explicit ``--dev`` value wins and is not double-injected."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["--dev=xml"])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=xml" in final_args
+    assert "--dev=all" not in final_args
+
+
+def test_odoo_dry_run_shows_injected_dev(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+):
+    """``osh odoo --dry-run`` output includes the injected default."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "--dev=all" in result.output
+
+
+def test_odoo_config_dev_off_suppresses_injection(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh config odoo dev off`` disables the injection for the project."""
+    from osh.db import set_project_config
+
+    set_project_config(tmp_project, "odoo", "dev", "off")
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert not any(a.startswith("--dev") for a in final_args)
+
+
+def test_odoo_config_dev_custom_value_injected(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """A configured value like ``xml,reload`` is injected instead of ``all``."""
+    from osh.db import set_project_config
+
+    set_project_config(tmp_project, "odoo", "dev", "xml,reload")
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=xml,reload" in final_args
+
+
+def test_config_odoo_dev_writes_project_config(in_project):
+    """``osh config odoo dev <value>`` stores the default under [odoo]."""
+    from osh.commands.config_cmd import config
+    from osh.db import get_project_config
+
+    result = CliRunner().invoke(config, ["odoo", "dev", "off"])
+
+    assert result.exit_code == 0, result.output
+    assert get_project_config(in_project, "odoo", "dev") == "off"

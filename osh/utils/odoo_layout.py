@@ -16,10 +16,9 @@ def find_odoo_executable(base, *, required=False):
     """Return path to Odoo executable.
 
     Search order:
-    1. *base*/.venv/bin/odoo-bin
+    1. *base*/.venv/bin/odoo-bin or odoo (virtualenv)
     2. *base*/.osh/odoo/odoo-bin (source checkout)
-    3. *base*/.venv/bin/odoo (pip-installed)
-    4. First `odoo-bin` or `odoo` found in PATH.
+    3. First `odoo-bin` or `odoo` found in PATH.
 
     When *required* is True, raise a ClickException instead of returning None.
     """
@@ -40,7 +39,8 @@ def find_odoo_executable(base, *, required=False):
     if not exe and required:
         raise click.ClickException(
             "Could not locate Odoo executable. "
-            "Run 'osh init --target local <version>' to set up the local target."
+            "Run 'osh init --target venv <version>' to set up a project, "
+            "or install Odoo on PATH for the local target."
         )
     return exe
 

@@ -12,7 +12,7 @@ from osh.commands.plug_cmd import plug
 def plugin_home(tmp_path, monkeypatch):
     """Redirect the user plugin directory to a temporary location."""
     target = tmp_path / "plugins"
-    monkeypatch.setattr("osh.commands.plug_cmd._user_plugin_dir", lambda: target)
+    monkeypatch.setattr("osh.commands.plug_cmd.user_plugin_dir", lambda: target)
     return target
 
 

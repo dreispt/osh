@@ -1,9 +1,9 @@
-"""`osh db restore` command provided by the osh_backup plugin."""
+"""`osh db restore` command provided by the osh_db_get plugin."""
 
 import click
 
 from ... import echo
-from ...commands.helpers import collect_diagnostics
+from ...commands.helpers import check_run_diagnostics
 from ...commands.odoo_cmd import odoo
 from ...common import find_project_root
 from ...db import (
@@ -11,15 +11,15 @@ from ...db import (
     db_exists,
     drop_db,
     get_database_version,
+    resolve_backend,
     resolve_db_name,
-    resolve_run_target,
     sanitize_db_name,
     set_last_db,
 )
 from ...utils.odoo_layout import find_odoo_executable
-from ...utils.plugin_loader import load_backends
 from ...utils.version import get_version_tuple
 from . import restore_ops
+from .remotes import newest_cache_for_remote
 
 
 @click.command(name="restore")
@@ -124,7 +124,9 @@ def restore(
         restore_ops.list_cached_backups(base, limit=limit, reverse=reverse)
         return
 
-    dump_path = restore_ops.resolve_backup_path(base, dump)
+    dump_path = newest_cache_for_remote(base, dump)
+    if dump_path is None:
+        dump_path = restore_ops.resolve_backup_path(base, dump)
 
     db_name = (
         sanitize_db_name(target_db)
@@ -134,29 +136,13 @@ def restore(
     if not db_name:
         raise click.ClickException("Could not resolve a target database name.")
 
-    backend_name = resolve_run_target(base, "local", ctx)
-    backend_cls = load_backends().get(backend_name)
-    if backend_cls is None:
-        raise click.ClickException(f"Unknown restore target: {backend_name}")
-    backend = backend_cls()
-
-    diagnostics = collect_diagnostics(
-        base,
-        backend,
-        ctx,
-        target=backend_name,
-        phase="run",
-        sections=backend.diagnose_sections_for_phase("run"),
-    )
-    for warning_msg in diagnostics.warnings:
-        echo.warning(warning_msg)
-    if diagnostics.errors:
-        raise click.ClickException("\n".join(diagnostics.errors))
+    backend = resolve_backend(ctx, base)
+    check_run_diagnostics(base, backend, ctx)
 
     if not dry_run:
         set_last_db(base, db_name)
 
-    if db_exists(base, db_name):
+    if db_exists(base, db_name, ctx=ctx, dry_run=dry_run):
         if not force:
             raise click.ClickException(
                 f"Database '{db_name}' already exists. Use --force to overwrite."
@@ -164,17 +150,17 @@ def restore(
         if dry_run:
             echo.info(f"Would drop database '{db_name}'", err=True)
         else:
-            drop_db(base, db_name)
+            drop_db(base, db_name, ctx=ctx)
 
     if dry_run:
         echo.info(f"Would create database '{db_name}'", err=True)
         restore_ops.restore_dump(base, dump_path, db_name, dry_run=True)
     else:
-        create_db(base, db_name)
-        restore_ops.restore_dump(base, dump_path, db_name, dry_run=False)
+        create_db(base, db_name, ctx=ctx)
+        restore_ops.restore_dump(base, dump_path, db_name, dry_run=False, ctx=ctx)
 
     if not no_neutralize:
-        _neutralize(ctx, base, db_name, backend_name, dry_run=dry_run)
+        _neutralize(ctx, base, db_name, backend.name, dry_run=dry_run)
 
     if not dry_run:
         if no_neutralize:
@@ -201,19 +187,11 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     if dry_run:
         # The database does not exist in dry-run mode, so just preview the
         # built-in neutralize command. The real method is decided after restore.
-        ctx.invoke(
-            odoo,
-            dry_run=True,
-            backend_name=backend_name,
-            compose_file=None,
-            no_db_filter=True,
-            skip_config=False,
-            extra_args=("neutralize", "-d", db_name),
-        )
-        restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=True)
+        _odoo_neutralize(ctx, backend_name, db_name, dry_run=True)
+        restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=True, ctx=ctx)
         return
 
-    db_version = get_database_version(base, db_name)
+    db_version = get_database_version(base, db_name, ctx=ctx)
     exe = find_odoo_executable(base)
     local_version = get_version_tuple(exe) if exe else None
 
@@ -225,15 +203,7 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     )
 
     if use_odoo:
-        ctx.invoke(
-            odoo,
-            dry_run=False,
-            backend_name=backend_name,
-            compose_file=None,
-            no_db_filter=True,
-            skip_config=False,
-            extra_args=("neutralize", "-d", db_name),
-        )
+        _odoo_neutralize(ctx, backend_name, db_name, dry_run=False)
     else:
         if db_version is None:
             echo.warning(
@@ -246,6 +216,18 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
                 f"{local_version[0]}.{local_version[1]}; using SQL fallback "
                 "neutralization."
             )
-        restore_ops.neutralize_with_sql(base, db_name)
+        restore_ops.neutralize_with_sql(base, db_name, ctx=ctx)
 
-    restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=dry_run)
+    restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=dry_run, ctx=ctx)
+
+
+def _odoo_neutralize(ctx, backend_name, db_name, *, dry_run):
+    """Run ``odoo neutralize -d <db_name>`` through the ``osh odoo`` command."""
+    ctx.invoke(
+        odoo,
+        dry_run=dry_run,
+        backend_name=backend_name,
+        compose_file=None,
+        no_db_filter=True,
+        extra_args=("neutralize", "-d", db_name),
+    )

@@ -136,22 +136,23 @@ def branch_db(tmp_project, pg_db):
 def test_db(pg_db, monkeypatch):
     """Create a real uniquely-named database and resolve the branch to it."""
     name = pg_db.create()
-    monkeypatch.setattr(
-        "osh.db.resolve_db_name", lambda base, verbose=False, branch=None: name
-    )
+    resolve = lambda base, verbose=False, branch=None: name  # noqa: E731
+    monkeypatch.setattr("osh.db.resolve_db_name", resolve)
+    # ``osh odoo`` binds the helper at import time.
+    monkeypatch.setattr("osh.commands.odoo_cmd.resolve_db_name", resolve)
     return name
 
 
 @pytest.fixture
 def capture_execvp(monkeypatch):
-    """Capture ``osh.plugins.osh_backend_local.backends.os.execvpe`` calls.
+    """Capture ``osh.backends.os.execvpe`` calls.
 
     Each entry is ``(exe, args, env)``; ``env`` is the full environment the
     child process would have received.
     """
     exec_calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_local.backends.os.execvpe",
+        "osh.backends.os.execvpe",
         lambda exe, args, env: exec_calls.append((exe, args, env)),
     )
     return exec_calls
@@ -255,12 +256,83 @@ def real_git_only_subprocess(monkeypatch):
         return result.returncode, result.stdout or "", result.stderr or ""
 
     for target in (
-        "osh.plugins.osh_backend_local.utils.run_subprocess",
+        "osh.plugins.osh_backend_venv.utils.run_subprocess",
         "osh.sources.run_subprocess",
     ):
         monkeypatch.setattr(target, fake_run_subprocess)
     monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls
+
+
+def _setup_fake_db_config(project, db_name="testdb"):
+    """Write a branch database mapping into the project config."""
+    from osh.db import set_project_config
+
+    set_project_config(project, "db", "default", db_name)
+
+
+@pytest.fixture
+def patched_restore(monkeypatch, in_project, pg_db):
+    """Patch external dependencies used by `osh db restore` for isolated tests.
+
+    The branch database is mapped to a unique name that is guaranteed not to
+    exist, so the real ``db_exists`` check drives the create path.
+    """
+    from osh.commands.helpers import Diagnostics
+
+    db_name = pg_db.name()
+    state = {
+        "db_name": db_name,
+        "restore": [],
+        "neutralize": [],
+        "sql_neutralize": [],
+        "dropped": [],
+        "created": [],
+    }
+    _setup_fake_db_config(in_project, db_name)
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.drop_db",
+        lambda base, db, **kw: state["dropped"].append(db),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.create_db",
+        lambda base, db, **kw: state["created"].append(db),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_ops.restore_dump",
+        lambda base, dump_path, db_name, *, dry_run=False, **kw: state[
+            "restore"
+        ].append((dump_path, db_name, dry_run)),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.get_database_version",
+        lambda base, db, **kw: (19, 0),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.find_odoo_executable",
+        lambda base: str(in_project / ".venv" / "bin" / "odoo"),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.get_version_tuple",
+        lambda exe: (19, 0),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_ops.neutralize_with_sql",
+        lambda base, db, **kw: state["sql_neutralize"].append(db),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.odoo",
+        lambda **kwargs: state["neutralize"].append(kwargs),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.check_run_diagnostics",
+        lambda *args, **kwargs: Diagnostics(
+            backend="local", info={}, warnings=[], errors=[]
+        ),
+    )
+
+    return state
 
 
 @pytest.fixture(autouse=True, scope="session")

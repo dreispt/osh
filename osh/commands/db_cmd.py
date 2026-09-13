@@ -3,19 +3,20 @@
 import click
 
 from .. import echo
+from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
 from ..db import (
     _require_db_name,
     copy_db,
     db_exists,
-    get_current_branch,
+    resolve_branch,
     resolve_db_name,
     set_project_config,
     unset_project_config,
 )
 
 
-@click.group(name="db")
+@click.group(name="db", cls=NaturalOrderGroup)
 def db():  # noqa: D401
     """Manage databases and branch-to-database mappings.
 
@@ -54,9 +55,9 @@ def show(ctx):  # noqa: D401
     ``osh odoo`` would use before starting Odoo.
     """
     base = find_project_root(required=True)
-    branch = get_current_branch(base) or "default"
+    branch = resolve_branch(base, None)
     db_name = resolve_db_name(base, verbose=False)
-    exists = db_exists(base, db_name)
+    exists = db_exists(base, db_name, ctx=ctx)
     echo.info(f"Branch:   {branch}")
     echo.info(f"Database: {db_name}")
     echo.info(f"Exists:   {'yes' if exists else 'no'}")
@@ -64,8 +65,7 @@ def show(ctx):  # noqa: D401
 
 def _set_branch_db(base, db_name, branch):
     """Record *db_name* as the database for *branch* and return both names."""
-    if branch is None:
-        branch = get_current_branch(base) or "default"
+    branch = resolve_branch(base, branch)
     value = _require_db_name(db_name)
     set_project_config(base, "db", branch, value)
     return branch, value
@@ -109,9 +109,9 @@ def copy(ctx, from_db, to_db):  # noqa: D401
     base = find_project_root(required=True)
     from_name = _require_db_name(from_db)
     to_name = _require_db_name(to_db)
-    if not db_exists(base, from_name):
+    if not db_exists(base, from_name, ctx=ctx):
         raise click.ClickException(f"Source database '{from_name}' does not exist.")
-    copy_db(base, from_name, to_name)
+    copy_db(base, from_name, to_name, ctx=ctx)
     echo.info(f"Copied database '{from_name}' to '{to_name}'")
 
 
@@ -135,8 +135,7 @@ def unpin(ctx, branch):  # noqa: D401
       osh db unpin --branch feature/old-thing
     """
     base = find_project_root(required=True)
-    if branch is None:
-        branch = get_current_branch(base) or "default"
+    branch = resolve_branch(base, branch)
 
     unset_project_config(base, "db", branch)
     echo.info(f"Unpinned branch '{branch}'")

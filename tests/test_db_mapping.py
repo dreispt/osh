@@ -111,7 +111,7 @@ def test_db_group_command_surface():
 
 
 def test_db_restore_comes_from_plugin():
-    """`osh db restore` is contributed by the osh_backup plugin."""
+    """`osh db restore` is contributed by the osh_db_get plugin."""
     from osh.cli import main
 
     assert "restore" in main.commands["db"].commands
@@ -188,7 +188,8 @@ def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, pg_db, monkeypat
     pg_db.track(missing)
     set_project_config(tmp_project, "db", "default", missing)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "2")
+    # No last used database: choices are [1] create, [2] choose.
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "1")
     result = resolve_db_name_for_run(tmp_project, verbose=False)
     assert result == missing
     assert pg_db.exists(missing)

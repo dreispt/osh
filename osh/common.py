@@ -41,7 +41,7 @@ def venv_env(base):
     venv_bin = get_venv_bin(base)
     if not venv_bin.is_dir():
         raise click.ClickException(
-            "No virtualenv found. Run `osh init --target local` to create one."
+            "No virtualenv found. Run `osh init --target venv` to create one."
         )
     venv_path = str(venv_bin)
     path = os.environ.get("PATH", "")
@@ -107,22 +107,11 @@ def find_project_root(start=None, *, required=False):
     start = (start or Path.cwd()).resolve()
     home = Path.home()
 
+    # Inside a git repo the search starts at the repo root (``.osh`` lives
+    # there); outside git it starts at *start* itself.
     git_root = _find_git_root(start)
-    if git_root is not None:
-        if (git_root / ".osh").exists():
-            return git_root
-        # Submodule case: walk up from git root looking for .osh
-        for p in [git_root] + list(git_root.parents):
-            if (p / ".osh").exists():
-                return p
-            if p == home:
-                break
-        if required:
-            _not_in_project()
-        return None
-
-    # No git repo: walk up looking for .osh (supports non-git projects).
-    for p in [start] + list(start.parents):
+    walk_from = git_root if git_root is not None else start
+    for p in [walk_from] + list(walk_from.parents):
         if (p / ".osh").exists():
             return p
         if p == home:
@@ -136,7 +125,7 @@ def _not_in_project():
     """Print a helpful message and exit when no Osh project is found."""
     echo.info(
         "Not inside an Osh project. "
-        "Run 'osh init --target <local|docker> <version>' to create one."
+        "Run 'osh init --target <venv|docker> <version>' to create one."
     )
     raise SystemExit(0)
 
@@ -151,7 +140,27 @@ def get_osh_odoo_config_path(base):
     return base / ".osh" / "odoo.conf"
 
 
-def _has_arg(args, long, short=None):
+def get_odoo_port(base):
+    """Return the Odoo HTTP port configured for *base* (default ``8069``).
+
+    Reads ``http_port`` (or the legacy ``xmlrpc_port``) from the first
+    existing of ``.osh/odoo.conf`` and ``.odoorc``.
+    """
+    for conf in (get_osh_odoo_config_path(base), get_odoo_config_path(base)):
+        if not conf.exists():
+            continue
+        cfg = configparser.ConfigParser()
+        cfg.read(conf, encoding="utf-8")
+        if not cfg.has_section("options"):
+            continue
+        for key in ("http_port", "xmlrpc_port"):
+            value = cfg["options"].get(key)
+            if value and str(value).strip().isdigit():
+                return int(str(value).strip())
+    return 8069
+
+
+def has_arg(args, long, short=None):
     """Return True if *args* contains the given long (and optional short) option."""
     for arg in args:
         if arg == long or arg.startswith(f"{long}="):
@@ -170,44 +179,9 @@ def _is_short_with_value(arg, short):
     return arg.startswith(short) and len(arg) > len(short) and arg[len(short)] != "-"
 
 
-def resolve_config_file(base, extra_args, *, for_run=False):
-    """Return the appropriate Odoo config file path to use.
-
-    Args:
-        base: Project root directory
-        extra_args: Command line arguments to check for explicit config
-        for_run: If True, create .osh/odoo.conf if it doesn't exist (for run command)
-
-    Returns:
-        Path to config file to use, or None if no config should be used
-    """
-    has_explicit_config = _has_arg(extra_args, "--config", short="-c")
-    if has_explicit_config:
-        return None
-
-    osh_odoo_conf = get_osh_odoo_config_path(base)
-    odoo_rc = get_odoo_config_path(base)
-
-    # Prefer .osh/odoo.conf, fall back to .odoorc
-    config_to_use = None
-    if osh_odoo_conf.exists():
-        config_to_use = osh_odoo_conf
-    elif odoo_rc.exists():
-        config_to_use = odoo_rc
-
-    # For run command, create .osh/odoo.conf if it doesn't exist
-    if for_run and config_to_use is None:
-        osh_odoo_conf.parent.mkdir(parents=True, exist_ok=True)
-        osh_odoo_conf.touch()
-        config_to_use = osh_odoo_conf
-
-    return config_to_use
-
-
-def ensure_tool(tool):
-    """Raise a ClickException if *tool* is not available on PATH."""
-    if not shutil.which(tool):
-        raise click.ClickException(f"Required tool '{tool}' is not available on PATH.")
+def format_cmd(args):
+    """Return *args* as a single shell-quoted command line string."""
+    return " ".join(shlex.quote(str(a)) for a in args)
 
 
 def _stream_output(pipe, err=False):
@@ -252,8 +226,9 @@ def run_command(
                 text=text,
             )
         except FileNotFoundError as exc:
-            cmd = " ".join(shlex.quote(str(a)) for a in args)
-            raise click.ClickException(f"Command not found: {cmd}") from exc
+            raise click.ClickException(
+                f"Command not found: {format_cmd(args)}"
+            ) from exc
 
         out_thread = threading.Thread(
             target=_stream_output, args=(proc.stdout, False), daemon=True
@@ -270,8 +245,9 @@ def run_command(
 
         result = subprocess.CompletedProcess(args=args, returncode=returncode)
         if check and returncode:
-            cmd = " ".join(shlex.quote(str(a)) for a in args)
-            raise click.ClickException(f"Command failed (exit {returncode}): {cmd}")
+            raise click.ClickException(
+                f"Command failed (exit {returncode}): {format_cmd(args)}"
+            )
         return result
 
     try:
@@ -324,7 +300,7 @@ def run_subprocess(
 
     If *silent* is True, both stdout and stderr are discarded to ``/dev/null``.
     """
-    cmd = " ".join(shlex.quote(str(a)) for a in args)
+    cmd = format_cmd(args)
     if dry_run:
         echo.info(f"Would run: {cmd}", err=True)
         return 0, "", ""
@@ -346,6 +322,8 @@ def run_subprocess(
         if error_msg:
             raise click.ClickException(f"{error_msg}: command not found") from exc
         return None, "", f"Command not found: {cmd} ({exc})"
+
+    echo.debug(f"exit {result.returncode}: {cmd}")
 
     if error_msg and result.returncode != 0:
 
@@ -385,9 +363,7 @@ def run_shell_pipeline(
     a ``click.ClickException`` using that message.  *not_found_msg* overrides
     the message used when the executable is missing.
     """
-    pipeline = " | ".join(
-        " ".join(shlex.quote(str(a)) for a in cmd) for cmd in commands
-    )
+    pipeline = " | ".join(format_cmd(cmd) for cmd in commands)
     returncode, out, stderr = run_subprocess(
         ["sh", "-c", pipeline], stdout=stdout, env=env, text=text
     )

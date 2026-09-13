@@ -1,4 +1,4 @@
-"""Local backend commands for Osh."""
+"""Commands bundled with the ``venv`` backend plugin."""
 
 import click
 

@@ -17,7 +17,7 @@ from ..config import (
     set_enabled_plugins,
     set_plugin_alias,
 )
-from ..utils.plugin_loader import _plugin_source_name, _plugin_subdirs, _user_plugin_dir
+from ..utils.plugin_loader import plugin_source_name, plugin_subdirs, user_plugin_dir
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
@@ -51,10 +51,10 @@ def _discover_plugins(repo_dir):
     if _declares_manifest(repo_dir / "__init__.py") or _declares_manifest(
         repo_dir / "osh_plugin.py"
     ):
-        names.append(_plugin_source_name(repo_dir.name))
-    for subdir in _plugin_subdirs(repo_dir):
+        names.append(plugin_source_name(repo_dir.name))
+    for subdir in plugin_subdirs(repo_dir):
         if _declares_manifest(subdir / "__init__.py"):
-            names.append(_plugin_source_name(subdir.name))
+            names.append(plugin_source_name(subdir.name))
     return names
 
 
@@ -98,7 +98,7 @@ def _update_enabled(name, plugin_names, *, enable):
     Without *plugin_names* the whole repository is enabled (no explicit list)
     or disabled (empty list).
     """
-    repo_dir = _user_plugin_dir() / name
+    repo_dir = user_plugin_dir() / name
     if not repo_dir.exists():
         raise click.ClickException(f"Plugin '{name}' is not installed.")
     verb = "Enabled" if enable else "Disabled"
@@ -189,7 +189,7 @@ def install(ctx, source, editable, trust, install_all, plugin_names):  # noqa: D
         if not click.confirm("Install this plugin?", default=False, err=True):
             ctx.exit(0)
 
-    plugin_dir = _user_plugin_dir() / name
+    plugin_dir = user_plugin_dir() / name
     if plugin_dir.exists() or plugin_dir.is_symlink():
         raise click.ClickException(
             f"Plugin '{name}' is already installed. Remove it first."
@@ -235,7 +235,7 @@ def list_(ctx):  # noqa: D401
 
     Plugins are located in ~/.config/osh/plugins/.
     """
-    plugin_dir = _user_plugin_dir()
+    plugin_dir = user_plugin_dir()
     if not plugin_dir.is_dir():
         echo.info("No plugins installed.")
         return
@@ -280,7 +280,7 @@ def uninstall(ctx, name, yes):  # noqa: D401
 
     Use --yes to skip the confirmation prompt.
     """
-    plugin_dir = _user_plugin_dir() / name
+    plugin_dir = user_plugin_dir() / name
     if not plugin_dir.exists() and not plugin_dir.is_symlink():
         raise click.ClickException(f"Plugin '{name}' is not installed.")
 

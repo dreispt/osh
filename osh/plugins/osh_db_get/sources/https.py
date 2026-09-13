@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 import click
 
 from .... import echo
-from ....backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
+from ....backup_sources import BackupSource, SourceError, now_stamp, safe_name
 
 
 class HttpsSource(BackupSource):
@@ -63,9 +63,9 @@ class HttpsSource(BackupSource):
         return cls(source, master_password=master_password)
 
     def default_output_name(self):
-        safe_host = _safe_name(self.host)
-        safe_db = _safe_name(self.db_name)
-        return f"{safe_host}_{safe_db}_{_now_stamp()}.{self.backup_format}"
+        safe_host = safe_name(self.host)
+        safe_db = safe_name(self.db_name)
+        return f"{safe_host}_{safe_db}_{now_stamp()}.{self.backup_format}"
 
     def fetch(self, output, *, dry_run=False):
         master_pwd = self._resolve_master_password()

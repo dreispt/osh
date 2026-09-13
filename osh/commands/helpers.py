@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import click
+
 from .. import echo
 
 
@@ -67,18 +69,13 @@ class Diagnostics:
             echo.warning(warning_msg)
 
         if include_info and self.info:
-            for topic in ("Project", "System") + tuple(
-                t for t in sorted(self.info) if t not in ("Project", "System")
-            ):
-                if topic not in self.info:
-                    continue
+            topics = [t for t in ("Project", "System") if t in self.info]
+            topics += sorted(t for t in self.info if t not in topics)
+            for topic in topics:
                 echo.info(f"{topic}:")
                 for key in sorted(self.info[topic]):
-                    value = self.info[topic][key]
-                    if key == "odoo_version":
-                        echo.info(f"  Odoo version: {value}")
-                    else:
-                        echo.info(f"  {key}: {value}")
+                    label = "Odoo version" if key == "odoo_version" else key
+                    echo.info(f"  {label}: {self.info[topic][key]}")
 
 
 def collect_diagnostics(
@@ -105,6 +102,29 @@ def collect_diagnostics(
         diagnostics.add_info(
             "dbname", resolve_db_name(base, verbose=False), topic="Project"
         )
+    return diagnostics
+
+
+def check_run_diagnostics(base, backend, ctx, *, compose_file=None):
+    """Collect run-phase diagnostics; print warnings, raise on errors.
+
+    Shared pre-flight for ``osh odoo``/``osh shell`` and plugin commands that
+    need the backend checked before executing (e.g. ``osh db restore``).
+    Returns the collected ``Diagnostics``.
+    """
+    diagnostics = collect_diagnostics(
+        base,
+        backend,
+        ctx,
+        target=backend.name,
+        phase="run",
+        compose_file=compose_file,
+        sections=backend.diagnose_sections_for_phase("run"),
+    )
+    for warning_msg in diagnostics.warnings:
+        echo.warning(warning_msg)
+    if diagnostics.errors:
+        raise click.ClickException("\n".join(diagnostics.errors))
     return diagnostics
 
 
