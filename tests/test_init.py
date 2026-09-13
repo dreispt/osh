@@ -1,5 +1,6 @@
 """Tests for ``osh init`` source resolution."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -227,6 +228,30 @@ class TestEnsureSource:
 
         assert result == osh_dir / "odoo"
         assert (osh_dir / "odoo").is_symlink()
+        assert (osh_dir / "odoo").resolve() == src.resolve()
+        # In-project sources link relatively so the link survives host
+        # moves and container mounts (e.g. /mnt/extra-addons).
+        assert not Path(os.readlink(osh_dir / "odoo")).is_absolute()
+
+    def test_links_external_source_absolutely(self, tmp_path, tmp_project, patch_cache):
+        """Sources outside the project keep an absolute symlink."""
+        src = tmp_path / "external-odoo"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "odoo-bin").touch()
+        osh_dir = tmp_project / ".osh"
+        osh_dir.mkdir(parents=True, exist_ok=True)
+
+        result = _ensure_source(
+            "odoo",
+            "19.0",
+            str(src),
+            None,
+            osh_dir,
+            DEFAULT_ODOO_URL,
+        )
+
+        assert result == osh_dir / "odoo"
+        assert Path(os.readlink(osh_dir / "odoo")).is_absolute()
         assert (osh_dir / "odoo").resolve() == src.resolve()
 
     def test_uses_explicit_local_source(self, tmp_project, patch_cache):
