@@ -86,8 +86,7 @@ def prepare_env_context(
     contains ``ODOO_RC`` and PostgreSQL connection variables when available.
 
     The database name is resolved without probing or prompting — commands
-    that require an existing database (``osh odoo``) resolve it with
-    ``resolve_db_name_for_run`` beforehand and pass it in.
+    that need an existing database resolve it beforehand and pass it in.
     """
     explicit_config = has_arg(extra_args, "--config", short="-c")
     no_db_filter = no_db_filter or has_arg(extra_args, "--db-filter")

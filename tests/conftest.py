@@ -136,9 +136,10 @@ def branch_db(tmp_project, pg_db):
 def test_db(pg_db, monkeypatch):
     """Create a real uniquely-named database and resolve the branch to it."""
     name = pg_db.create()
-    monkeypatch.setattr(
-        "osh.db.resolve_db_name", lambda base, verbose=False, branch=None: name
-    )
+    resolve = lambda base, verbose=False, branch=None: name  # noqa: E731
+    monkeypatch.setattr("osh.db.resolve_db_name", resolve)
+    # ``osh odoo`` binds the helper at import time.
+    monkeypatch.setattr("osh.commands.odoo_cmd.resolve_db_name", resolve)
     return name
 
 

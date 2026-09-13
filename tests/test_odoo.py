@@ -41,6 +41,21 @@ def test_odoo_dry_run_prints_command_and_database(
     assert f"db_name = {test_db}" in dynamic_conf.read_text()
 
 
+def test_odoo_informs_when_database_missing(
+    tmp_project, monkeypatch, fake_odoo_executable, osh_source_dirs, capture_execvp
+):
+    """A missing branch db is reported, not prompted — Odoo creates it."""
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr("osh.commands.odoo_cmd.db_exists", lambda *a, **kw: False)
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert "does not exist" in result.output
+    assert "create and initialize" in result.output
+    assert len(capture_execvp) == 1
+
+
 def test_odoo_generates_dynamic_config_and_sets_env(
     tmp_project,
     monkeypatch,

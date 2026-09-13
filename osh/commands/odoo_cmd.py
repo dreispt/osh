@@ -19,9 +19,10 @@ from ..cli_utils import format_targets_section
 from ..common import find_project_root, has_arg
 from ..config import get_user_preference
 from ..db import (
+    db_exists,
     get_project_config,
     resolve_backend,
-    resolve_db_name_for_run,
+    resolve_db_name,
     set_project_config,
 )
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
@@ -136,12 +137,19 @@ def odoo(
     # default too; for now it is applied uniformly on every backend.
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
-    # Odoo needs an existing database; resolve it here (probing and
-    # prompting when missing) rather than in ``prepare_env_context``, which
-    # only resolves a name for tool passthrough.
+    # Odoo creates and initializes a missing ``db_name`` itself, so a
+    # missing database is reported with a continue confirmation, not
+    # prompted for.
     db_name = parse_explicit_db(extra_args)
     if not db_name and not has_arg(extra_args, "--config", short="-c"):
-        db_name = resolve_db_name_for_run(base, ctx=ctx, dry_run=dry_run)
+        db_name = resolve_db_name(base)
+        if not db_exists(base, db_name, ctx=ctx, dry_run=dry_run):
+            echo.info(
+                f"Database '{db_name}' does not exist; "
+                "Odoo will create and initialize it."
+            )
+            if not dry_run:
+                echo.confirm("Continue?", default=True, abort=True)
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")
