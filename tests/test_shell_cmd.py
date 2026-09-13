@@ -81,6 +81,32 @@ def test_shell_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
     assert "ODOO_RC" in exec_env
 
 
+def test_shell_tool_passthrough_skips_missing_db_prompt(tmp_project, monkeypatch):
+    """``osh shell psql -l`` runs even when the branch database is missing.
+
+    Tool commands get the project env (``PGDATABASE`` and friends) without
+    the create/copy prompt — that prompt is for Odoo runs.
+    """
+    _setup_venv(tmp_project)
+    monkeypatch.chdir(tmp_project)
+    # Simulate a missing branch database; a probing resolve would abort
+    # (non-interactive) or prompt (TTY). Passthrough must not probe.
+    monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: False)
+
+    calls = []
+    monkeypatch.setattr(
+        "osh.backends.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args), env)),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(shell, ["--target", "venv", "psql", "-l"])
+
+    assert result.exit_code == 0, result.output
+    assert calls and calls[0][1] == ["psql", "-l"]
+    assert calls[0][2]["PGDATABASE"] == "project-default"
+
+
 def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch):
     """``osh shell`` creates a branch/db specific config in ``.osh/cache/env``."""
     _setup_venv(tmp_project)

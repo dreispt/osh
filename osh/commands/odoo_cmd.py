@@ -18,7 +18,12 @@ from ..backends import EnvSpec
 from ..cli_utils import format_targets_section
 from ..common import find_project_root, has_arg
 from ..config import get_user_preference
-from ..db import get_project_config, resolve_backend, set_project_config
+from ..db import (
+    get_project_config,
+    resolve_backend,
+    resolve_db_name_for_run,
+    set_project_config,
+)
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
 from .helpers import check_run_diagnostics
@@ -131,7 +136,12 @@ def odoo(
     # default too; for now it is applied uniformly on every backend.
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
+    # Odoo needs an existing database; resolve it here (probing and
+    # prompting when missing) rather than in ``prepare_env_context``, which
+    # only resolves a name for tool passthrough.
     db_name = parse_explicit_db(extra_args)
+    if not db_name and not has_arg(extra_args, "--config", short="-c"):
+        db_name = resolve_db_name_for_run(base, ctx=ctx, dry_run=dry_run)
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")

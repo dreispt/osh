@@ -84,13 +84,15 @@ def prepare_env_context(
     Returns ``(config_path, env_vars, db_name)``. ``config_path`` is ``None``
     when the user passed an explicit ``--config`` argument. ``env_vars``
     contains ``ODOO_RC`` and PostgreSQL connection variables when available.
+
+    The database name is resolved without probing or prompting — commands
+    that require an existing database (``osh odoo``) resolve it with
+    ``resolve_db_name_for_run`` beforehand and pass it in.
     """
     explicit_config = has_arg(extra_args, "--config", short="-c")
     no_db_filter = no_db_filter or has_arg(extra_args, "--db-filter")
     if not db_name and not explicit_config:
-        db_name = db_module.resolve_db_name_for_run(
-            base, verbose=False, ctx=ctx, dry_run=dry_run
-        )
+        db_name = db_module.resolve_db_name(base)
 
     if db_name and not dry_run:
         db_module.set_last_db(base, db_name)
