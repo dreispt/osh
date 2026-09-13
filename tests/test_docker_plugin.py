@@ -391,13 +391,17 @@ def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsy
     assert 'PGHOST="${PGHOST:-$HOST}"' in err
     assert 'PGPASSWORD="${PGPASSWORD:-$PASSWORD}"' in err
     assert "osh psql -l" in err
+    # C.UTF-8 overrides the image's ungenerated LANG=en_US.UTF-8, which makes
+    # perl-based tools (pg_wrapper) warn on every exec.
+    assert "-e LC_ALL=C.UTF-8" in err
 
 
 def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
-    """``odoo`` runs via a wrapper mapping HOST/USER/... to --db_* args.
+    """``odoo`` runs via a wrapper mapping HOST/USER/... to libpq variables.
 
-    ``compose exec`` bypasses the image entrypoint, so the backend supplies the
-    ``--db_*`` arguments itself.
+    ``compose exec`` bypasses the image entrypoint, which would map them to
+    ``--db_*`` arguments; the exported ``PG*`` variables reach Odoo through
+    psycopg2's libpq fallback instead.
     """
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -409,14 +413,12 @@ def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    # The --db_* args must be appended after the command args — exec "$@"
-    # would otherwise try to run a flag as the program name.
-    assert 'set -- "$@" --db_host="$HOST"' in err
+    assert 'PGHOST="${PGHOST:-$HOST}"' in err
     assert " osh odoo" in err
 
 
 def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
-    """Flags as argv[0] get the configured command prepended, then --db_* args."""
+    """Flags as argv[0] get the configured command prepended."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -427,26 +429,28 @@ def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
     backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert 'set -- "$@" --db_host="$HOST"' in err
+    assert 'PGHOST="${PGHOST:-$HOST}"' in err
     assert " osh odoo -d mydb" in err
 
 
-def test_odoo_db_args_script_appends_db_args():
-    """The odoo wrapper appends ``--db_*`` after the command args.
+def test_pg_env_script_maps_image_vars_to_libpq():
+    """The wrapper exports the libpq variables from the image's DB vars.
 
-    ``exec "$@"`` runs the first positional as the program, so the
-    ``--db_*`` args must come after the command — like the image
-    entrypoint's ``exec odoo "$@" "${DB_ARGS[@]}"``.
+    Values already present in the environment (e.g. ``-e PGHOST=...``) are
+    kept over the image's ``HOST``/``PORT``/``USER``/``PASSWORD``.
     """
-    from osh.plugins.osh_backend_docker.backends import _ODOO_DB_ARGS_SCRIPT
+    from osh.plugins.osh_backend_docker.backends import _PG_ENV_SCRIPT
 
-    script = _ODOO_DB_ARGS_SCRIPT.replace('exec "$@"', 'printf "%s\\n" "$@"')
+    script = _PG_ENV_SCRIPT.replace(
+        'exec "$@"', 'printf "%s\\n" "$PGHOST:$PGPORT:$PGUSER:$PGPASSWORD"'
+    )
     env = {
         "PATH": os.environ["PATH"],
         "HOST": "db",
         "PORT": "5432",
         "USER": "odoo",
         "PASSWORD": "secret",
+        "PGUSER": "preset",
     }
     result = subprocess.run(
         ["sh", "-c", script, "osh", "odoo", "--stop", "--dev=all"],
@@ -456,15 +460,69 @@ def test_odoo_db_args_script_appends_db_args():
     )
 
     assert result.returncode == 0
-    assert result.stdout.splitlines() == [
-        "odoo",
-        "--stop",
-        "--dev=all",
-        "--db_host=db",
-        "--db_port=5432",
-        "--db_user=odoo",
-        "--db_password=secret",
-    ]
+    assert result.stdout.splitlines() == ["db:5432:preset:secret"]
+
+
+def test_docker_addons_paths_resolve_symlinks_on_host(tmp_project):
+    """Symlinked addon dirs translate to their real path under the mount.
+
+    ``.osh/odoo`` may be a symlink to a source checkout (e.g. created by
+    ``osh init`` linking a project-local clone). Translated literally it
+    would dangle inside the container; resolving on the host first maps it
+    to the real directory under ``/mnt/extra-addons``.
+    """
+    (tmp_project / "odoo" / "odoo" / "addons").mkdir(parents=True)
+    (tmp_project / ".osh" / "odoo").symlink_to(
+        tmp_project / "odoo" / "odoo", target_is_directory=True
+    )
+
+    paths = DockerBackend().build_addons_paths(tmp_project)
+
+    assert "/mnt/extra-addons/odoo/odoo/addons" in paths
+    assert not any(".osh" in p for p in paths)
+
+
+def test_docker_addons_paths_mount_out_of_project_sources(
+    tmp_project, tmp_path, monkeypatch
+):
+    """Sources linked from outside the project get a ``/mnt/osh-src`` mount.
+
+    A generated Compose override adds them as read-only volumes, since the
+    ``/mnt/extra-addons`` project mount cannot reach them.
+    """
+    external = tmp_path / "shared-odoo"
+    (external / "addons").mkdir(parents=True)
+    (tmp_project / ".osh" / "odoo").symlink_to(external, target_is_directory=True)
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+    backend = DockerBackend()
+    paths = backend.build_addons_paths(tmp_project)
+    (container_path,) = (p for p in paths if p.startswith("/mnt/osh-src/"))
+    assert container_path.startswith("/mnt/osh-src/addons-")
+
+    # The override is generated on ensure_service_up and carries the mount.
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        lambda *a, **kw: (1, "", ""),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_command",
+        lambda *a, **kw: None,
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        lambda *a, **kw: False,
+    )
+    backend.ensure_service_up(tmp_project)
+
+    override = tmp_project / ".osh" / "docker-compose.osh.yml"
+    assert override.is_file()
+    text = override.read_text()
+    assert f"{external / 'addons'}:{container_path}:ro" in text
 
 
 def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):

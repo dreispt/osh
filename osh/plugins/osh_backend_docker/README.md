@@ -55,6 +55,24 @@ Containers are intentionally **left running** after commands exit.
 `osh down` runs `docker compose down` for the project stack; `osh doctor`
 reports whether the container is running and for how long.
 
+## Addons paths
+
+The generated Odoo config's `addons_path` is translated to container paths
+before being written: directories under the project become
+`/mnt/extra-addons/<relative>`; symlinks (e.g. `.osh/odoo` pointing at a
+checkout) are resolved on the host first so the mount sees the real
+directory.
+
+Sources resolving **outside** the project root — a linked Odoo or
+Enterprise checkout shared between projects — cannot be reached through
+the project mount. For those, Osh generates
+`.osh/docker-compose.osh.yml`, a Compose override adding each one as a
+read-only volume under `/mnt/osh-src/<name>-<hash>`, and includes it in
+every `docker compose` invocation. It is regenerated on each run, so
+changing a link takes effect on the next `osh odoo`/`osh shell` (the stack
+is recreated to pick up new mounts). The file is removed when no external
+sources are configured.
+
 Before `up -d`, Osh checks whether the configured port is already bound. If
 the holder is another Osh-managed project (identified via Compose labels),
 the error names that project and suggests `osh down` there or

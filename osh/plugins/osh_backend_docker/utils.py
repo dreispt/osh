@@ -15,6 +15,8 @@ from ...common import run_command, run_subprocess
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
+# Generated override mounting addon sources outside the project root.
+_SOURCES_COMPOSE_FILE = Path(".osh") / "docker-compose.osh.yml"
 
 
 def _load_docker_config(base):
@@ -136,6 +138,9 @@ def _compose_base_command(
         if not compose_path.is_absolute():
             compose_path = Path(base) / compose_path
         cmd.extend(["-f", str(compose_path)])
+    override = Path(base) / _SOURCES_COMPOSE_FILE
+    if override.is_file():
+        cmd.extend(["-f", str(override)])
     return cmd
 
 
