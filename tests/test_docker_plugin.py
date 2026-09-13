@@ -61,6 +61,8 @@ def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatc
     assert "image: postgres:16" in compose_text
     assert "..:/mnt/extra-addons" in compose_text
     assert "user: odoo" in compose_text
+    assert "PGHOST: db" in compose_text
+    assert "PGPASSWORD: myodoo" in compose_text
     assert not (tmp_project / "docker-compose.yml").exists()
     assert not (tmp_project / "Dockerfile").exists()
 
@@ -343,6 +345,72 @@ def test_docker_backend_env_runs_user_command(tmp_project, capsys):
 
     err = capsys.readouterr().err
     assert "python3 -m odoo" in err
+
+
+def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsys):
+    """Non-odoo commands run through a shell mapping image vars to libpq vars."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+
+    backend = DockerBackend()
+    backend.env(None, tmp_project, EnvSpec(argv=["psql", "-l"]), dry_run=True)
+
+    err = capsys.readouterr().err
+    assert 'PGHOST="${PGHOST:-$HOST}"' in err
+    assert 'PGPASSWORD="${PGPASSWORD:-$PASSWORD}"' in err
+    assert "osh psql -l" in err
+
+
+def test_docker_backend_env_odoo_command_is_not_wrapped(tmp_project, capsys):
+    """The ``odoo`` command runs directly so the image entrypoint adds --db_*."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+
+    backend = DockerBackend()
+    backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+
+    err = capsys.readouterr().err
+    assert " odoo odoo" in err
+    assert "sh -c" not in err
+
+
+def test_docker_backend_env_dash_args_run_odoo_directly(tmp_project, capsys):
+    """Flags as argv[0] go to the image entrypoint, which treats them as odoo args."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+
+    backend = DockerBackend()
+    backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
+
+    err = capsys.readouterr().err
+    assert " odoo -d mydb" in err
+    assert "sh -c" not in err
+
+
+def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):
+    """An interactive ``osh run`` shell also gets the libpq variables."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+
+    backend = DockerBackend()
+    backend.env(None, tmp_project, EnvSpec(argv=[]), dry_run=True)
+
+    err = capsys.readouterr().err
+    assert 'PGHOST="${PGHOST:-$HOST}"' in err
+    assert "command -v bash" in err
+    assert "else exec sh" in err
 
 
 def test_docker_backend_requires_service(tmp_project):

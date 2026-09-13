@@ -10,6 +10,10 @@ services:
       USER: odoo
       PASSWORD: myodoo
       PORT: 5432
+      PGHOST: db
+      PGUSER: odoo
+      PGPASSWORD: myodoo
+      PGPORT: 5432
     volumes:
       - odoo-web-data:/var/lib/odoo
       - ..:/mnt/extra-addons

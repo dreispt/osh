@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 from pathlib import Path
 
 import click
@@ -375,9 +376,9 @@ class DockerBackend(Backend):
                 args = command.split() + args[1:]
 
         if not args:
-            shells = ["bash", "sh"]
+            container_argv = ["sh", "-c", _PG_ENV_SHELL_SCRIPT]
         else:
-            shells = [args[0]]
+            container_argv = _container_command(args)
 
         env = dict(env_spec.env)
         if "ODOO_RC" in env:
@@ -390,28 +391,59 @@ class DockerBackend(Backend):
             base_docker_args.extend(["-e", f"{key}={value}"])
         base_docker_args.append(service)
 
-        for shell in shells:
-            docker_args = [*base_docker_args, shell, *args[1:]]
-            if dry_run:
-                echo.info(f"Would run: {' '.join(docker_args)}", err=True)
-                return
+        docker_args = [*base_docker_args, *container_argv]
+        if dry_run:
+            echo.info(f"Would run: {shlex.join(docker_args)}", err=True)
+            return
 
-            echo.info(f"Running: {' '.join(docker_args)}", err=True)
+        echo.info(f"Running: {shlex.join(docker_args)}", err=True)
 
-            if wait:
-                run_command(docker_args, check=True, stream=True)
-                return
+        if wait:
+            run_command(docker_args, check=True, stream=True)
+            return
 
-            try:
-                os.execvp(docker_args[0], docker_args)
-            except FileNotFoundError:
-                if shell != shells[-1]:
-                    continue
-                raise click.ClickException(
-                    f"Could not run docker: {docker_args[0]} not found"
-                )
-            except OSError as exc:  # pragma: no cover
-                raise click.ClickException(f"Could not run docker: {exc}") from exc
+        try:
+            os.execvp(docker_args[0], docker_args)
+        except FileNotFoundError:
+            raise click.ClickException(
+                f"Could not run docker: {docker_args[0]} not found"
+            )
+        except OSError as exc:  # pragma: no cover
+            raise click.ClickException(f"Could not run docker: {exc}") from exc
+
+
+# Maps the Odoo image's database variables to the libpq ones, keeping any
+# values already provided (e.g. ``-e PGHOST=...`` or a Compose environment).
+# ``USER`` is the image's database user variable, as used by its entrypoint.
+_PG_ENV_EXPORTS = (
+    'export PGHOST="${PGHOST:-$HOST}"'
+    ' PGPORT="${PGPORT:-$PORT}"'
+    ' PGUSER="${PGUSER:-$USER}"'
+    ' PGPASSWORD="${PGPASSWORD:-$PASSWORD}";'
+)
+
+# Runs a command with the libpq variables exported.
+_PG_ENV_SCRIPT = _PG_ENV_EXPORTS + ' exec "$@"'
+
+# Interactive shell with the libpq variables exported, preferring bash.
+_PG_ENV_SHELL_SCRIPT = (
+    _PG_ENV_EXPORTS
+    + " if command -v bash > /dev/null 2>&1; then exec bash; else exec sh; fi"
+)
+
+
+def _container_command(argv):
+    """Return the container argv for *argv* with libpq variables exported.
+
+    The Odoo image entrypoint converts ``HOST``/``USER``/``PASSWORD``/``PORT``
+    into ``--db_*`` arguments when the command is ``odoo`` or starts with
+    ``-``; anything else is executed verbatim. Other commands are wrapped in
+    a shell that maps those variables to the standard ``PG*`` names, so tools
+    like ``psql`` connect to the Compose database service without extra flags.
+    """
+    if argv[0] == "odoo" or argv[0].startswith("-"):
+        return argv
+    return ["sh", "-c", _PG_ENV_SCRIPT, "osh", *argv]
 
 
 def _cfg_value(cfg, key, default=None):
