@@ -6,7 +6,7 @@ list of callables/objects. Hook points are the extension points where core
 commands invoke plugin-provided behaviour.
 
 Hook point names are just namespaced strings — plugins can define their own
-hook points (e.g. ``"osh_backup.sources"`` defined by the ``osh_backup``
+hook points (e.g. ``"osh_db_get.sources"`` defined by the ``osh_db_get``
 plugin) for other plugins to subscribe to.
 """
 

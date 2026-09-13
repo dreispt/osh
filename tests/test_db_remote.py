@@ -8,14 +8,14 @@ from click.testing import CliRunner
 
 import osh.cli  # noqa: F401  (registers plugin group commands on `db`)
 from osh.commands.db_cmd import db
-from osh.plugins.osh_backup.backup_cmd import get
-from osh.plugins.osh_backup.remotes import (
+from osh.plugins.osh_db_get.backup_cmd import get
+from osh.plugins.osh_db_get.remotes import (
     get_remotes,
     newest_cache_for_remote,
     remote,
     resolve_remote,
 )
-from osh.plugins.osh_backup.restore_cmd import restore
+from osh.plugins.osh_db_get.restore_cmd import restore
 
 
 def _write_cached_backup(cache_dir, filename, source, data=b"x"):
@@ -154,7 +154,7 @@ def test_restore_never_contacts_external_source(
         raise AssertionError("restore must not fetch external sources")
 
     monkeypatch.setattr(urllib.request, "urlopen", _boom)
-    monkeypatch.setattr("osh.plugins.osh_backup.sources.https.urlopen", _boom)
+    monkeypatch.setattr("osh.plugins.osh_db_get.sources.https.urlopen", _boom)
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)

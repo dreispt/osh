@@ -5,6 +5,7 @@ the right restore tool for its format, restore the dump, copy the filestore
 for ``.zip`` backups, and run neutralization SQL scripts.
 """
 
+import gzip
 import importlib.resources
 import shutil
 import tempfile
@@ -14,8 +15,8 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import ensure_tool, get_odoo_data_dir, run_shell_pipeline, run_subprocess
-from ...db import get_pg_credentials, run_psql_script
+from ...common import get_odoo_data_dir
+from ...db import restore_cache_dir, run_in_backend, run_psql_script, stage_under_base
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content
 
@@ -79,7 +80,7 @@ def list_cached_backups(base, *, limit, reverse):
         )
 
 
-def restore_dump(base, dump_path, target_db, *, dry_run=False):
+def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
     """Restore *dump_path* into an existing *target_db*."""
     # Use metadata format when available, falling back to content inspection
     meta = read_metadata(dump_path)
@@ -102,8 +103,6 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False):
                     f"Could not determine backup format from file: {dump_path}"
                 )
 
-    conn_args, env = get_pg_credentials(base)
-
     if dry_run:
         echo.info(
             f"Would restore database '{target_db}' from {dump_path} "
@@ -117,41 +116,42 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False):
         err=True,
     )
 
+    # Stage the dump under the project root so container backends can see it.
+    dump_path = stage_under_base(base, dump_path)
+
     if backup_format == "dump":
-        ensure_tool("pg_restore")
-        args = [
-            "pg_restore",
-            "--verbose",
-            "--no-owner",
-            "--dbname",
-            target_db,
-            *conn_args,
-            str(dump_path),
-        ]
-        # Let pg_restore's verbose progress output go directly to stderr for user visibility
-        run_subprocess(args, env=env, stderr=None, error_msg="pg_restore failed")
+        _run_db_tool(
+            ctx,
+            base,
+            [
+                "pg_restore",
+                "--verbose",
+                "--no-owner",
+                "--dbname",
+                target_db,
+                str(dump_path),
+            ],
+            "pg_restore failed",
+        )
     elif backup_format == "sql":
-        ensure_tool("psql")
-        args = ["psql", "-d", target_db, "-f", str(dump_path), *conn_args]
-        run_subprocess(args, env=env, error_msg="psql failed")
+        _run_db_tool(
+            ctx, base, ["psql", "-d", target_db, "-f", str(dump_path)], "psql failed"
+        )
     elif backup_format == "sql.gz":
-        ensure_tool("gunzip")
-        ensure_tool("psql")
-        _restore_sql_gz(dump_path, target_db, conn_args, env)
+        _restore_sql_gz(ctx, base, dump_path, target_db)
     elif backup_format == "zip":
-        ensure_tool("psql")
-        _restore_zip(base, dump_path, target_db, conn_args, env)
+        _restore_zip(ctx, base, dump_path, target_db)
     else:
         raise click.ClickException(f"Unsupported backup format: {backup_format}")
 
 
-def neutralize_with_sql(base, db_name):
+def neutralize_with_sql(base, db_name, ctx=None):
     """Run the bundled SQL fallback neutralization script."""
     with importlib.resources.path("osh.data", "neutralize_fallback.sql") as script_path:
-        run_psql_script(base, db_name, script_path)
+        run_psql_script(base, db_name, script_path, ctx=ctx)
 
 
-def run_project_neutralize_scripts(base, db_name, *, dry_run=False):
+def run_project_neutralize_scripts(base, db_name, *, dry_run=False, ctx=None):
     """Run ``.osh/neutralize/*.sql`` scripts in sorted order."""
     neutralize_dir = base / ".osh" / "neutralize"
     if not neutralize_dir.is_dir():
@@ -169,9 +169,18 @@ def run_project_neutralize_scripts(base, db_name, *, dry_run=False):
     for script in scripts:
         echo.info(f"Running neutralization script: {script.name}", err=True)
         try:
-            run_psql_script(base, db_name, script)
+            run_psql_script(base, db_name, script, ctx=ctx)
         except RuntimeError as exc:
             raise click.ClickException(str(exc)) from exc
+
+
+def _run_db_tool(ctx, base, argv, error_msg):
+    """Run a database CLI tool inside the active backend environment."""
+    returncode, _, stderr = run_in_backend(ctx, base, argv)
+    if returncode is None:
+        raise click.ClickException(f"{error_msg}: command not found")
+    if returncode != 0:
+        raise click.ClickException(f"{error_msg}: {stderr}")
 
 
 def _dump_suffix(path):
@@ -182,22 +191,21 @@ def _dump_suffix(path):
     return path.suffix
 
 
-def _restore_sql_gz(dump_path, target_db, conn_args, env):
-    """Stream a gzipped SQL dump into psql."""
-    run_shell_pipeline(
-        [
-            ["gzip", "-cd", str(dump_path)],
-            ["psql", "-d", target_db, *conn_args],
-        ],
-        env=env,
-        error_msg="psql failed",
-        not_found_msg="Could not locate `psql` or `gunzip`.",
+def _restore_sql_gz(ctx, base, dump_path, target_db):
+    """Decompress a gzipped SQL dump under the project, then restore it."""
+    name = dump_path.name
+    sql_path = restore_cache_dir(base) / (name[:-3] if name.endswith(".gz") else name)
+    with gzip.open(dump_path, "rb") as src, sql_path.open("wb") as out:
+        shutil.copyfileobj(src, out)
+    _run_db_tool(
+        ctx, base, ["psql", "-d", target_db, "-f", str(sql_path)], "psql failed"
     )
 
 
-def _restore_zip(base, dump_path, target_db, conn_args, env):
+def _restore_zip(ctx, base, dump_path, target_db):
     """Restore an Odoo backup zip (dump.sql + filestore/)."""
-    with tempfile.TemporaryDirectory() as tmp:
+    # Extract under the project so container backends can read dump.sql.
+    with tempfile.TemporaryDirectory(dir=restore_cache_dir(base)) as tmp:
         tmp_path = Path(tmp)
         with zipfile.ZipFile(dump_path, "r") as zf:
             zf.extractall(tmp_path)
@@ -206,8 +214,9 @@ def _restore_zip(base, dump_path, target_db, conn_args, env):
         if not dump_sql.exists():
             raise click.ClickException("Backup zip does not contain dump.sql")
 
-        args = ["psql", "-d", target_db, "-f", str(dump_sql), *conn_args]
-        run_subprocess(args, env=env, error_msg="psql failed")
+        _run_db_tool(
+            ctx, base, ["psql", "-d", target_db, "-f", str(dump_sql)], "psql failed"
+        )
 
         filestore_src = tmp_path / "filestore"
         if filestore_src.exists():

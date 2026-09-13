@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .... import echo
-from ....backup_sources import BackupSource, SourceError, _now_stamp, _safe_name
+from ....backup_sources import BackupSource, SourceError, now_stamp, safe_name
 from ....common import run_subprocess
 
 
@@ -56,9 +56,9 @@ Use --ssh-key to authenticate with a specific private key.
         return self.host
 
     def default_output_name(self):
-        safe_host = _safe_name(self.host)
-        safe_name = _safe_name(Path(self.path).name)
-        return f"{safe_host}_{safe_name}_{_now_stamp()}.{self.original_format}"
+        safe_host = safe_name(self.host)
+        safe_file = safe_name(Path(self.path).name)
+        return f"{safe_host}_{safe_file}_{now_stamp()}.{self.original_format}"
 
     def fetch(self, output, *, dry_run=False):
         remote_path = f"{self.ssh_target}:{self.path}"

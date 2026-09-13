@@ -8,10 +8,10 @@ import pytest
 from click.testing import CliRunner
 
 from osh.backup_sources import BackupSource, SourceError
-from osh.plugins.osh_backup.backup_cmd import get
-from osh.plugins.osh_backup.sources.https import HttpsSource
-from osh.plugins.osh_backup.sources.odoosh import OdooshSource
-from osh.plugins.osh_backup.sources.ssh import SshSource
+from osh.plugins.osh_db_get.backup_cmd import get
+from osh.plugins.osh_db_get.sources.https import HttpsSource
+from osh.plugins.osh_db_get.sources.odoosh import OdooshSource
+from osh.plugins.osh_db_get.sources.ssh import SshSource
 
 
 def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
@@ -95,7 +95,7 @@ def test_download_https_posts_payload(in_project, monkeypatch):
         requests.append(req)
         return FakeResponse()
 
-    monkeypatch.setattr("osh.plugins.osh_backup.sources.https.urlopen", fake_urlopen)
+    monkeypatch.setattr("osh.plugins.osh_db_get.sources.https.urlopen", fake_urlopen)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -270,7 +270,7 @@ def test_download_odoosh_with_filestore_creates_zip(
         return 0, b"", ""
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.sources.odoosh.run_shell_pipeline", fake_pipeline
+        "osh.plugins.osh_db_get.sources.odoosh.run_shell_pipeline", fake_pipeline
     )
 
     output = tmp_path / "backup.zip"
@@ -389,7 +389,7 @@ def test_download_ssh_source_invokes_fetch(
 
 def test_plugin_backup_source_registry(monkeypatch):
     """Plugins can register backup source classes through the loader hook."""
-    from osh.plugins.osh_backup import registry as sources
+    from osh.plugins.osh_db_get import registry as sources
 
     class S3Source(BackupSource):
         scheme = "s3"
@@ -436,8 +436,8 @@ def test_download_help_scheme_unknown_reports_error():
 
 def test_backup_detects_format_mismatch(monkeypatch, in_project):
     """`osh db get` detects format mismatch and corrects metadata."""
-    from osh.plugins.osh_backup.cache import read_metadata, write_metadata
-    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
+    from osh.plugins.osh_db_get.cache import read_metadata, write_metadata
+    from osh.plugins.osh_db_get.format_detect import detect_backup_format_by_content
 
     # Create a file with PostgreSQL custom format but .sql extension
     cache_dir = in_project / ".osh" / "backups"

@@ -1,8 +1,8 @@
 """Backup source interface for `osh db get`.
 
 Third-party plugins implement :class:`BackupSource` subclasses and register
-them through the ``"osh_backup.sources"`` hook point declared by the
-``osh_backup`` plugin — see ``osh.plugins.osh_backup.registry``.
+them through the ``"osh_db_get.sources"`` hook point declared by the
+``osh_db_get`` plugin — see ``osh.plugins.osh_db_get.registry``.
 """
 
 import re
@@ -11,12 +11,12 @@ from datetime import datetime, timezone
 import click
 
 
-def _now_stamp():
+def now_stamp():
     """Return an ISO-ish timestamp suitable for filenames."""
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _safe_name(value):
+def safe_name(value):
     """Return *value* with characters unsafe for filenames replaced."""
     text = str(value)
     # Keep a limited set of safe characters and collapse runs.
@@ -34,7 +34,7 @@ class BackupSource:
     implement ``from_source()``, ``default_output_name()``, and ``fetch()``.
     They may also set ``description`` to a short human-readable summary shown
     in ``osh db get --help``.
-    Plugins register subclasses through the ``"osh_backup.sources"`` hook
+    Plugins register subclasses through the ``"osh_db_get.sources"`` hook
     point in their ``OSH_PLUGIN_MANIFEST``.
     """
 

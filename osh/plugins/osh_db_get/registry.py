@@ -1,8 +1,8 @@
 """Backup source registry for `osh db get`.
 
-Sources are discovered through the ``osh_backup.sources`` hook point this
+Sources are discovered through the ``osh_db_get.sources`` hook point this
 plugin defines: any plugin may map it to ``BackupSource`` subclasses in the
-``hooks`` key of its ``OSH_PLUGIN_MANIFEST`` — including ``osh_backup``
+``hooks`` key of its ``OSH_PLUGIN_MANIFEST`` — including ``osh_db_get``
 itself, which registers the bundled schemes that way.
 """
 
@@ -10,7 +10,7 @@ from ... import echo
 from ...backup_sources import SourceError
 from ...utils.plugin_loader import load_hook_entries
 
-SOURCES_HOOK = "osh_backup.sources"
+SOURCES_HOOK = "osh_db_get.sources"
 
 _SOURCE_REGISTRY = None
 
