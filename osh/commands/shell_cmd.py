@@ -72,7 +72,7 @@ def build_dynamic_odoo_config(
     if conf_path is None:
         cache_dir = base / ".osh" / "cache" / "env"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        branch = db_module.get_current_branch(base) or "default"
+        branch = db_module._resolve_branch(base, None)
         safe_db = db_module.sanitize_db_name(db_name) if db_name else "none"
         conf_path = cache_dir / f"{branch}-{safe_db}.conf"
     else:
