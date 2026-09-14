@@ -103,9 +103,10 @@ def test_use_sanitizes_name(tmp_project, monkeypatch):
 
 
 def test_db_group_command_surface():
-    """`osh db` exposes neither the dropped pin alias nor a create command."""
+    """`osh db` exposes `list` and neither the dropped pin alias nor create."""
     from osh.commands.db_cmd import db
 
+    assert "list" in db.commands
     assert "pin" not in db.commands
     assert "create" not in db.commands
 
@@ -193,6 +194,90 @@ def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, pg_db, monkeypat
     result = resolve_db_name_for_run(tmp_project, verbose=False)
     assert result == missing
     assert pg_db.exists(missing)
+
+
+PSQL_L_SAMPLE = """\
+                              List of databases
+     Name      | Owner  | Encoding
+---------------+--------+---------
+ project-main  | odoo   | UTF8
+ project-fix-1 | odoo   | UTF8
+ other-db      | odoo   | UTF8
+(3 rows)
+"""
+
+
+def test_filter_db_listing_keeps_header_and_matching_rows():
+    """The ``psql -l`` table header is kept, non-matching rows are dropped."""
+    from osh.commands.db_cmd import _filter_db_listing
+
+    out = _filter_db_listing(PSQL_L_SAMPLE, "project-")
+    assert "project-main" in out
+    assert "project-fix-1" in out
+    assert "other-db" not in out
+    assert "Name" in out
+    assert out.rstrip().endswith("(2 rows)")
+
+
+def test_filter_db_listing_uses_singular_footer():
+    """A single matching row gets psql's ``(1 row)`` footer."""
+    from osh.commands.db_cmd import _filter_db_listing
+
+    out = _filter_db_listing(PSQL_L_SAMPLE, "project-main")
+    assert "project-main" in out
+    assert "project-fix-1" not in out
+    assert out.rstrip().endswith("(1 row)")
+
+
+def test_filter_db_listing_passes_through_unexpected_output():
+    """Output without a table separator is returned unchanged."""
+    from osh.commands.db_cmd import _filter_db_listing
+
+    assert _filter_db_listing("some warning\n", "project-") == "some warning\n"
+
+
+def test_list_command_filters_by_project_prefix(tmp_project, pg_db, monkeypatch):
+    """`osh db list` shows only databases under the project prefix."""
+    import uuid
+
+    from osh.commands.db_cmd import list_dbs
+
+    matching = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    other = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(list_dbs, [])
+    assert result.exit_code == 0, result.output
+    assert matching in result.output
+    assert other not in result.output
+
+
+def test_list_command_all_shows_everything(tmp_project, pg_db, monkeypatch):
+    """`osh db list --all` shows databases outside the project prefix."""
+    import uuid
+
+    from osh.commands.db_cmd import list_dbs
+
+    matching = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    other = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(list_dbs, ["--all"])
+    assert result.exit_code == 0, result.output
+    assert matching in result.output
+    assert other in result.output
+
+
+def test_list_command_reports_missing_psql(tmp_project, monkeypatch):
+    """A missing `psql` executable reports a clear error."""
+    from osh.commands.db_cmd import list_dbs
+
+    monkeypatch.setattr(
+        "osh.commands.db_cmd.run_in_backend",
+        lambda *args, **kwargs: (None, "", "command not found"),
+    )
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(list_dbs, [])
+    assert result.exit_code != 0
+    assert "psql" in result.output
 
 
 def test_resolve_db_name_for_run_tty_prompt_copy(tmp_project, pg_db, monkeypatch):

@@ -11,6 +11,8 @@ from ..db import (
     db_exists,
     resolve_branch,
     resolve_db_name,
+    run_in_backend,
+    sanitize_db_name,
     set_project_config,
     unset_project_config,
 )
@@ -36,6 +38,7 @@ def db():  # noqa: D401
     Examples:
 
     \b
+      osh db list
       osh db show
       osh db use myproject-main --branch main
       osh db use auto --branch feature/new-thing
@@ -61,6 +64,68 @@ def show(ctx):  # noqa: D401
     echo.info(f"Branch:   {branch}")
     echo.info(f"Database: {db_name}")
     echo.info(f"Exists:   {'yes' if exists else 'no'}")
+
+
+@db.command(name="list")
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="List all databases, not only this project's.",
+)
+@click.pass_context
+def list_dbs(ctx, show_all):  # noqa: D401
+    """List PostgreSQL databases, filtered to this project by default.
+
+    Runs ``psql -l`` inside the project's runtime environment — the same
+    context ``osh shell`` provides — and keeps only databases whose name
+    starts with the generated ``<project>-`` prefix. Use ``--all`` to list
+    every database on the server.
+
+    Examples:
+
+    \b
+      osh db list
+      osh db list --all
+    """
+    base = find_project_root(required=True)
+    returncode, stdout, stderr = run_in_backend(ctx, base, ["psql", "-l"])
+    if returncode is None:
+        raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
+    if returncode != 0:
+        raise click.ClickException(f"Could not list databases: {stderr.strip()}")
+    if show_all:
+        click.echo(stdout, nl=False)
+        return
+    prefix = f"{sanitize_db_name(base.name)}-"
+    click.echo(_filter_db_listing(stdout, prefix), nl=False)
+
+
+def _filter_db_listing(output, prefix):
+    """Keep the ``psql -l`` header and rows whose name starts with *prefix*.
+
+    The ``(N rows)`` footer is recomputed for the filtered set. Output that
+    does not look like a ``psql -l`` table (no ``---+---`` separator line)
+    is returned unchanged.
+    """
+    lines = output.splitlines()
+    sep = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.strip() and set(line.strip()) <= {"-", "+"}
+        ),
+        None,
+    )
+    if sep is None:
+        return output
+    rows = [
+        line
+        for line in lines[sep + 1 :]
+        if "|" in line and line.split("|", 1)[0].strip().startswith(prefix)
+    ]
+    footer = f"({len(rows)} row{'s' if len(rows) != 1 else ''})"
+    return "\n".join([*lines[: sep + 1], *rows, footer]) + "\n"
 
 
 def _set_branch_db(base, db_name, branch):

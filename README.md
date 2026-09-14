@@ -52,7 +52,7 @@ Run `osh <command> --help` for full usage details.
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
-| `osh db`                   | Show, map, copy, unpin, get, restore, or register named remote sources for project databases                         |
+| `osh db`                   | List, show, map, copy, unpin, get, restore, or register named remote sources for project databases                   |
 | `osh doctor`               | Check the project for common setup problems                                                                          |
 | `osh backend ...`          | Active-backend state: `deactivate` (back to host), `down` (stop its resources)                                       |
 | `osh config`               | View or change osh settings for this project                                                                         |
@@ -104,6 +104,7 @@ Branches are matched in this order:
 Use `osh db` to manage mappings:
 
 ```bash
+osh db list                  # databases matching the generated <project>- prefix
 osh db use myproject-main --branch main
 osh db use myproject-staging --branch staging
 osh db use auto --branch "feature/*"   # generated name for every feature branch
