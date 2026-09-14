@@ -24,13 +24,6 @@ from .common import (
     git_current_branch,
 )
 
-AUTO_DB = "auto"
-
-
-def is_auto_db_value(value):
-    """Return True if *value* is the ``auto`` marker for a generated name."""
-    return isinstance(value, str) and value.strip().lower() == AUTO_DB
-
 
 def sanitize_db_name(name):
     """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
@@ -44,7 +37,12 @@ def _require_db_name(name):
     """Return a sanitized database name or raise if one is not given."""
     if not name or not str(name).strip():
         raise click.ClickException("A database name is required.")
-    return sanitize_db_name(name)
+    name = sanitize_db_name(name)
+    if name == "auto":
+        # ``auto`` is rejected so legacy/hand-written configs can be told
+        # apart from real database names when resolving.
+        raise click.ClickException("'auto' is a reserved database name.")
+    return name
 
 
 def load_osh_config(base):
@@ -423,12 +421,10 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
 
     if action == "create":
         create_db(base, db_name, ctx=ctx)
-        set_project_config(base, "db", branch, AUTO_DB)
         return db_name
 
     if action == "copy":
         copy_db(base, last_db, db_name, ctx=ctx)
-        set_project_config(base, "db", branch, AUTO_DB)
         return db_name
 
     # action == "choose"
@@ -448,7 +444,7 @@ def _raise_missing_db_error(base, branch, db_name, last_db):
     lines = [
         f"Database '{db_name}' does not exist.",
         "Use one of:",
-        f"  osh db use <db> --branch {branch}",
+        f"  osh db set <db> --branch {branch}",
         f"  osh db copy {last_db or '<from>'} {db_name}",
         "  osh db restore <backup>",
         "  osh odoo -d <db>",
@@ -459,8 +455,7 @@ def _raise_missing_db_error(base, branch, db_name, last_db):
 def _resolve_config_db_name(base, branch):
     """Return the configured database for *branch*, or None if unconfigured.
 
-    The ``auto`` marker expands to the generated ``<project>-<branch>`` name.
-    Explicit values are sanitized to keep the resolved name safe for PostgreSQL
+    Values are sanitized to keep the resolved name safe for PostgreSQL
     and Odoo's ``--db-filter``.
     """
     cfg = load_osh_config(base)
@@ -472,12 +467,17 @@ def _resolve_config_db_name(base, branch):
         return None
 
     key, value = entry
-    if is_auto_db_value(value):
-        return _branch_db_name(base, branch)
     if not isinstance(value, str) or not value.strip():
         raise click.ClickException(
             f"Invalid database name for '{key}' in the [db] section of "
-            f".osh/config.toml: {value!r}. Use a database name or '{AUTO_DB}'."
+            f".osh/config.toml: {value!r}. Use a database name."
+        )
+    if value.strip().lower() == "auto":
+        raise click.ClickException(
+            f"The 'auto' marker for '{key}' in the [db] section of "
+            ".osh/config.toml is no longer supported — an unmapped branch "
+            f"already falls back to the generated name. Remove it with: "
+            f"osh db unset --branch {key}"
         )
     return sanitize_db_name(value)
 

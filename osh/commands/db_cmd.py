@@ -33,18 +33,15 @@ def db():  # noqa: D401
     3. The special ``default`` key.
     4. Generated ``<project>-<branch>`` if nothing is configured.
 
-    Use ``auto`` for a mapping value to mean the generated default.
-
     Examples:
 
     \b
       osh db list
       osh db show
-      osh db use myproject-main --branch main
-      osh db use auto --branch feature/new-thing
+      osh db set myproject-main --branch main
       osh db copy myproject-main myproject-fix-123
-      osh db unpin
-      osh db unpin --branch feature/old-thing
+      osh db unset
+      osh db unset --branch feature/old-thing
     """
 
 
@@ -136,19 +133,19 @@ def _set_branch_db(base, db_name, branch):
     return branch, value
 
 
-@db.command(name="use")
+@db.command(name="set")
 @click.argument("db_name")
 @click.option(
     "--branch",
     help="Branch to use the database for (defaults to current branch). May be a glob pattern.",
 )
 @click.pass_context
-def use(ctx, db_name, branch):  # noqa: D401
-    """Use a database for the current or specified branch.
+def set_db(ctx, db_name, branch):  # noqa: D401
+    """Set the database for the current or specified branch.
 
     The branch can be an exact git branch name or a glob pattern such as
-    ``feature/*``. Use ``auto`` for DB_NAME to let the branch use the generated
-    ``<project>-<branch>`` database name.
+    ``feature/*``. Use ``osh db unset`` to remove the mapping and let the
+    branch fall back to the generated ``<project>-<branch>`` database name.
 
     The name is sanitized before it is stored to keep it safe for PostgreSQL
     and Odoo's ``--db-filter``.
@@ -156,9 +153,9 @@ def use(ctx, db_name, branch):  # noqa: D401
     Examples:
 
     \b
-      osh db use myproject-main
-      osh db use myproject-shared --branch staging
-      osh db use auto --branch "feature/*"
+      osh db set myproject-main
+      osh db set myproject-shared --branch staging
+      osh db set shared-db --branch "feature/*"
     """
     base = find_project_root(required=True)
     branch, value = _set_branch_db(base, db_name, branch)
@@ -180,27 +177,27 @@ def copy(ctx, from_db, to_db):  # noqa: D401
     echo.info(f"Copied database '{from_name}' to '{to_name}'")
 
 
-@db.command(name="unpin")
+@db.command(name="unset")
 @click.option(
     "--branch",
-    help="Branch to unpin (defaults to current branch).",
+    help="Branch to unset (defaults to current branch).",
 )
 @click.pass_context
-def unpin(ctx, branch):  # noqa: D401
-    """Unpin a branch and let it fall back to the generated default.
+def unset_db(ctx, branch):  # noqa: D401
+    """Unset a branch's database and let it fall back to the generated default.
 
     Removes the exact branch mapping from ``.osh/config.toml``. If a glob
     pattern still matches the branch, that pattern will continue to apply. To
-    override a pattern for one specific branch, set it with ``osh db use``.
+    override a pattern for one specific branch, set it with ``osh db set``.
 
     Examples:
 
     \b
-      osh db unpin
-      osh db unpin --branch feature/old-thing
+      osh db unset
+      osh db unset --branch feature/old-thing
     """
     base = find_project_root(required=True)
     branch = resolve_branch(base, branch)
 
     unset_project_config(base, "db", branch)
-    echo.info(f"Unpinned branch '{branch}'")
+    echo.info(f"Unset branch '{branch}'")

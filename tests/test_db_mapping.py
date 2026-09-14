@@ -4,9 +4,9 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from osh.commands.db_cmd import use
+from osh.commands.db_cmd import set_db
 from osh.config import set_project_config
-from osh.db import _require_db_name, is_auto_db_value, resolve_db_name
+from osh.db import _require_db_name, resolve_db_name
 
 
 def test_exact_branch_wins_over_pattern(tmp_project):
@@ -42,10 +42,11 @@ def test_generated_name_when_unconfigured(tmp_project):
     assert resolve_db_name(tmp_project, branch="fix/bug-1") == "project-fix-bug-1"
 
 
-def test_auto_value_expands_to_generated_name(tmp_project):
-    """An ``auto`` mapping resolves to the generated branch database."""
+def test_auto_value_raises_clear_error(tmp_project):
+    """A legacy ``auto`` mapping reports that the marker was removed."""
     set_project_config(tmp_project, "db", values={"feature/*": "auto"})
-    assert resolve_db_name(tmp_project, branch="feature/x") == "project-feature-x"
+    with pytest.raises(click.ClickException, match="no longer supported"):
+        resolve_db_name(tmp_project, branch="feature/x")
 
 
 def test_configured_name_is_sanitized_on_read(tmp_project):
@@ -68,18 +69,6 @@ def test_non_string_mapping_raises_clear_error(tmp_project):
         resolve_db_name(tmp_project, branch="main")
 
 
-@pytest.mark.parametrize("value", ["auto", "AUTO", "  Auto  "])
-def test_is_auto_db_value_accepts_the_marker(value):
-    """The ``auto`` marker is recognised regardless of case and padding."""
-    assert is_auto_db_value(value)
-
-
-@pytest.mark.parametrize("value", ["", None, False, 0, "autodb"])
-def test_is_auto_db_value_rejects_other_values(value):
-    """Falsy and unrelated values are not treated as ``auto``."""
-    assert not is_auto_db_value(value)
-
-
 def test_require_db_name_sanitizes_input():
     """Names are normalized to a safe form."""
     assert _require_db_name(" My Legacy.DB ") == "my-legacy-db"
@@ -93,21 +82,31 @@ def test_require_db_name_rejects_empty():
         _require_db_name(None)
 
 
-def test_use_sanitizes_name(tmp_project, monkeypatch):
-    """`osh db use` stores the sanitized database name."""
+def test_require_db_name_rejects_auto():
+    """``auto`` is a reserved name and cannot be stored as a database."""
+    with pytest.raises(click.ClickException, match="reserved"):
+        _require_db_name("auto")
+
+
+def test_set_sanitizes_name(tmp_project, monkeypatch):
+    """`osh db set` stores the sanitized database name."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(use, [" My Legacy.DB ", "--branch", "main"])
+    result = runner.invoke(set_db, [" My Legacy.DB ", "--branch", "main"])
     assert result.exit_code == 0
     assert "my-legacy-db" in result.output
 
 
 def test_db_group_command_surface():
-    """`osh db` exposes `list` and neither the dropped pin alias nor create."""
+    """`osh db` exposes `set`/`list` and neither dropped aliases nor create."""
     from osh.commands.db_cmd import db
 
     assert "list" in db.commands
+    assert "set" in db.commands
+    assert "unset" in db.commands
+    assert "use" not in db.commands
     assert "pin" not in db.commands
+    assert "unpin" not in db.commands
     assert "create" not in db.commands
 
 
