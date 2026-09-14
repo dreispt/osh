@@ -267,6 +267,15 @@ class DockerBackend(Backend):
         todo.add_plan("Ensure Odoo sources for the selected edition")
         todo.add_plan("Run an Odoo --version smoke test")
 
+    def odoo_data_dir(self, base):
+        """Return the container's Odoo data dir (``data_dir`` in docker.toml).
+
+        Defaults to ``/var/lib/odoo``, the volume the official Odoo image
+        declares; it is usually a named volume, so it has no host path.
+        """
+        cfg = _load_docker_config(base) or {}
+        return cfg.get("data_dir") or "/var/lib/odoo"
+
     def build_addons_paths(self, base, *, include_themes=False):
         """Return a list of addon paths for *base* translated to container paths.
 
@@ -544,6 +553,7 @@ class DockerBackend(Backend):
                     docker_args,
                     cwd=base,
                     input=env_spec.input,
+                    stdin=env_spec.stdin,
                     stdout=options.get("stdout"),
                     text=options.get("text", True),
                 )
@@ -560,6 +570,7 @@ class DockerBackend(Backend):
                 docker_args,
                 cwd=base,
                 input=env_spec.input,
+                stdin=env_spec.stdin,
                 stdout=options.get("stdout"),
                 text=options.get("text", True),
             )
@@ -600,7 +611,12 @@ class DockerBackend(Backend):
             env["ODOO_RC"] = str(host_path).replace(str(base), "/mnt/extra-addons")
 
         docker_args = [*compose_cmd, "exec"]
-        if capture or env_spec.input is not None or not sys.stdin.isatty():
+        if (
+            capture
+            or env_spec.input is not None
+            or env_spec.stdin is not None
+            or not sys.stdin.isatty()
+        ):
             docker_args.append("-T")
         for key, value in env.items():
             docker_args.extend(["-e", f"{key}={value}"])

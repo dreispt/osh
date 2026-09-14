@@ -8,8 +8,9 @@ import configparser
 import fnmatch
 import re
 import shlex
-import shutil
 import sys
+import tarfile
+import tempfile
 from pathlib import Path
 
 import click
@@ -205,6 +206,7 @@ def run_in_backend(
     *,
     capture=True,
     input=None,
+    stdin=None,
     stdout=None,
     text=True,
 ):
@@ -227,7 +229,9 @@ def run_in_backend(
 
     backend = resolve_backend(base)
     merged = {**get_pg_env(base), **(env or {})}
-    env_spec = EnvSpec(argv=[str(a) for a in argv], env=merged, input=input)
+    env_spec = EnvSpec(
+        argv=[str(a) for a in argv], env=merged, input=input, stdin=stdin
+    )
     result = backend.env(
         ctx,
         base,
@@ -245,29 +249,70 @@ def run_in_backend(
     return result
 
 
-def restore_cache_dir(base):
-    """Return a writable ``.osh/cache/restore`` directory under the project."""
-    cache = Path(base) / ".osh" / "cache" / "restore"
-    cache.mkdir(parents=True, exist_ok=True)
-    return cache
+def install_filestore(ctx, base, src_dir, db_name):
+    """Install the contents of *src_dir* as the filestore of *db_name*.
 
-
-def stage_under_base(base, path):
-    """Return *path* when it lives under *base*, else copy it to ``.osh/cache``.
-
-    Backend execution environments (e.g. Docker) only see files under the
-    project root, so files given by paths outside *base* are staged where
-    the backend can reach them.
+    The directory contents are streamed as a tar through stdin, so this works
+    identically on host and container backends — the destination may live in
+    a container volume unreachable from the host.
     """
-    path = Path(path)
-    try:
-        path.resolve().relative_to(Path(base).resolve())
-        return path
-    except ValueError:
-        dest = restore_cache_dir(base) / path.name
-        if dest != path:
-            shutil.copy2(path, dest)
-        return dest
+    data_dir = resolve_backend(base).odoo_data_dir(base)
+    if data_dir is None:
+        echo.warning("could not determine Odoo data_dir; filestore not installed.")
+        return
+    dest_path = f"{data_dir}/filestore/{db_name}"
+    dest = shlex.quote(dest_path)
+    script = f"rm -rf {dest} && mkdir -p {dest} && tar -xf - -C {dest}"
+    with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
+        with tarfile.open(fileobj=tar_file, mode="w") as tar:
+            for item in sorted(Path(src_dir).rglob("*")):
+                tar.add(item, arcname=item.relative_to(src_dir).as_posix())
+        tar_file.flush()
+        tar_file.seek(0)
+        returncode, _, stderr = run_in_backend(
+            ctx, base, ["sh", "-c", script], stdin=tar_file
+        )
+    if returncode is None:
+        raise RuntimeError("Could not locate `sh`/`tar` in the backend environment.")
+    if returncode != 0:
+        raise RuntimeError(f"Failed to install filestore for '{db_name}': {stderr}")
+    echo.info(f"Installed filestore for '{db_name}' at {dest_path}", err=True)
+
+
+def export_filestore(ctx, base, db_name, dest_dir):
+    """Export the filestore of *db_name* into host directory *dest_dir*.
+
+    Streams a tar out of the backend environment, so the source may live in a
+    container volume unreachable from the host. Returns False when the data
+    dir or the database filestore cannot be found.
+    """
+    data_dir = resolve_backend(base).odoo_data_dir(base)
+    if data_dir is None:
+        return False
+    src = f"{data_dir}/filestore/{db_name}"
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
+        returncode, _, _ = run_in_backend(
+            ctx,
+            base,
+            ["tar", "-c", "-C", src, "."],
+            stdout=tar_file,
+            text=False,
+        )
+        if returncode != 0:
+            return False
+        tar_file.flush()
+        tar_file.seek(0)
+        with tarfile.open(fileobj=tar_file) as tar:
+            for member in tar.getmembers():
+                member_path = Path(member.name)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    continue
+                if member.name in ("", "."):
+                    continue
+                tar.extract(member, dest_dir)
+    return True
 
 
 def db_exists(base, db_name, ctx=None, *, dry_run=False):

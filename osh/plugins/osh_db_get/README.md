@@ -5,7 +5,11 @@ Provides the `osh db get`, `osh db restore` and `osh db remote` commands.
 All database work is backend-agnostic: `pg_dump`/`pg_restore`/`psql` run
 through the active backend's execution context (the same one `osh shell`
 uses), so `docker` projects dump and restore inside the Compose stack and
-`local`/`venv` projects use host tools.
+`local`/`venv` projects use host tools. Backup contents and `.zip`
+filestores are streamed through the backend's stdin/stdout (`tar` archives
+for filestores), so no host file path needs to be reachable inside the
+backend environment — this also works when the project root is not mounted
+in the container at all.
 
 ## `osh db get <source>`
 

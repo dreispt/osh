@@ -294,6 +294,138 @@ def test_detect_format_by_content_unknown(tmp_path):
     assert detected is None
 
 
+def test_restore_dump_streams_file_via_stdin(monkeypatch, in_project, tmp_path):
+    """`restore_dump` streams the dump via stdin — no host path reaches argv."""
+    from osh.plugins.osh_db_get.restore_ops import restore_dump
+
+    dump = tmp_path / "backup.dump"
+    dump.write_bytes(b"PGDMP-dump-contents")
+
+    calls = []
+
+    def mock_run_in_backend(ctx, base, argv, **kwargs):
+        calls.append((argv, kwargs["stdin"].read()))
+        return (0, "", "")
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_ops.run_in_backend", mock_run_in_backend
+    )
+    restore_dump(in_project, dump, "testdb", dry_run=False)
+
+    (argv, payload) = calls[0]
+    assert argv == ["pg_restore", "--verbose", "--no-owner", "--dbname", "testdb"]
+    assert payload == b"PGDMP-dump-contents"
+
+
+def test_restore_sql_gz_pipes_gunzip_via_stdin(monkeypatch, in_project, tmp_path):
+    """`.sql.gz` backups stream through `gunzip -c | psql` in the backend."""
+    from osh.plugins.osh_db_get.restore_ops import restore_dump
+
+    dump = tmp_path / "backup.sql.gz"
+    dump.write_bytes(b"\x1f\x8b" + b"\x00" * 20)
+
+    calls = []
+
+    def mock_run_in_backend(ctx, base, argv, **kwargs):
+        calls.append((argv, kwargs["stdin"].read()))
+        return (0, "", "")
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_ops.run_in_backend", mock_run_in_backend
+    )
+    restore_dump(in_project, dump, "testdb", dry_run=False)
+
+    (argv, payload) = calls[0]
+    assert argv == ["sh", "-c", "gunzip -c | psql -d testdb"]
+    assert payload == b"\x1f\x8b" + b"\x00" * 20
+
+
+def test_restore_zip_streams_sql_and_installs_filestore(
+    monkeypatch, in_project, tmp_path
+):
+    """`.zip` backups stream dump.sql via stdin and install the filestore."""
+    import io
+    import zipfile
+
+    from osh.plugins.osh_db_get.restore_ops import restore_dump
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("dump.sql", "SELECT 1;")
+        zf.writestr("filestore/ab/cdef", "file-bytes")
+    backup = tmp_path / "backup.zip"
+    backup.write_bytes(buf.getvalue())
+
+    calls = []
+    installed = []
+
+    def mock_run_in_backend(ctx, base, argv, **kwargs):
+        calls.append((argv, kwargs["stdin"].read()))
+        return (0, "", "")
+
+    def mock_install_filestore(ctx, base, src_dir, db_name):
+        # The extracted filestore is a temp dir — inspect it while it exists.
+        installed.append(((Path(src_dir) / "ab" / "cdef").read_text(), db_name))
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_ops.run_in_backend", mock_run_in_backend
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_ops.install_filestore",
+        mock_install_filestore,
+    )
+
+    restore_dump(in_project, backup, "testdb", dry_run=False)
+
+    (argv, payload) = calls[0]
+    assert argv == ["psql", "-d", "testdb"]
+    assert payload == b"SELECT 1;"
+
+    (content, db_name) = installed[0]
+    assert db_name == "testdb"
+    assert content == "file-bytes"
+
+
+def test_filestore_install_export_roundtrip(monkeypatch, in_project, tmp_path):
+    """install_filestore/export_filestore round-trip through the host backend."""
+    from osh.backends import NoneBackend
+    from osh.db import export_filestore, install_filestore
+
+    data_dir = tmp_path / "data"
+
+    class _Backend(NoneBackend):
+        def odoo_data_dir(self, base):
+            return data_dir
+
+    monkeypatch.setattr("osh.db.resolve_backend", lambda base, **kw: _Backend())
+
+    src_dir = tmp_path / "src"
+    (src_dir / "aa" / "bb").mkdir(parents=True)
+    (src_dir / "aa" / "bb" / "file.txt").write_text("attachment")
+
+    install_filestore(None, in_project, src_dir, "testdb")
+    installed = data_dir / "filestore" / "testdb" / "aa" / "bb" / "file.txt"
+    assert installed.read_text() == "attachment"
+
+    dest_dir = tmp_path / "exported"
+    assert export_filestore(None, in_project, "testdb", dest_dir)
+    assert (dest_dir / "aa" / "bb" / "file.txt").read_text() == "attachment"
+
+
+def test_export_filestore_missing_returns_false(monkeypatch, in_project, tmp_path):
+    """export_filestore returns False when the filestore does not exist."""
+    from osh.backends import NoneBackend
+    from osh.db import export_filestore
+
+    class _Backend(NoneBackend):
+        def odoo_data_dir(self, base):
+            return tmp_path / "data"
+
+    monkeypatch.setattr("osh.db.resolve_backend", lambda base, **kw: _Backend())
+
+    assert not export_filestore(None, in_project, "missing-db", tmp_path / "out")
+
+
 def test_restore_uses_content_detection(monkeypatch, in_project):
     """`osh db restore` falls back to content detection when metadata and extension fail."""
     from osh.plugins.osh_db_get.format_detect import detect_backup_format_by_content

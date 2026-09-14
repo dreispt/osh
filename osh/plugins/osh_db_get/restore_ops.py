@@ -3,11 +3,14 @@
 These helpers resolve a backup file from the project cache or a path, pick
 the right restore tool for its format, restore the dump, copy the filestore
 for ``.zip`` backups, and run neutralization SQL scripts.
+
+Backup contents are streamed through the backend's stdin, so the same
+commands work identically on host and container backends — no host file
+path ever reaches the execution environment.
 """
 
-import gzip
 import importlib.resources
-import shutil
+import shlex
 import tempfile
 import zipfile
 from pathlib import Path
@@ -15,8 +18,7 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import get_odoo_data_dir
-from ...db import restore_cache_dir, run_in_backend, run_psql_script, stage_under_base
+from ...db import install_filestore, run_in_backend, run_psql_script
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content
 
@@ -116,29 +118,32 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
         err=True,
     )
 
-    # Stage the dump under the project root so container backends can see it.
-    dump_path = stage_under_base(base, dump_path)
-
+    # The dump is streamed through stdin, so the host path is never passed
+    # to the backend environment (e.g. a container that cannot see it).
     if backup_format == "dump":
         _run_db_tool(
             ctx,
             base,
-            [
-                "pg_restore",
-                "--verbose",
-                "--no-owner",
-                "--dbname",
-                target_db,
-                str(dump_path),
-            ],
+            ["pg_restore", "--verbose", "--no-owner", "--dbname", target_db],
             "pg_restore failed",
+            stdin_path=dump_path,
         )
     elif backup_format == "sql":
         _run_db_tool(
-            ctx, base, ["psql", "-d", target_db, "-f", str(dump_path)], "psql failed"
+            ctx,
+            base,
+            ["psql", "-d", target_db],
+            "psql failed",
+            stdin_path=dump_path,
         )
     elif backup_format == "sql.gz":
-        _restore_sql_gz(ctx, base, dump_path, target_db)
+        _run_db_tool(
+            ctx,
+            base,
+            ["sh", "-c", f"gunzip -c | psql -d {shlex.quote(target_db)}"],
+            "psql failed",
+            stdin_path=dump_path,
+        )
     elif backup_format == "zip":
         _restore_zip(ctx, base, dump_path, target_db)
     else:
@@ -174,9 +179,17 @@ def run_project_neutralize_scripts(base, db_name, *, dry_run=False, ctx=None):
             raise click.ClickException(str(exc)) from exc
 
 
-def _run_db_tool(ctx, base, argv, error_msg):
-    """Run a database CLI tool inside the active backend environment."""
-    returncode, _, stderr = run_in_backend(ctx, base, argv)
+def _run_db_tool(ctx, base, argv, error_msg, *, stdin_path=None):
+    """Run a database CLI tool inside the active backend environment.
+
+    *stdin_path* is opened on the host and streamed as the command's stdin,
+    so no host path ever reaches the backend environment.
+    """
+    if stdin_path is None:
+        returncode, _, stderr = run_in_backend(ctx, base, argv)
+    else:
+        with open(stdin_path, "rb") as stdin:
+            returncode, _, stderr = run_in_backend(ctx, base, argv, stdin=stdin)
     if returncode is None:
         raise click.ClickException(f"{error_msg}: command not found")
     if returncode != 0:
@@ -191,21 +204,9 @@ def _dump_suffix(path):
     return path.suffix
 
 
-def _restore_sql_gz(ctx, base, dump_path, target_db):
-    """Decompress a gzipped SQL dump under the project, then restore it."""
-    name = dump_path.name
-    sql_path = restore_cache_dir(base) / (name[:-3] if name.endswith(".gz") else name)
-    with gzip.open(dump_path, "rb") as src, sql_path.open("wb") as out:
-        shutil.copyfileobj(src, out)
-    _run_db_tool(
-        ctx, base, ["psql", "-d", target_db, "-f", str(sql_path)], "psql failed"
-    )
-
-
 def _restore_zip(ctx, base, dump_path, target_db):
     """Restore an Odoo backup zip (dump.sql + filestore/)."""
-    # Extract under the project so container backends can read dump.sql.
-    with tempfile.TemporaryDirectory(dir=restore_cache_dir(base)) as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         with zipfile.ZipFile(dump_path, "r") as zf:
             zf.extractall(tmp_path)
@@ -215,19 +216,13 @@ def _restore_zip(ctx, base, dump_path, target_db):
             raise click.ClickException("Backup zip does not contain dump.sql")
 
         _run_db_tool(
-            ctx, base, ["psql", "-d", target_db, "-f", str(dump_sql)], "psql failed"
+            ctx,
+            base,
+            ["psql", "-d", target_db],
+            "psql failed",
+            stdin_path=dump_sql,
         )
 
         filestore_src = tmp_path / "filestore"
         if filestore_src.exists():
-            data_dir = get_odoo_data_dir(base)
-            if data_dir is None:
-                echo.warning(
-                    "could not determine Odoo data_dir; filestore not restored."
-                )
-                return
-            filestore_dst = data_dir / "filestore" / target_db
-            if filestore_dst.exists():
-                shutil.rmtree(filestore_dst)
-            shutil.copytree(filestore_src, filestore_dst)
-            echo.info(f"Restored filestore to {filestore_dst}", err=True)
+            install_filestore(ctx, base, filestore_src, target_db)

@@ -17,6 +17,7 @@ import signal
 from abc import ABC
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import BinaryIO
 
 import click
 
@@ -25,6 +26,7 @@ from .common import (
     find_shell,
     format_cmd,
     get_odoo_config_path,
+    get_odoo_data_dir,
     get_odoo_port,
     get_osh_odoo_config_path,
     has_arg,
@@ -56,14 +58,17 @@ class EnvSpec:
     ``argv`` is the command and arguments to execute inside the target
     environment. ``env`` is a mapping of extra environment variables that the
     backend should expose before running the command. ``input`` is optional
-    stdin content for captured runs. ``db_name`` and ``config_path`` are
-    informational hints passed to ``odoo.pre_env`` hooks (e.g. a hook may
-    parse the generated config) — backends do not act on them.
+    stdin content for captured runs. ``stdin`` is an optional readable binary
+    file object used as the command's stdin — it carries large payloads such
+    as database dumps without buffering them in memory. ``db_name`` and
+    ``config_path`` are informational hints passed to ``odoo.pre_env`` hooks
+    (e.g. a hook may parse the generated config) — backends do not act on them.
     """
 
     argv: list = field(default_factory=list)
     env: dict = field(default_factory=dict)
     input: str = None
+    stdin: BinaryIO = None
     db_name: str = None
     config_path: str = None
 
@@ -111,6 +116,16 @@ class Backend(ABC):
         The default implementation adds no plans.
         """
         pass
+
+    def odoo_data_dir(self, base):
+        """Return Odoo's data dir as seen inside the backend environment.
+
+        Host backends return the host path; containerized backends return the
+        path inside the container (e.g. a named volume mount), which may not
+        exist on the host at all. Used by the database helpers to locate the
+        filestore. Returns None when it cannot be determined.
+        """
+        return get_odoo_data_dir(base)
 
     def build_addons_paths(self, base, *, include_themes=False):
         """Return a list of addon paths for *base*.
@@ -380,6 +395,7 @@ class NoneBackend(Backend):
                     args,
                     env=env,
                     input=env_spec.input,
+                    stdin=env_spec.stdin,
                     stdout=options.get("stdout"),
                     text=options.get("text", True),
                 )
