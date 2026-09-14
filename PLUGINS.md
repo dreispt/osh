@@ -15,6 +15,9 @@ dict whose keys map capability names to lists:
 - `group_commands` — a dict mapping the name of an existing `osh` command
   group (e.g. `"db"`) to `click.Command` objects attached as subcommands,
 - `backends` — `Backend` subclasses,
+- `backend_commands` — `click.Group` objects that attach a backend's
+  commands under `osh <name>` (e.g. `osh docker init`), listed under
+  "Backend Commands" in `osh --help`,
 - `hooks` — a dict mapping hook point names to implementations or lists of
   implementations. Core hook points are defined in `osh.hooks`; plugins can
   also define their own hook points for other plugins to extend them (e.g.
@@ -153,9 +156,10 @@ as `<group>.<name>` (e.g. `db.restore`). An alias that itself collides, or a
 fallback name that collides, is reported as an error and the command is
 skipped.
 
-Backend and backup source names are functional identifiers (used by
-`--target` and `<scheme>://`), so they cannot be renamed — a collision is
-reported as an error and the conflicting plugin contribution is skipped.
+Backend and backup source names are functional identifiers (used as
+`osh <name>` command groups and `<scheme>://` prefixes), so they cannot be
+renamed — a collision is reported as an error and the conflicting plugin
+contribution is skipped.
 
 ### Built-in plugins
 
@@ -196,8 +200,10 @@ notice.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.hooks` — hook point name constants for the `hooks` manifest key.
-- `osh.db` — database helpers: `run_in_backend`, `create_db`, `drop_db`,
-  `db_exists`, `resolve_db_name`, `get_current_branch`.
+- `osh.db` — database and backend-selection helpers: `run_in_backend`,
+  `create_db`, `drop_db`, `db_exists`, `resolve_db_name`,
+  `get_current_branch`, `resolve_backend`, `get_active_backend_name`,
+  `deactivate_backend`.
 - `osh.sources` — source installation helpers: `ensure_osh_sources`,
   `pull_odoo_sources`, etc.
 
@@ -210,10 +216,12 @@ contract.
 
 Plugins can extend `osh` in three ways: **commands**, **backends** and
 **backup sources**, all declared in a single `OSH_PLUGIN_MANIFEST` dict.
-Commands are Click commands added under `osh <command>`. Backends implement
-the lifecycle interface used by `osh init`, `osh odoo`, `osh db restore`,
-`osh test` and `osh doctor` for a particular execution target (e.g. local
-virtualenv, Docker).
+Commands are Click commands added under `osh <command>` or as subcommands
+of existing groups. Backends implement the lifecycle interface used by
+`osh odoo`, `osh shell`, `osh db restore` and `osh test` for a particular
+execution target (e.g. local virtualenv, Docker); a backend's setup and
+lifecycle commands live under its own `osh <name>` command group
+(`osh docker init`, `osh docker doctor`, `osh docker down`).
 
 ### Command plugins
 
@@ -245,17 +253,50 @@ A backend plugin declares its backends under the `backends` manifest key:
 OSH_PLUGIN_MANIFEST = {"backends": [MyBackend]}
 ```
 
-Backends are registered under `osh odoo --target <name>`. Built-in examples:
+A backend's name becomes the project's runtime target when activated —
+`osh <name> init` or `osh <name> activate` records `run.target = <name>`
+in `.osh/config.toml`, and `osh odoo`/`osh shell`/`osh db` then run
+through it. Its command group is declared under the `backend_commands`
+manifest key:
 
-- `osh/plugins/osh_backend_local/backends.py` for local virtualenv execution.
-- `osh/plugins/osh_backend_docker/backends.py` for Docker Compose execution.
+```python
+from osh.commands.backend_cmd import backend_group
+
+backend = click.Group(
+    "my-target",
+    cls=backend_group(MyBackend),
+    help=MyBackend.description,
+)
+
+OSH_PLUGIN_MANIFEST = {
+    "backends": [MyBackend],
+    "backend_commands": [backend],
+}
+```
+
+`backend_group(cls)` builds a `click.Group` subclass pre-populated with the
+standard `init`, `activate`, `doctor` and `down` subcommands; `osh <name>
+init` runs the common base setup and then calls `cls.init(...)`, while
+`osh <name> activate` is the lightweight way to switch the project to an
+already-initialized backend. A backend that needs extra or different
+commands can build its own `click.Group` instead. Backend groups are
+listed under "Backend Commands" in `osh --help`.
+
+Built-in examples:
+
+- `osh/plugins/osh_backend_docker/` for Docker Compose execution.
+- `osh/plugins/osh_backend_venv/` for managed virtualenv execution.
+
+The core `none` backend — plain host execution, the default when no
+backend is activated — has no command group: `osh init` is its setup,
+`osh down` its teardown and `osh backend deactivate` the way back to it.
 
 #### Backend class attributes
 
 ```python
 class MyBackend(Backend):
     backend_type = "backend"
-    name = "my-target"              # Used with --target my-target
+    name = "my-target"              # Activated via `osh my-target init`/`activate`
     label = "My Target"             # Short label shown to users
     description = "Runs Odoo on my custom target."
     help_text = "Long help text for --help."
@@ -264,9 +305,8 @@ class MyBackend(Backend):
 #### Backend class methods
 
 - `get_init_options(cls)`: return a list of `click.Option` instances that
-  `osh init --target <name>` should accept. Use `cls.make_init_option(...)` to
-  create options; it automatically sets the `target_group` attribute so the
-  help formatter groups the option under the right backend heading.
+  `osh <name> init` should accept, on top of the common init options
+  (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
 
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
   _base_, or `None` if it cannot be determined. The base implementation reads
@@ -275,13 +315,17 @@ class MyBackend(Backend):
   tag).
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
-  Return a `Diagnostics` object. `osh doctor`, `osh init` and `osh odoo` all use
-  this. `options` may include `phase` (`"doctor"`, `"init"` or `"run"`) and any
-  CLI options passed by the command.
+  Return a `Diagnostics` object. `osh <name> doctor`, `osh <name> init` and
+  `osh odoo` all use this. `options` may include `phase` (`"doctor"`, `"init"`
+  or `"run"`) and any CLI options passed by the command.
 
 - `init(self, target, *, version="", edition="ce", dry_run=False, **options)`:
   prepare `target` for use and return `True` when ready. This is called by
-  `osh init --target <name>`.
+  `osh <name> init` after the common base setup.
+
+- `down(self, base, *, dry_run=False, **options)`: stop anything the backend
+  leaves running. Called by `osh <name> down`; the default implementation
+  kills a rogue Odoo process listening on the configured HTTP port.
 
 - `env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
   execute a command inside the target environment. `env_spec` is an `EnvSpec`
@@ -448,8 +492,9 @@ Backends return diagnostics via the `Diagnostics` dataclass in
 - `add_error(msg)`, `add_warning(msg)`, `add_info(key, value)`,
   `add_plan(item)`: helper methods.
 
-`osh odoo` aborts on `errors`; `osh init` uses `plan` to show the user what will
-happen; `osh doctor` reports everything via `report_diagnostics()`.
+`osh odoo` aborts on `errors`; `osh <name> init` uses `plan` to show the user
+what will happen; `osh <name> doctor` reports everything via
+`report_diagnostics()`.
 
 ### Minimal backend plugin example
 
@@ -468,7 +513,7 @@ class EchoBackend(Backend):
     @classmethod
     def get_init_options(cls):
         return [
-            cls.make_init_option(["--my-source"], help="Path to my source.")
+            click.Option(["--my-source"], help="Path to my source.")
         ]
 
     def diagnose(self, base, ctx=None, **options):
@@ -485,8 +530,15 @@ class EchoBackend(Backend):
         click.echo(f"Would run in {self.name} environment: {command}")
 
 
-OSH_PLUGIN_MANIFEST = {"backends": [EchoBackend]}
+from osh.commands.backend_cmd import backend_group
+
+echo = backend_group(EchoBackend)
+
+OSH_PLUGIN_MANIFEST = {
+    "backends": [EchoBackend],
+    "backend_commands": [echo],
+}
 ```
 
-Register it with `osh --target echo` or `osh init --target echo` once the
-plugin is loaded.
+Once the plugin is loaded, `osh echo init` sets the project up and makes
+`echo` the active backend, so `osh odoo` runs Odoo through it.

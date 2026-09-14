@@ -1,9 +1,8 @@
 """`osh test` command implementation.
 
 `osh test` is a thin wrapper around `osh odoo` that adds test-specific
-options and generates the right `-i`/`-u`/`--test-enable` arguments. Standard
-`osh odoo` options such as `--target` and `--compose-file` are accepted and
-passed through.
+options and generates the right `-i`/`-u`/`--test-enable` arguments. It runs
+on the project's active backend (see ``osh <backend> activate``).
 """
 
 import click
@@ -43,13 +42,6 @@ from ...db import db_exists, drop_db, resolve_test_db_name
     help="Print the command that would be run without executing it.",
 )
 @click.option(
-    "--target",
-    "backend_name",
-    default="local",
-    envvar="OSH_RUN_TARGET",
-    help="Execution target: local host, managed venv, or a plugin backend.",
-)
-@click.option(
     "--compose-file",
     default=None,
     envvar="OSH_COMPOSE_FILE",
@@ -68,7 +60,6 @@ def test(
     http,
     no_stop_after_init,
     dry_run,
-    backend_name,
     compose_file,
 ):  # noqa: D401
     """Run Odoo tests for project modules.
@@ -76,8 +67,7 @@ def test(
     This is a wrapper around `osh odoo` that chains two Odoo invocations:
     an install/update run without `--test-enable`, followed by an update run
     with `--test-enable` so tests execute on the already installed modules.
-    Standard `osh odoo` options such as `--target` and `--compose-file` are
-    accepted and forwarded.
+    It runs on the project's active backend; `--compose-file` is forwarded.
 
     The test database is `<project>-<branch>-test` by default. On a fresh
     database, modules are first installed with `-i <modules>` and then tested
@@ -92,7 +82,6 @@ def test(
       osh test --tags :TestClass.method
       osh test --current-db
       osh test --dropdb
-      osh test --target docker
       osh test --dry-run
     """
 
@@ -140,7 +129,6 @@ def test(
 
     odoo_kwargs = {
         "dry_run": dry_run,
-        "backend_name": backend_name,
         "compose_file": compose_file,
     }
 

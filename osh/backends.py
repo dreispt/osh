@@ -2,9 +2,11 @@
 
 Backends allow plugins to replace the default host-venv execution model with
 other targets, such as Docker or remote containers, while keeping the same
-``osh init`` and ``osh odoo`` user interface.
+``osh shell``/``osh odoo`` user interface. Each backend also gets an
+``osh <name>`` command group (``init``, ``doctor``, ``down``) — see
+``osh.commands.backend_cmd.backend_group``.
 
-``LocalBackend`` is the built-in default backend, used when no other backend
+``NoneBackend`` is the built-in default backend, used when no other backend
 is configured: it runs commands directly on the host.
 """
 
@@ -79,24 +81,8 @@ class Backend(ABC):
     host_executable = False
 
     @classmethod
-    def make_init_option(cls, param_decls, **attrs):
-        """Create a Click option tagged for this backend's init option group.
-
-        ``osh init`` uses the ``target_group`` attribute to group options by
-        backend in its ``--help`` output.
-        """
-        option = click.Option(param_decls, **attrs)
-        option.target_group = cls.name
-        return option
-
-    @classmethod
     def get_init_options(cls):
-        """Return target-specific ``osh init`` options.
-
-        Each option must carry a ``target_group`` attribute set to
-        ``cls.name`` so the help formatter can group it under the right
-        target heading.
-        """
+        """Return backend-specific options for the ``osh <name> init`` command."""
         return []
 
     def detect_odoo_version(self, base):
@@ -112,9 +98,9 @@ class Backend(ABC):
     def diagnose_sections_for_phase(self, phase):
         """Return the diagnose sections to run for *phase*.
 
-        ``None`` means "all sections". This is used by ``osh init`` and
-        ``osh odoo`` to skip expensive checks that are only useful for a full
-        ``osh doctor`` report.
+        ``None`` means "all sections". This is used by ``osh <backend> init``
+        and ``osh odoo`` to skip expensive checks that are only useful for a
+        full ``osh <backend> doctor`` report.
         """
         return None
 
@@ -148,13 +134,13 @@ class Backend(ABC):
         """Inspect the project and system for the active target.
 
         *sections* is an optional list of section names to detect. When omitted,
-        backends should detect everything. Callers such as ``osh init`` and
-        ``osh odoo`` can use it to avoid expensive checks that are not needed for
-        their phase.
+        backends should detect everything. Callers such as ``osh <backend> init``
+        and ``osh odoo`` can use it to avoid expensive checks that are not needed
+        for their phase.
 
-        Returns a ``Diagnostics`` object that ``osh doctor`` reports, ``osh init``
-        uses to plan actions and ask for confirmation, and ``osh odoo`` uses to
-        check prerequisites.
+        Returns a ``Diagnostics`` object that ``osh <backend> doctor`` reports,
+        ``osh <backend> init`` uses to plan actions and ask for confirmation,
+        and ``osh odoo`` uses to check prerequisites.
         """
         raise NotImplementedError
 
@@ -170,8 +156,8 @@ class Backend(ABC):
     ):
         """Set up the environment. Return ``True`` if ready for use.
 
-        *todo* is the ``TodoPlan`` progress tracker ``osh init`` passes so
-        backends can announce steps via ``todo.start()`` while running.
+        *todo* is the ``TodoPlan`` progress tracker ``osh <backend> init``
+        passes so backends can announce steps via ``todo.start()`` while running.
         """
         raise NotImplementedError
 
@@ -205,26 +191,31 @@ class Backend(ABC):
             f"Backend '{self.name}' does not support environment execution."
         )
 
+    @classmethod
+    def get_down_options(cls):
+        """Additional ``click.Option`` objects for ``osh <name> down``."""
+        return []
+
     def down(self, ctx, base, **options):
         """Stop resources the backend may have left running.
 
         The default is a no-op for backends without persistent state, so
-        ``osh down`` is always safe to run regardless of the active backend.
+        ``osh <backend> down`` is always safe to run.
         """
         echo.info(f"Nothing to stop for the '{self.name}' backend.", err=True)
 
 
-class LocalBackend(Backend):
+class NoneBackend(Backend):
     """Default backend: run commands directly on the host.
 
-    The ``local`` backend manages no environment — it execs the resolved
+    The ``none`` backend manages no environment — it execs the resolved
     Odoo executable (``.venv/bin/odoo``, a source checkout, or whatever is
     on ``PATH``) with the project environment applied. Managed targets such
     as ``venv`` subclass it and layer their environment on top.
     """
 
-    name = "local"
-    label = "Local host"
+    name = "none"
+    label = "Host (no backend)"
     backend_type = "backend"
     host_executable = True
     description = "Run Odoo directly on the host (default)."
@@ -318,9 +309,9 @@ class LocalBackend(Backend):
         return d
 
     def _add_init_plans(self, todo):
-        """The local backend manages no environment — nothing to install."""
+        """The ``none`` backend manages no environment — nothing to install."""
         todo.add_plan(
-            "Nothing to install: the 'local' backend runs commands on the host"
+            "Nothing to install: the 'none' backend runs commands on the host"
         )
 
     def init(
@@ -333,7 +324,7 @@ class LocalBackend(Backend):
         todo,
         **options,
     ):
-        """Register the project; the local backend manages no environment."""
+        """Register the project; the ``none`` backend manages no environment."""
         return True
 
     def _base_env(self, base, capture):

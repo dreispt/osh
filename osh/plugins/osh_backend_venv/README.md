@@ -1,15 +1,15 @@
 # osh_backend_venv — managed virtualenv backend
 
-Provides the `venv` run target and the `osh prune` command.
+Provides the `venv` run backend and the `osh prune` command.
 
-`venv` is the managed host backend: unlike the core `local` backend (which
+`venv` is the managed host backend: unlike the core `none` backend (which
 just executes on the host with whatever is already installed), `venv` sets
 up and maintains a Python virtualenv plus the Odoo source trees for the
 project.
 
-## What `osh init --target venv` does
+## What `osh venv init` does
 
-This is the default `osh init` target. For each requested edition it:
+For each requested edition `osh venv init`:
 
 1. Clones the Odoo sources into `.osh/` — `odoo` always, plus `enterprise`
    and `design-themes` for the `ee` edition (`-c`/`-e`/`-d` flags control
@@ -28,12 +28,12 @@ host with the virtualenv activated — `VIRTUAL_ENV` is set and
 environment. `find_odoo_executable` resolves the `odoo`/`odoo-bin` binary
 from `.venv/bin` first, so no manual activation is needed.
 
-`osh down` is inherited from the core local backend: it probes the
-configured HTTP port and terminates a rogue Odoo process left behind by a
-previous run (foreign listeners are reported, never killed).
+`osh venv down` mirrors `osh down`: it probes the configured HTTP
+port and terminates a rogue Odoo process left behind by a previous run
+(foreign listeners are reported, never killed).
 
 ## `osh prune`
 
 Deletes the managed source checkouts under `.osh/` (`odoo`, `enterprise`,
 `design-themes`) that `osh init` cloned, so they can be re-fetched or the
-project moved to the `local`/`docker` backends.
+project moved to the `none`/`docker` backends.

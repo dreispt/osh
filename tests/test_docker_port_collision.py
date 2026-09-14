@@ -69,8 +69,8 @@ def test_port_collision_identifies_other_osh_project(tmp_project, monkeypatch):
     message = excinfo.value.format_message()
     assert f"Port 8069 is already used by a container for {other}" in message
     assert "running 3 hours ago" in message
-    assert "'osh down'" in message
-    assert "'osh init --target docker --port <n>'" in message
+    assert "'osh docker down'" in message
+    assert "'osh docker init --port <n>'" in message
 
 
 def test_port_collision_unidentified_holder(tmp_project, monkeypatch):
@@ -84,9 +84,9 @@ def test_port_collision_unidentified_holder(tmp_project, monkeypatch):
 
     message = excinfo.value.format_message()
     assert "Port 8069 is already in use." in message
-    assert "'osh down'" in message
+    assert "'osh docker down'" in message
     assert "stop whatever's using port 8069" in message
-    assert "'osh init --target docker --port <n>'" in message
+    assert "'osh docker init --port <n>'" in message
 
 
 def test_port_collision_uses_configured_port(tmp_project, monkeypatch):

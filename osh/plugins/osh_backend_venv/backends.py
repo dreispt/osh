@@ -4,13 +4,13 @@ import re
 
 import click
 
-from ...backends import LocalBackend
+from ...backends import NoneBackend
 from ...common import get_venv_bin, run_subprocess, venv_env
 from .python_versions import get_available_python_versions, get_python_requirements
 from .utils import init_project
 
 
-class VenvBackend(LocalBackend):
+class VenvBackend(NoneBackend):
     """Backend that manages a project ``.venv`` and runs inside it."""
 
     name = "venv"
@@ -28,24 +28,24 @@ class VenvBackend(LocalBackend):
     @classmethod
     def get_init_options(cls):
         return [
-            cls.make_init_option(
+            click.Option(
                 ["-c", "--odoo-source"],
                 help="Odoo source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
-            cls.make_init_option(
+            click.Option(
                 ["-e", "--enterprise-source"],
                 help="Enterprise source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
-            cls.make_init_option(
+            click.Option(
                 ["-d", "--themes-source"],
                 help="Design-themes source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
             ),
         ]
 
-    _DIAGNOSE_SECTIONS = LocalBackend._DIAGNOSE_SECTIONS + ("python",)
+    _DIAGNOSE_SECTIONS = NoneBackend._DIAGNOSE_SECTIONS + ("python",)
 
     def _check_python_version(self, base, d, odoo_version):
         """Report whether the venv's Python is recommended/supported for the Odoo version."""

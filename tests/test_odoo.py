@@ -283,10 +283,13 @@ def test_odoo_compose_file_from_env_var(
         "osh.plugins.osh_backend_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
+    from osh.db import set_project_config
+
+    set_project_config(tmp_project, "run", "target", "docker")
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(odoo, ["--target", "docker", "--dry-run"])
+    result = runner.invoke(odoo, ["--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert "devel.yaml" in result.output

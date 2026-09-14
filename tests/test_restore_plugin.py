@@ -108,7 +108,7 @@ def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
     monkeypatch.setattr(
         "osh.plugins.osh_db_get.restore_cmd.check_run_diagnostics",
         lambda *args, **kwargs: Diagnostics(
-            backend="local", info={}, warnings=[], errors=[]
+            backend="none", info={}, warnings=[], errors=[]
         ),
     )
 

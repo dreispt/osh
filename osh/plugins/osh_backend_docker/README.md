@@ -1,12 +1,12 @@
 # osh_backend_docker — Docker Compose backend
 
-Provides the `docker` run target: Odoo and its tools (`psql`, `pg_dump`,
+Provides the `docker` run backend: Odoo and its tools (`psql`, `pg_dump`,
 `createdb`, ...) run inside a Docker Compose stack instead of on the host.
 
 ## Init
 
 ```bash
-osh init 19.0 --target docker [--service odoo] [--command odoo] \
+osh docker init 19.0 [--service odoo] [--command odoo] \
     [--compose-file devel.yaml] [--port 8069]
 ```
 
@@ -52,8 +52,9 @@ arguments itself:
   variables re-exported as the standard `PG*` names.
 
 Containers are intentionally **left running** after commands exit.
-`osh down` runs `docker compose down` for the project stack; `osh doctor`
-reports whether the container is running and for how long.
+`osh docker down` runs `docker compose down` for the project stack;
+`osh docker doctor` reports whether the container is running and for
+how long.
 
 ## Addons paths
 
@@ -75,6 +76,7 @@ sources are configured.
 
 Before `up -d`, Osh checks whether the configured port is already bound. If
 the holder is another Osh-managed project (identified via Compose labels),
-the error names that project and suggests `osh down` there or
-`osh init --target docker --port <n>` here; otherwise it prints a generic
-actionable message. In both cases `osh down` is the first suggested remedy.
+the error names that project and suggests `osh docker down` there or
+`osh docker init --port <n>` here; otherwise it prints a generic
+actionable message. In both cases `osh docker down` is the first suggested
+remedy.

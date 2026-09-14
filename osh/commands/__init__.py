@@ -5,6 +5,7 @@ with the root click group in `cli.py`.
 """
 
 from . import (
+    backend_cmd,
     config_cmd,
     db_cmd,
     doctor_cmd,
@@ -21,9 +22,10 @@ COMMANDS = [
     odoo_cmd.odoo,
     switch_cmd.switch,
     shell_cmd.shell,
-    down_cmd.down,
     db_cmd.db,
     doctor_cmd.doctor,
+    down_cmd.down,
+    backend_cmd.backend,
     config_cmd.config,
     plug_cmd.plug,
 ]

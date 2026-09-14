@@ -1,6 +1,6 @@
 """Map Odoo versions to the Python versions they support.
 
-The resolver is used by the local backend to create a virtualenv with the
+The resolver is used by the venv backend to create a virtualenv with the
 right Python interpreter for the requested Odoo branch.
 """
 

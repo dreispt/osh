@@ -2,7 +2,7 @@
 
 from click.testing import CliRunner
 
-from osh.backends import LocalBackend
+from osh.backends import NoneBackend
 from osh.cli import main
 from osh.db import set_project_config
 
@@ -11,16 +11,16 @@ class TestDoctorVersionReporting:
     def test_local_diagnose_reports_installed_odoo_version(
         self, tmp_project, fake_odoo_executable
     ):
-        """``osh doctor`` (via LocalBackend.diagnose) reports the installed Odoo version."""
-        backend = LocalBackend()
+        """``osh doctor`` (via NoneBackend.diagnose) reports the installed Odoo version."""
+        backend = NoneBackend()
         diagnostics = backend.diagnose(tmp_project)
-        assert diagnostics.info["local"]["odoo_version"] == "odoo 19.0"
+        assert diagnostics.info["none"]["odoo_version"] == "odoo 19.0"
 
     def test_doctor_reports_installed_odoo_version(
         self, tmp_project, fake_odoo_executable, monkeypatch
     ):
         """``osh doctor`` prints the installed Odoo version for the active target."""
-        set_project_config(tmp_project, "init", "target", "local")
+        set_project_config(tmp_project, "init", "target", "none")
         monkeypatch.chdir(tmp_project)
         runner = CliRunner()
         result = runner.invoke(main, ["doctor"])

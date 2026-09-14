@@ -3,7 +3,11 @@
 import click
 
 from ... import echo
+from ...commands.backend_cmd import backend_group
 from ...common import find_project_root, run_subprocess
+from .backends import VenvBackend
+
+venv = backend_group(VenvBackend)
 
 
 @click.command(name="prune")
