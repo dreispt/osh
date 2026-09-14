@@ -9,7 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from osh.commands.switch_cmd import switch
-from osh.db import get_active_env, resolve_db_name
+from osh.common import find_project_repos
+from osh.db import get_active_env, get_current_branch, resolve_db_name
 
 requires_git = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not available"
@@ -196,3 +197,145 @@ def test_switch_refresh_remote_end_to_end(in_project, patched_restore):
     assert result.exit_code == 0, result.output
     assert patched_restore["restore"] == [(prod, patched_restore["db_name"], False)]
     assert patched_restore["created"] == [patched_restore["db_name"]]
+
+
+# Multi-repository projects -------------------------------------------------
+
+
+@pytest.fixture
+def multi_repo_project(tmp_path, monkeypatch):
+    """A project root without ``.git``, containing nested child repositories."""
+    project = tmp_path / "project"
+    (project / ".osh").mkdir(parents=True)
+    (project / "not-a-repo").mkdir()
+    for rel in ("odoo", "addons/custom"):
+        repo = project / rel
+        repo.mkdir(parents=True)
+        _init_git(repo)
+        subprocess.run(
+            ["git", "switch", "-c", "19.0"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+    monkeypatch.chdir(project)
+    return project
+
+
+@requires_git
+def test_find_project_repos_discovers_nested(multi_repo_project):
+    """Repositories nested under non-repo directories are discovered."""
+    assert find_project_repos(multi_repo_project) == [
+        multi_repo_project / "addons" / "custom",
+        multi_repo_project / "odoo",
+    ]
+
+
+def test_find_project_repos_empty(tmp_project):
+    """A project with no valid repository reports an empty list."""
+    # tmp_project's .git is an empty directory: not a usable repository.
+    assert find_project_repos(tmp_project) == []
+
+
+@requires_git
+def test_get_current_branch_unanimous(multi_repo_project):
+    """The shared branch is returned when all repositories agree."""
+    assert get_current_branch(multi_repo_project) == "19.0"
+
+
+@requires_git
+def test_get_current_branch_diverged(multi_repo_project):
+    """No branch is returned when repositories disagree."""
+    subprocess.run(
+        ["git", "switch", "-c", "fix"],
+        cwd=multi_repo_project / "odoo",
+        check=True,
+        capture_output=True,
+    )
+    assert get_current_branch(multi_repo_project) is None
+
+
+@requires_git
+def test_switch_multi_repo_switches_all(multi_repo_project):
+    """`osh switch -c <name>` creates the branch in every repository."""
+    result = CliRunner().invoke(switch, ["-c", "feature/x"])
+
+    assert result.exit_code == 0, result.output
+    for rel in ("odoo", "addons/custom"):
+        assert _git_current_branch(multi_repo_project / rel) == "feature/x"
+    assert "Database: project-feature-x" in result.output
+
+
+@requires_git
+def test_switch_multi_repo_resolves_shared_branch_db(multi_repo_project):
+    """The generated database name uses the shared multi-repo branch."""
+    assert resolve_db_name(multi_repo_project) == "project-19-0"
+
+
+@requires_git
+def test_switch_multi_repo_records_active_env(multi_repo_project):
+    """A multi-repo switch records the environment as a divergence fallback."""
+    CliRunner().invoke(switch, ["-c", "feature/x"])
+    assert get_active_env(multi_repo_project) == "feature/x"
+
+
+@requires_git
+def test_switch_multi_repo_create_only_where_missing(multi_repo_project):
+    """`-c` keeps existing branches and creates the missing ones."""
+    subprocess.run(
+        ["git", "switch", "-c", "feature"],
+        cwd=multi_repo_project / "odoo",
+        check=True,
+        capture_output=True,
+    )
+
+    result = CliRunner().invoke(switch, ["feature", "-c"])
+
+    assert result.exit_code == 0, result.output
+    assert _git_current_branch(multi_repo_project / "addons" / "custom") == "feature"
+
+
+@requires_git
+def test_switch_multi_repo_missing_branch_hint(multi_repo_project):
+    """A missing branch reports the failed repositories and hints --create."""
+    result = CliRunner().invoke(switch, ["does-not-exist"])
+
+    assert result.exit_code != 0
+    assert "Could not switch" in result.output
+    assert "--create" in result.output
+
+
+@requires_git
+def test_switch_multi_repo_reports_each_branch(multi_repo_project):
+    """`osh switch` without arguments lists each repository's branch."""
+    result = CliRunner().invoke(switch, [])
+
+    assert result.exit_code == 0, result.output
+    assert "odoo: 19.0" in result.output
+    assert f"{Path('addons') / 'custom'}: 19.0" in result.output
+    assert "Database: project-19-0" in result.output
+
+
+@requires_git
+def test_switch_multi_repo_warns_on_diverged(multi_repo_project):
+    """`osh switch` warns when repositories are on different branches."""
+    subprocess.run(
+        ["git", "switch", "-c", "fix"],
+        cwd=multi_repo_project / "odoo",
+        check=True,
+        capture_output=True,
+    )
+    result = CliRunner().invoke(switch, [])
+
+    assert result.exit_code == 0, result.output
+    assert "different branches" in result.output
+
+
+@requires_git
+def test_switch_multi_repo_dry_run(multi_repo_project):
+    """`osh switch --dry-run` prints commands without changing branches."""
+    result = CliRunner().invoke(switch, ["other", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would run in odoo: git switch other" in result.output
+    assert _git_current_branch(multi_repo_project / "odoo") == "19.0"

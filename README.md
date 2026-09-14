@@ -97,6 +97,23 @@ is based on the project directory name and the git branch (or `default` in
 detached `HEAD` state). Special characters are sanitized to keep the name safe
 for PostgreSQL and for Odoo's `--db-filter`.
 
+### Multi-repository projects
+
+The project root does not need to be a git repository itself. When `osh` finds
+a `.osh` directory but no `.git`, it treats every git repository found below
+the project root as part of the project:
+
+- `osh switch <branch>` runs `git switch <branch>` in each repository
+  (`-c/--create` creates the branch where it does not exist yet).
+- `osh switch` without arguments prints the current branch of each repository.
+- The branch-aware database name resolves from the branch all repositories
+  share; when they are on different branches, the last switched environment
+  name is used (falling back to `default`).
+
+When no git repositories are found at all, `osh switch <name>` records _name_
+as the active environment — per-machine state in `.osh/local.toml` that
+resolves to a database through the same branch mappings.
+
 ### Addons path discovery
 
 `osh odoo` scans the project directory (up to 9 levels deep) for directories

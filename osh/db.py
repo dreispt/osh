@@ -18,9 +18,10 @@ from . import config as _config
 from . import echo
 from .common import (
     decode_stderr,
+    find_project_repos,
     get_odoo_config_path,
     get_osh_odoo_config_path,
-    run_subprocess,
+    git_current_branch,
 )
 
 AUTO_DB = "auto"
@@ -96,14 +97,19 @@ def resolve_run_target(base, default_target, ctx):
 
 
 def get_current_branch(base):
-    """Return the current git branch, or None if not in a git repo."""
-    returncode, branch, _ = run_subprocess(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=base,
-    )
-    if returncode != 0 or not branch:
-        return None
-    return branch.strip()
+    """Return the current git branch, or None if it cannot be determined.
+
+    When the project root is not a git repository itself, the repositories
+    discovered below it are considered: the branch name is returned when
+    every repository is on the same branch, and ``None`` when they disagree
+    or no repository is found.
+    """
+    branches = {
+        branch
+        for repo in find_project_repos(base)
+        if (branch := git_current_branch(repo))
+    }
+    return branches.pop() if len(branches) == 1 else None
 
 
 def get_active_env(base):
