@@ -9,7 +9,9 @@ commands, which call :func:`base_init` and then :func:`run_backend_init`.
 from __future__ import annotations
 
 import configparser
+import contextlib
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -107,16 +109,17 @@ def init(
       osh init 19.0 --dry-run
     """
     target = (directory or Path.cwd()).expanduser().resolve()
-    base_init(
-        ctx,
-        target,
-        version=version,
-        edition=edition,
-        save=save,
-        assume_yes=assume_yes,
-        dry_run=dry_run,
-        dev=dev,
-    )
+    with _rollback_new_osh_dir(target):
+        base_init(
+            ctx,
+            target,
+            version=version,
+            edition=edition,
+            save=save,
+            assume_yes=assume_yes,
+            dry_run=dry_run,
+            dev=dev,
+        )
     if dry_run:
         echo.info(f"Dry run for project directory at {target}")
     else:
@@ -126,6 +129,29 @@ def init(
             "  osh <backend> init  # e.g. 'osh venv init' or 'osh docker init'"
         )
         echo.friendly("  osh doctor          # Check your setup")
+
+
+@contextlib.contextmanager
+def _rollback_new_osh_dir(target):
+    """Remove ``target/.osh`` on failure when the wrapped init created it.
+
+    A ``.osh`` dir left behind by an init that could not complete would
+    still mark the directory as an Osh project. An existing ``.osh`` with
+    content is a real environment and is never removed; an empty one holds
+    no state and is treated as not pre-existing.
+    """
+    osh_dir = Path(target) / ".osh"
+    existed = osh_dir.is_dir() and any(osh_dir.iterdir())
+    try:
+        yield
+    except BaseException:
+        if not existed:
+            shutil.rmtree(osh_dir, ignore_errors=True)
+            if not osh_dir.exists():
+                echo.info("Removed incomplete '.osh' directory.", err=True)
+        else:
+            echo.info("Existing '.osh' directory was left untouched.", err=True)
+        raise
 
 
 def base_init(

@@ -19,7 +19,7 @@ from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
 from ..db import deactivate_backend, resolve_backend, set_project_config
 from .helpers import check_run_diagnostics, collect_diagnostics, report_diagnostics
-from .init_cmd import base_init, init, run_backend_init
+from .init_cmd import _rollback_new_osh_dir, base_init, init, run_backend_init
 
 
 @click.group(name="backend", cls=NaturalOrderGroup)
@@ -91,26 +91,27 @@ def _init_command(backend_cls):
         ctx, version, directory, edition, save, assume_yes, dry_run, dev, **options
     ):
         target = (directory or Path.cwd()).expanduser().resolve()
-        edition = base_init(
-            ctx,
-            target,
-            version=version,
-            edition=edition,
-            save=save,
-            assume_yes=assume_yes,
-            dry_run=dry_run,
-            dev=dev,
-        )
-        run_backend_init(
-            ctx,
-            backend_cls(),
-            target,
-            version=version,
-            edition=edition,
-            assume_yes=assume_yes,
-            dry_run=dry_run,
-            **options,
-        )
+        with _rollback_new_osh_dir(target):
+            edition = base_init(
+                ctx,
+                target,
+                version=version,
+                edition=edition,
+                save=save,
+                assume_yes=assume_yes,
+                dry_run=dry_run,
+                dev=dev,
+            )
+            run_backend_init(
+                ctx,
+                backend_cls(),
+                target,
+                version=version,
+                edition=edition,
+                assume_yes=assume_yes,
+                dry_run=dry_run,
+                **options,
+            )
 
     return click.Command(
         name="init",

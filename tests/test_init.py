@@ -10,6 +10,8 @@ import pytest
 from click.testing import CliRunner
 
 from osh.cli import main
+from osh.commands import init_cmd
+from osh.plugins.osh_backend_venv.backends import VenvBackend
 from osh.sources import (
     DEFAULT_ODOO_URL,
     _cache_has_branch,
@@ -780,3 +782,99 @@ class TestSourceVersionSwitching:
             f"file://{bare}",
         )
         assert _source_branch(osh_dir / "odoo") == "19.0"
+
+
+def _raise_backend_init_error(*args, **kwargs):
+    raise click.ClickException("backend init failed")
+
+
+class TestInitRollback:
+    """A failed or aborted init must not leave a stale ``.osh`` marker."""
+
+    def test_failed_backend_init_removes_new_osh_dir(self, tmp_path, monkeypatch):
+        """``osh venv init`` failure removes the ``.osh`` dir it created."""
+        target = tmp_path / "fresh"
+        target.mkdir()
+        (target / ".git").mkdir()
+        monkeypatch.setattr(VenvBackend, "init", _raise_backend_init_error)
+
+        result = CliRunner().invoke(
+            main, ["venv", "init", "19.0", "--edition", "ce", str(target)]
+        )
+
+        assert result.exit_code != 0
+        assert not (target / ".osh").exists()
+
+    def test_failed_backend_init_keeps_existing_osh_dir(self, tmp_project, monkeypatch):
+        """A failed re-init never removes a ``.osh`` holding existing state."""
+        marker = tmp_project / ".osh" / "keep.txt"
+        marker.write_text("keep")
+        monkeypatch.setattr(VenvBackend, "init", _raise_backend_init_error)
+
+        result = CliRunner().invoke(
+            main, ["venv", "init", "19.0", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code != 0
+        assert marker.exists()
+
+    def test_failed_backend_init_removes_empty_osh_dir(self, tmp_project, monkeypatch):
+        """An empty ``.osh`` holds no state and is removed on failure."""
+        monkeypatch.setattr(VenvBackend, "init", _raise_backend_init_error)
+
+        result = CliRunner().invoke(
+            main, ["venv", "init", "19.0", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code != 0
+        assert not (tmp_project / ".osh").exists()
+
+    def test_declined_confirmation_removes_new_osh_dir(self, tmp_path, monkeypatch):
+        """Declining the init plan removes the ``.osh`` the run created."""
+        target = tmp_path / "fresh"
+        target.mkdir()
+        (target / ".git").mkdir()
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(click, "confirm", lambda *a, **kw: False)
+
+        ctx = click.Context(init_cmd.init)
+        with pytest.raises(click.ClickException, match="Aborted"):
+            with init_cmd._rollback_new_osh_dir(target):
+                init_cmd.base_init(
+                    ctx,
+                    target,
+                    version="19.0",
+                    edition="ce",
+                    save=False,
+                    assume_yes=False,
+                    dry_run=False,
+                    dev=True,
+                )
+                init_cmd.run_backend_init(
+                    ctx,
+                    VenvBackend(),
+                    target,
+                    version="19.0",
+                    edition="ce",
+                    assume_yes=False,
+                    dry_run=False,
+                )
+
+        assert not (target / ".osh").exists()
+
+    def test_failed_base_init_removes_new_osh_dir(self, tmp_path, monkeypatch):
+        """``osh init`` failing after creating ``.osh`` removes it."""
+        target = tmp_path / "fresh"
+        target.mkdir()
+        (target / ".git").mkdir()
+        monkeypatch.setattr(
+            "osh.commands.init_cmd.setup_project_neutralize_scripts",
+            _raise_backend_init_error,
+        )
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(target)]
+        )
+
+        assert result.exit_code != 0
+        assert not (target / ".osh").exists()
