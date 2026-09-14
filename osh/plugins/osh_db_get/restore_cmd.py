@@ -87,9 +87,13 @@ def restore(
 
     \b
       .dump   -> pg_restore
-      .sql    -> psql -f
+      .sql    -> psql
       .sql.gz -> gunzip -c | psql
       .zip    -> unzip + psql + filestore copy
+
+    Backup contents are streamed to the tool's standard input, so host file
+    paths never reach the backend environment — this works the same on the
+    host and inside a Docker container.
 
     For `.zip` backups, the filestore directory is copied into the configured
     Odoo `data_dir` under `filestore/<dbname>/`. If `data_dir` cannot be

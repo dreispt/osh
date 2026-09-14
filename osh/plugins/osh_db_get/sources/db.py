@@ -1,5 +1,6 @@
 """Backup source for dumping a local PostgreSQL database."""
 
+import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 from .... import echo
 from ....backup_sources import BackupSource, SourceError, now_stamp
 from ....common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
-from ....db import run_in_backend
+from ....db import export_filestore, run_in_backend
 
 
 class DbSource(BackupSource):
@@ -92,22 +93,29 @@ Examples:
             with dump_sql.open("wb") as f:
                 self._checked_pg_dump(dump_args, f)
 
-            data_dir = self._data_dir()
-            source_filestore = (
-                data_dir / "filestore" / self.db_name if data_dir else None
-            )
+            filestore_dir = tmp_path / "filestore"
+            found = self._export_filestore(filestore_dir)
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(dump_sql, "dump.sql")
-                if source_filestore and source_filestore.exists():
-                    for path in source_filestore.rglob("*"):
+                if found:
+                    for path in filestore_dir.rglob("*"):
                         if path.is_file():
                             arcname = (
                                 "filestore/"
-                                + path.relative_to(source_filestore).as_posix()
+                                + path.relative_to(filestore_dir).as_posix()
                             )
                             zf.write(path, arcname)
                 else:
-                    echo.warning(f"filestore not found at {source_filestore}")
+                    echo.warning(f"filestore not found for database '{self.db_name}'")
 
-    def _data_dir(self):
-        return get_odoo_data_dir(self.base)
+    def _export_filestore(self, dest_dir):
+        """Copy this database's filestore into *dest_dir*; False if missing."""
+        if self.base is not None:
+            return export_filestore(None, self.base, self.db_name, dest_dir)
+        # Outside a project there is no backend — read the host data dir.
+        data_dir = get_odoo_data_dir(None)
+        source = data_dir / "filestore" / self.db_name if data_dir else None
+        if not (source and source.exists()):
+            return False
+        shutil.copytree(source, dest_dir)
+        return True

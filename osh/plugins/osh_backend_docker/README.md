@@ -15,6 +15,11 @@ compose file, compose tool, port, version and edition, ensures the Odoo
 sources for the selected edition exist under `.osh/`, and runs an
 `odoo --version` smoke test.
 
+An optional `data_dir` key in `.osh/docker.toml` tells `osh db` where the
+container's Odoo data directory is (used for `.zip` filestore operations).
+It defaults to `/var/lib/odoo`, the named volume declared by the official
+Odoo image; set it when your compose file configures a different `data_dir`.
+
 ## Behaviour with existing Docker / Compose files
 
 - **`--compose-file <path>`** (or `$OSH_COMPOSE_FILE`, or `compose_file` in

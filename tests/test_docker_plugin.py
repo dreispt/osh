@@ -537,6 +537,56 @@ def test_docker_backend_requires_service(tmp_project):
         backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
 
+def test_docker_backend_env_forwards_stdin(tmp_project, monkeypatch):
+    """``EnvSpec.stdin`` is forwarded to ``compose exec -T`` as process stdin.
+
+    This is how ``osh db restore`` streams dumps into the container without
+    relying on any volume mount.
+    """
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+
+    backend = DockerBackend()
+    monkeypatch.setattr(backend, "ensure_service_up", lambda *a, **kw: None)
+
+    captured = {}
+
+    def fake_run_subprocess(args, **kwargs):
+        captured["args"] = args
+        captured["stdin"] = kwargs.get("stdin")
+        return 0, "", ""
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        fake_run_subprocess,
+    )
+
+    marker = object()
+    backend.env(
+        None,
+        tmp_project,
+        EnvSpec(argv=["pg_restore", "--dbname", "db"], stdin=marker),
+        capture=True,
+    )
+
+    assert captured["stdin"] is marker
+    assert "-T" in captured["args"]
+    assert "pg_restore" in captured["args"]
+
+
+def test_docker_odoo_data_dir(tmp_project):
+    """``odoo_data_dir`` defaults to the image's /var/lib/odoo volume."""
+    backend = DockerBackend()
+    assert backend.odoo_data_dir(tmp_project) == "/var/lib/odoo"
+
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text('service = "odoo"\ndata_dir = "/opt/odoo/data"\n')
+    assert backend.odoo_data_dir(tmp_project) == "/opt/odoo/data"
+
+
 def test_docker_backend_compose_file_from_config(tmp_project, capsys):
     """The compose file from docker.toml is passed with ``-f``."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
