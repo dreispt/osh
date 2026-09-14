@@ -3,56 +3,38 @@
 import click
 
 from .. import echo
+from ..backends import NoneBackend
 from ..common import find_project_root
-from ..db import get_project_config
-from ..utils.plugin_loader import load_backends
+from ..db import get_project_config, normalize_backend_name
 from .helpers import collect_diagnostics, report_diagnostics
 
 
 @click.command(name="doctor")
 @click.pass_context
 def doctor(ctx):  # noqa: D401
-    """Show project diagnostics by delegating to the active backend."""
+    """Show base project diagnostics.
+
+    Backend-specific checks are reported by ``osh <backend> doctor``
+    (e.g. ``osh docker doctor``, ``osh venv doctor``).
+    """
     base = find_project_root(required=True)
 
     # Show friendly header for new users
     echo.friendly("Checking your Osh setup...")
 
-    active_target = get_project_config(base, "init", "target") or get_project_config(
-        base, "run", "target"
+    active_target = normalize_backend_name(
+        get_project_config(base, "run", "target")
+        or get_project_config(base, "init", "target")
     )
 
-    backends = load_backends()
+    diagnostics = collect_diagnostics(
+        base, NoneBackend(), ctx, target=active_target or "none"
+    )
+    report_diagnostics(diagnostics)
 
-    if active_target and active_target not in backends:
-        raise click.ClickException(
-            f"Unknown backend '{active_target}'. "
-            f"Available: {', '.join(backends)} or run 'osh init --target <backend>'."
-        )
-
-    if not backends:
-        echo.info("No backends are registered.")
-        return
-
-    all_diagnostics = []
-    ordered = sorted(backends)
-    if active_target and active_target in ordered:
-        ordered.remove(active_target)
-        ordered.insert(0, active_target)
-
-    for backend_name in ordered:
-        backend = backends[backend_name]()
-        diagnostics = collect_diagnostics(
-            base,
-            backend,
-            ctx,
-            target=active_target if backend_name == active_target else backend_name,
-            include_core=(backend_name == active_target),
-        )
-        all_diagnostics.append(diagnostics)
-        report_diagnostics(diagnostics)
+    if active_target and active_target != "none":
+        echo.info(f"Run 'osh {active_target} doctor' for backend-specific checks.")
 
     # Show friendly footer for new users
-    all_ready = all(d.ready for d in all_diagnostics)
-    if all_ready:
+    if diagnostics.ready:
         echo.friendly("Your setup looks good! Run 'osh odoo' to start Odoo.")

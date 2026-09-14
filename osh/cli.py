@@ -10,7 +10,11 @@ from . import __version__, echo
 from .cli_utils import NaturalOrderGroup
 from .commands import COMMANDS
 from .config import get_plugin_aliases
-from .utils.plugin_loader import load_group_commands, load_plugins
+from .utils.plugin_loader import (
+    load_backend_commands,
+    load_group_commands,
+    load_plugins,
+)
 
 
 def _print_version(ctx, param, value):
@@ -63,7 +67,7 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     Use `osh init` to initialize an Odoo environment in a project.
     Use `osh shell` to enter the runtime environment or run any command inside it.
     Use `osh odoo` to run Odoo in that environment, using an available
-    backend (local, docker, etc.).
+    backend (none, docker, etc.).
     Add the `--help` option to a command to learn more.
     """
     ctx.ensure_object(dict)
@@ -142,6 +146,20 @@ for plugin_source, plugin_cmd in load_plugins():
         _plugin_commands[name] = plugin_source
 main.plugin_commands = _plugin_commands
 
+# Register backend command groups, declared by plugins via the
+# ``backend_commands`` manifest key. They render in their own
+# "Backend Commands" help section. The built-in ``none`` backend has no
+# group — it is the absence of a managed backend; ``osh init`` is its
+# setup, ``osh backend down`` its teardown, ``osh backend deactivate`` the
+# way back.
+main.backend_commands = {}
+for plugin_source, backend_group_cmd in load_backend_commands():
+    name = _register_plugin_command(
+        main, backend_group_cmd, plugin_source, backend_group_cmd.name
+    )
+    if name is not None:
+        main.backend_commands[name] = plugin_source
+
 # Register plugin-provided subcommands on existing command groups
 # (``group_commands`` manifest key).
 for group_name, entries in load_group_commands().items():
@@ -171,10 +189,10 @@ _COMMAND_ORDER = [
     "odoo",
     "switch",
     "shell",
-    "down",
     "test",
     "db",
     "doctor",
+    "backend",
     "config",
     "plug",
 ]

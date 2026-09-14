@@ -1,9 +1,11 @@
 """Built-in Docker backend plugin for Osh.
 
-Provides ``osh init --target docker`` and ``osh odoo --target docker`` support
-by reading an existing Docker Compose stack configuration from ``.osh/docker.toml``.
+Provides the ``docker`` backend for ``osh odoo``/``osh shell`` and the
+``osh docker`` command group (``init``, ``doctor``, ``down``), reading an
+existing Docker Compose stack configuration from ``.osh/docker.toml``.
 """
 
 from .backends import DockerBackend
+from .commands import docker
 
-OSH_PLUGIN_MANIFEST = {"backends": [DockerBackend]}
+OSH_PLUGIN_MANIFEST = {"backends": [DockerBackend], "backend_commands": [docker]}

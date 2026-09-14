@@ -126,13 +126,6 @@ def prepare_env_context(
     help="Print the assembled command without executing it.",
 )
 @click.option(
-    "--target",
-    "backend_name",
-    default="local",
-    envvar="OSH_RUN_TARGET",
-    help="Execution target: local host, managed venv, or a plugin backend.",
-)
-@click.option(
     "--compose-file",
     default=None,
     envvar="OSH_COMPOSE_FILE",
@@ -144,7 +137,6 @@ def prepare_env_context(
 def shell(
     ctx,
     dry_run,
-    backend_name,
     compose_file,
     extra_args,
 ):  # noqa: D401
@@ -166,12 +158,11 @@ def shell(
       osh shell
       osh shell odoo --version
       osh shell psql
-      osh shell --target docker odoo -i base
+      osh shell odoo -i base
     """
     base = find_project_root(required=True)
 
-    backend = db_module.resolve_backend(ctx, base, backend_name)
-    db_module.set_project_config(base, "run", "target", backend.name)
+    backend = db_module.resolve_backend(base)
 
     check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
 

@@ -136,7 +136,7 @@ def restore(
     if not db_name:
         raise click.ClickException("Could not resolve a target database name.")
 
-    backend = resolve_backend(ctx, base)
+    backend = resolve_backend(base)
     check_run_diagnostics(base, backend, ctx)
 
     if not dry_run:
@@ -160,7 +160,7 @@ def restore(
         restore_ops.restore_dump(base, dump_path, db_name, dry_run=False, ctx=ctx)
 
     if not no_neutralize:
-        _neutralize(ctx, base, db_name, backend.name, dry_run=dry_run)
+        _neutralize(ctx, base, db_name, dry_run=dry_run)
 
     if not dry_run:
         if no_neutralize:
@@ -176,7 +176,7 @@ def restore(
             )
 
 
-def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
+def _neutralize(ctx, base, db_name, *, dry_run=False):
     """Neutralize the restored database using Odoo's command and/or SQL scripts.
 
     The neutralization method is chosen from the *database* version, not the
@@ -187,7 +187,7 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     if dry_run:
         # The database does not exist in dry-run mode, so just preview the
         # built-in neutralize command. The real method is decided after restore.
-        _odoo_neutralize(ctx, backend_name, db_name, dry_run=True)
+        _odoo_neutralize(ctx, db_name, dry_run=True)
         restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=True, ctx=ctx)
         return
 
@@ -203,7 +203,7 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     )
 
     if use_odoo:
-        _odoo_neutralize(ctx, backend_name, db_name, dry_run=False)
+        _odoo_neutralize(ctx, db_name, dry_run=False)
     else:
         if db_version is None:
             echo.warning(
@@ -221,12 +221,11 @@ def _neutralize(ctx, base, db_name, backend_name, *, dry_run=False):
     restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=dry_run, ctx=ctx)
 
 
-def _odoo_neutralize(ctx, backend_name, db_name, *, dry_run):
+def _odoo_neutralize(ctx, db_name, *, dry_run):
     """Run ``odoo neutralize -d <db_name>`` through the ``osh odoo`` command."""
     ctx.invoke(
         odoo,
         dry_run=dry_run,
-        backend_name=backend_name,
         compose_file=None,
         no_db_filter=True,
         extra_args=("neutralize", "-d", db_name),

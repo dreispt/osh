@@ -41,7 +41,7 @@ def venv_env(base):
     venv_bin = get_venv_bin(base)
     if not venv_bin.is_dir():
         raise click.ClickException(
-            "No virtualenv found. Run `osh init --target venv` to create one."
+            "No virtualenv found. Run `osh venv init` to create one."
         )
     venv_path = str(venv_bin)
     path = os.environ.get("PATH", "")
@@ -125,7 +125,7 @@ def _not_in_project():
     """Print a helpful message and exit when no Osh project is found."""
     echo.info(
         "Not inside an Osh project. "
-        "Run 'osh init --target <venv|docker> <version>' to create one."
+        "Run 'osh venv init <version>' or 'osh docker init <version>' to create one."
     )
     raise SystemExit(0)
 

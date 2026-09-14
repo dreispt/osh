@@ -363,7 +363,7 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", "--edition", "ee", str(tmp_project)]
+            main, ["venv", "init", "19.0", "--edition", "ee", str(tmp_project)]
         )
 
         assert result.exit_code == 0
@@ -385,6 +385,7 @@ class TestInitCommand:
         result = runner.invoke(
             main,
             [
+                "venv",
                 "init",
                 "19.0",
                 str(tmp_project),
@@ -413,6 +414,7 @@ class TestInitCommand:
         result = runner.invoke(
             main,
             [
+                "venv",
                 "init",
                 "19.0",
                 str(tmp_project),
@@ -445,7 +447,9 @@ class TestInitCommand:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "master", "--sh", str(tmp_project)])
+        result = runner.invoke(
+            main, ["venv", "init", "master", "--sh", str(tmp_project)]
+        )
 
         assert result.exit_code == 0
         assert (patch_cache / "odoo.git").exists()
@@ -488,7 +492,16 @@ class TestInitCommand:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["init", "19.0", str(tmp_project), "-c", str(odoo_src), "-e", str(ent_src)],
+            [
+                "venv",
+                "init",
+                "19.0",
+                str(tmp_project),
+                "-c",
+                str(odoo_src),
+                "-e",
+                str(ent_src),
+            ],
         )
 
         assert result.exit_code == 0
@@ -509,7 +522,7 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+            main, ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
         )
 
         assert result.exit_code == 0
@@ -528,7 +541,7 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+            main, ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
         )
 
         assert result.exit_code == 0
@@ -550,7 +563,7 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+            main, ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
         )
 
         assert result.exit_code == 0
@@ -580,7 +593,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "19.0", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -593,7 +606,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "19.0", "--ee", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", "--ee", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -606,7 +619,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "19.0", "--sh", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", "--sh", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -638,7 +651,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "19.0", "--ce", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", "--ce", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -655,7 +668,7 @@ class TestInitEdition:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", "--sh", str(tmp_project)], input="\n"
+            main, ["venv", "init", "19.0", "--sh", str(tmp_project)], input="\n"
         )
 
         assert result.exit_code == 0
@@ -670,7 +683,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "ee"})
-        result = runner.invoke(main, ["init", "19.0", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -683,7 +696,7 @@ class TestInitEdition:
         real_git_only_subprocess(monkeypatch)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "sh"})
-        result = runner.invoke(main, ["init", "19.0", "--ce", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", "--ce", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -703,7 +716,7 @@ class TestInitEdition:
         monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["init", "19.0", str(tmp_project)])
+        result = runner.invoke(main, ["venv", "init", "19.0", str(tmp_project)])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -730,7 +743,7 @@ class TestInitEdition:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", str(target), "--yes", "-c", str(odoo_src)]
+            main, ["venv", "init", "19.0", str(target), "--yes", "-c", str(odoo_src)]
         )
         assert result.exit_code == 0
         assert "not a git repository" in result.output

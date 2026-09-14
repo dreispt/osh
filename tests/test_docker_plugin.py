@@ -38,14 +38,12 @@ def _patch_docker_tools(monkeypatch):
 
 
 def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatch):
-    """``osh init --target docker`` writes docker.toml and generates compose."""
+    """``osh docker init`` writes docker.toml and generates compose."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "19.0", "--target", "docker", "--service", "app"]
-    )
+    result = runner.invoke(main, ["docker", "init", "19.0", "--service", "app"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -69,14 +67,12 @@ def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatc
 
 
 def test_init_docker_command_writes_config_and_compose(tmp_project, monkeypatch):
-    """``osh init-docker`` generates ``.osh/docker-compose.yml`` and config."""
+    """``osh docker init`` generates ``.osh/docker-compose.yml`` and config."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--target", "docker"] + ["19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["docker", "init", "19.0", "--service", "odoo"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -95,7 +91,7 @@ def test_init_docker_overwrites_existing_osh_compose(tmp_project, monkeypatch):
     existing.write_text("existing: compose\n")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "--target", "docker"] + ["19.0"])
+    result = runner.invoke(main, ["docker", "init", "19.0"])
 
     assert result.exit_code == 0, result.output
     compose_text = existing.read_text()
@@ -113,18 +109,14 @@ def test_init_docker_updates_compose_for_a_different_version(tmp_project, monkey
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--target", "docker"] + ["19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["docker", "init", "19.0", "--service", "odoo"])
     assert result.exit_code == 0, result.output
     compose = tmp_project / ".osh" / "docker-compose.yml"
     compose_text = compose.read_text()
     assert "image: odoo:19.0" in compose_text
     assert "user: odoo" in compose_text
 
-    result = runner.invoke(
-        main, ["init", "--target", "docker"] + ["20.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["docker", "init", "20.0", "--service", "odoo"])
     assert result.exit_code == 0, result.output
     compose_text = compose.read_text()
     assert "image: odoo:20.0" in compose_text
@@ -138,9 +130,7 @@ def test_init_docker_includes_permission_fix(tmp_project, monkeypatch):
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--target", "docker"] + ["19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["docker", "init", "19.0", "--service", "odoo"])
 
     assert result.exit_code == 0, result.output
     compose_file = tmp_project / ".osh" / "docker-compose.yml"
@@ -161,9 +151,8 @@ def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
     result = runner.invoke(
         main,
         [
-            "init",
-            "--target",
             "docker",
+            "init",
             "19.0",
             "--service",
             "odoo",
@@ -212,9 +201,8 @@ def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
     result = runner.invoke(
         main,
         [
-            "init",
-            "--target",
             "docker",
+            "init",
             "19.0",
             "--service",
             "odoo",
@@ -592,7 +580,7 @@ def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
 
 
 def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
-    """``osh init --target docker`` persists the Odoo version and edition."""
+    """``osh docker init`` persists the Odoo version and edition."""
     _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
@@ -604,10 +592,9 @@ def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
     result = runner.invoke(
         main,
         [
+            "docker",
             "init",
             "19.0",
-            "--target",
-            "docker",
             "--service",
             "odoo",
             "--ee",
@@ -627,7 +614,7 @@ def test_osh_run_docker_uses_branch_database(
     tmp_project,
     monkeypatch,
 ):
-    """``osh odoo --target docker`` defaults to a branch-based database name."""
+    """``osh odoo`` on the docker backend uses a branch-based database name."""
     subprocess.run(["git", "init"], cwd=tmp_project, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "x@y"], cwd=tmp_project, check=True)
     subprocess.run(["git", "config", "user.name", "x"], cwd=tmp_project, check=True)
@@ -647,10 +634,13 @@ def test_osh_run_docker_uses_branch_database(
     # Command assembly only: the generated database name is what is asserted,
     # so the existence probe is stubbed rather than creating a real database.
     monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: True)
+    from osh.db import set_project_config
+
+    set_project_config(tmp_project, "run", "target", "docker")
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(main, ["odoo", "--target", "docker", "--dry-run"])
+    result = runner.invoke(main, ["odoo", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert "Using database: project-feature-x" in result.output
@@ -658,12 +648,6 @@ def test_osh_run_docker_uses_branch_database(
     assert " osh odoo" in result.output
     assert "-d project-feature-x" not in result.output
     assert "--db-filter" not in result.output
-
-
-def test_backend_make_init_option_sets_target_group():
-    """make_init_option attaches the backend name as the target_group."""
-    option = DockerBackend.make_init_option(["--my-opt"], help="An option.")
-    assert option.target_group == "docker"
 
 
 def test_load_backends_warns_on_name_collision(monkeypatch, capsys):

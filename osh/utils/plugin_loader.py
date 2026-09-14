@@ -218,6 +218,30 @@ def _load_commands_from_module(module):
     return [cmd for cmd in commands if isinstance(cmd, click.Command)]
 
 
+def _load_backend_commands_from_module(module):
+    """Return Click groups declared as backend commands by a plugin module."""
+    commands = _plugin_manifest(module).get("backend_commands", [])
+    if not isinstance(commands, list):
+        commands = [commands]
+    return [cmd for cmd in commands if isinstance(cmd, click.Group)]
+
+
+def load_backend_commands():
+    """Return ``(source, group)`` pairs for plugin-declared backend commands.
+
+    Backend plugins declare a Click group named after their backend (e.g.
+    ``docker``) under the ``backend_commands`` manifest key. These groups
+    carry the backend's lifecycle commands (``init``, ``doctor``, ``down``,
+    plus any extras) and are listed in a separate help section.
+    """
+    commands = []
+    for source, module in _iter_plugin_modules():
+        commands.extend(
+            (source, cmd) for cmd in _load_backend_commands_from_module(module)
+        )
+    return commands
+
+
 def _load_backends_from_module(module):
     """Return ``Backend`` subclasses exposed by a plugin module."""
     from ..backends import Backend
@@ -311,13 +335,13 @@ def load_hook_entries(name):
 def load_backends():
     """Return a mapping of backend name to class.
 
-    Always includes the built-in ``local`` backend — the default used when
+    Always includes the built-in ``none`` backend — the default used when
     no other backend is configured. Plugin-provided backends follow; a plugin
     backend reusing an existing name is skipped with an error.
     """
-    from ..backends import LocalBackend
+    from ..backends import NoneBackend
 
-    result = {"local": LocalBackend}
+    result = {"none": NoneBackend}
     for source, module in _iter_plugin_modules():
         for backend in _load_backends_from_module(module):
             name = getattr(backend, "name")

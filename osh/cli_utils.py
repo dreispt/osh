@@ -9,12 +9,14 @@ class NaturalOrderGroup(click.Group):
     Also allows group-level options (e.g. ``-v``) to appear after the
     subcommand name, so they do not have to be redeclared on every command.
 
-    Commands whose names are in ``plugin_commands`` — a ``{name: source}``
-    mapping assigned by ``cli.py`` after plugin registration — are listed
-    in a separate help section, annotated with their plugin source.
+    Commands whose names are in ``plugin_commands`` or ``backend_commands``
+    — ``{name: source}`` mappings assigned by ``cli.py`` after plugin
+    registration — are listed in separate help sections, annotated with
+    their source.
     """
 
     plugin_commands = {}
+    backend_commands = {}
 
     def list_commands(self, ctx):  # noqa: D401
         return list(self.commands)  # retain insertion order
@@ -31,18 +33,27 @@ class NaturalOrderGroup(click.Group):
             return
         limit = formatter.width - 6 - max(len(name) for name, _ in commands)
         core_rows = []
+        backend_rows = []
         plugin_rows = []
         for name, cmd in commands:
-            source = self.plugin_commands.get(name)
-            if source is None:
-                core_rows.append((name, cmd.get_short_help_str(limit)))
+            source = self.backend_commands.get(name, self.plugin_commands.get(name))
+            help_text = cmd.get_short_help_str(
+                limit - len(f" [{source}]") if source else limit
+            )
+            if source:
+                help_text = f"{help_text} [{source}]".strip()
+            if name in self.backend_commands:
+                backend_rows.append((name, help_text))
+            elif name in self.plugin_commands:
+                plugin_rows.append((name, help_text))
             else:
-                suffix = f" [{source}]"
-                help_text = cmd.get_short_help_str(limit - len(suffix))
-                plugin_rows.append((name, help_text + suffix))
+                core_rows.append((name, help_text))
         if core_rows:
             with formatter.section("Commands"):
                 formatter.write_dl(core_rows)
+        if backend_rows:
+            with formatter.section("Backend Commands"):
+                formatter.write_dl(backend_rows)
         if plugin_rows:
             with formatter.section("Plugin Commands"):
                 formatter.write_dl(plugin_rows)
@@ -81,13 +92,13 @@ class NaturalOrderGroup(click.Group):
         return super().parse_args(ctx, head + tail)
 
 
-def format_targets_section(formatter, backends):
-    """Write a Targets help section listing each backend name and description."""
+def format_backends_section(formatter, backends):
+    """Write a Backends help section listing each backend name and description."""
     if not backends:
         return
     records = [
         (name, getattr(backends[name], "description", "") or "")
         for name in sorted(backends)
     ]
-    with formatter.section("Targets"):
+    with formatter.section("Backends"):
         formatter.write_dl(records)

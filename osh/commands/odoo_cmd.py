@@ -15,16 +15,10 @@ import click
 
 from .. import echo
 from ..backends import EnvSpec
-from ..cli_utils import format_targets_section
+from ..cli_utils import format_backends_section
 from ..common import find_project_root, has_arg
 from ..config import get_user_preference
-from ..db import (
-    db_exists,
-    get_project_config,
-    resolve_backend,
-    resolve_db_name,
-    set_project_config,
-)
+from ..db import db_exists, get_project_config, resolve_backend, resolve_db_name
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
 from .helpers import check_run_diagnostics
@@ -32,7 +26,7 @@ from .shell_cmd import parse_explicit_db, prepare_env_context
 
 
 class OdooCommand(click.Command):
-    """Click command that appends a Targets section to `osh odoo --help`."""
+    """Click command that appends a Backends section to `osh odoo --help`."""
 
     def get_params(self, ctx):
         """Append plugin-declared options from the ``odoo.options`` hook."""
@@ -47,7 +41,7 @@ class OdooCommand(click.Command):
     def format_help_text(self, ctx, formatter):
         """Write the docstring followed by the list of available backends."""
         super().format_help_text(ctx, formatter)
-        format_targets_section(formatter, load_backends())
+        format_backends_section(formatter, load_backends())
 
 
 @click.command(
@@ -59,13 +53,6 @@ class OdooCommand(click.Command):
     "--dry-run",
     is_flag=True,
     help="Print the assembled command without executing it.",
-)
-@click.option(
-    "--target",
-    "backend_name",
-    default="local",
-    envvar="OSH_RUN_TARGET",
-    help="Execution target: local host, managed venv, or a plugin backend.",
 )
 @click.option(
     "--compose-file",
@@ -84,7 +71,6 @@ class OdooCommand(click.Command):
 def odoo(
     ctx,
     dry_run,
-    backend_name,
     compose_file,
     no_dev,
     extra_args,
@@ -110,10 +96,13 @@ def odoo(
     ``--dev`` yourself or use ``--no-dev``. The default can be changed with
     ``osh config odoo dev <value>`` (``off`` disables the injection).
 
+    The execution backend is the one activated for the project — see
+    ``osh <backend> init``/``osh <backend> activate`` (e.g. ``osh docker
+    activate``).
+
     Environment variables:
 
     \b
-      OSH_RUN_TARGET     execution target (same as --target)
       OSH_COMPOSE_FILE   compose file (same as --compose-file)
       OSH_WAIT           wait for the command instead of exec/replacing it
 
@@ -124,17 +113,14 @@ def odoo(
       osh odoo -- --http-port=8080 --workers=0
       osh odoo shell
       osh odoo neutralize -d mydb
-      osh odoo --target docker --compose-file devel.yaml
+      osh odoo --compose-file devel.yaml
     """
     base = find_project_root(required=True)
 
-    backend = resolve_backend(ctx, base, backend_name)
-    set_project_config(base, "run", "target", backend.name)
+    backend = resolve_backend(base)
 
     diagnostics = check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
 
-    # TODO: decide whether non-local --target backends should get the dev
-    # default too; for now it is applied uniformly on every backend.
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
     # Odoo creates and initializes a missing ``db_name`` itself, so a

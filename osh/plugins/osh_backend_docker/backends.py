@@ -49,7 +49,7 @@ class DockerBackend(Backend):
 
     @classmethod
     def get_init_options(cls):
-        opts = [
+        return [
             click.Option(
                 ["--service"],
                 help="Docker Compose service name for the Odoo container.",
@@ -68,10 +68,17 @@ class DockerBackend(Backend):
                 type=int,
                 help="Host port to publish Odoo on (defaults to 8069).",
             ),
+            click.Option(
+                ["-e", "--enterprise-source"],
+                help="Enterprise source: an existing local directory or a git URL. "
+                "Defaults to the central cache (populated from GitHub).",
+            ),
+            click.Option(
+                ["-d", "--themes-source"],
+                help="Design-themes source: an existing local directory or a git URL. "
+                "Defaults to the central cache (populated from GitHub).",
+            ),
         ]
-        for o in opts:
-            o.target_group = cls.name
-        return opts
 
     _DIAGNOSE_SECTIONS = (
         "compose_tool",
@@ -190,14 +197,9 @@ class DockerBackend(Backend):
                 "Docker backend config not found; it will be created during init."
             )
         elif phase == "run":
-            d.add_error(
-                "Docker backend config not found. "
-                "Run 'osh init --target docker' first."
-            )
+            d.add_error("Docker backend config not found. Run 'osh docker init' first.")
         else:
-            d.add_warning(
-                "Docker backend config not found. Run 'osh init --target docker'."
-            )
+            d.add_warning("Docker backend config not found. Run 'osh docker init'.")
 
     def _diagnose_compose_file(self, d, phase, base, compose_file):
         """Check the resolved Docker Compose file."""
@@ -261,7 +263,6 @@ class DockerBackend(Backend):
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
-        todo.add_plan("Generate .osh/docker-compose.yml")
         todo.add_plan("Write .osh/docker.toml with service and compose tool")
         todo.add_plan("Ensure Odoo sources for the selected edition")
         todo.add_plan("Run an Odoo --version smoke test")
@@ -455,15 +456,27 @@ class DockerBackend(Backend):
             project_path, running_for = holder
             raise click.ClickException(
                 f"Port {port} is already used by a container for "
-                f"{project_path} (running {running_for}). Run 'osh down' "
-                "there, or 'osh init --target docker --port <n>' here."
+                f"{project_path} (running {running_for}). Run 'osh docker down' "
+                "there, or 'osh docker init --port <n>' here."
             )
         raise click.ClickException(
             f"Port {port} is already in use. If this is from a previous "
-            "'osh odoo'/'osh shell' session, run 'osh down' in that project "
+            "'osh odoo'/'osh shell' session, run 'osh docker down' in that project "
             f"to free it. Otherwise, stop whatever's using port {port}, or "
-            "run 'osh init --target docker --port <n>' here."
+            "run 'osh docker init --port <n>' here."
         )
+
+    @classmethod
+    def get_down_options(cls):
+        return [
+            click.Option(
+                ["--compose-file"],
+                default=None,
+                envvar="OSH_COMPOSE_FILE",
+                help="Use this compose file instead of the configured or "
+                "generated one.",
+            ),
+        ]
 
     def down(self, ctx, base, **options):
         """Stop and remove this project's Compose stack."""
@@ -509,7 +522,7 @@ class DockerBackend(Backend):
         if not service:
             raise click.ClickException(
                 "No Docker service configured. Run "
-                "'osh init --target docker --service <name>' or edit "
+                "'osh docker init --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
 

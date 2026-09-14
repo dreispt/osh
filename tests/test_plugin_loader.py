@@ -239,15 +239,15 @@ def test_backend_name_collision_is_skipped(plugin_dir, capsys):
     """A second backend with the same name is skipped with an error."""
     src = (
         "from osh.backends import Backend\n\n"
-        "class LocalAgain(Backend):\n"
-        "    name = 'local'\n"
+        "class NoneAgain(Backend):\n"
+        "    name = 'none'\n"
         "    backend_type = 'backend'\n\n"
-        "OSH_PLUGIN_MANIFEST = {'backends': [LocalAgain]}\n"
+        "OSH_PLUGIN_MANIFEST = {'backends': [NoneAgain]}\n"
     )
     _write_package(plugin_dir, "repo_m", src)
 
     backends = plugin_loader.load_backends()
-    assert backends["local"].__module__ == "osh.backends"
+    assert backends["none"].__module__ == "osh.backends"
     assert "conflicts" in capsys.readouterr().err
 
 

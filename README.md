@@ -34,7 +34,7 @@ addons, picks a database name for you, and runs the right virtual environment.
 # Create a project directory
 cd my-odoo-project
 # Initialise it for Odoo 19.0
-osh init 19.0
+osh venv init 19.0
 # Check the project status
 osh doctor
 # Run Odoo
@@ -47,15 +47,34 @@ Run `osh <command> --help` for full usage details.
 
 | Command                    | What it does                                                                                                         |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `osh init <version> [dir]` | Set up venv, Odoo sources, and project scaffolding                                                                   |
+| `osh init <version> [dir]` | Base project setup (directory, `.osh/`, settings); backend init adds the rest                                        |
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
 | `osh db`                   | Show, map, copy, unpin, get, restore, or register named remote sources for project databases                         |
 | `osh doctor`               | Check the project for common setup problems                                                                          |
+| `osh backend ...`          | Active-backend state: `deactivate` (back to host), `down` (stop its resources)                                       |
 | `osh config`               | View or change osh settings for this project                                                                         |
 | `osh plug`                 | Install, list, or remove osh plugins                                                                                 |
+
+Each backend contributes its own command group for target-specific setup
+and lifecycle:
+
+| Backend commands | What it does                                                            |
+| ---------------- | ----------------------------------------------------------------------- |
+| `osh venv ...`   | Managed virtualenv + Odoo sources: `init`, `activate`, `doctor`, `down` |
+| `osh docker ...` | Docker Compose stack: `init`, `activate`, `doctor`, `down`              |
+
+`osh <backend> init` runs the base setup first, then the backend's own
+steps (e.g. `osh docker init` writes `docker.toml` and generates the
+Compose file). `osh <backend> activate` switches the project to an
+already-initialized backend — the active backend is what `osh odoo`,
+`osh shell` and `osh db` run through, and `osh backend deactivate`
+switches back to plain host execution. `osh backend down` stops whatever
+the active backend left running — `osh <backend> down` does the same for a
+specific backend (and carries its options, e.g. `osh docker down
+--compose-file`).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 
@@ -141,10 +160,10 @@ Your project files, virtual environment (`.venv/`), and any existing Odoo source
 
 ## Plugins
 
-`osh` is extensible: plugins can add commands, run targets (backends), backup
+`osh` is extensible: plugins can add commands, backends, backup
 source schemes and hooks. The bundled plugins provide `osh db get`,
-`osh db restore`, `osh db remote` and `osh test`, plus the `local` (plain
-host), `venv` and `docker` run targets.
+`osh db restore`, `osh db remote` and `osh test`, plus the `none` (plain
+host), `venv` and `docker` backends.
 
 Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib):
 

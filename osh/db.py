@@ -79,23 +79,6 @@ def unset_project_config(base, section, option):
     _config.unset_project_config(base, section, option)
 
 
-def resolve_run_target(base, default_target, ctx):
-    """Resolve the effective run/init target, remembering explicit choices.
-
-    Explicit ``--target`` or the corresponding env var take precedence. Otherwise
-    the last used target from ``.osh/config`` is reused, falling back to
-    *default_target*.
-    """
-    source = ctx.get_parameter_source("backend_name")
-    if source in (
-        click.core.ParameterSource.COMMANDLINE,
-        click.core.ParameterSource.ENVIRONMENT,
-    ):
-        return default_target
-
-    return get_project_config(base, "run", "target", fallback=default_target)
-
-
 def get_current_branch(base):
     """Return the current git branch, or None if it cannot be determined.
 
@@ -172,24 +155,46 @@ def get_pg_env(base):
     return env
 
 
-def resolve_backend(ctx, base, default="local"):
+def normalize_backend_name(name):
+    """Return *name*, mapping the legacy ``local`` backend name to ``none``."""
+    return "none" if name == "local" else name
+
+
+def get_active_backend_name(base, default="none"):
+    """Return the project's active backend name (``run.target`` config)."""
+    return normalize_backend_name(
+        get_project_config(base, "run", "target", fallback=default)
+    )
+
+
+def deactivate_backend(base):
+    """Record ``none`` as the active backend; return the previous name.
+
+    Returns ``None`` when no managed backend was active. Backend plugins can
+    call this from their own deactivate command to keep the run.target
+    bookkeeping in one place.
+    """
+    previous = get_active_backend_name(base, default=None)
+    if not previous or previous == "none":
+        return None
+    set_project_config(base, "run", "target", "none")
+    return previous
+
+
+def resolve_backend(base, default="none"):
     """Instantiate the backend configured for *base*.
 
-    Resolves the run target the same way ``osh odoo``/``osh shell`` do: an
-    explicit ``--target`` on the invoking command wins, otherwise the
-    configured project target from ``.osh/config.toml`` is used, falling back
-    to *default*. This is the supported way for commands and plugins to
-    obtain the active backend instance.
+    The active backend is the ``run.target`` recorded in the project config
+    by ``osh <backend> init`` or ``osh <backend> activate``, falling back to
+    *default*. This is the supported way for commands and plugins to obtain
+    the active backend instance.
     """
     from .utils.plugin_loader import load_backends
 
-    if ctx is not None:
-        target = resolve_run_target(base, default, ctx)
-    else:
-        target = get_project_config(base, "run", "target", fallback=default)
+    target = get_active_backend_name(base, default=default)
     backend_cls = load_backends().get(target)
     if backend_cls is None:
-        raise click.ClickException(f"Unknown target: {target}")
+        raise click.ClickException(f"Unknown backend: {target}")
     return backend_cls()
 
 
@@ -222,7 +227,7 @@ def run_in_backend(
     """
     from .backends import EnvSpec
 
-    backend = resolve_backend(ctx, base)
+    backend = resolve_backend(base)
     merged = {**get_pg_env(base), **(env or {})}
     env_spec = EnvSpec(argv=[str(a) for a in argv], env=merged, input=input)
     result = backend.env(
@@ -271,7 +276,7 @@ def db_exists(base, db_name, ctx=None, *, dry_run=False):
     """Return True if the PostgreSQL database exists.
 
     In *dry_run* mode the probe still runs where it is side-effect free
-    (local backend); backends where probing would start a container report
+    (host backend); backends where probing would start a container report
     "does not exist" unless the stack is already up.
     """
     returncode, _, _ = run_in_backend(
