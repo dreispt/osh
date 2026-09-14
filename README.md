@@ -54,8 +54,7 @@ Run `osh <command> --help` for full usage details.
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
 | `osh db`                   | Show, map, copy, unpin, get, restore, or register named remote sources for project databases                         |
 | `osh doctor`               | Check the project for common setup problems                                                                          |
-| `osh down`                 | Stop an Odoo process left running on the project's HTTP port                                                         |
-| `osh backend deactivate`   | Return the project to plain host execution (the `none` backend)                                                      |
+| `osh backend ...`          | Active-backend state: `deactivate` (back to host), `down` (stop its resources)                                       |
 | `osh config`               | View or change osh settings for this project                                                                         |
 | `osh plug`                 | Install, list, or remove osh plugins                                                                                 |
 
@@ -72,8 +71,10 @@ steps (e.g. `osh docker init` writes `docker.toml` and generates the
 Compose file). `osh <backend> activate` switches the project to an
 already-initialized backend — the active backend is what `osh odoo`,
 `osh shell` and `osh db` run through, and `osh backend deactivate`
-switches back to plain host execution. `osh <backend> down` stops whatever
-the backend leaves running.
+switches back to plain host execution. `osh backend down` stops whatever
+the active backend left running — `osh <backend> down` does the same for a
+specific backend (and carries its options, e.g. `osh docker down
+--compose-file`).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 

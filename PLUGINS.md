@@ -289,7 +289,8 @@ Built-in examples:
 
 The core `none` backend — plain host execution, the default when no
 backend is activated — has no command group: `osh init` is its setup,
-`osh down` its teardown and `osh backend deactivate` the way back to it.
+`osh backend down` its teardown and `osh backend deactivate` the way back
+to it.
 
 #### Backend class attributes
 

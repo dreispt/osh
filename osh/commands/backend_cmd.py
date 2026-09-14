@@ -17,7 +17,7 @@ import click
 from .. import echo
 from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
-from ..db import deactivate_backend, set_project_config
+from ..db import deactivate_backend, resolve_backend, set_project_config
 from .helpers import check_run_diagnostics, collect_diagnostics, report_diagnostics
 from .init_cmd import base_init, init, run_backend_init
 
@@ -44,6 +44,20 @@ def backend_deactivate():
         f"Backend '{previous}' deactivated; commands now run on the host. "
         f"Run 'osh {previous} down' to stop resources it left running."
     )
+
+
+@backend.command(name="down")
+@click.pass_context
+def backend_down(ctx):
+    """Stop resources the active backend left running.
+
+    Delegates to the active backend's ``down``: the ``none``/``venv``
+    backends terminate a host Odoo process on the project's HTTP port,
+    ``docker`` runs ``docker compose down``. Backend-specific options
+    (e.g. ``--compose-file``) are on ``osh <backend> down``.
+    """
+    base = find_project_root(required=True)
+    resolve_backend(base).down(ctx, base)
 
 
 def backend_group(backend_cls):

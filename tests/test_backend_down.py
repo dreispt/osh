@@ -1,4 +1,4 @@
-"""Tests for the ``osh <backend> down`` commands."""
+"""Tests for ``osh backend down`` and ``osh <backend> down`` commands."""
 
 import signal
 
@@ -17,19 +17,19 @@ def _write_docker_config(project):
 
 
 def test_down_host_without_listener_is_noop(in_project, monkeypatch):
-    """``osh down`` reports nothing when the port is free."""
+    """``osh backend down`` reports nothing when the port is free."""
     monkeypatch.setattr(
         "osh.backends._port_listeners",
         lambda port: [],
     )
-    result = CliRunner().invoke(main, ["down"])
+    result = CliRunner().invoke(main, ["backend", "down"])
 
     assert result.exit_code == 0, result.output
     assert "no process listening on port 8069" in result.output
 
 
 def test_down_host_kills_odoo_listener(in_project, monkeypatch):
-    """``osh down`` stops an Odoo process holding the project's HTTP port."""
+    """``osh backend down`` stops an Odoo process holding the project's HTTP port."""
     killed = []
     monkeypatch.setattr(
         "osh.backends._port_listeners",
@@ -41,7 +41,7 @@ def test_down_host_kills_odoo_listener(in_project, monkeypatch):
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
 
-    result = CliRunner().invoke(main, ["down"])
+    result = CliRunner().invoke(main, ["backend", "down"])
 
     assert result.exit_code == 0, result.output
     assert killed == [(4321, signal.SIGTERM)]
@@ -49,7 +49,7 @@ def test_down_host_kills_odoo_listener(in_project, monkeypatch):
 
 
 def test_down_host_leaves_non_odoo_listener(in_project, monkeypatch):
-    """``osh down`` does not kill a foreign process holding the port."""
+    """``osh backend down`` does not kill a foreign process holding the port."""
     killed = []
     monkeypatch.setattr(
         "osh.backends._port_listeners",
@@ -61,7 +61,7 @@ def test_down_host_leaves_non_odoo_listener(in_project, monkeypatch):
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append(pid))
 
-    result = CliRunner().invoke(main, ["down"])
+    result = CliRunner().invoke(main, ["backend", "down"])
 
     assert result.exit_code == 0, result.output
     assert killed == []
@@ -113,3 +113,22 @@ def test_down_docker_without_config_is_noop(in_project, capsys):
 
     assert result.exit_code == 0, result.output
     assert "nothing to stop" in result.output
+
+
+def test_down_backend_group_dispatches_to_active_backend(in_project, monkeypatch):
+    """``osh backend down`` delegates to the active backend's teardown."""
+    from osh.db import set_project_config
+
+    _write_docker_config(in_project)
+    set_project_config(in_project, "run", "target", "docker")
+    calls = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_command",
+        lambda args, **kwargs: calls.append(args),
+    )
+
+    result = CliRunner().invoke(main, ["backend", "down"])
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    assert calls[0][-1] == "down"
