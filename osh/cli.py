@@ -191,6 +191,7 @@ _COMMAND_ORDER = [
     "shell",
     "test",
     "db",
+    "addon",
     "doctor",
     "backend",
     "config",

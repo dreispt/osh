@@ -5,6 +5,7 @@ with the root click group in `cli.py`.
 """
 
 from . import (
+    addon_cmd,
     backend_cmd,
     config_cmd,
     db_cmd,
@@ -22,6 +23,7 @@ COMMANDS = [
     switch_cmd.switch,
     shell_cmd.shell,
     db_cmd.db,
+    addon_cmd.addon,
     doctor_cmd.doctor,
     backend_cmd.backend,
     config_cmd.config,
