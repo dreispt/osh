@@ -105,7 +105,7 @@ def find_project_root(start=None, *, required=False):
     project is found, instead of returning None.
     """
     start = (start or Path.cwd()).resolve()
-    home = Path.home()
+    home = Path.home().resolve()
 
     # Inside a git repo the search starts at the repo root (``.osh`` lives
     # there); outside git it starts at *start* itself.
@@ -128,6 +128,30 @@ def _not_in_project():
         "Run 'osh venv init <version>' or 'osh docker init <version>' to create one."
     )
     raise SystemExit(0)
+
+
+def find_enclosing_project(target):
+    """Return the nearest strict ancestor of *target* containing ``.osh``.
+
+    Unlike :func:`find_project_root`, *target* itself is never considered —
+    a project being re-initialised does not count as its own enclosing
+    project — and the walk starts at the parent regardless of git roots:
+    for the "would this new project be nested inside another one" question,
+    every ancestor directory is relevant.
+
+    Stops at the user's home directory, like ``find_project_root``; when
+    *target* is the home directory itself there is no enclosing project.
+    """
+    target = Path(target).resolve()
+    home = Path.home().resolve()
+    if target == home:
+        return None
+    for p in target.parents:
+        if (p / ".osh").exists():
+            return p
+        if p == home:
+            break
+    return None
 
 
 def _is_git_repo(path):
@@ -174,6 +198,43 @@ def find_project_repos(base, *, max_depth=4):
 
     _walk(base, 0)
     return sorted(repos)
+
+
+def find_nested_projects(base, *, max_depth=4):
+    """Return directories below *base* that contain their own ``.osh``.
+
+    Mirrors the ``find_project_repos`` walk: directories starting with ``.``
+    or ``__`` are ignored, a directory found to contain ``.osh`` is recorded
+    without descending further, and git repositories are not descended into
+    — a ``.osh`` below a repository root is never selected by
+    ``find_project_root`` anyway, which is also why *base* itself being a
+    repository means nothing below it can be a nested project. A missing or
+    non-directory *base* returns an empty list, and directories that cannot
+    be listed are skipped. ``node_modules`` is never descended into.
+    """
+    base = Path(base)
+    if not base.is_dir() or _is_git_repo(base):
+        return []
+
+    nested = []
+
+    def _walk(current, depth):
+        if depth > max_depth:
+            return
+        try:
+            for child in current.iterdir():
+                if child.name.startswith((".", "__")) or child.name == "node_modules":
+                    continue
+                if child.is_dir():
+                    if (child / ".osh").exists():
+                        nested.append(child)
+                    elif not _is_git_repo(child):
+                        _walk(child, depth + 1)
+        except OSError:
+            return
+
+    _walk(base, 0)
+    return sorted(nested)
 
 
 def git_current_branch(path):

@@ -19,9 +19,13 @@ import click
 
 from .. import echo
 from ..backends import copy_odoo_rc_to_osh_conf
-from ..common import setup_project_neutralize_scripts
-from ..config import load_user_init_config, save_user_preference
-from ..db import get_project_config, set_project_config
+from ..common import (
+    find_enclosing_project,
+    find_nested_projects,
+    setup_project_neutralize_scripts,
+)
+from ..config import get_init_parent, load_user_init_config, save_user_preference
+from ..db import get_project_config, set_project_config, unset_project_config
 from .helpers import Diagnostics
 
 
@@ -144,14 +148,22 @@ def _rollback_new_osh_dir(target):
     existed = osh_dir.is_dir() and any(osh_dir.iterdir())
     try:
         yield
-    except BaseException:
+    except BaseException as exc:
         if not existed:
-            shutil.rmtree(osh_dir, ignore_errors=True)
-            if not osh_dir.exists():
-                echo.info("Removed incomplete '.osh' directory.", err=True)
-        else:
+            if osh_dir.is_dir():
+                shutil.rmtree(osh_dir, ignore_errors=True)
+                if not osh_dir.exists():
+                    echo.info("Removed incomplete '.osh' directory.", err=True)
+        elif not _is_user_abort(exc):
             echo.info("Existing '.osh' directory was left untouched.", err=True)
         raise
+
+
+def _is_user_abort(exc):
+    """Return True when *exc* is a user-initiated abort needing no rollback note."""
+    return isinstance(exc, click.Abort) or (
+        isinstance(exc, click.ClickException) and exc.message == "Aborted."
+    )
 
 
 def base_init(
@@ -172,9 +184,9 @@ def base_init(
     settings and installs the neutralize scripts. Returns the resolved
     edition name for the backend init to reuse.
     """
-    target.mkdir(parents=True, exist_ok=True)
-
     echo.friendly(f"Welcome to Osh! Let's set up your Odoo {version} project.")
+
+    enclosing = _check_nesting(target, assume_yes=assume_yes, dry_run=dry_run)
 
     if not (target / ".git").exists() and not dry_run:
         echo.warning(
@@ -202,6 +214,8 @@ def base_init(
         echo.info(f"Would create .osh/ project configuration in {target}")
         return edition
 
+    target.mkdir(parents=True, exist_ok=True)
+
     osh_dir = target / ".osh"
     osh_dir.mkdir(exist_ok=True)
     config_path = osh_dir / "config"
@@ -212,11 +226,14 @@ def base_init(
     if dev:
         _write_dev_config(osh_conf)
 
-    set_project_config(
-        target,
-        "init",
-        values={"version": version, "edition": edition, "dev": dev},
-    )
+    init_values = {"version": version, "edition": edition, "dev": dev}
+    if enclosing is not None:
+        # Acknowledge the nesting so doctor does not report it as an accident.
+        # Stored relative so the config stays valid if the checkout moves.
+        init_values["parent"] = os.path.relpath(enclosing, target)
+    set_project_config(target, "init", values=init_values)
+    if enclosing is None and get_project_config(target, "init", "parent"):
+        unset_project_config(target, "init", "parent")
     setup_project_neutralize_scripts(target, version)
     return edition
 
@@ -324,6 +341,66 @@ class TodoPlan:
 
 
 _EDITION_NAMES = {"ce": "Community", "ee": "Enterprise", "sh": "Odoo.sh"}
+
+
+def _check_nesting(target, *, assume_yes, dry_run):
+    """Guard against accidental nested or host-wide Osh projects.
+
+    Returns the enclosing project path when *target* sits inside an
+    existing Osh project, so the caller can record it as ``init.parent``.
+    Aborts by default on unacknowledged nesting; a previously recorded
+    ``init.parent`` matching the detected enclosing project means the
+    nesting was intentional.
+    """
+    enclosing = find_enclosing_project(target)
+
+    if enclosing is not None:
+        env_dir = (enclosing / ".osh").resolve()
+        try:
+            target.resolve().relative_to(env_dir)
+        except ValueError:
+            pass
+        else:
+            raise click.ClickException(
+                f"'{target}' is inside the Osh environment directory "
+                f"'{env_dir}'. Initialise the project at the repository "
+                "root instead."
+            )
+        if get_init_parent(target) != enclosing:
+            echo.warning(
+                f"'{target}' is inside the Osh project at '{enclosing}'. "
+                "A nested project gets its own environment, and commands "
+                "run inside it will no longer use the parent's."
+            )
+            if (
+                not dry_run
+                and not assume_yes
+                and not click.confirm("Create a nested Osh project?", default=False)
+            ):
+                raise click.ClickException("Aborted.")
+
+    if target == Path.home().resolve():
+        echo.warning(
+            f"'{target}' is your home directory. A '.osh' there would be "
+            "picked up by every directory under it that has no project of "
+            "its own."
+        )
+        if (
+            not dry_run
+            and not assume_yes
+            and not click.confirm("Initialise an Osh project here?", default=False)
+        ):
+            raise click.ClickException("Aborted.")
+
+    nested = find_nested_projects(target)
+    if nested:
+        echo.warning(
+            "Existing Osh project(s) inside this directory: "
+            + ", ".join(str(p) for p in nested)
+            + ". Commands run inside them keep using their own environment."
+        )
+
+    return enclosing
 
 
 def _write_dev_config(osh_conf):
