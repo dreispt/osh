@@ -414,9 +414,9 @@ def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):
     """Resolve the database name for the current context, prompting if missing.
 
     If the branch's resolved database does not exist, prompt in an interactive
-    terminal to reuse, copy or create it. In non-interactive mode raise a
-    ``click.ClickException`` with instructions. In *dry_run* mode the
-    existence probe only runs where it is side-effect free.
+    terminal to reuse the last used database or create it. In non-interactive
+    mode raise a ``click.ClickException`` with instructions. In *dry_run* mode
+    the existence probe only runs where it is side-effect free.
     """
     branch = resolve_branch(base, None)
     db_name = resolve_db_name(base, verbose=False, branch=branch)
@@ -430,58 +430,47 @@ def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):
         last_db = None
 
     if sys.stdin.isatty():
-        return _prompt_for_missing_db(base, branch, db_name, last_db, ctx=ctx)
+        action, name = _prompt_for_missing_db(base, branch, db_name, last_db, ctx=ctx)
+        if action == "create":
+            create_db(base, name, ctx=ctx)
+        return name
     _raise_missing_db_error(base, branch, db_name, last_db)
 
 
 def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
-    """Prompt the user when the branch's database is missing and return a name."""
+    """Prompt the user when the branch's database is missing.
+
+    Returns ``("use", last_db)`` when the last used database is picked — the
+    branch is re-mapped to it — or ``("create", db_name)``. The database
+    itself is left for the caller (or Odoo) to create. ``[a] Abort`` raises
+    ``click.Abort``.
+    """
     last_db_exists = bool(last_db) and db_exists(base, last_db, ctx=ctx)
-    choices = []
+    options = []
     if last_db_exists:
-        choices.append((f"Reuse '{last_db}' in place", "reuse"))
-    choices.append((f"Create new empty '{db_name}'", "create"))
-    if last_db_exists:
-        choices.append((f"Copy '{last_db}' to '{db_name}'", "copy"))
-    choices.append(("Choose another database", "choose"))
+        options.append(("u", f"Use the last used database '{last_db}'"))
+    options.append(("c", f"Create new database '{db_name}'"))
+    options.append(("a", "Abort"))
 
     echo.warning(f"Database '{db_name}' does not exist.")
-    echo.info("What would you like to do?")
-    for num, (label, _) in enumerate(choices, 1):
-        default_marker = "  (default)" if num == 1 else ""
-        echo.info(f"  [{num}] {label}{default_marker}")
+    for num, (key, label) in enumerate(options):
+        default_marker = "  [default]" if num == 0 else ""
+        echo.info(f"  [{key}] {label}{default_marker}")
 
+    keys = [key for key, _ in options]
     choice = click.prompt(
         "Choice",
-        type=click.Choice([str(n) for n in range(1, len(choices) + 1)]),
-        default="1",
+        type=click.Choice(keys, case_sensitive=False),
+        default=keys[0],
         show_choices=False,
-    )
+    ).lower()
 
-    action = choices[int(choice) - 1][1]
-
-    if action == "reuse":
+    if choice == "a":
+        raise click.Abort()
+    if choice == "u":
         set_project_config(base, "db", branch, last_db)
-        return last_db
-
-    if action == "create":
-        create_db(base, db_name, ctx=ctx)
-        return db_name
-
-    if action == "copy":
-        copy_db(base, last_db, db_name, ctx=ctx)
-        return db_name
-
-    # action == "choose"
-    chosen = click.prompt("Database name")
-    chosen = _require_db_name(chosen)
-    if not db_exists(base, chosen, ctx=ctx):
-        raise click.ClickException(
-            f"Database '{chosen}' does not exist. "
-            "Run 'osh db copy' or 'osh db restore' first."
-        )
-    set_project_config(base, "db", branch, chosen)
-    return chosen
+        return "use", last_db
+    return "create", db_name
 
 
 def _raise_missing_db_error(base, branch, db_name, last_db):
