@@ -28,7 +28,7 @@ host with the virtualenv activated — `VIRTUAL_ENV` is set and
 environment. `find_odoo_executable` resolves the `odoo`/`odoo-bin` binary
 from `.venv/bin` first, so no manual activation is needed.
 
-`osh venv down` mirrors `osh backend down`: it probes the configured HTTP
+`osh venv stop` mirrors `osh backend stop`: it probes the configured HTTP
 port and terminates a rogue Odoo process left behind by a previous run
 (foreign listeners are reported, never killed).
 

@@ -2,7 +2,7 @@
 
 ``backend_group`` builds a Click group named after a ``Backend`` class with
 the standard lifecycle commands — ``init``, ``activate``, ``doctor`` and
-``down`` — wired to the backend API. Backend plugins declare the resulting
+``stop`` — wired to the backend API. Backend plugins declare the resulting
 group under the ``backend_commands`` manifest key; they may add subcommands
 to it or build a fully custom group instead.
 
@@ -33,7 +33,7 @@ def backend_deactivate():
 
     Records ``none`` as the run backend — the counterpart of
     ``osh <backend> activate``. Resources the previous backend left running
-    are not stopped; use ``osh <backend> down`` for that.
+    are not stopped; use ``osh <backend> stop`` for that.
     """
     base = find_project_root(required=True)
     previous = deactivate_backend(base)
@@ -42,29 +42,29 @@ def backend_deactivate():
         return
     echo.info(
         f"Backend '{previous}' deactivated; commands now run on the host. "
-        f"Run 'osh {previous} down' to stop resources it left running."
+        f"Run 'osh {previous} stop' to stop resources it left running."
     )
 
 
-@backend.command(name="down")
+@backend.command(name="stop")
 @click.pass_context
-def backend_down(ctx):
+def backend_stop(ctx):
     """Stop resources the active backend left running.
 
-    Delegates to the active backend's ``down``: the ``none``/``venv``
+    Delegates to the active backend's ``stop``: the ``none``/``venv``
     backends terminate a host Odoo process on the project's HTTP port,
     ``docker`` runs ``docker compose down``. Backend-specific options
-    (e.g. ``--compose-file``) are on ``osh <backend> down``.
+    (e.g. ``--compose-file``) are on ``osh <backend> stop``.
     """
     base = find_project_root(required=True)
-    resolve_backend(base).down(ctx, base)
+    resolve_backend(base).stop(ctx, base)
 
 
 def backend_group(backend_cls):
     """Build the ``osh <backend>`` command group for *backend_cls*.
 
     The group is named after the backend and carries ``init``, ``activate``,
-    ``doctor`` and ``down`` subcommands.
+    ``doctor`` and ``stop`` subcommands.
     """
     group = NaturalOrderGroup(
         name=backend_cls.name,
@@ -74,7 +74,7 @@ def backend_group(backend_cls):
     group.add_command(_init_command(backend_cls))
     group.add_command(_activate_command(backend_cls))
     group.add_command(_doctor_command(backend_cls))
-    group.add_command(_down_command(backend_cls))
+    group.add_command(_stop_command(backend_cls))
     return group
 
 
@@ -161,17 +161,17 @@ def _doctor_command(backend_cls):
     )
 
 
-def _down_command(backend_cls):
-    """Build the ``osh <backend> down`` stop command."""
+def _stop_command(backend_cls):
+    """Build the ``osh <backend> stop`` command."""
 
     @click.pass_context
     def callback(ctx, **options):
         base = find_project_root(required=True)
-        backend_cls().down(ctx, base, **options)
+        backend_cls().stop(ctx, base, **options)
 
     return click.Command(
-        name="down",
-        params=list(backend_cls.get_down_options()),
+        name="stop",
+        params=list(backend_cls.get_stop_options()),
         callback=callback,
         help=f"Stop resources left running by the '{backend_cls.name}' backend.",
     )

@@ -3,7 +3,7 @@
 Backends allow plugins to replace the default host-venv execution model with
 other targets, such as Docker or remote containers, while keeping the same
 ``osh shell``/``osh odoo`` user interface. Each backend also gets an
-``osh <name>`` command group (``init``, ``doctor``, ``down``) — see
+``osh <name>`` command group (``init``, ``doctor``, ``stop``) — see
 ``osh.commands.backend_cmd.backend_group``.
 
 ``NoneBackend`` is the built-in default backend, used when no other backend
@@ -207,15 +207,15 @@ class Backend(ABC):
         )
 
     @classmethod
-    def get_down_options(cls):
-        """Additional ``click.Option`` objects for ``osh <name> down``."""
+    def get_stop_options(cls):
+        """Additional ``click.Option`` objects for ``osh <name> stop``."""
         return []
 
-    def down(self, ctx, base, **options):
+    def stop(self, ctx, base, **options):
         """Stop resources the backend may have left running.
 
         The default is a no-op for backends without persistent state, so
-        ``osh <backend> down`` is always safe to run.
+        ``osh <backend> stop`` is always safe to run.
         """
         echo.info(f"Nothing to stop for the '{self.name}' backend.", err=True)
 
@@ -410,7 +410,7 @@ class NoneBackend(Backend):
         except OSError as exc:
             raise click.ClickException(f"Could not run {args[0]}: {exc}") from exc
 
-    def down(self, ctx, base, **options):
+    def stop(self, ctx, base, **options):
         """Stop an Odoo process left listening on the project's HTTP port."""
         port = get_odoo_port(base)
         listeners = _port_listeners(port)

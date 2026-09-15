@@ -150,7 +150,7 @@ main.plugin_commands = _plugin_commands
 # ``backend_commands`` manifest key. They render in their own
 # "Backend Commands" help section. The built-in ``none`` backend has no
 # group — it is the absence of a managed backend; ``osh init`` is its
-# setup, ``osh backend down`` its teardown, ``osh backend deactivate`` the
+# setup, ``osh backend stop`` its teardown, ``osh backend deactivate`` the
 # way back.
 main.backend_commands = {}
 for plugin_source, backend_group_cmd in load_backend_commands():

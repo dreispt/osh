@@ -231,7 +231,7 @@ def load_backend_commands():
 
     Backend plugins declare a Click group named after their backend (e.g.
     ``docker``) under the ``backend_commands`` manifest key. These groups
-    carry the backend's lifecycle commands (``init``, ``doctor``, ``down``,
+    carry the backend's lifecycle commands (``init``, ``doctor``, ``stop``,
     plus any extras) and are listed in a separate help section.
     """
     commands = []
