@@ -28,7 +28,11 @@ def doctor(ctx):  # noqa: D401
     )
 
     diagnostics = collect_diagnostics(
-        base, NoneBackend(), ctx, target=active_target or "none"
+        base,
+        NoneBackend(),
+        ctx,
+        target=active_target or "none",
+        check_nesting=True,
     )
     report_diagnostics(diagnostics)
 
