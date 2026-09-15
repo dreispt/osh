@@ -57,7 +57,7 @@ arguments itself:
   variables re-exported as the standard `PG*` names.
 
 Containers are intentionally **left running** after commands exit.
-`osh docker down` runs `docker compose down` for the project stack;
+`osh docker stop` runs `docker compose down` for the project stack;
 `osh docker doctor` reports whether the container is running and for
 how long.
 
@@ -81,7 +81,7 @@ sources are configured.
 
 Before `up -d`, Osh checks whether the configured port is already bound. If
 the holder is another Osh-managed project (identified via Compose labels),
-the error names that project and suggests `osh docker down` there or
+the error names that project and suggests `osh docker stop` there or
 `osh docker init --port <n>` here; otherwise it prints a generic
-actionable message. In both cases `osh docker down` is the first suggested
+actionable message. In both cases `osh docker stop` is the first suggested
 remedy.

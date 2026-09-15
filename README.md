@@ -53,27 +53,30 @@ Run `osh <command> --help` for full usage details.
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
 | `osh db`                   | List, show, set, copy, unset, get, restore, or register named remote sources for project databases                   |
+| `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
 | `osh doctor`               | Check the project for common setup problems                                                                          |
-| `osh backend ...`          | Active-backend state: `deactivate` (back to host), `down` (stop its resources)                                       |
+| `osh backend ...`          | Active-backend state: `status`, `list`, `deactivate` (back to host), `stop` (stop its resources)                     |
 | `osh config`               | View or change osh settings for this project                                                                         |
-| `osh plug`                 | Install, list, or remove osh plugins                                                                                 |
+| `osh plug`                 | Install, list, enable, disable, alias, or uninstall osh plugins                                                      |
 
 Each backend contributes its own command group for target-specific setup
 and lifecycle:
 
 | Backend commands | What it does                                                            |
 | ---------------- | ----------------------------------------------------------------------- |
-| `osh venv ...`   | Managed virtualenv + Odoo sources: `init`, `activate`, `doctor`, `down` |
-| `osh docker ...` | Docker Compose stack: `init`, `activate`, `doctor`, `down`              |
+| `osh venv ...`   | Managed virtualenv + Odoo sources: `init`, `activate`, `doctor`, `stop` |
+| `osh docker ...` | Docker Compose stack: `init`, `activate`, `doctor`, `stop`              |
 
 `osh <backend> init` runs the base setup first, then the backend's own
 steps (e.g. `osh docker init` writes `docker.toml` and generates the
 Compose file). `osh <backend> activate` switches the project to an
 already-initialized backend — the active backend is what `osh odoo`,
 `osh shell` and `osh db` run through, and `osh backend deactivate`
-switches back to plain host execution. `osh backend down` stops whatever
-the active backend left running — `osh <backend> down` does the same for a
-specific backend (and carries its options, e.g. `osh docker down
+switches back to plain host execution. `osh backend status` shows which
+backend is active and `osh backend list` what's available.
+`osh backend stop` stops whatever
+the active backend left running — `osh <backend> stop` does the same for a
+specific backend (and carries its options, e.g. `osh docker stop
 --compose-file`).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
@@ -172,7 +175,7 @@ osh plug install https://github.com/dreispt/osh-contrib
 
 Highlights include:
 
-- `osh uninstall mod_a,mod_b` — uninstall modules and their installed dependents.
+- `osh addon uninstall mod_a,mod_b` — uninstall modules and their installed dependents.
 - `osh odoo --open` — print the browser URL once Odoo is ready
   (`--open` also opens it).
 

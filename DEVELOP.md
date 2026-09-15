@@ -28,7 +28,7 @@ using the source code in this directory, run `osh` via the module:
 
 ```bash
 python -m osh --help
-python -m osh version
+python -m osh --version
 ```
 
 ## Running from source
@@ -41,13 +41,27 @@ Common commands that do not require an Odoo project:
 
 ```bash
 python -m osh --help
-python -m osh version
+python -m osh --version
 python -m osh plug list
 ```
 
 Commands such as `init`, `odoo`, `doctor`, `config`, and `test` need an
 initialized Osh project. To exercise those, create a temporary project as
 described in `README.md`.
+
+## Command naming convention
+
+Commands follow a noun/verb rule: anything that operates on a persistent
+resource is `osh <noun> <verb>` (`osh db set`, `osh backend stop`,
+`osh plug install`, `osh addon update`), while bare top-level verbs are
+reserved for the primary day-to-day workflow actions (`osh init`,
+`osh odoo`, `osh switch`, `osh shell`, `osh doctor`, `osh test`). Verbs may
+deliberately diverge between groups when the underlying concepts differ —
+`osh plug uninstall` deletes an osh plugin while `osh addon uninstall`
+removes an Odoo module, and `osh db set`/`unset` moves a mutable pointer
+rather than acquiring or removing anything. Plugin commands that manage a
+resource should attach to the matching group via `group_commands` instead
+of claiming a bare top-level verb (see `PLUGINS.md`).
 
 ## Testing
 

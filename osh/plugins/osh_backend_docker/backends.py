@@ -465,18 +465,18 @@ class DockerBackend(Backend):
             project_path, running_for = holder
             raise click.ClickException(
                 f"Port {port} is already used by a container for "
-                f"{project_path} (running {running_for}). Run 'osh docker down' "
+                f"{project_path} (running {running_for}). Run 'osh docker stop' "
                 "there, or 'osh docker init --port <n>' here."
             )
         raise click.ClickException(
             f"Port {port} is already in use. If this is from a previous "
-            "'osh odoo'/'osh shell' session, run 'osh docker down' in that project "
+            "'osh odoo'/'osh shell' session, run 'osh docker stop' in that project "
             f"to free it. Otherwise, stop whatever's using port {port}, or "
             "run 'osh docker init --port <n>' here."
         )
 
     @classmethod
-    def get_down_options(cls):
+    def get_stop_options(cls):
         return [
             click.Option(
                 ["--compose-file"],
@@ -487,7 +487,7 @@ class DockerBackend(Backend):
             ),
         ]
 
-    def down(self, ctx, base, **options):
+    def stop(self, ctx, base, **options):
         """Stop and remove this project's Compose stack."""
         cfg = _load_docker_config(base)
         if not cfg:

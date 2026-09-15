@@ -30,6 +30,20 @@ function name by default. If the name collides with an existing command, `osh`
 registers it under a source-qualified fallback (`<plugin>-<name>`) and warns —
 see [Command name collisions](#command-name-collisions).
 
+### Command naming convention
+
+Commands follow a noun/verb rule: anything that operates on a persistent
+resource is `osh <noun> <verb>` (`osh db restore`, `osh plug install`,
+`osh addon update`), while bare top-level verbs are reserved for the
+primary day-to-day workflow actions (`osh init`, `osh odoo`, `osh switch`,
+`osh shell`, `osh doctor`, `osh test`). If your plugin manages a resource,
+attach its commands to the matching group via `group_commands` instead of
+claiming a bare top-level verb. Verbs may deliberately diverge between
+groups when the underlying concepts differ — `osh plug uninstall` deletes
+an osh plugin while `osh addon uninstall` removes an Odoo module, and
+`osh db set`/`unset` moves a mutable pointer rather than acquiring or
+removing anything.
+
 ### Minimal plugin example
 
 ```python
@@ -196,7 +210,7 @@ notice.
   `decode_stderr`.
 - `osh.backends` — `Backend`, `EnvSpec`, and `copy_odoo_rc_to_osh_conf`.
 - `osh.backup_sources` — `BackupSource` and `SourceError`, the interface for
-  extending `osh backup` with new source schemes.
+  extending `osh db get` with new source schemes.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.hooks` — hook point name constants for the `hooks` manifest key.
@@ -221,7 +235,7 @@ of existing groups. Backends implement the lifecycle interface used by
 `osh odoo`, `osh shell`, `osh db restore` and `osh test` for a particular
 execution target (e.g. local virtualenv, Docker); a backend's setup and
 lifecycle commands live under its own `osh <name>` command group
-(`osh docker init`, `osh docker doctor`, `osh docker down`).
+(`osh docker init`, `osh docker doctor`, `osh docker stop`).
 
 ### Command plugins
 
@@ -262,11 +276,7 @@ manifest key:
 ```python
 from osh.commands.backend_cmd import backend_group
 
-backend = click.Group(
-    "my-target",
-    cls=backend_group(MyBackend),
-    help=MyBackend.description,
-)
+backend = backend_group(MyBackend)
 
 OSH_PLUGIN_MANIFEST = {
     "backends": [MyBackend],
@@ -274,8 +284,9 @@ OSH_PLUGIN_MANIFEST = {
 }
 ```
 
-`backend_group(cls)` builds a `click.Group` subclass pre-populated with the
-standard `init`, `activate`, `doctor` and `down` subcommands; `osh <name>
+`backend_group(cls)` returns a ready-to-use `click.Group` instance (a
+`NaturalOrderGroup`) named after the backend and pre-populated with the
+standard `init`, `activate`, `doctor` and `stop` subcommands; `osh <name>
 init` runs the common base setup and then calls `cls.init(...)`, while
 `osh <name> activate` is the lightweight way to switch the project to an
 already-initialized backend. A backend that needs extra or different
@@ -289,7 +300,7 @@ Built-in examples:
 
 The core `none` backend — plain host execution, the default when no
 backend is activated — has no command group: `osh init` is its setup,
-`osh backend down` its teardown and `osh backend deactivate` the way back
+`osh backend stop` its teardown and `osh backend deactivate` the way back
 to it.
 
 #### Backend class attributes
@@ -324,8 +335,8 @@ class MyBackend(Backend):
   prepare `target` for use and return `True` when ready. This is called by
   `osh <name> init` after the common base setup.
 
-- `down(self, base, *, dry_run=False, **options)`: stop anything the backend
-  leaves running. Called by `osh <name> down`; the default implementation
+- `stop(self, ctx, base, **options)`: stop anything the backend
+  leaves running. Called by `osh <name> stop`; the default implementation
   kills a rogue Odoo process listening on the configured HTTP port.
 
 - `env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
@@ -338,7 +349,7 @@ class MyBackend(Backend):
 ### Backup source plugins
 
 The built-in `osh_db_get` plugin defines a hook point, `osh_db_get.sources`,
-that other plugins can use to add schemes `osh backup <scheme>://...`
+that other plugins can use to add schemes `osh db get <scheme>://...`
 understands. Declare them under the `hooks` manifest key:
 
 ```python
@@ -349,9 +360,9 @@ A source class must:
 
 - Define a `scheme` class attribute (e.g. `scheme = "s3"`).
 - Optionally set a short `description` attribute; it is shown in
-  `osh backup --help` next to the scheme.
+  `osh db get --help` next to the scheme.
 - Optionally set a longer `help_text` attribute; users can view it with
-  `osh backup --help-scheme <scheme>`.
+  `osh db get --help-scheme <scheme>`.
 - Implement `from_source(source, base, *, output_format="dump", **options)`
   returning an instance. `source` is the full URL string and `base` is the
   project root (or `None`).
@@ -360,7 +371,7 @@ A source class must:
 
 The built-in sources ship in the consolidated `osh/plugins/osh_db_get/`
 plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` — alongside
-the `osh backup` command and the `osh db restore` group subcommand.
+the `osh db get` command and the `osh db restore` group subcommand.
 
 Example plugin source:
 
@@ -376,7 +387,7 @@ class S3BackupSource(BackupSource):
 Download a backup from an S3 bucket.
 
 Example:
-  osh backup s3://my-bucket/backups/odoo.sql.gz
+  osh db get s3://my-bucket/backups/odoo.sql.gz
 """
 
     @classmethod
