@@ -192,7 +192,7 @@ def _doctor_command(backend_cls):
     @click.pass_context
     def callback(ctx):
         base = find_project_root(required=True)
-        diagnostics = collect_diagnostics(base, backend_cls(), ctx)
+        diagnostics = collect_diagnostics(base, backend_cls(), ctx, check_nesting=True)
         report_diagnostics(diagnostics)
 
     return click.Command(

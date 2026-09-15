@@ -11,6 +11,9 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands import init_cmd
+from osh.common import find_enclosing_project, find_nested_projects
+from osh.config import get_init_parent
+from osh.db import get_project_config, set_project_config
 from osh.plugins.osh_backend_venv.backends import VenvBackend
 from osh.sources import (
     DEFAULT_ODOO_URL,
@@ -862,6 +865,30 @@ class TestInitRollback:
 
         assert not (target / ".osh").exists()
 
+    def test_user_abort_prints_no_rollback_note(self, tmp_path, capsys):
+        """Declining a prompt is not a rollback; no 'left untouched' note."""
+        target = tmp_path / "proj"
+        (target / ".osh").mkdir(parents=True)
+        (target / ".osh" / "keep.txt").touch()
+
+        with pytest.raises(click.ClickException, match="Aborted"):
+            with init_cmd._rollback_new_osh_dir(target):
+                raise click.ClickException("Aborted.")
+
+        assert "left untouched" not in capsys.readouterr().err
+
+    def test_failure_keeps_existing_osh_note(self, tmp_path, capsys):
+        """A real failure on an existing project still explains the outcome."""
+        target = tmp_path / "proj"
+        (target / ".osh").mkdir(parents=True)
+        (target / ".osh" / "keep.txt").touch()
+
+        with pytest.raises(click.ClickException, match="boom"):
+            with init_cmd._rollback_new_osh_dir(target):
+                raise click.ClickException("boom")
+
+        assert "left untouched" in capsys.readouterr().err
+
     def test_failed_base_init_removes_new_osh_dir(self, tmp_path, monkeypatch):
         """``osh init`` failing after creating ``.osh`` removes it."""
         target = tmp_path / "fresh"
@@ -878,3 +905,290 @@ class TestInitRollback:
 
         assert result.exit_code != 0
         assert not (target / ".osh").exists()
+
+
+class TestProjectDiscovery:
+    """Helpers locating Osh projects around or below a directory."""
+
+    def test_find_enclosing_project(self, tmp_path):
+        parent = tmp_path / "parent"
+        (parent / ".osh").mkdir(parents=True)
+        child = parent / "a" / "b"
+        child.mkdir(parents=True)
+
+        assert find_enclosing_project(child) == parent.resolve()
+
+    def test_find_enclosing_project_ignores_own_osh(self, tmp_path):
+        """A project's own ``.osh`` does not count as enclosing (re-init)."""
+        parent = tmp_path / "parent"
+        (parent / ".osh").mkdir(parents=True)
+
+        assert find_enclosing_project(parent) is None
+
+    def test_find_enclosing_project_none(self, tmp_path):
+        assert find_enclosing_project(tmp_path / "missing") is None
+
+    def test_find_enclosing_project_stops_at_home(self, tmp_path, monkeypatch):
+        """A ``.osh`` above ``$HOME`` is never enclosing for ``$HOME``."""
+        (tmp_path / ".osh").mkdir()
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+
+        assert find_enclosing_project(home) is None
+        assert find_enclosing_project(home / "sub") is None
+
+    def test_find_nested_projects(self, tmp_path):
+        base = tmp_path / "base"
+        (base / "child" / ".osh").mkdir(parents=True)
+        (base / "deep" / "sub" / ".osh").mkdir(parents=True)
+        (base / ".hidden" / ".osh").mkdir(parents=True)
+        repo = base / "repo"
+        (repo / ".git").mkdir(parents=True)
+        (repo / ".git" / "HEAD").touch()
+        (repo / "sub" / ".osh").mkdir(parents=True)
+
+        assert find_nested_projects(base) == [
+            base / "child",
+            base / "deep" / "sub",
+        ]
+
+    def test_find_nested_projects_missing_base(self, tmp_path):
+        """A nonexistent base has no nested projects (and cannot be listed)."""
+        assert find_nested_projects(tmp_path / "missing") == []
+
+    def test_find_nested_projects_git_repo_base(self, tmp_path):
+        """A git repository root is never descended into, even as the base."""
+        base = tmp_path / "repo"
+        (base / ".git").mkdir(parents=True)
+        (base / ".git" / "HEAD").touch()
+        (base / "sub" / ".osh").mkdir(parents=True)
+
+        assert find_nested_projects(base) == []
+
+    def test_find_nested_projects_skips_unreadable(self, tmp_path, monkeypatch):
+        """Directories that cannot be listed are skipped, not fatal."""
+        base = tmp_path / "base"
+        (base / "child" / ".osh").mkdir(parents=True)
+        (base / "blocked").mkdir(parents=True)
+        original_iterdir = Path.iterdir
+
+        def fake_iterdir(self):
+            if self == base / "blocked":
+                raise PermissionError("denied")
+            return original_iterdir(self)
+
+        monkeypatch.setattr(Path, "iterdir", fake_iterdir)
+
+        assert find_nested_projects(base) == [base / "child"]
+
+
+class TestNestedInit:
+    """``osh init`` guards against accidental nested environments."""
+
+    def _make_parent(self, tmp_path):
+        parent = tmp_path / "parent"
+        (parent / ".osh").mkdir(parents=True)
+        return parent
+
+    def test_init_inside_project_aborts_on_decline(self, tmp_path):
+        parent = self._make_parent(tmp_path)
+        child = parent / "child"
+        (child / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(child)], input="n\n"
+        )
+
+        assert result.exit_code != 0
+        assert "inside the Osh project" in result.output
+        assert not (child / ".osh").exists()
+
+    def test_init_inside_project_records_parent(self, tmp_path):
+        parent = self._make_parent(tmp_path)
+        child = parent / "child"
+        (child / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(child)], input="y\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (child / ".osh").is_dir()
+        # The parent is recorded relative to the child so the config
+        # survives the checkout being moved.
+        assert get_project_config(child, "init", "parent") == ".."
+        assert get_init_parent(child) == parent.resolve()
+
+    def test_init_inside_project_assume_yes(self, tmp_path):
+        parent = self._make_parent(tmp_path)
+        child = parent / "child"
+        (child / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", "--yes", str(child)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert get_init_parent(child) == parent.resolve()
+
+    def test_reinit_acknowledged_nested_skips_prompt(self, tmp_path):
+        """A nested project with a recorded parent re-inits without asking."""
+        parent = self._make_parent(tmp_path)
+        child = parent / "child"
+        (child / ".git").mkdir(parents=True)
+        (child / ".osh").mkdir()
+        set_project_config(child, "init", "parent", str(parent.resolve()))
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(child)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Create a nested Osh project?" not in result.output
+
+    def test_init_inside_env_dir_rejected(self, tmp_path):
+        """Initialising inside the parent's ``.osh/`` is never legitimate."""
+        parent = self._make_parent(tmp_path)
+        env_sub = parent / ".osh" / "odoo"
+        (env_sub / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(env_sub)]
+        )
+
+        assert result.exit_code != 0
+        assert "environment directory" in result.output
+        assert not (env_sub / ".osh").exists()
+
+    def test_init_inside_env_dir_leaves_no_directories(self, tmp_path):
+        """The env-dir rejection runs before the target directory is created."""
+        parent = self._make_parent(tmp_path)
+        env_sub = parent / ".osh" / "newdir"
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(env_sub)]
+        )
+
+        assert result.exit_code != 0
+        assert "environment directory" in result.output
+        assert not env_sub.exists()
+
+    def test_init_inside_symlinked_env_dir_rejected(self, tmp_path):
+        """A symlinked parent ``.osh`` is resolved for the env-dir check."""
+        parent = tmp_path / "parent"
+        real_env = parent / "env"
+        real_env.mkdir(parents=True)
+        (parent / ".osh").symlink_to(real_env, target_is_directory=True)
+        env_sub = real_env / "odoo"
+        env_sub.mkdir()
+
+        result = CliRunner().invoke(
+            main,
+            ["init", "19.0", "--edition", "ce", str(parent / ".osh" / "odoo")],
+        )
+
+        assert result.exit_code != 0
+        assert "environment directory" in result.output
+
+    def test_dry_run_creates_nothing(self, tmp_path):
+        """``--dry-run`` performs no filesystem changes."""
+        target = tmp_path / "newproject"
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", "--dry-run", str(target)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert not target.exists()
+
+    def test_dry_run_nested_does_not_prompt(self, tmp_path):
+        """``--dry-run`` reports nesting but asks nothing and writes nothing."""
+        parent = self._make_parent(tmp_path)
+        child = parent / "child"
+        (child / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(
+            main,
+            ["init", "19.0", "--edition", "ce", "--dry-run", str(child)],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "inside the Osh project" in result.output
+        assert not (child / ".osh").exists()
+
+    def test_init_warns_on_nested_projects_below(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        (workspace / ".git").mkdir(parents=True)
+        (workspace / "sub" / ".osh").mkdir(parents=True)
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(workspace)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Existing Osh project(s)" in result.output
+
+    def test_init_at_home_requires_confirmation(self, tmp_path, monkeypatch):
+        """A ``~/.osh`` would shadow every project-less directory under it."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".git").mkdir()
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(tmp_path)], input="n\n"
+        )
+
+        assert result.exit_code != 0
+        assert "home directory" in result.output
+        assert not (tmp_path / ".osh").exists()
+
+    def test_init_clears_stale_parent(self, tmp_path):
+        """Re-init outside the former parent removes the recorded parent."""
+        project = tmp_path / "project"
+        (project / ".git").mkdir(parents=True)
+        (project / ".osh").mkdir()
+        set_project_config(project, "init", "parent", "/somewhere")
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(project, "init", "parent") is None
+
+    def test_reinit_relative_parent_skips_prompt(self, tmp_path):
+        """A relative recorded parent acknowledges the nesting."""
+        parent = self._make_parent(tmp_path)
+        child = parent / "child"
+        (child / ".git").mkdir(parents=True)
+        (child / ".osh").mkdir()
+        set_project_config(child, "init", "parent", "..")
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(child)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Create a nested Osh project?" not in result.output
+
+
+class TestGetInitParent:
+    """``init.parent`` resolution in ``.osh/config.toml``."""
+
+    def test_relative_parent(self, tmp_path):
+        child = tmp_path / "parent" / "child"
+        child.mkdir(parents=True)
+        set_project_config(child, "init", "parent", "..")
+
+        assert get_init_parent(child) == (tmp_path / "parent").resolve()
+
+    def test_legacy_absolute_parent(self, tmp_path):
+        """Absolute paths written by older versions still resolve."""
+        child = tmp_path / "parent" / "child"
+        child.mkdir(parents=True)
+        set_project_config(child, "init", "parent", str(tmp_path / "parent"))
+
+        assert get_init_parent(child) == (tmp_path / "parent").resolve()
+
+    def test_no_parent(self, tmp_path):
+        assert get_init_parent(tmp_path) is None
