@@ -175,7 +175,7 @@ def test_resolve_db_name_for_run_tty_prompt_reuse(tmp_project, pg_db, monkeypatc
         tmp_project, "db", values={"default": missing, "last_db": previous}
     )
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "1")
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "u")
     result = resolve_db_name_for_run(tmp_project, verbose=False)
     assert result == previous
 
@@ -188,8 +188,8 @@ def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, pg_db, monkeypat
     pg_db.track(missing)
     set_project_config(tmp_project, "db", "default", missing)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    # No last used database: choices are [1] create, [2] choose.
-    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "1")
+    # No last used database: [c] is the default choice.
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "c")
     result = resolve_db_name_for_run(tmp_project, verbose=False)
     assert result == missing
     assert pg_db.exists(missing)
@@ -279,18 +279,14 @@ def test_list_command_reports_missing_psql(tmp_project, monkeypatch):
     assert "psql" in result.output
 
 
-def test_resolve_db_name_for_run_tty_prompt_copy(tmp_project, pg_db, monkeypatch):
-    """In TTY, a missing branch database can be copied from the last used one."""
+def test_resolve_db_name_for_run_tty_prompt_abort(tmp_project, pg_db, monkeypatch):
+    """In TTY, the missing-db prompt can be aborted without side effects."""
     from osh.db import resolve_db_name_for_run
 
-    previous = pg_db.create()
     missing = pg_db.name()
-    pg_db.track(missing)
-    set_project_config(
-        tmp_project, "db", values={"default": missing, "last_db": previous}
-    )
+    set_project_config(tmp_project, "db", "default", missing)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "3")
-    result = resolve_db_name_for_run(tmp_project, verbose=False)
-    assert result == missing
-    assert pg_db.exists(missing)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "a")
+    with pytest.raises(click.Abort):
+        resolve_db_name_for_run(tmp_project, verbose=False)
+    assert not pg_db.exists(missing)
