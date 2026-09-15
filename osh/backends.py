@@ -14,6 +14,7 @@ import os
 import shlex
 import shutil
 import signal
+import time
 from abc import ABC
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +37,13 @@ from .common import (
 )
 from .utils.odoo_layout import find_odoo_executable
 from .utils.version import get_version_from_executable
+
+# ``NoneBackend.stop`` timings: how long to wait for Odoo to release its
+# HTTP port after SIGTERM before escalating to SIGKILL, how long to wait
+# for SIGKILL to take effect, and how often to re-check the port.
+_SIGTERM_GRACE_SECONDS = 5.0
+_SIGKILL_GRACE_SECONDS = 1.0
+_PORT_POLL_INTERVAL_SECONDS = 0.1
 
 
 def copy_odoo_rc_to_osh_conf(base):
@@ -431,23 +439,74 @@ class NoneBackend(Backend):
                 os.kill(pid, signal.SIGTERM)
             except OSError as exc:
                 echo.warning(f"Could not stop pid {pid}: {exc}")
+                continue
+            if _wait_for_port_release(port, pid):
+                continue
+            # Re-check identity before escalating: during the grace period the
+            # original process may have exited and the kernel may have reused
+            # its pid for something unrelated, which must not be killed.
+            if not _looks_like_odoo(_pid_command(pid)):
+                echo.warning(
+                    f"Process {pid} no longer looks like Odoo (pid reused?) — "
+                    "not sending SIGKILL."
+                )
+                continue
+            echo.info(f"Process {pid} ignored SIGTERM; sending SIGKILL.", err=True)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError as exc:
+                echo.warning(f"Could not kill pid {pid}: {exc}")
+                continue
+            if not _wait_for_port_release(port, pid, timeout=_SIGKILL_GRACE_SECONDS):
+                echo.warning(
+                    f"Odoo process {pid} is still listening on port {port} "
+                    "after SIGKILL."
+                )
+
+
+def _wait_for_port_release(port, pid, timeout=_SIGTERM_GRACE_SECONDS):
+    """Return True once *pid* no longer listens on *port*, False on timeout.
+
+    Polling the port rather than the PID keeps this correct when the dead
+    process lingers as a zombie: a zombie still exists but its sockets are
+    already closed.
+    """
+    deadline = time.monotonic() + timeout
+    while pid in _port_listeners(port):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(_PORT_POLL_INTERVAL_SECONDS)
+    return True
 
 
 def _port_listeners(port):
     """Return PIDs of processes listening on TCP *port* (best effort)."""
     lsof = shutil.which("lsof")
     if lsof:
-        returncode, out, _ = run_subprocess(
+        returncode, out, err = run_subprocess(
             [lsof, "-nP", f"-tiTCP:{int(port)}", "-sTCP:LISTEN"]
         )
         if returncode != 0:
+            # lsof exits 1 both for "nothing found" and for real failures
+            # (e.g. denied /proc access); only the latter writes to stderr.
+            # Reporting it matters: a silent [] would make the caller claim
+            # the port is free while Odoo is still holding it.
+            if (err or "").strip():
+                echo.warning(f"Could not check port {port} with lsof: {err.strip()}")
             return []
         return [int(p) for p in out.split() if p.strip().isdigit()]
 
     fuser = shutil.which("fuser")
     if fuser:
-        # fuser prints the PIDs on stdout (and the port label on stderr).
-        returncode, out, _err = run_subprocess([fuser, f"{int(port)}/tcp"])
+        # fuser prints the PIDs on stdout (and the port label on stderr, so
+        # stderr is no failure signal here). Exit 1 means "no process".
+        returncode, out, err = run_subprocess([fuser, f"{int(port)}/tcp"])
+        if returncode not in (0, 1):
+            echo.warning(
+                f"Could not check port {port} with fuser: "
+                f"{(err or '').strip() or f'exit {returncode}'}"
+            )
+            return []
         if returncode != 0:
             return []
         return [int(p) for p in (out or "").split() if p.isdigit()]
@@ -476,6 +535,9 @@ def _proc_port_listeners(port):
     if not inodes:
         return []
 
+    # Built once: this is compared against every fd of every process, and
+    # the caller polls it repeatedly while waiting for the port to clear.
+    socket_links = {f"socket:[{i}]" for i in inodes}
     pids = []
     proc = Path("/proc")
     for entry in proc.iterdir():
@@ -484,7 +546,7 @@ def _proc_port_listeners(port):
         try:
             for fd in (entry / "fd").iterdir():
                 try:
-                    if os.readlink(fd) in {f"socket:[{i}]" for i in inodes}:
+                    if os.readlink(fd) in socket_links:
                         pids.append(int(entry.name))
                         break
                 except OSError:
@@ -506,10 +568,30 @@ def _pid_command(pid):
     return out.strip() if returncode == 0 else ""
 
 
+_ODOO_EXECUTABLES = ("odoo", "odoo-bin", "odoo.py", "odoo.sh")
+_PYTHON_EXECUTABLES = ("python", "python3")
+
+
 def _looks_like_odoo(cmdline):
-    """Return True when *cmdline* invokes an ``odoo``/``odoo-bin`` executable."""
+    """Return True when *cmdline* invokes Odoo.
+
+    Matches a direct ``odoo``/``odoo-bin``/``odoo.py``/``odoo.sh``
+    executable as well as ``python -m odoo``, where ``odoo`` is a module
+    argument rather than the executable. Deliberately conservative: a
+    false negative only leaves a process running, while a false positive
+    would kill something that merely happens to hold the port.
+    """
     try:
         tokens = shlex.split(cmdline or "")
     except ValueError:
         tokens = (cmdline or "").split()
-    return any(Path(t).name in ("odoo", "odoo-bin") for t in tokens)
+    for index, token in enumerate(tokens):
+        name = Path(token).name
+        if name in _ODOO_EXECUTABLES:
+            return True
+        if name in _PYTHON_EXECUTABLES and tokens[index + 1 : index + 3] == [
+            "-m",
+            "odoo",
+        ]:
+            return True
+    return False

@@ -40,6 +40,8 @@ def test_stop_host_kills_odoo_listener(in_project, monkeypatch):
         lambda pid: "/project/.venv/bin/odoo --dev=all",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
+    # SIGTERM releases the port right away — no real waiting in tests.
+    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
 
     result = CliRunner().invoke(main, ["backend", "stop"])
 
@@ -80,11 +82,144 @@ def test_stop_venv_kills_odoo_listener(in_project, monkeypatch):
         lambda pid: "odoo-bin -d mydb",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append(pid))
+    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
 
     result = CliRunner().invoke(main, ["venv", "stop"])
 
     assert result.exit_code == 0, result.output
     assert killed == [99]
+
+
+def test_stop_host_escalates_to_sigkill(in_project, monkeypatch):
+    """An Odoo process that ignores SIGTERM is escalated to SIGKILL."""
+    killed = []
+    monkeypatch.setattr(
+        "osh.backends._port_listeners",
+        lambda port: [4321],
+    )
+    monkeypatch.setattr(
+        "osh.backends._pid_command",
+        lambda pid: "odoo-bin -d mydb",
+    )
+    monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
+    # First wait times out (SIGTERM ignored), second succeeds (SIGKILL).
+    releases = iter([False, True])
+    monkeypatch.setattr(
+        "osh.backends._wait_for_port_release", lambda *a, **k: next(releases)
+    )
+
+    result = CliRunner().invoke(main, ["backend", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert killed == [(4321, signal.SIGTERM), (4321, signal.SIGKILL)]
+    assert "sending SIGKILL" in result.output
+    assert "still listening" not in result.output
+
+
+def test_stop_host_warns_when_process_survives_sigkill(in_project, monkeypatch):
+    """A process still holding the port after SIGKILL is reported."""
+    killed = []
+    monkeypatch.setattr(
+        "osh.backends._port_listeners",
+        lambda port: [4321],
+    )
+    monkeypatch.setattr(
+        "osh.backends._pid_command",
+        lambda pid: "odoo-bin -d mydb",
+    )
+    monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: False)
+
+    result = CliRunner().invoke(main, ["backend", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert killed == [(4321, signal.SIGTERM), (4321, signal.SIGKILL)]
+    assert "still listening on port 8069" in result.output
+
+
+def test_stop_host_skips_sigkill_when_pid_was_reused(in_project, monkeypatch):
+    """A pid that stopped looking like Odoo during the grace period is spared."""
+    killed = []
+    commands = iter(["odoo-bin -d mydb", "postgres: writer process"])
+    monkeypatch.setattr(
+        "osh.backends._port_listeners",
+        lambda port: [4321],
+    )
+    monkeypatch.setattr("osh.backends._pid_command", lambda pid: next(commands))
+    monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: False)
+
+    result = CliRunner().invoke(main, ["backend", "stop"])
+
+    assert result.exit_code == 0, result.output
+    # SIGTERM was sent, but the pid no longer looks like Odoo so no SIGKILL.
+    assert killed == [(4321, signal.SIGTERM)]
+    assert "pid reused" in result.output
+
+
+def test_stop_host_kills_python_module_odoo(in_project, monkeypatch):
+    """``python3 -m odoo`` is recognised as Odoo."""
+    killed = []
+    monkeypatch.setattr(
+        "osh.backends._port_listeners",
+        lambda port: [77],
+    )
+    monkeypatch.setattr(
+        "osh.backends._pid_command",
+        lambda pid: "/usr/bin/python3 -m odoo --http-port=8069",
+    )
+    monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
+
+    result = CliRunner().invoke(main, ["backend", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert killed == [(77, signal.SIGTERM)]
+
+
+def test_looks_like_odoo_variants():
+    """The Odoo heuristic accepts wrappers but rejects unrelated servers."""
+    from osh.backends import _looks_like_odoo
+
+    assert _looks_like_odoo("/project/.venv/bin/odoo --dev=all")
+    assert _looks_like_odoo("odoo-bin -d mydb")
+    assert _looks_like_odoo("/opt/odoo/odoo.py -c odoo.conf")
+    assert _looks_like_odoo("/usr/local/bin/odoo.sh")
+    assert _looks_like_odoo("python3 -m odoo --http-port=8069")
+    assert not _looks_like_odoo("python3 -m http.server 8069")
+    assert not _looks_like_odoo("postgres: writer process")
+    assert not _looks_like_odoo("")
+    assert not _looks_like_odoo(None)
+
+
+def test_port_listeners_warns_when_lsof_fails(monkeypatch):
+    """A failing ``lsof`` is reported instead of silently reporting no listener."""
+    from osh import backends
+
+    monkeypatch.setattr(backends.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(
+        backends,
+        "run_subprocess",
+        lambda *a, **k: (1, "", "lsof: WARNING: can't stat() /proc"),
+    )
+    warnings = []
+    monkeypatch.setattr(backends.echo, "warning", lambda msg, **k: warnings.append(msg))
+
+    assert backends._port_listeners(8069) == []
+    assert "Could not check port 8069 with lsof" in warnings[0]
+
+
+def test_port_listeners_quiet_when_port_is_free(monkeypatch):
+    """``lsof`` finding nothing is the normal case and must not warn."""
+    from osh import backends
+
+    monkeypatch.setattr(backends.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(backends, "run_subprocess", lambda *a, **k: (1, "", ""))
+    warnings = []
+    monkeypatch.setattr(backends.echo, "warning", lambda msg, **k: warnings.append(msg))
+
+    assert backends._port_listeners(8069) == []
+    assert warnings == []
 
 
 def test_stop_docker_backend_runs_compose_down(in_project, monkeypatch):
