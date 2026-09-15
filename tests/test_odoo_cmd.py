@@ -157,7 +157,7 @@ def test_odoo_fails_with_instructions_when_branch_db_missing_in_non_tty(
     assert "create and initialize" in result.output
 
 
-def test_odoo_missing_db_confirms_then_runs(
+def test_odoo_missing_db_prompt_create_runs(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
@@ -165,27 +165,28 @@ def test_odoo_missing_db_confirms_then_runs(
     pg_db,
     capture_execvp,
 ):
-    """Confirming the missing-db message proceeds to run Odoo."""
-    import osh.echo
+    """Choosing ``[c]`` proceeds to run Odoo, which creates the database."""
+    from click.testing import _NamedTextIOWrapper
+
     from osh.config import set_project_config
 
     missing = pg_db.name()
     set_project_config(tmp_project, "db", "default", missing)
     monkeypatch.chdir(tmp_project)
 
-    confirms = []
-    monkeypatch.setattr(
-        osh.echo, "confirm", lambda *a, **kw: confirms.append(a) or True
-    )
+    # CliRunner replaces sys.stdin with a non-TTY wrapper; patching its
+    # isatty method simulates an interactive terminal.
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: "c")
 
     result = CliRunner().invoke(odoo, [])
 
     assert result.exit_code == 0, result.output
-    assert confirms, "missing-db confirmation was not asked"
+    assert f"[c] Create new database '{missing}'" in result.output
     assert len(capture_execvp) == 1
 
 
-def test_odoo_missing_db_confirm_abort(
+def test_odoo_missing_db_prompt_use_last_db(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
@@ -193,20 +194,47 @@ def test_odoo_missing_db_confirm_abort(
     pg_db,
     capture_execvp,
 ):
-    """Declining the missing-db confirmation aborts the run."""
-    import click as _click
+    """Choosing ``[u]`` maps the branch to the last used database."""
+    from click.testing import _NamedTextIOWrapper
 
-    import osh.echo
+    from osh.config import set_project_config
+    from osh.db import resolve_db_name
+
+    previous = pg_db.create()
+    missing = pg_db.name()
+    set_project_config(
+        tmp_project, "db", values={"default": missing, "last_db": previous}
+    )
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: "u")
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert f"Using database: {previous}" in result.output
+    assert resolve_db_name(tmp_project) == previous
+    assert len(capture_execvp) == 1
+
+
+def test_odoo_missing_db_prompt_abort(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+    capture_execvp,
+):
+    """Choosing ``[a]`` aborts the run."""
+    from click.testing import _NamedTextIOWrapper
+
     from osh.config import set_project_config
 
     missing = pg_db.name()
     set_project_config(tmp_project, "db", "default", missing)
     monkeypatch.chdir(tmp_project)
-
-    def _decline(*a, **kw):
-        raise _click.Abort()
-
-    monkeypatch.setattr(osh.echo, "confirm", _decline)
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: "a")
 
     result = CliRunner().invoke(odoo, [])
 
