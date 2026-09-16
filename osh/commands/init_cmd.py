@@ -30,7 +30,7 @@ from .helpers import Diagnostics
 
 
 @click.command(name="init")
-@click.argument("version", type=str)
+@click.argument("version", required=False, type=str)
 @click.argument(
     "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
 )
@@ -96,7 +96,9 @@ def init(
 ):  # noqa: D401
     """Initialise an Osh project directory (base setup only).
 
-    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master')
+    VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master').
+    Optional — defaults to $OSH_INIT_VERSION, then the version recorded by a
+    previous ``osh init`` in the project, then the saved configuration.
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
     Creates `.osh/` and the project configuration, migrates `.odoorc` and
@@ -111,7 +113,12 @@ def init(
       osh init 19.0 ./another-project
       osh init 19.0 --ee
       osh init 19.0 --dry-run
+      osh init            # re-init using the recorded version
+
+    With VERSION omitted, DIRECTORY can only be given as a path containing
+    a separator (e.g. './another-project') — a bare name is read as VERSION.
     """
+    version, directory = _split_version_arg(version, directory)
     target = (directory or Path.cwd()).expanduser().resolve()
     with _rollback_new_osh_dir(target):
         base_init(
@@ -133,6 +140,19 @@ def init(
             "  osh <backend> init  # e.g. 'osh venv init' or 'osh docker init'"
         )
         echo.friendly("  osh doctor          # Check your setup")
+
+
+def _split_version_arg(version, directory):
+    """Treat a lone positional holding a path separator as DIRECTORY.
+
+    With VERSION optional, ``osh init ./another-project`` would otherwise
+    fill VERSION and silently initialise the current directory. A version
+    string never contains a path separator, so such a value is unambiguous;
+    bare names without a separator stay versions.
+    """
+    if directory is None and version and any(sep in version for sep in "/\\"):
+        return None, Path(version)
+    return version, directory
 
 
 @contextlib.contextmanager
@@ -179,11 +199,14 @@ def base_init(
 ):
     """Common project setup shared by ``osh init`` and ``osh <backend> init``.
 
-    Creates the target directory and ``.osh/``, resolves the edition,
-    migrates ``.odoorc``, applies dev-friendly config, records the ``[init]``
-    settings and installs the neutralize scripts. Returns the resolved
-    edition name for the backend init to reuse.
+    Creates the target directory and ``.osh/``, resolves the version and
+    edition, migrates ``.odoorc``, applies dev-friendly config, records the
+    ``[init]`` settings and installs the neutralize scripts. Returns the
+    resolved ``(edition, version)`` pair for the backend init to reuse.
     """
+    version = version or _resolve_version(
+        target, assume_yes=assume_yes, dry_run=dry_run
+    )
     echo.friendly(f"Welcome to Osh! Let's set up your Odoo {version} project.")
 
     enclosing = _check_nesting(target, assume_yes=assume_yes, dry_run=dry_run)
@@ -208,11 +231,12 @@ def base_init(
     if save and not dry_run:
         save_user_preference("edition", edition, section="init")
 
+    echo.info(f"Using Odoo {version}")
     echo.info(f"Using {_EDITION_NAMES.get(edition, edition)} edition")
 
     if dry_run:
         echo.info(f"Would create .osh/ project configuration in {target}")
-        return edition
+        return edition, version
 
     target.mkdir(parents=True, exist_ok=True)
 
@@ -235,7 +259,7 @@ def base_init(
     if enclosing is None and get_project_config(target, "init", "parent"):
         unset_project_config(target, "init", "parent")
     setup_project_neutralize_scripts(target, version)
-    return edition
+    return edition, version
 
 
 def run_backend_init(
@@ -414,6 +438,33 @@ def _write_dev_config(osh_conf):
     odoo_cfg.set("options", "limit_time_real", "0")
     with osh_conf.open("w", encoding="utf-8") as f:
         odoo_cfg.write(f)
+
+
+def _resolve_version(target, *, assume_yes, dry_run):
+    """Return the Odoo version to use when the VERSION argument is omitted.
+
+    ``OSH_INIT_VERSION`` wins, then the version the project recorded on a
+    previous ``osh init``, then the saved user default — the recorded project
+    version takes precedence over the user default so a re-init never
+    silently switches versions. When nothing resolves, prompt interactively;
+    non-interactive runs fail since every later step depends on it.
+    """
+    version = (
+        os.environ.get("OSH_INIT_VERSION")
+        or get_project_config(target, "init", "version")
+        or load_user_init_config().get("version")
+    )
+    # A TOML ``version = 19.0`` reads back as a float; normalise so the
+    # recorded value and every consumer always see the same string.
+    version = str(version).strip() if version is not None else ""
+    if version:
+        return version
+    if not dry_run and not assume_yes and sys.stdin.isatty():
+        return click.prompt("Odoo version")
+    raise click.ClickException(
+        "Missing VERSION. Pass the Odoo version (e.g. 'osh init 19.0'), or "
+        "run inside a project that already records one."
+    )
 
 
 def _default_edition(target):

@@ -27,7 +27,13 @@ from ..db import (
 )
 from ..utils.plugin_loader import load_backends
 from .helpers import check_run_diagnostics, collect_diagnostics, report_diagnostics
-from .init_cmd import _rollback_new_osh_dir, base_init, init, run_backend_init
+from .init_cmd import (
+    _rollback_new_osh_dir,
+    _split_version_arg,
+    base_init,
+    init,
+    run_backend_init,
+)
 
 
 @click.group(name="backend", cls=NaturalOrderGroup)
@@ -131,9 +137,10 @@ def _init_command(backend_cls):
     def callback(
         ctx, version, directory, edition, save, assume_yes, dry_run, dev, **options
     ):
+        version, directory = _split_version_arg(version, directory)
         target = (directory or Path.cwd()).expanduser().resolve()
         with _rollback_new_osh_dir(target):
-            edition = base_init(
+            edition, version = base_init(
                 ctx,
                 target,
                 version=version,

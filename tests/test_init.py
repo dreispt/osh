@@ -755,6 +755,107 @@ class TestInitEdition:
         assert (target / ".osh" / "odoo").is_symlink()
 
 
+class TestInitVersion:
+    """``osh init`` without a VERSION argument reuses recorded defaults."""
+
+    def test_reinit_without_version_uses_recorded(self, tmp_project):
+        """The recorded ``init.version`` is reused when VERSION is omitted."""
+        set_project_config(tmp_project, "init", "version", "18.0")
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo 18.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+    def test_explicit_version_overrides_recorded(self, tmp_project):
+        """An explicit VERSION argument wins over the recorded one."""
+        set_project_config(tmp_project, "init", "version", "18.0")
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_env_var_sets_default_version(self, tmp_project):
+        """OSH_INIT_VERSION supplies the version when VERSION is omitted."""
+        runner = CliRunner(env={"OSH_INIT_VERSION": "19.0"})
+        result = runner.invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_user_config_sets_default_version(self, tmp_project, monkeypatch):
+        """``[init] version`` in the user config supplies a default."""
+        fake_home = tmp_project / "home"
+        config_dir = fake_home / ".config" / "osh"
+        config_dir.mkdir(parents=True)
+        (config_dir / "config.toml").write_text('[init]\nversion = "19.0"\n')
+        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_recorded_version_beats_user_default(self, tmp_project, monkeypatch):
+        """A recorded project version is never overridden by a user default."""
+        fake_home = tmp_project / "home"
+        config_dir = fake_home / ".config" / "osh"
+        config_dir.mkdir(parents=True)
+        (config_dir / "config.toml").write_text('[init]\nversion = "19.0"\n')
+        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+        set_project_config(tmp_project, "init", "version", "18.0")
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+    def test_interactive_version_prompt(self, tmp_project, monkeypatch):
+        """Interactive init without a resolvable version prompts for one."""
+        monkeypatch.setattr(
+            "click.testing._NamedTextIOWrapper.isatty", lambda self: True
+        )
+
+        result = CliRunner().invoke(
+            main, ["init", "--edition", "ce", str(tmp_project)], input="17.0\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo version" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "17.0"
+
+    def test_missing_version_errors_non_interactive(self, tmp_path):
+        """A fresh project without a resolvable version fails with guidance."""
+        target = tmp_path / "fresh"
+        (target / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(target)])
+
+        assert result.exit_code != 0
+        assert "Missing VERSION" in result.output
+        assert not (target / ".osh").exists()
+
+    def test_backend_init_reuses_recorded_version(self, tmp_project, monkeypatch):
+        """``osh <backend> init`` resolves the version the same way."""
+        set_project_config(tmp_project, "init", "version", "18.0")
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir()
+        (odoo_src / "odoo-bin").touch()
+        real_git_only_subprocess(monkeypatch)
+
+        result = CliRunner().invoke(
+            main, ["venv", "init", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo 18.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+
 class TestSourceVersionSwitching:
     def test_managed_source_is_replaced_for_a_different_version(
         self, tmp_path, tmp_project, patch_cache, monkeypatch

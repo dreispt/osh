@@ -47,7 +47,7 @@ Run `osh <command> --help` for full usage details.
 
 | Command                    | What it does                                                                                                         |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `osh init <version> [dir]` | Base project setup (directory, `.osh/`, settings); backend init adds the rest                                        |
+| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); backend init adds the rest; version optional on re-init           |
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |

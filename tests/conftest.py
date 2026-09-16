@@ -13,11 +13,12 @@ def _isolated_env(monkeypatch):
     """Remove Osh-managed variables from the ambient environment.
 
     A developer's shell may export ``VIRTUAL_ENV`` (running pytest inside a
-    venv) or ``ODOO_RC``; tests build these values fresh, so ambient values
-    are removed to keep results deterministic. ``PG*`` variables are kept:
-    they may be required to reach the test PostgreSQL server.
+    venv), ``ODOO_RC`` or the ``OSH_INIT_*`` init defaults; tests build these
+    values fresh, so ambient values are removed to keep results deterministic.
+    ``PG*`` variables are kept: they may be required to reach the test
+    PostgreSQL server.
     """
-    for var in ("VIRTUAL_ENV", "ODOO_RC"):
+    for var in ("VIRTUAL_ENV", "ODOO_RC", "OSH_INIT_VERSION", "OSH_INIT_EDITION"):
         monkeypatch.delenv(var, raising=False)
 
 
