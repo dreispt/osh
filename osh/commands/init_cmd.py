@@ -309,7 +309,8 @@ def run_backend_init(
         version=version,
         edition=edition,
         dry_run=dry_run,
-        assume_yes=assume_yes or confirmed,
+        assume_yes=assume_yes,
+        confirmed=confirmed,
         todo=todo,
         **options,
     )

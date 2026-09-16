@@ -142,6 +142,7 @@ class VenvBackend(NoneBackend):
             edition=edition,
             dry_run=dry_run,
             assume_yes=options.get("assume_yes", False),
+            confirmed=options.get("confirmed", False),
             odoo_source=options.get("odoo_source"),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),

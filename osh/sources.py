@@ -31,6 +31,7 @@ def ensure_osh_sources(
     dry_run=False,
     skip_odoo=False,
     assume_yes=False,
+    confirmed=False,
     odoo_source=None,
     enterprise_source=None,
     themes_source=None,
@@ -40,6 +41,11 @@ def ensure_osh_sources(
     Sources are installed as links under ``base / ".osh"``.  The returned
     dictionary has the keys ``"odoo"``, ``"enterprise"`` and
     ``"design-themes"``; missing or skipped sources map to ``None``.
+
+    *confirmed* marks a higher-level plan the user already approved: it
+    skips only the redundant plan confirmation below, whereas *assume_yes*
+    silences every prompt — including the submodule guard, which asks a
+    question the user could not have seen when approving the plan.
     """
     osh_dir = base / ".osh"
 
@@ -98,7 +104,7 @@ def ensure_osh_sources(
             "design-themes": None,
         }
 
-    _confirm_sources(assume_yes)
+    _confirm_sources(assume_yes, confirmed)
 
     osh_dir.mkdir(parents=True, exist_ok=True)
     sources = {}
@@ -229,10 +235,12 @@ def _display_source_plan(
         echo.info(line, err=True)
 
 
-def _confirm_sources(assume_yes):
+def _confirm_sources(assume_yes, confirmed=False):
     """Ask the user to confirm the source plan, or proceed automatically."""
     if assume_yes:
         echo.info("Proceeding with --yes (skipping confirmation).", err=True)
+        return
+    if confirmed:
         return
     if sys.stdin.isatty():
         echo.confirm("Proceed?", default=True, abort=True)
