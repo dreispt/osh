@@ -1,5 +1,6 @@
 services:
   odoo:
+    # __BUILD__
     image: __IMAGE__
     # The container idles; commands are run via `docker compose exec`
     # (e.g. `osh odoo`, `osh shell`), so the stack is reused across commands.

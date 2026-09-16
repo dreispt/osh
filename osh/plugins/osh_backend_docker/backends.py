@@ -43,7 +43,8 @@ class DockerBackend(Backend):
         "Writes ``.osh/docker.toml`` with the service name, command, and optional "
         "compose file path. If no compose file exists, generates ``.osh/docker-compose.yml`` "
         "with a standard Odoo + PostgreSQL stack using the requested version as the "
-        "image tag.\n\n"
+        "image tag. With ``--dockerfile``, the generated stack builds the Odoo "
+        "image from that Dockerfile instead of pulling the stock image.\n\n"
         "Requires Docker and the Docker Compose plugin on PATH."
     )
 
@@ -62,6 +63,12 @@ class DockerBackend(Backend):
             click.Option(
                 ["--compose-file"],
                 help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
+            ),
+            click.Option(
+                ["--dockerfile"],
+                help="Path to a Dockerfile to build the Odoo image from "
+                "(e.g. odoo/Dockerfile); its parent directory becomes the "
+                "build context. Mutually exclusive with --compose-file.",
             ),
             click.Option(
                 ["--port"],
@@ -99,17 +106,18 @@ class DockerBackend(Backend):
         cfg = _load_docker_config(base)
         compose_file = (cfg or {}).get("compose_file") or str(_COMPOSE_FILE)
         compose_path = base / Path(compose_file)
-        if not compose_path.is_file():
-            return None
+        if compose_path.is_file():
+            text = compose_path.read_text()
+            match = re.search(r"image:\s*(?:\S+/)?odoo:(\S+)", text)
+            if match:
+                version_match = re.match(r"(\d+\.\d+)", match.group(1))
+                if version_match:
+                    return f"odoo {version_match.group(1)}"
 
-        text = compose_path.read_text()
-        match = re.search(r"image:\s*(?:\S+/)?odoo:(\S+)", text)
-        if not match:
-            return None
-
-        version_match = re.match(r"(\d+\.\d+)", match.group(1))
-        if version_match:
-            return f"odoo {version_match.group(1)}"
+        # Custom image tags (e.g. a Dockerfile build) don't match the
+        # ``odoo:<tag>`` pattern; fall back to the configured version.
+        if cfg and cfg.get("version"):
+            return f"odoo {cfg['version']}"
         return None
 
     def diagnose_sections_for_phase(self, phase):
@@ -151,6 +159,8 @@ class DockerBackend(Backend):
             )
         if "compose_file" in sections:
             self._diagnose_compose_file(d, phase, base, compose_file)
+            if phase != "run":
+                self._diagnose_dockerfile(d, base, cfg or {}, compose_file)
         if "odoo_version" in sections:
             self._diagnose_odoo_version(d, phase, base)
         if "service" in sections:
@@ -217,6 +227,32 @@ class DockerBackend(Backend):
             d.add_error(f"Compose file not found: {compose_path}")
         else:
             d.add_warning(f"Compose file not found: {compose_path}")
+
+    def _diagnose_dockerfile(self, d, base, cfg, compose_file):
+        """Warn when the project ships a Dockerfile the Osh stack ignores.
+
+        Only called for init/doctor: warning during ``run`` would print on
+        every ``osh odoo``. A user-provided compose file is used as-is, so
+        ``--dockerfile`` does not apply to it.
+        """
+        if cfg.get("dockerfile") or (
+            compose_file and Path(compose_file) != _COMPOSE_FILE
+        ):
+            return
+        found = [
+            # ``*`` also matches dot-directories, which are not the project's
+            # own image build.
+            p.relative_to(base).as_posix()
+            for p in (base / "Dockerfile", *sorted(base.glob("*/Dockerfile")))
+            if p.is_file() and not p.parent.name.startswith(".")
+        ]
+        if found:
+            d.add_warning(
+                f"Project defines a Docker image build ({', '.join(found)}) but "
+                "the Osh stack uses the stock odoo image, which may lack project "
+                f"Python dependencies. Re-run 'osh docker init --dockerfile "
+                f"{found[0]}' to build it instead."
+            )
 
     def _diagnose_odoo_version(self, d, phase, base):
         """Detect and record the installed Odoo version."""
@@ -355,16 +391,46 @@ class DockerBackend(Backend):
         command = options.get("command")
         compose_file = options.get("compose_file")
         port = options.get("port")
+        dockerfile = options.get("dockerfile")
 
         if compose_file and not (target / compose_file).is_file():
             raise click.ClickException(
                 f"Compose file '{compose_file}' not found in {target}."
             )
+        if compose_file and dockerfile:
+            raise click.ClickException(
+                "--dockerfile cannot be used with --compose-file: "
+                "a provided compose file is used as-is."
+            )
+
+        if not compose_file and not dockerfile:
+            # A persisted dockerfile keeps the image build across re-inits.
+            dockerfile = (_load_docker_config(target) or {}).get("dockerfile")
+
+        if dockerfile:
+            # ``target / dockerfile`` keeps an absolute path as given.
+            path = (target / dockerfile).resolve()
+            if not path.is_file():
+                raise click.ClickException(
+                    f"Dockerfile '{dockerfile}' not found in {target}."
+                )
+            root = target.resolve()
+            dockerfile = (
+                path.relative_to(root).as_posix()
+                if path.is_relative_to(root)
+                else str(path)
+            )
 
         if not compose_file:
             if not dry_run:
                 todo.start()
-            _generate_compose_file(target, version, port=port or 8069, dry_run=dry_run)
+            _generate_compose_file(
+                target,
+                version,
+                port=port or 8069,
+                dockerfile=dockerfile,
+                dry_run=dry_run,
+            )
             compose_file = str(_COMPOSE_FILE)
 
         if dry_run:
@@ -376,6 +442,7 @@ class DockerBackend(Backend):
                 version=version,
                 edition=edition,
                 port=port,
+                dockerfile=dockerfile,
                 dry_run=True,
             )
             ensure_osh_sources(
@@ -409,7 +476,14 @@ class DockerBackend(Backend):
             edition=edition,
             compose_tool=" ".join(compose_tool),
             port=port,
+            dockerfile=dockerfile,
         )
+        if dockerfile and not _load_docker_config(target).get("data_dir"):
+            echo.friendly(
+                "If the built image keeps Odoo data outside /var/lib/odoo, set "
+                f"data_dir in {target / _DOCKER_TOML} so 'osh db' finds the "
+                "filestore."
+            )
 
         todo.start()
         ensure_osh_sources(
@@ -448,7 +522,10 @@ class DockerBackend(Backend):
             return
 
         self._check_port_available(base, cfg)
-        docker_args = [*compose_cmd, "up", "-d"]
+        # ``--build`` refreshes a stale image when the stack builds from a
+        # Dockerfile (a no-op for image-only services), so editing the
+        # Dockerfile or its requirements takes effect on the next start.
+        docker_args = [*compose_cmd, "up", "-d", "--build"]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
         run_command(docker_args, cwd=base, check=True, stream=True)
 
