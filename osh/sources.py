@@ -188,13 +188,13 @@ def _read_gitmodules(base):
 
 def _submodule_source_name(path, url=None):
     """Guess whether a submodule path is for odoo, enterprise or design-themes."""
-    name = _repo_name_from_url(url) if url else None
-    if not name:
-        name = str(path).lower().rstrip("/").split("/")[-1]
-    if name in ("odoo", "enterprise"):
-        return name
-    if name in ("design-themes", "design_themes", "themes"):
-        return "design-themes"
+    names = [_repo_name_from_url(url)] if url else []
+    names.append(str(path).lower().rstrip("/").split("/")[-1])
+    for name in names:
+        if name in ("odoo", "enterprise"):
+            return name
+        if name in ("design-themes", "design_themes", "themes"):
+            return "design-themes"
     return None
 
 
