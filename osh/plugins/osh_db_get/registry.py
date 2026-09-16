@@ -56,6 +56,16 @@ def get_backup_source_help(scheme):
     return getattr(cls, "help_text", "") or (cls.__doc__ or "")
 
 
+def canonical_source(source):
+    """Return the canonical identity for *source*, or None when unsupported."""
+    from urllib.parse import urlparse
+
+    cls = _source_registry().get(urlparse(source).scheme)
+    if cls is None:
+        return None
+    return cls.canonical_source(source)
+
+
 def parse_source(
     source,
     *,
@@ -74,7 +84,7 @@ def parse_source(
     if cls is None:
         supported = ", ".join(sorted(_source_registry()))
         raise SourceError(
-            f"Unsupported source: {source}. " f"Expected one of: {supported}."
+            f"Unsupported source: {source}. Expected one of: {supported}."
         )
     return cls.from_source(
         source,

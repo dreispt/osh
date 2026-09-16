@@ -12,6 +12,7 @@ from osh.plugins.osh_db_get.backup_cmd import get
 from osh.plugins.osh_db_get.remotes import (
     get_remotes,
     newest_cache_for_remote,
+    newest_cache_for_source,
     remote,
     resolve_remote,
 )
@@ -167,3 +168,47 @@ def test_restore_never_contacts_external_source(
 
 def test_newest_cache_for_remote_not_a_remote(in_project):
     assert newest_cache_for_remote(in_project, "db://proddb") is None
+
+
+# restore <source-url> ----------------------------------------------------
+
+
+def test_restore_source_url_picks_newest_matching_cache(in_project, patched_restore):
+    """`osh db restore <url>` restores the newest cache entry for that source."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    old = _write_cached_backup(
+        cache_dir, "old.zip", "https://demo.odoo.com/web?db=prod"
+    )
+    new = _write_cached_backup(
+        cache_dir, "new.zip", "https://demo.odoo.com?db=prod&format=zip"
+    )
+    other = _write_cached_backup(
+        cache_dir, "other.dump", "https://demo.odoo.com?db=other"
+    )
+    now = 1_700_000_000
+    os.utime(old, (now - 200, now - 200))
+    os.utime(new, (now - 100, now - 100))
+    # Make the other database's backup the newest overall: a source restore
+    # must still pick prod's newest, not the newest cache entry overall.
+    os.utime(other, (now, now))
+
+    result = CliRunner().invoke(restore, ["https://demo.odoo.com/web?db=prod"])
+
+    assert result.exit_code == 0, result.output
+    assert patched_restore["restore"] == [(new, patched_restore["db_name"], False)]
+
+
+def test_restore_source_url_without_cache_errors(in_project, patched_restore):
+    """A recognized source URL with no cached backup fails with a hint."""
+    result = CliRunner().invoke(restore, ["https://demo.odoo.com?db=prod"])
+
+    assert result.exit_code != 0
+    assert "osh db get" in result.output
+
+
+def test_newest_cache_for_source_not_a_source(in_project):
+    """Non-source arguments are not treated as backup sources."""
+    assert newest_cache_for_source(in_project, "some.dump") is None
+    assert newest_cache_for_source(in_project, "cache:1") is None
+    assert newest_cache_for_source(in_project, None) is None

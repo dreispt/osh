@@ -67,6 +67,15 @@ Use --ssh-key to authenticate with a specific private key.
         """Create an ``OdooshSource`` from an ``odoosh://...`` URL."""
         return cls(source, ssh_key=ssh_key, include_filestore=include_filestore)
 
+    @classmethod
+    def canonical_source(cls, source):
+        """Identify a build by domain, ignoring the build id and ``?backup=``."""
+        parsed = urlparse(source)
+        domain = parsed.hostname or parsed.netloc
+        if not domain.endswith(".dev.odoo.com"):
+            domain = domain + ".dev.odoo.com"
+        return f"odoosh://{domain}"
+
     def _normalize_domain(self, netloc):
         if not netloc.endswith(".dev.odoo.com"):
             return netloc + ".dev.odoo.com"

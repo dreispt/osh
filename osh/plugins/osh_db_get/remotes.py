@@ -16,7 +16,7 @@ from ...backup_sources import SourceError
 from ...common import find_project_root
 from ...db import load_osh_config, set_project_config
 from .cache import list_cache
-from .registry import parse_source
+from .registry import canonical_source, parse_source
 
 _REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -47,12 +47,38 @@ def newest_cache_for_remote(base, name):
     source = resolve_remote(base, name)
     if source is None:
         return None
+    return _newest_cache_matching(
+        base, source, what=f"remote '{name}' ({source})", hint=name
+    )
+
+
+def newest_cache_for_source(base, source):
+    """Return the newest cached backup fetched from *source*.
+
+    Cache entries are matched by canonical source identity, so cosmetic
+    differences (e.g. an Odoo ``/web`` path copied from the browser) still
+    match. Returns None when *source* is not a recognized ``scheme://``
+    source string. Raises ``ClickException`` when it is recognized but has
+    no cached backup yet.
+    """
+    if source is None or canonical_source(source) is None:
+        return None
+    return _newest_cache_matching(base, source, what=source, hint=source)
+
+
+def _newest_cache_matching(base, source, *, what, hint):
+    """Return the newest cached backup whose source matches *source*."""
+    key = canonical_source(source)
     for entry in list_cache(base, limit=None):
-        if entry["source"] == source:
+        if key is None:
+            match = entry["source"] == source
+        else:
+            entry_key = canonical_source(entry["source"])
+            match = entry_key is not None and entry_key == key
+        if match:
             return entry["path"]
     raise click.ClickException(
-        f"No cached backup from remote '{name}' ({source}). "
-        f"Run 'osh db get {name}' first."
+        f"No cached backup from {what}. Run 'osh db get {hint}' first."
     )
 
 

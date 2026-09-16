@@ -368,6 +368,13 @@ A source class must:
   project root (or `None`).
 - Implement `default_output_name()` returning the default filename.
 - Implement `fetch(output, *, dry_run=False)` to write the backup to `output`.
+- Optionally implement `canonical_source(source)` returning a normalized
+  identity for a source string. `osh db restore <source>` restores the
+  newest cached backup whose stored source has the same identity, so
+  implement it when one source can be spelled in different ways — e.g. the
+  `https` source maps `https://host/web?db=x` and `https://host?db=x` to
+  `https://host?db=x`. The default returns the source string unchanged,
+  meaning only an exact match restores.
 
 The built-in sources ship in the consolidated `osh/plugins/osh_db_get/`
 plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` — alongside
