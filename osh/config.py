@@ -422,6 +422,22 @@ def read_project_config(base, option, fallback=None):
     return get_project_config(base, "user", option, fallback)
 
 
+def get_init_parent(base):
+    """Return the enclosing project recorded by ``osh init``, or None.
+
+    ``init.parent`` in ``.osh/config.toml`` is stored relative to *base* so
+    the config stays valid when a checkout moves; absolute paths written by
+    older versions are still resolved.
+    """
+    parent = get_project_config(base, "init", "parent")
+    if not parent:
+        return None
+    path = Path(parent)
+    if not path.is_absolute():
+        path = Path(base) / path
+    return path.resolve()
+
+
 # ---------------------------------------------------------------------------
 # Local per-machine project state (TOML, not committed)
 

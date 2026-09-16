@@ -63,6 +63,28 @@ rather than acquiring or removing anything. Plugin commands that manage a
 resource should attach to the matching group via `group_commands` instead
 of claiming a bare top-level verb (see `PLUGINS.md`).
 
+## Nested projects
+
+A `.osh` directory may exist inside another Osh project — for example an
+independent project checked out inside a workspace directory, or a
+subproject that needs a different Odoo version. The innermost `.osh` always
+wins: commands run inside a nested project use its environment, and the
+parent project no longer applies there.
+
+Creating one is deliberate: `osh init` (and `osh <backend> init`) detects
+when the target is inside an existing project and asks for confirmation,
+recording the enclosing project as `parent` under `[init]` in the nested
+`.osh/config.toml`. Initialising inside the parent's `.osh/` directory
+itself (e.g. `.osh/odoo`) is refused outright, and initialising the home
+directory asks for confirmation since a `~/.osh` would apply to every
+project-less directory under it.
+
+`osh doctor` reports both directions: an enclosing project the current one
+is nested inside (a warning unless it was acknowledged at init), and nested
+`.osh` environments found below the project root. Nested subtrees are still
+visible to the parent's `osh switch` and addons discovery — nesting changes
+which environment commands bind to, not which repositories the parent sees.
+
 ## Testing
 
 Install the test dependencies and run the `osh` test suite with `pytest`:

@@ -10,6 +10,7 @@ by ``osh shell`` via the dynamic config in ``.osh/cache/env``.
 """
 
 import os
+import sys
 
 import click
 
@@ -18,7 +19,15 @@ from ..backends import EnvSpec
 from ..cli_utils import format_backends_section
 from ..common import find_project_root, has_arg
 from ..config import get_user_preference
-from ..db import db_exists, get_project_config, resolve_backend, resolve_db_name
+from ..db import (
+    _prompt_for_missing_db,
+    db_exists,
+    get_last_db,
+    get_project_config,
+    resolve_backend,
+    resolve_branch,
+    resolve_db_name,
+)
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
 from .helpers import check_run_diagnostics
@@ -123,19 +132,25 @@ def odoo(
 
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
 
-    # Odoo creates and initializes a missing ``db_name`` itself, so a
-    # missing database is reported with a continue confirmation, not
-    # prompted for.
+    # Odoo creates and initializes a missing ``db_name`` itself, so
+    # "create" only records the intent — no createdb is run here.
     db_name = parse_explicit_db(extra_args)
     if not db_name and not has_arg(extra_args, "--config", short="-c"):
         db_name = resolve_db_name(base)
         if not db_exists(base, db_name, ctx=ctx, dry_run=dry_run):
-            echo.info(
-                f"Database '{db_name}' does not exist; "
-                "Odoo will create and initialize it."
-            )
-            if not dry_run:
-                echo.confirm("Continue?", default=True, abort=True)
+            if sys.stdin.isatty() and not dry_run:
+                branch = resolve_branch(base, None)
+                last_db = get_last_db(base)
+                if last_db == db_name:
+                    last_db = None
+                _action, db_name = _prompt_for_missing_db(
+                    base, branch, db_name, last_db, ctx=ctx
+                )
+            else:
+                echo.info(
+                    f"Database '{db_name}' does not exist; "
+                    "Odoo will create and initialize it."
+                )
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")

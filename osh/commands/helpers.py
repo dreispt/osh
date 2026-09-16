@@ -15,6 +15,9 @@ from typing import Any
 import click
 
 from .. import echo
+from ..common import find_enclosing_project, find_nested_projects
+from ..config import get_init_parent
+from ..db import get_current_branch, resolve_db_name
 
 
 @dataclass
@@ -86,11 +89,16 @@ def collect_diagnostics(
     target=None,
     sections=None,
     include_core=True,
+    check_nesting=False,
     **options,
 ):
-    """Collect core and backend-specific diagnostics for *base*."""
-    from ..db import get_current_branch, resolve_db_name
+    """Collect core and backend-specific diagnostics for *base*.
 
+    *check_nesting* adds project-layout warnings about enclosing and
+    nested Osh projects. It is opt-in because warnings collected here are
+    also printed by ``check_run_diagnostics`` on every ``osh odoo``/``osh
+    shell`` run — doctors enable it, run commands do not.
+    """
     diagnostics = backend.diagnose(base, ctx, sections=sections, **options)
     diagnostics.project = base
     diagnostics.target = target or backend.name
@@ -102,7 +110,35 @@ def collect_diagnostics(
         diagnostics.add_info(
             "dbname", resolve_db_name(base, verbose=False), topic="Project"
         )
+    if check_nesting:
+        _add_nesting_diagnostics(diagnostics, base)
     return diagnostics
+
+
+def _add_nesting_diagnostics(diagnostics, base):
+    """Report enclosing and nested Osh projects around *base*.
+
+    An enclosing project acknowledged through ``init.parent`` (recorded by
+    ``osh init`` when the nesting was confirmed) is informational; an
+    unacknowledged one is a warning, as it usually means an accidental
+    nested ``.osh`` shadowing the intended environment.
+    """
+    enclosing = find_enclosing_project(base)
+    if enclosing is not None:
+        if get_init_parent(base) == enclosing:
+            diagnostics.add_info("parent_project", str(enclosing), topic="Project")
+        else:
+            diagnostics.add_warning(
+                f"This project is nested inside the Osh project at "
+                f"'{enclosing}'. Commands run here use this environment; "
+                f"delete '{base / '.osh'}' to use the parent project."
+            )
+    nested = find_nested_projects(base)
+    for path in nested:
+        diagnostics.add_warning(
+            f"Nested Osh project at '{path.relative_to(base)}' — commands "
+            "run inside it use that environment instead of this one."
+        )
 
 
 def check_run_diagnostics(base, backend, ctx, *, compose_file=None):
