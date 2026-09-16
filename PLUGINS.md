@@ -373,6 +373,17 @@ The built-in sources ship in the consolidated `osh/plugins/osh_db_get/`
 plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` — alongside
 the `osh db get` command and the `osh db restore` group subcommand.
 
+`osh_db_get` defines a second hook point, `osh_db_get.post_restore`, fired
+by `osh db restore` after the dump and neutralization complete. Each item
+is a callable `hook(ctx, base, db_name)` — e.g. to record module
+fingerprints in the restored database. Hooks are skipped under `--dry-run`,
+and a failing hook is reported as a warning without failing the restore
+(run `osh --verbose` for the hook's traceback):
+
+```python
+OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.post_restore": [my_hook]}}
+```
+
 Example plugin source:
 
 ```python

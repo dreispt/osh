@@ -1,5 +1,7 @@
 """`osh db restore` command provided by the osh_db_get plugin."""
 
+import traceback
+
 import click
 
 from ... import echo
@@ -17,9 +19,12 @@ from ...db import (
     set_last_db,
 )
 from ...utils.odoo_layout import find_odoo_executable
+from ...utils.plugin_loader import load_hook_entries
 from ...utils.version import get_version_tuple
 from . import restore_ops
 from .remotes import newest_cache_for_remote
+
+POST_RESTORE_HOOK = "osh_db_get.post_restore"
 
 
 @click.command(name="restore")
@@ -103,6 +108,12 @@ def restore(
     `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
     scripts.
 
+    Once the restore (and neutralization) completes, plugins subscribing to
+    the ``osh_db_get.post_restore`` hook point run as ``hook(ctx, base,
+    db_name)`` — e.g. to record module fingerprints in the restored
+    database. Hook failures are reported as warnings; they cannot fail an
+    already-completed restore.
+
     Neutralization hooks:
 
     Custom `.sql` scripts inside `.osh/neutralize/` run after the built-in
@@ -165,6 +176,8 @@ def restore(
 
     if not no_neutralize:
         _neutralize(ctx, base, db_name, dry_run=dry_run)
+
+    _run_post_restore_hooks(ctx, base, db_name, dry_run=dry_run)
 
     if not dry_run:
         if no_neutralize:
@@ -234,3 +247,36 @@ def _odoo_neutralize(ctx, db_name, *, dry_run):
         no_db_filter=True,
         extra_args=("neutralize", "-d", db_name),
     )
+
+
+def _run_post_restore_hooks(ctx, base, db_name, *, dry_run):
+    """Invoke plugins subscribed to the ``osh_db_get.post_restore`` hook point.
+
+    Each hook is a callable ``hook(ctx, base, db_name)`` run after the dump
+    and neutralization completed. The database is fully restored at this
+    point, so a failing hook is reported as a warning instead of failing the
+    command. Under ``--dry-run`` no database exists to touch — the hooks are
+    listed but not called.
+
+    A hook failure only warns, so the exception type and traceback are the
+    plugin author's only diagnostics: the type goes in the warning and the
+    traceback is kept for ``--verbose``.
+    """
+    entries = load_hook_entries(POST_RESTORE_HOOK)
+    if dry_run:
+        if entries:
+            echo.info(f"Would run {len(entries)} post-restore hook(s)", err=True)
+        return
+    for source, hook in entries:
+        try:
+            hook(ctx, base, db_name)
+        except Exception as exc:
+            echo.warning(
+                f"post-restore hook from '{source}' failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            echo.internal(
+                f"Traceback for '{source}' post-restore hook:\n"
+                f"{traceback.format_exc()}",
+                err=True,
+            )

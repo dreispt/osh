@@ -48,3 +48,20 @@ Third-party plugins can register additional source schemes through the
 `osh_db_get.sources` pluggy hook. Implement a source class with
 `name`, `scheme`, `probe(source)`, and `fetch(ctx, source, dest)` and
 declare the hook implementation in the plugin manifest.
+
+## Post-restore hooks
+
+`osh db restore` also defines the `osh_db_get.post_restore` hook point for
+plugins that want to act on a freshly restored database. Each
+implementation is a callable `hook(ctx, base, db_name)` invoked after the
+dump and neutralization complete — for example to record module
+fingerprints in the restored database. Declare it under the `hooks`
+manifest key:
+
+```python
+OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.post_restore": [my_hook]}}
+```
+
+Hooks are skipped under `--dry-run` (no database exists to touch), and a
+failing hook is reported as a warning without failing the restore — run
+`osh --verbose db restore` to get the failing hook's traceback.
