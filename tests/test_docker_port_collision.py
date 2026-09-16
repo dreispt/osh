@@ -122,7 +122,12 @@ def test_ensure_service_up_noop_when_running(tmp_project, monkeypatch):
 
 
 def test_ensure_service_up_brings_stack_up(tmp_project, monkeypatch):
-    """A stopped stack is started with ``compose up -d``."""
+    """A stopped stack is started with ``compose up -d --build``.
+
+    ``--build`` refreshes a stale image when the stack builds from a
+    ``--dockerfile`` (``up`` builds a missing image but reuses a stale one),
+    and is a no-op for image-only services.
+    """
     _write_docker_config(tmp_project)
     calls = _patch_docker(monkeypatch)
     monkeypatch.setattr(
@@ -134,4 +139,4 @@ def test_ensure_service_up_brings_stack_up(tmp_project, monkeypatch):
     backend.ensure_service_up(tmp_project)
 
     assert len(calls) == 1
-    assert calls[0][-2:] == ["up", "-d"]
+    assert calls[0][-3:] == ["up", "-d", "--build"]

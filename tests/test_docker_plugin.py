@@ -725,6 +725,160 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
     assert "backend 'docker' from 'second' conflicts" in err
 
 
+@pytest.mark.parametrize(
+    "path, context, dockerfile_key",
+    [
+        ("odoo/Dockerfile", '"../odoo"', None),
+        ("Dockerfile.dev", '".."', "Dockerfile.dev"),
+    ],
+)
+def test_init_docker_dockerfile_builds_image(
+    tmp_project, monkeypatch, path, context, dockerfile_key
+):
+    """``--dockerfile`` makes the generated compose build the Odoo image.
+
+    The Dockerfile's parent directory becomes the build context (relative to
+    ``.osh/``); only a non-default file name needs a ``dockerfile:`` key.
+    """
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+    dockerfile = tmp_project / path
+    dockerfile.parent.mkdir(parents=True, exist_ok=True)
+    dockerfile.write_text("FROM odoo:19.0\n")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["docker", "init", "19.0", "--dockerfile", path])
+
+    assert result.exit_code == 0, result.output
+    compose_text = (tmp_project / ".osh" / "docker-compose.yml").read_text()
+    assert f"    build:\n      context: {context}\n" in compose_text
+    if dockerfile_key:
+        assert f'      dockerfile: "{dockerfile_key}"\n' in compose_text
+    else:
+        assert "dockerfile:" not in compose_text
+    assert "image: osh-" in compose_text
+    assert "image: odoo:19.0" not in compose_text
+    assert (
+        f"dockerfile = '{path}'" in (tmp_project / ".osh" / "docker.toml").read_text()
+    )
+
+
+def test_init_docker_dockerfile_errors(tmp_project, monkeypatch):
+    """A missing Dockerfile, or one combined with ``--compose-file``, fails."""
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main, ["docker", "init", "19.0", "--dockerfile", "odoo/Dockerfile"]
+    )
+    assert result.exit_code != 0
+    assert "odoo/Dockerfile" in result.output and "not found" in result.output
+
+    (tmp_project / "Dockerfile").write_text("FROM odoo:19.0\n")
+    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n    image: odoo\n")
+    result = runner.invoke(
+        main,
+        [
+            "docker",
+            "init",
+            "19.0",
+            "--compose-file",
+            "devel.yaml",
+            "--dockerfile",
+            "Dockerfile",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--dockerfile" in result.output
+
+
+def test_init_docker_reinit_keeps_dockerfile_and_drops_stale_keys(
+    tmp_project, monkeypatch
+):
+    """Re-init reproduces the image build without repeating ``--dockerfile``.
+
+    Hand-set keys (``data_dir``) survive, while keys describing the generated
+    compose file (``port``) are dropped when unset so they cannot go stale.
+    A user-provided compose file is used as-is and clears the Dockerfile.
+    """
+    _patch_docker_tools(monkeypatch)
+    monkeypatch.chdir(tmp_project)
+    dockerfile = tmp_project / "odoo" / "Dockerfile"
+    dockerfile.parent.mkdir(parents=True)
+    dockerfile.write_text("FROM odoo:19.0\n")
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text("data_dir = '/odoo/data'\n")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["docker", "init", "19.0", "--dockerfile", "odoo/Dockerfile", "--port", "8171"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "port = 8171" in docker_toml.read_text()
+
+    result = runner.invoke(main, ["docker", "init", "20.0"])
+
+    assert result.exit_code == 0, result.output
+    compose_text = (tmp_project / ".osh" / "docker-compose.yml").read_text()
+    assert '      context: "../odoo"\n' in compose_text
+    assert "image: osh-" in compose_text and ":20.0" in compose_text
+    assert '"8069:8069"' in compose_text
+    config = docker_toml.read_text()
+    assert "data_dir = '/odoo/data'" in config
+    assert "port" not in config
+
+    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n    image: odoo\n")
+    result = runner.invoke(
+        main, ["docker", "init", "20.0", "--compose-file", "devel.yaml"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "dockerfile" not in docker_toml.read_text()
+
+
+def test_docker_detect_odoo_version_falls_back_to_config(tmp_project):
+    """A custom image tag falls back to the version in docker.toml."""
+    compose = tmp_project / ".osh" / "docker-compose.yml"
+    compose.write_text("services:\n  odoo:\n    image: osh-project-x:19.0\n")
+    (tmp_project / ".osh" / "docker.toml").write_text("version = '19.0'\n")
+
+    backend = DockerBackend()
+    assert backend.detect_odoo_version(tmp_project) == "odoo 19.0"
+
+
+def test_docker_diagnose_warns_on_unused_dockerfile(tmp_project, monkeypatch):
+    """doctor/init warn when a project Dockerfile is not used by the stack.
+
+    The warning is skipped during ``run`` (it would print on every
+    ``osh odoo``) and once the stack is configured to build the image.
+    """
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        lambda: ["docker", "compose"],
+    )
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text("service = 'odoo'\ncommand = 'odoo'\nversion = '19.0'\n")
+    (tmp_project / ".osh" / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    image: odoo:19.0\n"
+    )
+    (tmp_project / "odoo").mkdir()
+    (tmp_project / "odoo" / "Dockerfile").write_text("FROM odoo:19.0\n")
+
+    backend = DockerBackend()
+    for phase in ("doctor", "init"):
+        d = backend.diagnose(tmp_project, phase=phase)
+        assert any("--dockerfile odoo/Dockerfile" in w for w in d.warnings)
+
+    d = backend.diagnose(tmp_project, phase="run")
+    assert not any("Docker image build" in w for w in d.warnings)
+
+    docker_toml.write_text(docker_toml.read_text() + "dockerfile = 'odoo/Dockerfile'\n")
+    d = backend.diagnose(tmp_project)
+    assert not any("Docker image build" in w for w in d.warnings)
+
+
 def test_entry_point_plugin_loading(monkeypatch):
     """Plugins registered as Python entry points are loaded by load_plugins."""
     from osh.utils import plugin_loader

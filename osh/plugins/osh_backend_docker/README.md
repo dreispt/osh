@@ -7,7 +7,7 @@ Provides the `docker` run backend: Odoo and its tools (`psql`, `pg_dump`,
 
 ```bash
 osh docker init 19.0 [--service odoo] [--command odoo] \
-    [--compose-file devel.yaml] [--port 8069]
+    [--compose-file devel.yaml] [--dockerfile odoo/Dockerfile] [--port 8069]
 ```
 
 Init writes `.osh/docker.toml` recording the service name, container command,
@@ -32,6 +32,16 @@ Odoo image; set it when your compose file configures a different `data_dir`.
   standard `odoo:<version>` + `postgres:16` stack that mounts the project at
   `/mnt/extra-addons` and publishes `8069` (or `--port <n>`). It lives under
   `.osh/` so it never clashes with a compose file at the project root.
+- **`--dockerfile <path>`**: the generated compose builds the Odoo image
+  from that Dockerfile instead of pulling the stock `odoo` image — needed
+  when the project image installs extra Python/system dependencies. The
+  Dockerfile's parent directory becomes the build `context` (e.g.
+  `odoo/Dockerfile` → `context: ../odoo`, relative to `.osh/`), and the
+  built image is tagged `osh-<project>:<version>`. The choice is persisted
+  as `dockerfile` in `docker.toml` and reapplied on re-init. Mutually
+  exclusive with `--compose-file`. If the built image keeps Odoo data
+  outside `/var/lib/odoo`, set `data_dir` in `docker.toml` (init says so
+  when it is unset).
 - A compose file at the project root (`docker-compose.yml`, `compose.yaml`,
   ...) is left untouched. If `docker.toml` names no `compose_file` and the
   generated `.osh/docker-compose.yml` exists, that one is used.
@@ -44,9 +54,11 @@ Odoo image; set it when your compose file configures a different `data_dir`.
 
 The stack is kept running and reused: every `osh odoo` / `osh shell` /
 `osh db` command first runs `docker compose ps --status running <service>`;
-when the service is down, `docker compose up -d` brings it (and its
-dependencies) up once. Commands then run via `docker compose exec`, not
-one-shot `compose run`, so back-to-back commands pay the startup cost once.
+when the service is down, `docker compose up -d --build` brings it (and its
+dependencies) up once — `--build` refreshes a stale image when the stack
+builds from a `--dockerfile`, and is a no-op otherwise. Commands then run via
+`docker compose exec`, not one-shot `compose run`, so back-to-back commands
+pay the startup cost once.
 
 `exec` bypasses the image entrypoint, so Osh supplies the connection
 arguments itself:

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 import shlex
 import socket
@@ -33,9 +34,16 @@ def _save_docker_config(
     edition=None,
     compose_tool=None,
     port=None,
+    dockerfile=None,
     dry_run=False,
 ):
-    """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
+    """Write ``.osh/docker.toml`` with the selected service, command and metadata.
+
+    New values are merged over the existing file so hand-set keys (e.g.
+    ``data_dir``) survive a re-init, except for the keys describing the
+    generated compose file (``version``, ``port``, ``dockerfile``), which are
+    dropped when unset so the config cannot drift from what was generated.
+    """
     if not service:
         echo.warning(
             "no --service provided; defaulting to 'odoo'. "
@@ -46,35 +54,47 @@ def _save_docker_config(
     if not isinstance(command, str):
         command = shlex.join(str(c) for c in command)
 
+    docker_toml = base / _DOCKER_TOML
     if dry_run:
-        docker_toml = base / _DOCKER_TOML
         echo.info(
             f"Would write {docker_toml}: "
             f"service={service}, command={command}, "
             f"compose_file={compose_file or '<none>'}, "
+            f"dockerfile={dockerfile or '<none>'}, "
             f"version={version!r}, edition={edition!r}.",
             err=True,
         )
         return
 
-    data = {
-        "service": service,
-        "command": command,
-    }
-    if compose_file:
-        data["compose_file"] = compose_file
-    if version:
-        data["version"] = version
-    if edition:
-        data["edition"] = edition
-    if compose_tool:
-        data["compose_tool"] = compose_tool
-    if port:
-        data["port"] = port
+    if compose_file and compose_file != str(_COMPOSE_FILE):
+        # A user-provided compose file is used as-is; a Dockerfile build
+        # only applies to the Osh-generated one.
+        dockerfile = None
+
+    data = _load_docker_config(base)
+    data["service"] = service
+    data["command"] = command
+    for key, value in (
+        ("compose_file", compose_file),
+        ("edition", edition),
+        ("compose_tool", compose_tool),
+        ("dockerfile", dockerfile),
+        ("version", version),
+        ("port", port),
+    ):
+        if value:
+            data[key] = value
+        elif key in _GENERATED_COMPOSE_KEYS:
+            data.pop(key, None)
     _config.save_docker_config(base, data)
 
-    docker_toml = base / _DOCKER_TOML
     echo.info(f"Wrote Docker backend config to {docker_toml}.", err=True)
+
+
+# Keys describing the generated compose file: unlike ``data_dir`` and friends
+# they are rewritten on every init, so a stale value would misreport the
+# generated stack (wrong image tag, wrong port for collision checks).
+_GENERATED_COMPOSE_KEYS = ("dockerfile", "version", "port")
 
 
 def _docker_command(service, command):
@@ -260,28 +280,54 @@ def _run_smoke_test(target, compose_file=None):
     return True
 
 
-def _default_compose_content(version, port=8069):
-    """Return a generated Docker Compose file for a standard Odoo stack."""
+def _default_compose_content(version, port=8069, dockerfile=None, base=None):
+    """Return a generated Docker Compose file for a standard Odoo stack.
+
+    With *dockerfile* — a Dockerfile path relative to *base* — the Odoo
+    service gets a ``build:`` section and the image is tagged
+    ``osh-<project>:<version>`` so Compose builds and caches it instead of
+    pulling the stock ``odoo`` image.
+    """
     import importlib.resources
 
     image = f"odoo:{version}" if version else "odoo:latest"
+    build = ""
+    if dockerfile:
+        dockerfile = Path(dockerfile)
+        context = Path(os.path.relpath(base / dockerfile.parent, base / ".osh"))
+        # JSON strings are valid YAML, so paths needing quoting stay safe.
+        build = f"    build:\n      context: {json.dumps(context.as_posix())}\n"
+        if dockerfile.name != "Dockerfile":
+            build += f"      dockerfile: {json.dumps(dockerfile.name)}\n"
+        image = f"{_compose_project_name(base)}:{version or 'latest'}"
     template = importlib.resources.read_text(
         "osh.plugins.osh_backend_docker.data", "docker-compose.yml"
     )
-    return template.replace("__IMAGE__", image).replace("__PORT__", str(port))
+    return (
+        # ``# __BUILD__`` is a comment so the template stays valid YAML.
+        template.replace("    # __BUILD__\n", build)
+        .replace("__IMAGE__", image)
+        .replace("__PORT__", str(port))
+    )
 
 
-def _generate_compose_file(target, version, port=8069, dry_run=False):
+def _generate_compose_file(target, version, port=8069, dockerfile=None, dry_run=False):
     """Write the Osh-managed ``.osh/docker-compose.yml`` file."""
     compose_path = target / _COMPOSE_FILE
     if dry_run:
+        source = (
+            f"an image built from {dockerfile}"
+            if dockerfile
+            else f"odoo:{version or 'latest'}"
+        )
         echo.info(
-            f"Would generate {compose_path} with "
-            f"odoo/{version or 'latest'} and postgres:16 services.",
+            f"Would generate {compose_path} with {source} " "and postgres:16 services.",
             err=True,
         )
         return True
     compose_path.parent.mkdir(parents=True, exist_ok=True)
-    compose_path.write_text(_default_compose_content(version, port))
+    compose_path.write_text(
+        _default_compose_content(version, port, dockerfile=dockerfile, base=target)
+    )
     echo.info(f"Generated {compose_path}.", err=True)
     return True
