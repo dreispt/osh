@@ -385,6 +385,7 @@ class DockerBackend(Backend):
                 dry_run=True,
                 skip_odoo=True,
                 assume_yes=options.get("assume_yes", False),
+                confirmed=options.get("confirmed", False),
                 enterprise_source=options.get("enterprise_source"),
                 themes_source=options.get("themes_source"),
             )
@@ -419,6 +420,7 @@ class DockerBackend(Backend):
             dry_run=False,
             skip_odoo=True,
             assume_yes=options.get("assume_yes", False),
+            confirmed=options.get("confirmed", False),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
         )
