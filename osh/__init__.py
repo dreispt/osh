@@ -7,7 +7,7 @@ __all__ = []
 
 __author__ = "Daniel Reis"
 __email__ = "dreis.pt@gmail.com"
-_version_base = "0.9.2"
+_version_base = "0.9.3"
 
 
 def _get_git_commit():

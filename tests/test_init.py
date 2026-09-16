@@ -11,7 +11,11 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands import init_cmd
-from osh.common import find_enclosing_project, find_nested_projects
+from osh.common import (
+    find_enclosing_project,
+    find_nested_projects,
+    setup_project_neutralize_scripts,
+)
 from osh.config import get_init_parent
 from osh.db import get_project_config, set_project_config
 from osh.plugins.osh_backend_venv.backends import VenvBackend
@@ -753,6 +757,168 @@ class TestInitEdition:
         assert result.exit_code == 0
         assert "not a git repository" in result.output
         assert (target / ".osh" / "odoo").is_symlink()
+
+
+class TestInitVersion:
+    """``osh init`` without a VERSION argument reuses recorded defaults."""
+
+    def test_reinit_without_version_uses_recorded(self, tmp_project):
+        """The recorded ``init.version`` is reused when VERSION is omitted."""
+        set_project_config(tmp_project, "init", "version", "18.0")
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo 18.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+        # A bare re-init is how a project picks up newly bundled defaults.
+        assert (tmp_project / ".osh" / "neutralize" / "900_clear_assets.sql").exists()
+
+    def test_explicit_version_overrides_recorded(self, tmp_project):
+        """An explicit VERSION argument wins over the recorded one."""
+        set_project_config(tmp_project, "init", "version", "18.0")
+
+        result = CliRunner().invoke(
+            main, ["init", "19.0", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_env_var_sets_default_version(self, tmp_project):
+        """OSH_INIT_VERSION supplies the version when VERSION is omitted."""
+        runner = CliRunner(env={"OSH_INIT_VERSION": "19.0"})
+        result = runner.invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_user_config_sets_default_version(self, tmp_project, monkeypatch):
+        """``[init] version`` in the user config supplies a default."""
+        fake_home = tmp_project / "home"
+        config_dir = fake_home / ".config" / "osh"
+        config_dir.mkdir(parents=True)
+        (config_dir / "config.toml").write_text('[init]\nversion = "19.0"\n')
+        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_recorded_version_beats_user_default(self, tmp_project, monkeypatch):
+        """A recorded project version is never overridden by a user default."""
+        fake_home = tmp_project / "home"
+        config_dir = fake_home / ".config" / "osh"
+        config_dir.mkdir(parents=True)
+        (config_dir / "config.toml").write_text('[init]\nversion = "19.0"\n')
+        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+        set_project_config(tmp_project, "init", "version", "18.0")
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+    def test_interactive_version_prompt(self, tmp_project, monkeypatch):
+        """Interactive init without a resolvable version prompts for one."""
+        monkeypatch.setattr(
+            "click.testing._NamedTextIOWrapper.isatty", lambda self: True
+        )
+
+        result = CliRunner().invoke(
+            main, ["init", "--edition", "ce", str(tmp_project)], input="17.0\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo version" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "17.0"
+
+    def test_missing_version_errors_non_interactive(self, tmp_path):
+        """A fresh project without a resolvable version fails with guidance."""
+        target = tmp_path / "fresh"
+        (target / ".git").mkdir(parents=True)
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(target)])
+
+        assert result.exit_code != 0
+        assert "Missing VERSION" in result.output
+        assert not (target / ".osh").exists()
+
+    def test_backend_init_reuses_recorded_version(self, tmp_project, monkeypatch):
+        """``osh <backend> init`` resolves the version the same way."""
+        set_project_config(tmp_project, "init", "version", "18.0")
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir()
+        (odoo_src / "odoo-bin").touch()
+        real_git_only_subprocess(monkeypatch)
+
+        result = CliRunner().invoke(
+            main, ["venv", "init", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo 18.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+
+class TestNeutralizeScripts:
+    """``.osh/neutralize`` seeding with bundled and user scripts."""
+
+    @pytest.fixture
+    def user_neutralize_dir(self, tmp_path, monkeypatch):
+        """Redirect ``~/.config/osh/neutralize`` to a temporary directory."""
+        user_dir = tmp_path / "user-neutralize"
+        monkeypatch.setattr("osh.common.get_user_neutralize_dir", lambda: user_dir)
+        return user_dir
+
+    def test_clear_assets_installed_for_current_versions(
+        self, tmp_project, user_neutralize_dir
+    ):
+        """The bundled asset cleanup runs after neutralization on any version."""
+        setup_project_neutralize_scripts(tmp_project, "19.0")
+
+        script = tmp_project / ".osh" / "neutralize" / "900_clear_assets.sql"
+        assert script.exists()
+        assert "DELETE FROM ir_attachment" in script.read_text()
+        # Only generated bundles are removed, never user attachments.
+        assert "res_model = 'ir.ui.view'" in script.read_text()
+        assert not (
+            tmp_project / ".osh" / "neutralize" / "000_osh_default.sql"
+        ).exists()
+
+    def test_fallback_still_limited_to_old_versions(
+        self, tmp_project, user_neutralize_dir
+    ):
+        """Odoo < 16 additionally gets the SQL neutralization fallback."""
+        setup_project_neutralize_scripts(tmp_project, "15.0")
+
+        neutralize_dir = tmp_project / ".osh" / "neutralize"
+        assert (neutralize_dir / "000_osh_default.sql").exists()
+        assert (neutralize_dir / "900_clear_assets.sql").exists()
+
+    def test_stale_project_script_is_refreshed(self, tmp_project, user_neutralize_dir):
+        """A stale project copy is replaced so script fixes reach re-inits."""
+        neutralize_dir = tmp_project / ".osh" / "neutralize"
+        neutralize_dir.mkdir(parents=True)
+        (neutralize_dir / "900_clear_assets.sql").write_text("-- stale\n")
+
+        setup_project_neutralize_scripts(tmp_project, "19.0")
+
+        script = neutralize_dir / "900_clear_assets.sql"
+        assert "DELETE FROM ir_attachment" in script.read_text()
+
+    def test_user_script_wins_over_bundled_default(
+        self, tmp_project, user_neutralize_dir
+    ):
+        """A same-named user script still overrides the bundled default."""
+        user_neutralize_dir.mkdir(parents=True)
+        (user_neutralize_dir / "900_clear_assets.sql").write_text("-- mine\n")
+
+        setup_project_neutralize_scripts(tmp_project, "19.0")
+
+        script = tmp_project / ".osh" / "neutralize" / "900_clear_assets.sql"
+        assert script.read_text() == "-- mine\n"
 
 
 class TestSourceVersionSwitching:
