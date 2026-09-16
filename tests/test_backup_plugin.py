@@ -127,6 +127,73 @@ def test_https_source_requires_db_name():
         HttpsSource("https://demo.odoo.com")
 
 
+def test_https_source_tolerates_odoo_app_paths():
+    """URLs copied from the web client or db manager hit the backup endpoint."""
+    for path in (
+        "/web",
+        "/odoo",
+        "/web/database/manager",
+        "/web/database/selector",
+        "/web/login",
+        "/odoo/apps",
+    ):
+        source = HttpsSource(f"https://demo.odoo.com{path}?db=prod")
+        assert source.endpoint == "https://demo.odoo.com/web/database/backup", path
+
+
+def test_https_source_keeps_deployment_prefix():
+    """A path before the Odoo routes is a real prefix and is preserved."""
+    source = HttpsSource("https://demo.odoo.com/my-prefix/web/database/manager?db=prod")
+    assert source.endpoint == "https://demo.odoo.com/my-prefix/web/database/backup"
+
+
+def test_https_canonical_source_ignores_app_path_and_format():
+    """Canonical identity keeps only scheme, host and the ?db= name."""
+    key = HttpsSource.canonical_source("https://demo.odoo.com/web?db=prod&format=zip")
+    assert key == "https://demo.odoo.com?db=prod"
+
+
+def test_download_https_html_error_shows_page(in_project, monkeypatch):
+    """An HTML error page is shown and the failed download leaves no cache file."""
+
+    class FakeResponse:
+        headers = {"Content-Length": "48"}
+
+        def __init__(self):
+            self._data = b"<html><body>Wrong master password</body></html>"
+
+        def read(self, size=-1):
+            data, self._data = self._data, b""
+            return data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.sources.https.urlopen",
+        lambda req, **kwargs: FakeResponse(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        get,
+        [
+            "https://demo.odoo.com?db=prod&format=zip",
+            "--master-password",
+            "wrong",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "HTML page instead of a backup" in result.output
+    assert "Wrong master password" in result.output
+    cache_dir = in_project / ".osh" / "backups"
+    assert list(cache_dir.iterdir()) == []
+
+
 def test_download_odoosh_dry_run(in_project):
     """odoosh:// dry-run prints the expected ssh and scp commands."""
     runner = CliRunner()

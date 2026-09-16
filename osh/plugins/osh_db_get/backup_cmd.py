@@ -106,6 +106,9 @@ def get(
       zip  - full backup including filestore
 
     If ``format`` is omitted you will be prompted, with ``sql`` as the default.
+    Odoo web-client paths in the URL are ignored, so a URL copied from the
+    browser (``/web``, ``/odoo`` in Odoo 18+, or ``/web/database/manager``)
+    works unchanged.
 
     \b
       osh db get https://my.odoo.com?db=prod&format=zip
@@ -182,7 +185,14 @@ def get(
         return
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    parsed.fetch(output_path, dry_run=False)
+    try:
+        parsed.fetch(output_path, dry_run=False)
+    except BaseException:
+        # A failed fetch must not leave a partial file in the cache — it
+        # would otherwise be picked as the newest backup by `db restore`.
+        if base is not None and _is_in_cache(base, output_path):
+            output_path.unlink(missing_ok=True)
+        raise
 
     # Write metadata only when the file landed in the project cache.
     if base is not None and _is_in_cache(base, output_path):

@@ -40,10 +40,36 @@ class HttpsSource(BackupSource):
         self.format_was_explicit = format_value is not None
         self.master_password = master_password
 
-        base_url = f"{self.scheme}://{self.host}"
-        if parsed.path and parsed.path != "/":
-            base_url = base_url.rstrip("/") + parsed.path
-        self.endpoint = base_url.rstrip("/") + "/web/database/backup"
+        prefix = self._deployment_prefix(parsed.path)
+        self.endpoint = f"{self.scheme}://{self.host}{prefix}/web/database/backup"
+
+    @staticmethod
+    def _deployment_prefix(path):
+        """Return the URL path prefix before the Odoo web-client routes.
+
+        URLs copied from the browser may point at the web client (``/web``,
+        or ``/odoo`` since Odoo 18) or at the database manager
+        (``/web/database/manager``). The last ``web``/``odoo`` path segment
+        marks where Odoo's own routing starts; anything before it is a real
+        deployment prefix (e.g. a reverse-proxy subpath) and is kept.
+        """
+        segments = [seg for seg in path.split("/") if seg]
+        for idx in range(len(segments) - 1, -1, -1):
+            if segments[idx] in ("web", "odoo"):
+                segments = segments[:idx]
+                break
+        return "/" + "/".join(segments) if segments else ""
+
+    @classmethod
+    def canonical_source(cls, source):
+        """Identify a remote Odoo by scheme, host and ``?db=`` name only."""
+        parsed = urlparse(source)
+        query = parse_qs(parsed.query)
+        db_name = cls._first_or_none(query.get("db"))
+        key = f"{parsed.scheme}://{parsed.netloc.lower()}"
+        if db_name:
+            key = f"{key}?db={db_name}"
+        return key
 
     def _resolve_backup_format(self):
         """Prompt for the backup format when it is not in the URL."""
@@ -109,9 +135,11 @@ class HttpsSource(BackupSource):
         def _first_chunk(chunk):
             head = chunk[:200].lower()
             if head.startswith(b"<!doctype") or b"<html" in head:
+                page = chunk.decode("utf-8", errors="replace")
                 raise SourceError(
                     "Remote Odoo returned an HTML page instead of a backup. "
-                    "Check the URL, database name, and master password."
+                    "Check the URL, database name, and master password.\n\n"
+                    f"{page}"
                 )
 
         chunk_size = 64 * 1024
