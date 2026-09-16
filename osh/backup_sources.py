@@ -52,6 +52,17 @@ class BackupSource:
         """
         raise NotImplementedError
 
+    @classmethod
+    def canonical_source(cls, source):
+        """Return the canonical identity of *source* for cache matching.
+
+        ``osh db restore <source>`` selects the newest cached backup whose
+        source has the same canonical identity, so cosmetic differences in
+        the source string (e.g. a ``/web`` path copied from the browser)
+        still match. The default is the source string unchanged.
+        """
+        return source
+
     def default_output_name(self):
         """Return the default filename for this source."""
         raise NotImplementedError

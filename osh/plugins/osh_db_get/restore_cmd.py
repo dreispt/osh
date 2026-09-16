@@ -22,7 +22,7 @@ from ...utils.odoo_layout import find_odoo_executable
 from ...utils.plugin_loader import load_hook_entries
 from ...utils.version import get_version_tuple
 from . import restore_ops
-from .remotes import newest_cache_for_remote
+from .remotes import newest_cache_for_remote, newest_cache_for_source
 
 POST_RESTORE_HOOK = "osh_db_get.post_restore"
 
@@ -84,6 +84,8 @@ def restore(
 
     With no DUMP argument, the newest backup from the project cache is used.
     Use `cache:<id>` to pick a specific entry shown by `osh db restore --list`.
+    DUMP may also be a remote name (see `osh db remote`) or a backup source
+    URL — the newest cached backup fetched from it is restored.
 
     PostgreSQL credentials are read from ``.osh/odoo.conf`` (or ``.odoorc``)
     for every spawned tool, so no process environment changes are needed.
@@ -127,6 +129,8 @@ def restore(
     \b
       osh db restore
       osh db restore cache:1
+      osh db restore prod
+      osh db restore https://my.odoo.com/web?db=prod
       osh db restore /path/to/backup.zip
       osh db restore /path/to/backup.zip --db prod_restore
       osh db restore /path/to/backup.sql.gz --force
@@ -140,6 +144,8 @@ def restore(
         return
 
     dump_path = newest_cache_for_remote(base, dump)
+    if dump_path is None:
+        dump_path = newest_cache_for_source(base, dump)
     if dump_path is None:
         dump_path = restore_ops.resolve_backup_path(base, dump)
 
@@ -272,8 +278,7 @@ def _run_post_restore_hooks(ctx, base, db_name, *, dry_run):
             hook(ctx, base, db_name)
         except Exception as exc:
             echo.warning(
-                f"post-restore hook from '{source}' failed: "
-                f"{type(exc).__name__}: {exc}"
+                f"post-restore hook from '{source}' failed: {type(exc).__name__}: {exc}"
             )
             echo.internal(
                 f"Traceback for '{source}' post-restore hook:\n"
