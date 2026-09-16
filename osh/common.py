@@ -572,13 +572,28 @@ def _major_version_from_string(version):
 def setup_project_neutralize_scripts(target, version):
     """Populate ``.osh/neutralize`` with default and user-provided SQL scripts.
 
-    User scripts from ``~/.config/osh/neutralize/`` are copied first. For Odoo
-    versions older than 16.0, the bundled fallback SQL script is also copied so
-    ``osh db restore`` can neutralize the database without the ``odoo-bin neutralize``
-    subcommand.
+    Bundled defaults are written first and refreshed on every init, so later
+    fixes to them reach existing projects; user scripts from
+    ``~/.config/osh/neutralize/`` are copied last, so a same-named user script
+    always wins. ``900_clear_assets`` drops the generated asset bundles a
+    restored dump carries, whose filestore files are usually missing locally.
+    For Odoo versions older than 16.0, the bundled fallback SQL script is also
+    copied so ``osh db restore`` can neutralize the database without the
+    ``odoo-bin neutralize`` subcommand.
     """
     neutralize_dir = Path(target) / ".osh" / "neutralize"
     neutralize_dir.mkdir(parents=True, exist_ok=True)
+
+    # Numbered so the bundled defaults keep their order around user scripts:
+    # neutralization first, asset cleanup last.
+    major = _major_version_from_string(version)
+    if major is not None and major < 16:
+        _copy_bundled_neutralize_script(
+            neutralize_dir, "neutralize_fallback.sql", "000_osh_default.sql"
+        )
+    _copy_bundled_neutralize_script(
+        neutralize_dir, "clear_assets.sql", "900_clear_assets.sql"
+    )
 
     user_dir = get_user_neutralize_dir()
     if user_dir.is_dir():
@@ -586,14 +601,16 @@ def setup_project_neutralize_scripts(target, version):
             shutil.copy2(src, neutralize_dir / src.name)
             echo.info(f"Copied neutralization script: {src.name}", err=True)
 
-    major = _major_version_from_string(version)
-    if major is not None and major < 16:
-        fallback_dst = neutralize_dir / "000_osh_default.sql"
-        if not fallback_dst.exists():
-            fallback_sql = importlib.resources.read_text(
-                "osh.data", "neutralize_fallback.sql"
-            )
-            fallback_dst.write_text(fallback_sql, encoding="utf-8")
-            echo.info(
-                f"Copied default neutralization script: {fallback_dst.name}", err=True
-            )
+
+def _copy_bundled_neutralize_script(neutralize_dir, resource, name):
+    """Install the bundled *resource* as *name*.
+
+    An existing copy is refreshed so fixes to the bundled script reach the
+    project on re-init; an identical file is left alone.
+    """
+    content = importlib.resources.read_text("osh.data", resource)
+    destination = neutralize_dir / name
+    if destination.exists() and destination.read_text(encoding="utf-8") == content:
+        return
+    destination.write_text(content, encoding="utf-8")
+    echo.info(f"Copied default neutralization script: {name}", err=True)

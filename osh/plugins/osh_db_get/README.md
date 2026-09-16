@@ -31,6 +31,15 @@ accordingly, then runs the Odoo restore pipeline: installs a neutralized
 database (`neutralize`), so filestore-less or production dumps are safe to
 use locally.
 
+Afterwards every `*.sql` file in `.osh/neutralize/` runs in sorted order, so a
+project can extend neutralization without patching osh. `osh init` seeds that
+directory with the user's own scripts from `~/.config/osh/neutralize/` and with
+the bundled defaults — `900_clear_assets.sql` drops the generated asset bundles
+the dump carries, whose filestore files are missing locally, so Odoo rebuilds
+the CSS/JS on the next page load. Bundled defaults are refreshed on re-init so
+fixes reach existing projects; to override one, place a same-named script in
+`~/.config/osh/neutralize/` or use a different file name.
+
 ## `osh db remote`
 
 - `osh db remote add <name> <source>` — store a named source in the

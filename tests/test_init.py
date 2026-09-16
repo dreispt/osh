@@ -11,7 +11,11 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands import init_cmd
-from osh.common import find_enclosing_project, find_nested_projects
+from osh.common import (
+    find_enclosing_project,
+    find_nested_projects,
+    setup_project_neutralize_scripts,
+)
 from osh.config import get_init_parent
 from osh.db import get_project_config, set_project_config
 from osh.plugins.osh_backend_venv.backends import VenvBackend
@@ -767,6 +771,8 @@ class TestInitVersion:
         assert result.exit_code == 0, result.output
         assert "Odoo 18.0" in result.output
         assert get_project_config(tmp_project, "init", "version") == "18.0"
+        # A bare re-init is how a project picks up newly bundled defaults.
+        assert (tmp_project / ".osh" / "neutralize" / "900_clear_assets.sql").exists()
 
     def test_explicit_version_overrides_recorded(self, tmp_project):
         """An explicit VERSION argument wins over the recorded one."""
@@ -854,6 +860,65 @@ class TestInitVersion:
         assert result.exit_code == 0, result.output
         assert "Odoo 18.0" in result.output
         assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+
+class TestNeutralizeScripts:
+    """``.osh/neutralize`` seeding with bundled and user scripts."""
+
+    @pytest.fixture
+    def user_neutralize_dir(self, tmp_path, monkeypatch):
+        """Redirect ``~/.config/osh/neutralize`` to a temporary directory."""
+        user_dir = tmp_path / "user-neutralize"
+        monkeypatch.setattr("osh.common.get_user_neutralize_dir", lambda: user_dir)
+        return user_dir
+
+    def test_clear_assets_installed_for_current_versions(
+        self, tmp_project, user_neutralize_dir
+    ):
+        """The bundled asset cleanup runs after neutralization on any version."""
+        setup_project_neutralize_scripts(tmp_project, "19.0")
+
+        script = tmp_project / ".osh" / "neutralize" / "900_clear_assets.sql"
+        assert script.exists()
+        assert "DELETE FROM ir_attachment" in script.read_text()
+        # Only generated bundles are removed, never user attachments.
+        assert "res_model = 'ir.ui.view'" in script.read_text()
+        assert not (
+            tmp_project / ".osh" / "neutralize" / "000_osh_default.sql"
+        ).exists()
+
+    def test_fallback_still_limited_to_old_versions(
+        self, tmp_project, user_neutralize_dir
+    ):
+        """Odoo < 16 additionally gets the SQL neutralization fallback."""
+        setup_project_neutralize_scripts(tmp_project, "15.0")
+
+        neutralize_dir = tmp_project / ".osh" / "neutralize"
+        assert (neutralize_dir / "000_osh_default.sql").exists()
+        assert (neutralize_dir / "900_clear_assets.sql").exists()
+
+    def test_stale_project_script_is_refreshed(self, tmp_project, user_neutralize_dir):
+        """A stale project copy is replaced so script fixes reach re-inits."""
+        neutralize_dir = tmp_project / ".osh" / "neutralize"
+        neutralize_dir.mkdir(parents=True)
+        (neutralize_dir / "900_clear_assets.sql").write_text("-- stale\n")
+
+        setup_project_neutralize_scripts(tmp_project, "19.0")
+
+        script = neutralize_dir / "900_clear_assets.sql"
+        assert "DELETE FROM ir_attachment" in script.read_text()
+
+    def test_user_script_wins_over_bundled_default(
+        self, tmp_project, user_neutralize_dir
+    ):
+        """A same-named user script still overrides the bundled default."""
+        user_neutralize_dir.mkdir(parents=True)
+        (user_neutralize_dir / "900_clear_assets.sql").write_text("-- mine\n")
+
+        setup_project_neutralize_scripts(tmp_project, "19.0")
+
+        script = tmp_project / ".osh" / "neutralize" / "900_clear_assets.sql"
+        assert script.read_text() == "-- mine\n"
 
 
 class TestSourceVersionSwitching:
