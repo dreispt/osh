@@ -519,3 +519,98 @@ def test_restore_top_level_alias_is_gone(patched_restore, in_project):
 
     assert result.exit_code != 0
     assert not patched_restore["restore"]
+
+
+# Post-restore hooks ------------------------------------------------------
+
+
+def _register_post_restore_hooks(monkeypatch, entries):
+    """Point ``load_hook_entries`` at *entries* ``(source, hook)`` pairs."""
+    monkeypatch.setattr(
+        "osh.plugins.osh_db_get.restore_cmd.load_hook_entries",
+        lambda name: entries,
+    )
+
+
+def test_restore_runs_post_restore_hooks(patched_restore, in_project, monkeypatch):
+    """Post-restore hooks run with (ctx, base, db_name) after the restore."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    calls = []
+    _register_post_restore_hooks(
+        monkeypatch,
+        [("fake", lambda ctx, base, db_name: calls.append((base, db_name)))],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(restore, [str(dump)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [(in_project, patched_restore["db_name"])]
+
+
+def test_restore_post_restore_hooks_dry_run(patched_restore, in_project, monkeypatch):
+    """Under --dry-run hooks are announced but not called."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    calls = []
+    _register_post_restore_hooks(
+        monkeypatch,
+        [("fake", lambda ctx, base, db_name: calls.append(db_name))],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(restore, [str(dump), "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert "post-restore hook" in result.output
+
+
+def test_restore_post_restore_hook_failure_warns_only(
+    patched_restore, in_project, monkeypatch
+):
+    """A failing hook warns without failing the completed restore."""
+
+    def boom(ctx, base, db_name):
+        raise RuntimeError("hook exploded")
+
+    _register_post_restore_hooks(monkeypatch, [("fake", boom)])
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    runner = CliRunner()
+    result = runner.invoke(restore, [str(dump)])
+
+    assert result.exit_code == 0, result.output
+    assert "'fake' failed" in result.output
+    assert patched_restore["restore"]
+
+
+def test_restore_list_does_not_run_hooks(patched_restore, in_project, monkeypatch):
+    """--list returns before any restore work — no hooks run."""
+    calls = []
+    _register_post_restore_hooks(
+        monkeypatch,
+        [("fake", lambda ctx, base, db_name: calls.append(db_name))],
+    )
+
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    dump = cache_dir / "dump.dump"
+    dump.write_bytes(b"x")
+
+    runner = CliRunner()
+    result = runner.invoke(restore, ["--list"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
