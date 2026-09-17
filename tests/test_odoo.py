@@ -1,11 +1,15 @@
 """Tests for ``osh odoo`` command assembly."""
 
+from pathlib import Path
+
 from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands.odoo_cmd import odoo
 from osh.commands.shell_cmd import build_dynamic_odoo_config
+from osh.common import discover_addons_paths, discover_module_names
 from osh.plugins.osh_backend_docker.backends import DockerBackend
+from osh.utils.odoo_layout import build_addons_paths
 
 
 def _dynamic_conf_path(tmp_project, db, branch="default"):
@@ -312,6 +316,51 @@ def test_dynamic_config_translates_addons_path_for_docker(
     assert "/mnt/extra-addons/.osh/design-themes" in text
     assert "db_name = mydb" in text
     assert "dbfilter = ^mydb$" in text
+
+
+ADDONS_LAYOUT = (Path(__file__).parent / "data" / "oca_layout").resolve()
+
+
+def test_addons_paths_static_layout():
+    """Discovery on the checked-in OCA-style tree ``tests/data/oca_layout``.
+
+    - real module dirs put their repo on ``addons_path``
+    - a dir of symlinked modules (``src/custom-addons``) is an addons dir
+    - OCA ``setup/<pkg>/odoo/addons`` symlinks are nested: dropped
+    - a module dir is a leaf: ``standalone_mod/tests`` is never scanned
+    - a container under plain dirs (``src/vendor/pack``) still qualifies
+    """
+    paths = {
+        p.relative_to(ADDONS_LAYOUT).as_posix()
+        for p in build_addons_paths(ADDONS_LAYOUT)
+    }
+    assert paths == {
+        ".",
+        "src/brand",
+        "src/custom-addons",
+        "src/vendor/pack",
+        "src/web",
+    }
+
+    addons = {
+        a.relative_to(ADDONS_LAYOUT).as_posix()
+        for a in discover_addons_paths(ADDONS_LAYOUT)
+    }
+    assert addons == {
+        "src/brand/account_brand",
+        "src/custom-addons/account_brand",
+        "src/vendor/pack/my_module",
+        "src/web/web_timeline",
+        "standalone_mod",
+    }
+
+    # A module reachable through a symlink is listed once.
+    assert discover_module_names(ADDONS_LAYOUT) == [
+        "account_brand",
+        "my_module",
+        "standalone_mod",
+        "web_timeline",
+    ]
 
 
 def test_odoo_dev_all_injected_by_default(
