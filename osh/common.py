@@ -500,9 +500,14 @@ def discover_addons_paths(base, *, max_depth=9):
 
     An *addon* is recognised if the directory contains a ``__manifest__.py``
     or legacy ``__openerp__.py`` file. The search walks sub-directories up to
-    *max_depth* levels deep to avoid scanning huge trees.
+    *max_depth* levels deep to avoid scanning huge trees. Symlinks are
+    followed like regular directories.
 
-    Directories starting with ``.`` or ``__`` are ignored.
+    Directories starting with ``.`` or ``__`` are ignored. A module
+    directory is a leaf: its contents are never scanned. Addons nested
+    inside another addons directory — e.g. the OCA ``setup/<pkg>/odoo/addons``
+    symlink dirs — are dropped when an outer addons directory already
+    provides a module with the same name.
     """
 
     addons = []
@@ -518,10 +523,26 @@ def discover_addons_paths(base, *, max_depth=9):
                     child / "__openerp__.py"
                 ).exists():
                     addons.append(child)
-                _walk(child, depth + 1)
+                else:
+                    _walk(child, depth + 1)
 
-    _walk(base.resolve(), 0)
-    return sorted(addons)
+    base = base.resolve()
+    _walk(base, 0)
+    # The walk root doesn't count as a nesting ancestor: a module sitting at
+    # the project root makes *base* an addons dir, but shouldn't classify
+    # every dir below it as nested.
+    parents = {addon.parent for addon in addons} - {base}
+
+    def _nested(addon):
+        return any(parent in parents for parent in addon.parent.parents)
+
+    outer_names = {addon.name for addon in addons if not _nested(addon)}
+    # A nested addons dir is redundant when an outer dir already provides a
+    # module with the same name (the OCA ``setup/`` symlinks). A nested dir
+    # with unique modules is kept: dropping it would make them unreachable.
+    return sorted(
+        addon for addon in addons if not _nested(addon) or addon.name not in outer_names
+    )
 
 
 def discover_module_names(base):
@@ -530,7 +551,7 @@ def discover_module_names(base):
     Returns a sorted list of module names that contain a ``__manifest__.py``
     or ``__openerp__.py`` file.
     """
-    return [addon.name for addon in discover_addons_paths(base)]
+    return sorted({addon.name for addon in discover_addons_paths(base)})
 
 
 def get_odoo_data_dir(base):
