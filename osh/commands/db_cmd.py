@@ -10,7 +10,6 @@ from ..db import (
     _require_db_name,
     copy_db,
     db_exists,
-    list_filestore_dirs,
     resolve_backend,
     resolve_branch,
     resolve_db_name,
@@ -19,6 +18,8 @@ from ..db import (
     set_project_config,
     unset_project_config,
 )
+from ..hooks import HOOK_DB_LIST_SECTIONS
+from ..utils.plugin_loader import load_hooks
 from .helpers import check_run_diagnostics
 from .shell_cmd import parse_explicit_db, prepare_env_context
 
@@ -107,16 +108,12 @@ def list_dbs(ctx, show_all):  # noqa: D401
     # Filestore directories with no matching database — e.g. leftovers of
     # dropped databases. The full (unfiltered) name set decides whether a
     # filestore dangles; the prefix only filters what is displayed.
+    # Extra listing sections contributed by plugins — e.g. `osh_db_drop`
+    # reports filestore directories with no matching database.
     db_names = set(_list_db_names(stdout))
-    dangling = [
-        name
-        for name in list_filestore_dirs(ctx, base)
-        if name not in db_names and (show_all or name.startswith(prefix))
-    ]
-    if dangling:
-        click.echo("Filestore directories without a database:")
-        for name in dangling:
-            click.echo(f"  {name}")
+    for hook in load_hooks(HOOK_DB_LIST_SECTIONS):
+        for line in hook(ctx, base, db_names, prefix, show_all) or []:
+            click.echo(line)
 
 
 def _list_db_names(output):

@@ -8,11 +8,10 @@ from ...db import (
     _require_db_name,
     db_exists,
     drop_db,
-    filestore_exists,
     get_last_db,
-    remove_filestore,
     unset_project_config,
 )
+from .filestore import filestore_exists, remove_filestore
 
 
 @click.command(name="drop")

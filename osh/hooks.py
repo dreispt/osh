@@ -23,3 +23,13 @@ HOOK_ODOO_OPTIONS = "odoo.options"
 # subcommands — and must self-filter. Raising ``click.ClickException``
 # aborts the run.
 HOOK_ODOO_PRE_ENV = "odoo.pre_env"
+
+# ``db.list_sections`` — items are callables
+# ``hook(ctx, base, db_names, prefix, show_all)`` invoked by ``osh db list``
+# after printing the database listing. ``db_names`` is the full
+# (unfiltered) database name set parsed from ``psql -l``; ``prefix`` is the
+# generated ``<project>-`` name prefix and ``show_all`` mirrors ``--all``.
+# Each hook returns an iterable of extra output lines (or ``None``) printed
+# after the listing — e.g. ``osh_db_drop`` reports filestore directories
+# that no longer have a matching database.
+HOOK_DB_LIST_SECTIONS = "db.list_sections"

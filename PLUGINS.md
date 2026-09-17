@@ -461,6 +461,13 @@ Hook point names are defined as constants in `osh.hooks`:
   command. `ctx.params` holds the parsed CLI values (including
   `extra_args`, `dry_run` and plugin-injected options); `env_spec` is the
   assembled `EnvSpec` (`argv`, `env`, `db_name`, `config_path`).
+- `db.list_sections` (`HOOK_DB_LIST_SECTIONS`) — each item is a callable
+  `hook(ctx, base, db_names, prefix, show_all)` invoked by `osh db list`
+  after printing the database listing. `db_names` is the full (unfiltered)
+  name set parsed from `psql -l`; `prefix` is the generated `<project>-`
+  prefix and `show_all` mirrors `--all`. Return an iterable of extra output
+  lines (or `None`) to append after the listing — `osh_db_drop` uses it to
+  report filestore directories with no matching database.
 
 Pre-env hooks run for every `osh odoo` invocation — exec and `--wait`
 paths, `--dry-run` and subcommands included — so hooks must self-filter via
