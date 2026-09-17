@@ -195,6 +195,19 @@ def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, pg_db, monkeypat
     assert pg_db.exists(missing)
 
 
+def test_legacy_last_key_fallback_and_migration(tmp_project):
+    """The legacy ``last`` key feeds last-used lookups and is migrated on write."""
+    from osh.config import get_project_config
+    from osh.db import get_last_db, set_last_db
+
+    set_project_config(tmp_project, "db", "last", "old-db")
+    assert get_last_db(tmp_project) == "old-db"
+
+    set_last_db(tmp_project, "new-db")
+    assert get_last_db(tmp_project) == "new-db"
+    assert get_project_config(tmp_project, "db", "last") is None
+
+
 PSQL_L_SAMPLE = """\
                               List of databases
      Name      | Owner  | Encoding

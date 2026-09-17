@@ -160,9 +160,6 @@ def restore(
     backend = resolve_backend(base)
     check_run_diagnostics(base, backend, ctx)
 
-    if not dry_run:
-        set_last_db(base, db_name)
-
     if db_exists(base, db_name, ctx=ctx, dry_run=dry_run):
         if not force:
             raise click.ClickException(
@@ -186,6 +183,7 @@ def restore(
     _run_post_restore_hooks(ctx, base, db_name, dry_run=dry_run)
 
     if not dry_run:
+        set_last_db(base, db_name)
         if no_neutralize:
             echo.info(
                 f"Restored database '{db_name}' from {dump_path} "

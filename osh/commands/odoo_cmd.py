@@ -27,6 +27,7 @@ from ..db import (
     resolve_backend,
     resolve_branch,
     resolve_db_name,
+    set_last_db,
 )
 from ..hooks import HOOK_ODOO_OPTIONS, HOOK_ODOO_PRE_ENV
 from ..utils.plugin_loader import load_backends, load_hooks
@@ -151,6 +152,10 @@ def odoo(
                     f"Database '{db_name}' does not exist; "
                     "Odoo will create and initialize it."
                 )
+        elif not dry_run:
+            # Only an existing database counts as "used"; a missing one is
+            # recorded on a later run, once Odoo has created it.
+            set_last_db(base, db_name)
 
     # Subcommands (e.g. shell, neutralize) do not need dbfilter.
     has_subcommand = extra_args and not extra_args[0].startswith("-")

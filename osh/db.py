@@ -400,14 +400,25 @@ def resolve_db_name(base, verbose=False, branch=None):
 
 
 def get_last_db(base):
-    """Return the last used database name recorded for the project, or None."""
-    return get_project_config(base, "db", "last_db")
+    """Return the last used database name recorded for the project, or None.
+
+    The legacy ``last`` key written by older Osh versions is honoured so
+    upgraded projects keep their last-used record.
+    """
+    return get_project_config(base, "db", "last_db") or get_project_config(
+        base, "db", "last"
+    )
 
 
 def set_last_db(base, db_name):
     """Record *db_name* as the most recently used database."""
-    if db_name:
-        set_project_config(base, "db", "last_db", db_name)
+    if not db_name:
+        return
+    cfg = load_osh_config(base)
+    cfg.set("db", "last_db", db_name)
+    # Migrate: drop the pre-rename key written by older versions.
+    cfg.remove("db", "last")
+    save_osh_config(base, cfg)
 
 
 def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):

@@ -258,8 +258,8 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     assert "dbfilter" not in text
 
 
-def test_shell_records_last_used_database(tmp_project, branch_db, monkeypatch):
-    """``osh shell`` records the resolved database as last used when it runs."""
+def test_shell_does_not_record_last_used_database(tmp_project, branch_db, monkeypatch):
+    """``osh shell`` never records the resolved database as last used."""
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
@@ -275,7 +275,7 @@ def test_shell_records_last_used_database(tmp_project, branch_db, monkeypatch):
     result = runner.invoke(shell, [])
 
     assert result.exit_code == 0, result.output
-    assert get_last_db(tmp_project) == branch_db
+    assert get_last_db(tmp_project) is None
 
 
 def test_shell_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeypatch):

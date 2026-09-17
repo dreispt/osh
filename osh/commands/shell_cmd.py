@@ -93,9 +93,6 @@ def prepare_env_context(
     if not db_name and not explicit_config:
         db_name = db_module.resolve_db_name(base)
 
-    if db_name and not dry_run:
-        db_module.set_last_db(base, db_name)
-
     conf_path = None
     if not explicit_config:
         conf_path = build_dynamic_odoo_config(
