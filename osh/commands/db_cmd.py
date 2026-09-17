@@ -3,12 +3,14 @@
 import click
 
 from .. import echo
+from ..backends import EnvSpec
 from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
 from ..db import (
     _require_db_name,
     copy_db,
     db_exists,
+    resolve_backend,
     resolve_branch,
     resolve_db_name,
     run_in_backend,
@@ -16,6 +18,10 @@ from ..db import (
     set_project_config,
     unset_project_config,
 )
+from ..hooks import HOOK_DB_LIST_SECTIONS
+from ..utils.plugin_loader import load_hooks
+from .helpers import check_run_diagnostics
+from .shell_cmd import parse_explicit_db, prepare_env_context
 
 
 @click.group(name="db", cls=NaturalOrderGroup)
@@ -40,6 +46,8 @@ def db():  # noqa: D401
       osh db show
       osh db set myproject-main --branch main
       osh db copy myproject-main myproject-fix-123
+      osh db shell
+      osh db shell psql
       osh db unset
       osh db unset --branch feature/old-thing
     """
@@ -91,11 +99,37 @@ def list_dbs(ctx, show_all):  # noqa: D401
         raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
     if returncode != 0:
         raise click.ClickException(f"Could not list databases: {stderr.strip()}")
+    prefix = f"{sanitize_db_name(base.name)}-"
     if show_all:
         click.echo(stdout, nl=False)
-        return
-    prefix = f"{sanitize_db_name(base.name)}-"
-    click.echo(_filter_db_listing(stdout, prefix), nl=False)
+    else:
+        click.echo(_filter_db_listing(stdout, prefix), nl=False)
+
+    # Filestore directories with no matching database — e.g. leftovers of
+    # dropped databases. The full (unfiltered) name set decides whether a
+    # filestore dangles; the prefix only filters what is displayed.
+    # Extra listing sections contributed by plugins — e.g. `osh_db_drop`
+    # reports filestore directories with no matching database.
+    db_names = set(_list_db_names(stdout))
+    for hook in load_hooks(HOOK_DB_LIST_SECTIONS):
+        for line in hook(ctx, base, db_names, prefix, show_all) or []:
+            click.echo(line)
+
+
+def _list_db_names(output):
+    """Return the database names listed in ``psql -l`` output."""
+    lines = output.splitlines()
+    sep = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.strip() and set(line.strip()) <= {"-", "+"}
+        ),
+        None,
+    )
+    if sep is None:
+        return []
+    return [line.split("|", 1)[0].strip() for line in lines[sep + 1 :] if "|" in line]
 
 
 def _filter_db_listing(output, prefix):
@@ -175,6 +209,74 @@ def copy(ctx, from_db, to_db):  # noqa: D401
         raise click.ClickException(f"Source database '{from_name}' does not exist.")
     copy_db(base, from_name, to_name, ctx=ctx)
     echo.info(f"Copied database '{from_name}' to '{to_name}'")
+
+
+@db.command(
+    name="shell",
+    context_settings=dict(ignore_unknown_options=True),
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print the assembled command without executing it.",
+)
+@click.option(
+    "--compose-file",
+    default=None,
+    envvar="OSH_COMPOSE_FILE",
+    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+    "Defaults to $OSH_COMPOSE_FILE.",
+)
+@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def db_shell(ctx, dry_run, compose_file, extra_args):  # noqa: D401
+    """Enter the database environment or run a command in it.
+
+    Without arguments this opens an interactive shell where the database
+    runs: the Compose ``db`` service container on Docker projects, or the
+    project environment itself on host/venv backends — where it is
+    equivalent to ``osh shell``. PostgreSQL connection variables
+    (``PGHOST``, ``PGUSER``, ``PGDATABASE``, ...) are already configured for
+    the current branch's database. Any arguments are passed through as a
+    command to run in that environment.
+
+    Examples:
+
+    \b
+      osh db shell
+      osh db shell psql
+      osh db shell pg_dump -Fc myproject-main > backup.dump
+    """
+    base = find_project_root(required=True)
+
+    backend = resolve_backend(base)
+
+    check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
+
+    args = list(extra_args)
+    if args and args[0] == "--":
+        args.pop(0)
+
+    conf_path, env_vars, resolved_db = prepare_env_context(
+        base,
+        backend,
+        ctx=ctx,
+        db_name=parse_explicit_db(args),
+        extra_args=args,
+        dry_run=dry_run,
+    )
+    if conf_path:
+        echo.info(f"Using config: {conf_path}")
+    if resolved_db:
+        echo.info(f"Using database: {resolved_db}")
+
+    env_spec = EnvSpec(
+        argv=args,
+        env=env_vars,
+        db_name=resolved_db,
+        config_path=str(conf_path) if conf_path else None,
+    )
+    backend.db_env(ctx, base, env_spec, dry_run=dry_run)
 
 
 @db.command(name="unset")

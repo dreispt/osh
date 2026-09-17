@@ -214,6 +214,24 @@ class Backend(ABC):
             f"Backend '{self.name}' does not support environment execution."
         )
 
+    def db_env(
+        self,
+        ctx,
+        base,
+        env_spec,
+        *,
+        dry_run=False,
+        **options,
+    ):
+        """Run a command inside the database environment.
+
+        The default delegates to :meth:`env`: host-like backends share one
+        environment for Odoo and PostgreSQL, so the contexts coincide.
+        Backends with a separate database service (e.g. Docker's Compose
+        ``db`` service) override this to target that service.
+        """
+        return self.env(ctx, base, env_spec, dry_run=dry_run, **options)
+
     @classmethod
     def get_stop_options(cls):
         """Additional ``click.Option`` objects for ``osh <name> stop``."""

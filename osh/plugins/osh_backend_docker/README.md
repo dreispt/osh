@@ -20,6 +20,12 @@ container's Odoo data directory is (used for `.zip` filestore operations).
 It defaults to `/var/lib/odoo`, the named volume declared by the official
 Odoo image; set it when your compose file configures a different `data_dir`.
 
+An optional `db_service` key names the Compose service running PostgreSQL
+(`--db-service` on init); it defaults to `db`, matching the generated stack
+and Doodba. `osh db shell` opens a shell or runs commands in that service
+instead of the Odoo one — inside it, the postgres image's `POSTGRES_*`
+variables are mapped to the usual `PG*` ones.
+
 ## Behaviour with existing Docker / Compose files
 
 - **`--compose-file <path>`** (or `$OSH_COMPOSE_FILE`, or `compose_file` in

@@ -169,9 +169,13 @@ def test_odoo_missing_db_prompt_create_runs(
     from click.testing import _NamedTextIOWrapper
 
     from osh.config import set_project_config
+    from osh.db import get_last_db
 
+    previous = pg_db.create()
     missing = pg_db.name()
-    set_project_config(tmp_project, "db", "default", missing)
+    set_project_config(
+        tmp_project, "db", values={"default": missing, "last_db": previous}
+    )
     monkeypatch.chdir(tmp_project)
 
     # CliRunner replaces sys.stdin with a non-TTY wrapper; patching its
@@ -182,8 +186,11 @@ def test_odoo_missing_db_prompt_create_runs(
     result = CliRunner().invoke(odoo, [])
 
     assert result.exit_code == 0, result.output
+    assert f"[u] Use the last used database '{previous}'" in result.output
     assert f"[c] Create new database '{missing}'" in result.output
     assert len(capture_execvp) == 1
+    # A not-yet-created database must not replace the recorded last used one.
+    assert get_last_db(tmp_project) == previous
 
 
 def test_odoo_missing_db_prompt_use_last_db(
@@ -215,6 +222,43 @@ def test_odoo_missing_db_prompt_use_last_db(
     assert f"Using database: {previous}" in result.output
     assert resolve_db_name(tmp_project) == previous
     assert len(capture_execvp) == 1
+
+
+def test_odoo_records_last_db_for_existing_database(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    branch_db,
+    capture_execvp,
+):
+    """``osh odoo`` records the resolved database once it exists."""
+    from osh.db import get_last_db
+
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert get_last_db(tmp_project) == branch_db
+
+
+def test_odoo_explicit_db_does_not_record_last_db(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+    capture_execvp,
+):
+    """An explicit ``-d`` never touches the last used record."""
+    from osh.db import get_last_db
+
+    existing = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["-d", existing])
+
+    assert result.exit_code == 0, result.output
+    assert get_last_db(tmp_project) is None
 
 
 def test_odoo_missing_db_prompt_abort(

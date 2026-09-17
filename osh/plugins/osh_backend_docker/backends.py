@@ -64,6 +64,11 @@ class DockerBackend(Backend):
                 help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
             ),
             click.Option(
+                ["--db-service"],
+                help="Docker Compose service name for the database container "
+                "(defaults to 'db').",
+            ),
+            click.Option(
                 ["--port"],
                 type=int,
                 help="Host port to publish Odoo on (defaults to 8069).",
@@ -190,6 +195,8 @@ class DockerBackend(Backend):
             d.add_info("command", command or "odoo-bin")
             d.add_info("compose_file", compose_file or "<none>")
             d.add_info("edition", edition)
+            if cfg.get("db_service"):
+                d.add_info("db_service", cfg["db_service"])
             if cfg.get("compose_tool"):
                 d.add_info("configured_compose_tool", cfg["compose_tool"])
         elif phase == "init":
@@ -355,6 +362,7 @@ class DockerBackend(Backend):
         command = options.get("command")
         compose_file = options.get("compose_file")
         port = options.get("port")
+        db_service = options.get("db_service")
 
         if compose_file and not (target / compose_file).is_file():
             raise click.ClickException(
@@ -376,6 +384,7 @@ class DockerBackend(Backend):
                 version=version,
                 edition=edition,
                 port=port,
+                db_service=db_service,
                 dry_run=True,
             )
             ensure_osh_sources(
@@ -410,6 +419,7 @@ class DockerBackend(Backend):
             edition=edition,
             compose_tool=" ".join(compose_tool),
             port=port,
+            db_service=db_service,
         )
 
         todo.start()
@@ -525,9 +535,6 @@ class DockerBackend(Backend):
         dry_run=False,
         **options,
     ):
-        wait = options.pop("wait", False)
-        capture = options.pop("capture", False)
-
         cfg = _load_docker_config(base)
         service = cfg.get("service")
         if not service:
@@ -536,14 +543,75 @@ class DockerBackend(Backend):
                 "'osh docker init --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
+        return self._exec_env(
+            ctx,
+            base,
+            env_spec,
+            cfg,
+            service,
+            self._exec_args,
+            dry_run=dry_run,
+            **options,
+        )
+
+    def db_env(
+        self,
+        ctx,
+        base,
+        env_spec,
+        *,
+        dry_run=False,
+        **options,
+    ):
+        """Run a command in the Compose database service instead of Odoo's.
+
+        The ``db_service`` key in ``.osh/docker.toml`` names the service;
+        ``db`` is the default, matching the generated stack and Doodba.
+        """
+        cfg = _load_docker_config(base)
+        if not cfg.get("service"):
+            raise click.ClickException(
+                "No Docker service configured. Run "
+                "'osh docker init --service <name>' or edit "
+                f"{base / _DOCKER_TOML}."
+            )
+        return self._exec_env(
+            ctx,
+            base,
+            env_spec,
+            cfg,
+            cfg.get("db_service") or "db",
+            self._db_exec_args,
+            dry_run=dry_run,
+            **options,
+        )
+
+    def _exec_env(
+        self,
+        ctx,
+        base,
+        env_spec,
+        cfg,
+        service,
+        exec_args,
+        *,
+        dry_run=False,
+        **options,
+    ):
+        """Dispatch a ``compose exec`` call against *service*.
+
+        *exec_args* is the argument builder (``_exec_args`` for the Odoo
+        service, ``_db_exec_args`` for the database one); the rest of the
+        flow — stack lifecycle, dry-run, capture/wait/exec — is shared.
+        """
+        wait = options.pop("wait", False)
+        capture = options.pop("capture", False)
 
         cli_params = getattr(ctx, "params", {}) or {}
         compose_file = cli_params.get("compose_file")
         compose_cmd = _compose_base_command(base, compose_file=compose_file)
 
-        docker_args = self._exec_args(
-            base, compose_cmd, service, cfg, env_spec, capture
-        )
+        docker_args = exec_args(base, compose_cmd, service, cfg, env_spec, capture)
 
         if dry_run:
             if capture:
@@ -590,6 +658,36 @@ class DockerBackend(Backend):
             )
         except OSError as exc:  # pragma: no cover
             raise click.ClickException(f"Could not run docker: {exc}") from exc
+
+    def _db_exec_args(self, base, compose_cmd, service, cfg, env_spec, capture):
+        """Assemble the ``compose exec`` argv targeting the database service.
+
+        Unlike ``_exec_args`` there is no Odoo command rewriting and no host
+        path translation — the db container does not mount the project — and
+        ``ODOO_RC`` is dropped for the same reason.
+        """
+        args = list(env_spec.argv)
+        if not args:
+            container_argv = ["sh", "-c", _DB_PG_ENV_SHELL_SCRIPT]
+        else:
+            container_argv = ["sh", "-c", _DB_PG_ENV_SCRIPT, "osh", *args]
+
+        env = {**_CONTAINER_ENV_DEFAULTS, **env_spec.env}
+        env.pop("ODOO_RC", None)
+
+        docker_args = [*compose_cmd, "exec"]
+        if (
+            capture
+            or env_spec.input is not None
+            or env_spec.stdin is not None
+            or not sys.stdin.isatty()
+        ):
+            docker_args.append("-T")
+        for key, value in env.items():
+            docker_args.extend(["-e", f"{key}={value}"])
+        docker_args.append(service)
+        docker_args.extend(container_argv)
+        return docker_args
 
     def _exec_args(self, base, compose_cmd, service, cfg, env_spec, capture):
         """Assemble the ``compose exec`` argument vector for *env_spec*."""
@@ -662,6 +760,25 @@ _PG_ENV_SCRIPT = _PG_ENV_EXPORTS + ' exec "$@"'
 # Interactive shell with the libpq variables exported, preferring bash.
 _PG_ENV_SHELL_SCRIPT = (
     _PG_ENV_EXPORTS
+    + " if command -v bash > /dev/null 2>&1; then exec bash; else exec sh; fi"
+)
+
+# Maps the Postgres image's own variables to the libpq ones, for commands
+# run inside the ``db`` service by ``osh db shell``. Values already provided
+# (``-e PGUSER=...``, from the project config) take precedence. ``PGHOST``
+# is deliberately left unset so libpq uses the container's local socket.
+_DB_PG_ENV_EXPORTS = (
+    'export PGUSER="${PGUSER:-$POSTGRES_USER}"'
+    ' PGPASSWORD="${PGPASSWORD:-$POSTGRES_PASSWORD}"'
+    ' PGDATABASE="${PGDATABASE:-$POSTGRES_DB}";'
+)
+
+# Runs a command with the libpq variables exported.
+_DB_PG_ENV_SCRIPT = _DB_PG_ENV_EXPORTS + ' exec "$@"'
+
+# Interactive shell with the libpq variables exported, preferring bash.
+_DB_PG_ENV_SHELL_SCRIPT = (
+    _DB_PG_ENV_EXPORTS
     + " if command -v bash > /dev/null 2>&1; then exec bash; else exec sh; fi"
 )
 

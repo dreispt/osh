@@ -17,6 +17,8 @@ def _setup_fake_db_config(project, db_name="testdb"):
 
 def test_restore_uses_latest_cache(patched_restore, in_project):
     """`osh db restore` with no argument uses the newest cached backup."""
+    from osh.db import get_last_db
+
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     old = cache_dir / "old.dump"
@@ -38,6 +40,8 @@ def test_restore_uses_latest_cache(patched_restore, in_project):
         "-d",
         db_name,
     )
+    # A successful restore records the target as the last used database.
+    assert get_last_db(in_project) == db_name
 
 
 def test_restore_cache_id(patched_restore, in_project):
