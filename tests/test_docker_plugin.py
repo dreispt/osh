@@ -530,6 +530,40 @@ def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys
     assert "else exec sh" in err
 
 
+def test_docker_backend_db_env_targets_db_service(tmp_project, capsys):
+    """``db_env`` execs into the db service with the POSTGRES_* var mapping.
+
+    ``ODOO_RC`` is dropped: the db container does not mount the project.
+    """
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.parent.mkdir(parents=True, exist_ok=True)
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+
+    backend = DockerBackend()
+    env_spec = EnvSpec(
+        argv=["psql", "-l"], env={"ODOO_RC": "/p/.osh/x.conf", "PGDATABASE": "db1"}
+    )
+    backend.db_env(None, tmp_project, env_spec, dry_run=True)
+
+    err = capsys.readouterr().err
+    assert "Would run:" in err
+    assert " db sh -c" in err
+    assert 'PGUSER="${PGUSER:-$POSTGRES_USER}"' in err
+    assert 'PGDATABASE="${PGDATABASE:-$POSTGRES_DB}"' in err
+    assert "osh psql -l" in err
+    assert "ODOO_RC" not in err
+
+    docker_toml.write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+        'db_service = "postgres"\n'
+    )
+    backend.db_env(None, tmp_project, env_spec, dry_run=True)
+    err = capsys.readouterr().err
+    assert " postgres sh -c" in err
+
+
 def test_docker_backend_requires_service(tmp_project):
     """``env`` fails when no service is configured."""
     backend = DockerBackend()

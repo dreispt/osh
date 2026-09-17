@@ -346,6 +346,13 @@ class MyBackend(Backend):
   `PGDATABASE`. When `argv` is empty, backends should launch an interactive
   shell.
 
+- `db_env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
+  execute a command inside the _database_ environment, used by
+  `osh db shell`. The default delegates to `env()` — the right answer for
+  host-like backends where PostgreSQL shares Odoo's environment. Backends
+  with a separate database service (e.g. Docker's Compose `db` service)
+  override it to target that service.
+
 ### Backup source plugins
 
 The built-in `osh_db_get` plugin defines a hook point, `osh_db_get.sources`,

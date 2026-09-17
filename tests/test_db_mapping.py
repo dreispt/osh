@@ -105,6 +105,7 @@ def test_db_group_command_surface():
     assert "set" in db.commands
     assert "unset" in db.commands
     assert "copy" in db.commands
+    assert "shell" in db.commands
     assert "use" not in db.commands
     assert "pin" not in db.commands
     assert "unpin" not in db.commands

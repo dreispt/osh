@@ -258,6 +258,29 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     assert "dbfilter" not in text
 
 
+def test_db_shell_matches_osh_shell_on_venv(tmp_project, monkeypatch):
+    """``osh db shell`` on a host-like backend behaves like ``osh shell``."""
+    _setup_venv(tmp_project)
+    _use_backend(tmp_project, "venv")
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+
+    calls = []
+    monkeypatch.setattr(
+        "osh.backends.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args), env)),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["db", "shell"])
+
+    assert result.exit_code == 0, result.output
+    exe, args, exec_env = calls[0]
+    assert (exe, args) == ("/bin/zsh", ["/bin/zsh"])
+    assert exec_env["VIRTUAL_ENV"] == str(tmp_project / ".venv")
+    assert exec_env["PGDATABASE"] == "project-default"
+
+
 def test_shell_does_not_record_last_used_database(tmp_project, branch_db, monkeypatch):
     """``osh shell`` never records the resolved database as last used."""
     from osh.db import get_last_db

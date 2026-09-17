@@ -3,6 +3,7 @@
 import click
 
 from .. import echo
+from ..backends import EnvSpec
 from ..cli_utils import NaturalOrderGroup
 from ..common import find_project_root
 from ..db import (
@@ -10,6 +11,7 @@ from ..db import (
     copy_db,
     db_exists,
     list_filestore_dirs,
+    resolve_backend,
     resolve_branch,
     resolve_db_name,
     run_in_backend,
@@ -17,6 +19,8 @@ from ..db import (
     set_project_config,
     unset_project_config,
 )
+from .helpers import check_run_diagnostics
+from .shell_cmd import parse_explicit_db, prepare_env_context
 
 
 @click.group(name="db", cls=NaturalOrderGroup)
@@ -41,6 +45,8 @@ def db():  # noqa: D401
       osh db show
       osh db set myproject-main --branch main
       osh db copy myproject-main myproject-fix-123
+      osh db shell
+      osh db shell psql
       osh db unset
       osh db unset --branch feature/old-thing
     """
@@ -206,6 +212,74 @@ def copy(ctx, from_db, to_db):  # noqa: D401
         raise click.ClickException(f"Source database '{from_name}' does not exist.")
     copy_db(base, from_name, to_name, ctx=ctx)
     echo.info(f"Copied database '{from_name}' to '{to_name}'")
+
+
+@db.command(
+    name="shell",
+    context_settings=dict(ignore_unknown_options=True),
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print the assembled command without executing it.",
+)
+@click.option(
+    "--compose-file",
+    default=None,
+    envvar="OSH_COMPOSE_FILE",
+    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+    "Defaults to $OSH_COMPOSE_FILE.",
+)
+@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def db_shell(ctx, dry_run, compose_file, extra_args):  # noqa: D401
+    """Enter the database environment or run a command in it.
+
+    Without arguments this opens an interactive shell where the database
+    runs: the Compose ``db`` service container on Docker projects, or the
+    project environment itself on host/venv backends — where it is
+    equivalent to ``osh shell``. PostgreSQL connection variables
+    (``PGHOST``, ``PGUSER``, ``PGDATABASE``, ...) are already configured for
+    the current branch's database. Any arguments are passed through as a
+    command to run in that environment.
+
+    Examples:
+
+    \b
+      osh db shell
+      osh db shell psql
+      osh db shell pg_dump -Fc myproject-main > backup.dump
+    """
+    base = find_project_root(required=True)
+
+    backend = resolve_backend(base)
+
+    check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
+
+    args = list(extra_args)
+    if args and args[0] == "--":
+        args.pop(0)
+
+    conf_path, env_vars, resolved_db = prepare_env_context(
+        base,
+        backend,
+        ctx=ctx,
+        db_name=parse_explicit_db(args),
+        extra_args=args,
+        dry_run=dry_run,
+    )
+    if conf_path:
+        echo.info(f"Using config: {conf_path}")
+    if resolved_db:
+        echo.info(f"Using database: {resolved_db}")
+
+    env_spec = EnvSpec(
+        argv=args,
+        env=env_vars,
+        db_name=resolved_db,
+        config_path=str(conf_path) if conf_path else None,
+    )
+    backend.db_env(ctx, base, env_spec, dry_run=dry_run)
 
 
 @db.command(name="unset")

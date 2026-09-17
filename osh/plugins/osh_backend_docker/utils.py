@@ -33,6 +33,7 @@ def _save_docker_config(
     edition=None,
     compose_tool=None,
     port=None,
+    db_service=None,
     dry_run=False,
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
@@ -52,7 +53,8 @@ def _save_docker_config(
             f"Would write {docker_toml}: "
             f"service={service}, command={command}, "
             f"compose_file={compose_file or '<none>'}, "
-            f"version={version!r}, edition={edition!r}.",
+            f"version={version!r}, edition={edition!r}, "
+            f"db_service={db_service or '<none>'}.",
             err=True,
         )
         return
@@ -61,6 +63,8 @@ def _save_docker_config(
         "service": service,
         "command": command,
     }
+    if db_service:
+        data["db_service"] = db_service
     if compose_file:
         data["compose_file"] = compose_file
     if version:

@@ -52,7 +52,7 @@ Run `osh <command> --help` for full usage details.
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
-| `osh db`                   | List, show, set, copy, unset, get, restore, or register named remote sources for project databases                   |
+| `osh db`                   | List, show, set, copy, drop, shell, unset, get, restore, or register named remote sources for project databases      |
 | `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
 | `osh doctor`               | Check the project for common setup problems                                                                          |
 | `osh backend ...`          | Active-backend state: `status`, `list`, `deactivate` (back to host), `stop` (stop its resources)                     |
@@ -112,11 +112,16 @@ osh db set myproject-main --branch main
 osh db set myproject-staging --branch staging
 osh db show
 osh db drop myproject-old    # drop a database and its filestore (asks first)
+osh db shell                 # shell where the db runs (the db container on Docker)
+osh db shell psql            # psql against the current branch's database
 osh db unset --branch feature/old-thing
 ```
 
 `osh db list` also reports filestore directories under Odoo's `data_dir` that
 no longer have a matching database — leftovers that `osh db drop` removes.
+On the Docker backend, `osh db shell` runs inside the Compose `db` service
+(configurable via `db_service` in `.osh/docker.toml`); on host and virtualenv
+backends it is the same environment as `osh shell`.
 
 The generated name is based on the project directory name and the git branch
 (or `default` in detached `HEAD` state). Special characters are sanitized to
