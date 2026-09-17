@@ -65,7 +65,7 @@ and lifecycle:
 | Backend commands | What it does                                                            |
 | ---------------- | ----------------------------------------------------------------------- |
 | `osh venv ...`   | Managed virtualenv + Odoo sources: `init`, `activate`, `doctor`, `stop` |
-| `osh docker ...` | Docker Compose stack: `init`, `activate`, `doctor`, `stop`              |
+| `osh docker ...` | Docker Compose stack: `init`, `activate`, `doctor`, `list`, `stop`      |
 
 `osh <backend> init` runs the base setup first, then the backend's own
 steps (e.g. `osh docker init` writes `docker.toml` and generates the
@@ -77,7 +77,10 @@ backend is active and `osh backend list` what's available.
 `osh backend stop` stops whatever
 the active backend left running — `osh <backend> stop` does the same for a
 specific backend (and carries its options, e.g. `osh docker stop
---compose-file`).
+--compose-file`). `osh docker list` shows all running containers and the
+Osh project each belongs to, and `osh docker stop <name>` stops another
+project's stack by its directory name — handy when a leftover stack still
+holds port 8069.
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 

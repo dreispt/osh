@@ -19,9 +19,11 @@ from .utils import (
     _DOCKER_TOML,
     _SOURCES_COMPOSE_FILE,
     _compose_base_command,
+    _compose_project_names_for,
     _container_running_status,
     _find_compose_tool,
     _find_port_holder,
+    _find_project_stack,
     _generate_compose_file,
     _load_docker_config,
     _port_in_use,
@@ -517,14 +519,60 @@ class DockerBackend(Backend):
                 err=True,
             )
             return
+        # Down every Compose project this project's containers run under —
+        # a stack started outside ``osh odoo`` may carry a different project
+        # name than the derived one, and the two can coexist.
         try:
-            compose_cmd = _compose_base_command(base, compose_file=compose_file)
-        except click.ClickException as exc:
-            echo.warning(exc.format_message())
+            names = _compose_project_names_for(base)
+        except click.ClickException:
+            names = set()
+        for project_name in sorted(names) or [None]:
+            try:
+                compose_cmd = _compose_base_command(
+                    base, compose_file=compose_file, project_name=project_name
+                )
+            except click.ClickException as exc:
+                echo.warning(exc.format_message())
+                continue
+            docker_args = [*compose_cmd, "down"]
+            echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+            run_command(docker_args, cwd=base, check=True, stream=True)
+
+    def stop_by_name(self, ctx, name, **options):
+        """Stop the Compose stack of the Osh project named *name*.
+
+        *name* is the project directory name shown by ``osh docker list``
+        (a path or ``osh-*`` Compose project name also work). When the
+        project directory is still present this is the same ``compose
+        down`` as ``osh docker stop`` there; otherwise the stack is torn
+        down from the containers' Compose labels.
+        """
+        stack = _find_project_stack(name)
+        if stack["osh"]:
+            self.stop(ctx, stack["path"], **options)
             return
-        docker_args = [*compose_cmd, "down"]
+
+        # The config_files label is comma-separated when the stack was
+        # started with several -f options; keep the ones still on disk.
+        compose_file = options.get("compose_file") or stack["config_file"] or ""
+        compose_files = [p for p in compose_file.split(",") if Path(p).is_file()]
+        if stack["compose_project"] and compose_files:
+            compose_tool = _find_compose_tool()
+            if compose_tool is None:
+                raise click.ClickException(
+                    "No Docker Compose tool found. "
+                    "Install 'docker compose' or 'docker-compose'."
+                )
+            docker_args = [*compose_tool, "-p", stack["compose_project"]]
+            for path in compose_files:
+                docker_args.extend(["-f", path])
+            docker_args.append("down")
+        else:
+            # The project directory is gone along with its compose file —
+            # remove the leftover containers directly.
+            docker_args = ["docker", "rm", "-f", *stack["ids"]]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
-        run_command(docker_args, cwd=base, check=True, stream=True)
+        run_command(docker_args, check=True, stream=True)
 
     def env(
         self,

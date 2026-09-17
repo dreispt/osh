@@ -235,7 +235,7 @@ of existing groups. Backends implement the lifecycle interface used by
 `osh odoo`, `osh shell`, `osh db restore` and `osh test` for a particular
 execution target (e.g. local virtualenv, Docker); a backend's setup and
 lifecycle commands live under its own `osh <name>` command group
-(`osh docker init`, `osh docker doctor`, `osh docker stop`).
+(`osh docker init`, `osh docker doctor`, `osh docker list`, `osh docker stop`).
 
 ### Command plugins
 
