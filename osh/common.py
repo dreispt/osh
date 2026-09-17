@@ -297,6 +297,27 @@ def _is_short_with_value(arg, short):
     return arg.startswith(short) and len(arg) > len(short) and arg[len(short)] != "-"
 
 
+def odoo_http_port(args):
+    """Return the ``-p``/``--http-port`` value in Odoo arguments, or None.
+
+    Accepts the ``-p 8080``, ``-p8080``, ``-p=8080``, ``--http-port 8080``
+    and ``--http-port=8080`` forms; the last occurrence wins, matching
+    Odoo's own option parsing.
+    """
+    value = None
+    for i, arg in enumerate(args):
+        if arg in ("-p", "--http-port") and i + 1 < len(args):
+            value = args[i + 1]
+        elif arg.startswith("--http-port="):
+            value = arg.split("=", 1)[1]
+        elif arg.startswith("-p") and len(arg) > 2:
+            value = arg[3:] if arg[2] == "=" else arg[2:]
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def format_cmd(args):
     """Return *args* as a single shell-quoted command line string."""
     return " ".join(shlex.quote(str(a)) for a in args)

@@ -1,5 +1,6 @@
 """Tests for the built-in Docker backend plugin."""
 
+import json
 import os
 import subprocess
 import sys
@@ -562,6 +563,138 @@ def test_docker_backend_db_env_targets_db_service(tmp_project, capsys):
     backend.db_env(None, tmp_project, env_spec, dry_run=True)
     err = capsys.readouterr().err
     assert " postgres sh -c" in err
+
+
+def _docker_ps_line(name, image, ports, status, labels="", cid=None):
+    """Return a ``docker ps --format '{{json .}}'`` output line."""
+    return json.dumps(
+        {
+            "ID": cid or name,
+            "Names": name,
+            "Image": image,
+            "Ports": ports,
+            "Status": status,
+            "Labels": labels,
+        }
+    )
+
+
+def _patch_docker_ps(monkeypatch, lines):
+    """Patch the ``docker ps`` call behind ``osh docker list``."""
+    calls = []
+
+    def fake_run_subprocess(args, **kwargs):
+        calls.append(list(args))
+        return 0, "\n".join(lines), ""
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.utils.run_subprocess",
+        fake_run_subprocess,
+    )
+    return calls
+
+
+def test_docker_list_tabulates_containers_and_projects(tmp_project, monkeypatch):
+    """``osh docker list`` shows ports, status and the owning project."""
+    (tmp_project / ".osh" / "docker.toml").write_text('service = "odoo"\n')
+    other = tmp_project.parent / "other"
+    (other / ".osh").mkdir(parents=True)
+    (other / ".osh" / "docker.toml").write_text('service = "odoo"\n')
+    monkeypatch.chdir(tmp_project)
+    calls = _patch_docker_ps(
+        monkeypatch,
+        [
+            _docker_ps_line(
+                "proj-odoo-1",
+                "odoo:19.0",
+                "0.0.0.0:8069->8069/tcp",
+                "Up 2 hours",
+                "com.docker.compose.project.working_dir="
+                f"{tmp_project / '.osh'},com.docker.compose.project=osh-proj",
+            ),
+            _docker_ps_line(
+                "other-odoo-1",
+                "odoo:18.0",
+                "0.0.0.0:8070->8069/tcp",
+                "Up 3 days",
+                f"com.docker.compose.project.working_dir={other},"
+                "com.docker.compose.project=other",
+            ),
+            _docker_ps_line(
+                "stack-db-1",
+                "postgres:16",
+                "5432/tcp",
+                "Up 1 day",
+                "com.docker.compose.project=stack",
+            ),
+            _docker_ps_line(
+                "registry",
+                "registry:2",
+                "0.0.0.0:5000->5000/tcp",
+                "Up 5 days",
+            ),
+        ],
+    )
+
+    result = CliRunner().invoke(main, ["docker", "list"])
+
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "-a" not in calls[0]
+    for column in ("CONTAINER", "PORTS", "STATUS", "PROJECT"):
+        assert column in out
+    assert "proj-odoo-1" in out and "0.0.0.0:8069->8069/tcp" in out
+    assert "Up 2 hours" in out
+    # The current project's container is marked; other Osh projects resolve
+    # as ``name (path)``.
+    assert f"{tmp_project.name} ({tmp_project}) *" in out
+    assert f"{other.name} ({other})" in out
+    # Compose projects without an Osh project and plain containers fall back.
+    assert "compose:stack" in out
+    assert "registry" in out and "registry:2" in out
+
+
+def test_docker_list_all_includes_stopped(tmp_project, monkeypatch):
+    """``osh docker list --all`` passes ``-a`` and shows stopped containers."""
+    calls = _patch_docker_ps(
+        monkeypatch,
+        [_docker_ps_line("dead-1", "odoo:19.0", "", "Exited (0) 2 days ago")],
+    )
+
+    result = CliRunner().invoke(main, ["docker", "list", "--all"])
+
+    assert result.exit_code == 0, result.output
+    assert "-a" in calls[0]
+    assert "Exited (0) 2 days ago" in result.output
+
+
+def test_docker_list_no_containers(tmp_project, monkeypatch):
+    """An empty ``docker ps`` reports there is nothing running."""
+    _patch_docker_ps(monkeypatch, [])
+
+    result = CliRunner().invoke(main, ["docker", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "No running Docker containers" in result.output
+
+
+def test_docker_list_docker_unavailable(tmp_project, monkeypatch):
+    """A ``docker ps`` failure surfaces as a command error."""
+
+    def fake_run_subprocess(args, **kwargs):
+        raise click.ClickException(
+            "Could not list Docker containers: command not found"
+        )
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.utils.run_subprocess",
+        fake_run_subprocess,
+    )
+
+    result = CliRunner().invoke(main, ["docker", "list"])
+
+    assert result.exit_code != 0
+    assert "Could not list Docker containers" in result.output
 
 
 def test_docker_backend_requires_service(tmp_project):
