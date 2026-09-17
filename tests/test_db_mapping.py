@@ -205,6 +205,34 @@ def test_drop_command_reports_missing_db(tmp_project, pg_db, monkeypatch):
     assert "?" not in result.output
 
 
+def test_list_command_reports_dangling_filestores(
+    tmp_project, pg_db, monkeypatch, tmp_path
+):
+    """`osh db list` lists filestore dirs that no database owns anymore."""
+    import uuid
+
+    from osh.commands.db_cmd import list_dbs
+
+    pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    data_dir = tmp_path / "data"
+    filestore = data_dir / "filestore"
+    (filestore / f"project-stale-{uuid.uuid4().hex[:8]}").mkdir(parents=True)
+    (filestore / f"other-stale-{uuid.uuid4().hex[:8]}").mkdir(parents=True)
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    monkeypatch.chdir(tmp_project)
+    prefix = "project-"
+
+    result = CliRunner().invoke(list_dbs, [])
+    assert result.exit_code == 0, result.output
+    assert "Filestore directories without a database" in result.output
+    assert f"{prefix}stale-" in result.output
+    assert "other-stale-" not in result.output
+
+    result = CliRunner().invoke(list_dbs, ["--all"])
+    assert result.exit_code == 0, result.output
+    assert "other-stale-" in result.output
+
+
 def test_resolve_db_name_for_run_returns_existing_branch_db(tmp_project, branch_db):
     """An existing branch database is returned without prompt."""
     from osh.db import resolve_db_name_for_run

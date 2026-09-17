@@ -115,6 +115,9 @@ osh db drop myproject-old    # drop a database and its filestore (asks first)
 osh db unset --branch feature/old-thing
 ```
 
+`osh db list` also reports filestore directories under Odoo's `data_dir` that
+no longer have a matching database — leftovers that `osh db drop` removes.
+
 The generated name is based on the project directory name and the git branch
 (or `default` in detached `HEAD` state). Special characters are sanitized to
 keep the name safe for PostgreSQL and for Odoo's `--db-filter`.

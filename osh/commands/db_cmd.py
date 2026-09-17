@@ -9,6 +9,7 @@ from ..db import (
     _require_db_name,
     copy_db,
     db_exists,
+    list_filestore_dirs,
     resolve_branch,
     resolve_db_name,
     run_in_backend,
@@ -91,11 +92,41 @@ def list_dbs(ctx, show_all):  # noqa: D401
         raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
     if returncode != 0:
         raise click.ClickException(f"Could not list databases: {stderr.strip()}")
+    prefix = f"{sanitize_db_name(base.name)}-"
     if show_all:
         click.echo(stdout, nl=False)
-        return
-    prefix = f"{sanitize_db_name(base.name)}-"
-    click.echo(_filter_db_listing(stdout, prefix), nl=False)
+    else:
+        click.echo(_filter_db_listing(stdout, prefix), nl=False)
+
+    # Filestore directories with no matching database — e.g. leftovers of
+    # dropped databases. The full (unfiltered) name set decides whether a
+    # filestore dangles; the prefix only filters what is displayed.
+    db_names = set(_list_db_names(stdout))
+    dangling = [
+        name
+        for name in list_filestore_dirs(ctx, base)
+        if name not in db_names and (show_all or name.startswith(prefix))
+    ]
+    if dangling:
+        click.echo("Filestore directories without a database:")
+        for name in dangling:
+            click.echo(f"  {name}")
+
+
+def _list_db_names(output):
+    """Return the database names listed in ``psql -l`` output."""
+    lines = output.splitlines()
+    sep = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.strip() and set(line.strip()) <= {"-", "+"}
+        ),
+        None,
+    )
+    if sep is None:
+        return []
+    return [line.split("|", 1)[0].strip() for line in lines[sep + 1 :] if "|" in line]
 
 
 def _filter_db_listing(output, prefix):

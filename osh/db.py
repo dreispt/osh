@@ -350,6 +350,23 @@ def _filestore_path(base, db_name):
     return f"{data_dir}/filestore/{db_name}"
 
 
+def list_filestore_dirs(ctx, base):
+    """Return filestore directory names inside the backend env, or [].
+
+    Returns an empty list when the data dir cannot be determined or the
+    filestore directory does not exist.
+    """
+    data_dir = resolve_backend(base).odoo_data_dir(base)
+    if data_dir is None:
+        return []
+    returncode, stdout, _ = run_in_backend(
+        ctx, base, ["ls", "-1", f"{data_dir}/filestore"]
+    )
+    if returncode != 0 or not stdout:
+        return []
+    return [line.strip() for line in stdout.splitlines() if line.strip()]
+
+
 def db_exists(base, db_name, ctx=None, *, dry_run=False):
     """Return True if the PostgreSQL database exists.
 
