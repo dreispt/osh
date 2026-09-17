@@ -111,6 +111,7 @@ osh db list                  # databases matching the generated <project>- prefi
 osh db set myproject-main --branch main
 osh db set myproject-staging --branch staging
 osh db show
+osh db drop myproject-old    # drop a database and its filestore (asks first)
 osh db unset --branch feature/old-thing
 ```
 

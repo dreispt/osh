@@ -104,6 +104,7 @@ def test_db_group_command_surface():
     assert "list" in db.commands
     assert "set" in db.commands
     assert "unset" in db.commands
+    assert "copy" in db.commands
     assert "use" not in db.commands
     assert "pin" not in db.commands
     assert "unpin" not in db.commands
@@ -116,6 +117,14 @@ def test_db_restore_comes_from_plugin():
 
     assert "restore" in main.commands["db"].commands
     assert "restore" not in main.commands
+
+
+def test_db_drop_comes_from_plugin():
+    """`osh db drop` is contributed by the osh_db_drop plugin."""
+    from osh.cli import main
+
+    assert "drop" in main.commands["db"].commands
+    assert "drop" not in main.commands
 
 
 def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):
@@ -142,6 +151,58 @@ def test_copy_command_refuses_missing_source(tmp_project, pg_db, monkeypatch):
     result = runner.invoke(copy, [pg_db.name(), pg_db.name()])
     assert result.exit_code != 0
     assert "Source database" in result.output
+
+
+def test_drop_command_drops_db_filestore_and_last_db(
+    tmp_project, pg_db, monkeypatch, tmp_path
+):
+    """`osh db drop --force` drops the database, its filestore and last_db."""
+    from osh.db import get_last_db, set_last_db
+    from osh.plugins.osh_db_drop.drop_cmd import drop
+
+    name = pg_db.create()
+    data_dir = tmp_path / "data"
+    filestore = data_dir / "filestore" / name
+    filestore.mkdir(parents=True)
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    set_last_db(tmp_project, name)
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(drop, [name, "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Dropped database '{name}'" in result.output
+    assert f"Removed filestore for '{name}'" in result.output
+    assert not pg_db.exists(name)
+    assert not filestore.exists()
+    assert get_last_db(tmp_project) is None
+
+
+def test_drop_command_aborts_without_confirmation(tmp_project, pg_db, monkeypatch):
+    """`osh db drop` leaves everything alone when the prompt is refused."""
+    from osh.plugins.osh_db_drop.drop_cmd import drop
+
+    name = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(drop, [name], input="n\n")
+
+    assert result.exit_code != 0
+    assert pg_db.exists(name)
+
+
+def test_drop_command_reports_missing_db(tmp_project, pg_db, monkeypatch):
+    """`osh db drop` on a missing database exits quietly without prompting."""
+    from osh.plugins.osh_db_drop.drop_cmd import drop
+
+    monkeypatch.chdir(tmp_project)
+
+    # No input: a prompt would hit EOF and abort with a non-zero exit.
+    result = CliRunner().invoke(drop, [pg_db.name()])
+
+    assert result.exit_code == 0, result.output
+    assert "does not exist" in result.output
+    assert "?" not in result.output
 
 
 def test_resolve_db_name_for_run_returns_existing_branch_db(tmp_project, branch_db):
