@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
@@ -346,6 +347,30 @@ def _existing_compose_project(base):
     if derived in names:
         return derived
     return sorted(names)[0]
+
+
+def _port_process_hint(port):
+    """Identify a host process listening on *port*, for error messages.
+
+    Returns e.g. ``"'/p/.venv/bin/odoo --dev=all' (pid 123) in /p"`` — the
+    process's working directory points at the project where ``osh backend
+    stop`` would free the port.
+    """
+    from ...backends import _looks_like_odoo, _pid_command, _port_listeners
+
+    for pid in _port_listeners(port):
+        cmdline = _pid_command(pid)
+        if not cmdline:
+            continue
+        hint = f"'{cmdline}' (pid {pid})"
+        if not _looks_like_odoo(cmdline):
+            return hint
+        try:
+            cwd = os.readlink(f"/proc/{pid}/cwd")
+        except OSError:
+            cwd = None
+        return f"host Odoo process {hint}" + (f" in {cwd}" if cwd else "")
+    return None
 
 
 def _label_value(labels, name):

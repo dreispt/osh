@@ -17,7 +17,7 @@ import click
 from .. import echo
 from ..backends import EnvSpec
 from ..cli_utils import format_backends_section
-from ..common import find_project_root, has_arg
+from ..common import find_project_root, has_arg, odoo_http_port
 from ..config import get_user_preference
 from ..db import (
     _prompt_for_missing_db,
@@ -132,6 +132,12 @@ def odoo(
     diagnostics = check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
 
     extra_args = _with_dev_default(base, extra_args, no_dev=no_dev)
+
+    # For an Odoo server run, publish the requested -p/--http-port to the
+    # backend up front so pre-run probes (db_exists, env prep) bring the
+    # stack up on the right port instead of the configured one.
+    if ctx.obj is not None and (not extra_args or extra_args[0].startswith("-")):
+        ctx.obj["http_port"] = odoo_http_port(extra_args)
 
     # Odoo creates and initializes a missing ``db_name`` itself, so
     # "create" only records the intent — no createdb is run here.

@@ -80,7 +80,8 @@ specific backend (and carries its options, e.g. `osh docker stop
 --compose-file`). `osh docker list` shows all running containers and the
 Osh project each belongs to, and `osh docker stop <name>` stops another
 project's stack by its directory name — handy when a leftover stack still
-holds port 8069.
+holds port 8069. `osh odoo -p <n>` republishes the stack on that host port
+for the run (equivalent to `osh docker init --port <n>` without re-init).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 
