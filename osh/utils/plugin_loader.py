@@ -5,11 +5,13 @@ Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
 A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
 `commands`, `backends` and `group_commands` keys, plus an optional `hooks`
-key mapping hook point names (see `osh.hooks`) to callables or lists of
-implementations. Plugins may also define their own hook points — e.g. the
-`osh_db_get` plugin discovers backup sources via ``"osh_db_get.sources"``.
-Plugins are expected to be Python packages (directories with `__init__.py`)
-or a single `osh_plugin.py` file.
+key mapping hook point names to callables or lists of implementations —
+hook points are a plugin-to-plugin mechanism (e.g. `osh_db_get` discovers
+backup sources via ``"osh_db_get.sources"``); core commands are extended
+instead through mixin classes carrying the ``_extends`` marker (see
+`osh.operations.extends`), which are discovered among each plugin's
+module-level attributes. Plugins are expected to be Python packages
+(directories with `__init__.py`) or a single `osh_plugin.py` file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -330,6 +332,52 @@ def load_hook_entries(name):
     collision errors).
     """
     return [(s, i) for s, n, i in _iter_hook_entries() if n == name]
+
+
+def _iter_extension_entries():
+    """Yield ``(source, op_name, impl)`` for every extension mixin in plugins.
+
+    A class becomes an operation extension by carrying the ``_extends``
+    marker — set by the ``osh.operations.extends`` decorator or declared
+    directly as ``_extends = "op.name"`` — so no manifest entry is
+    required. Only module-level attributes are scanned (plugins must
+    re-export their mixins); each mixin is yielded once per operation
+    name even when imported into several plugin modules.
+    """
+    seen = set()
+    for source, module in _iter_plugin_modules():
+        for impl in vars(module).values():
+            names = getattr(impl, "_extends", None)
+            if not names:
+                continue
+            if isinstance(names, str):
+                names = (names,)
+            for name in names:
+                if (name, id(impl)) not in seen:
+                    seen.add((name, id(impl)))
+                    yield source, name, impl
+
+
+def load_extensions(name=None):
+    """Aggregate extension mixins across all plugins.
+
+    With *name*, return the list of mixin classes marked for that
+    operation name, in plugin load order. Without it, return the full
+    ``{operation_name: [classes]}`` dict.
+    """
+    result = {}
+    for _source, op_name, impl in _iter_extension_entries():
+        result.setdefault(op_name, []).append(impl)
+    return result if name is None else result.get(name, [])
+
+
+def load_extension_entries(name):
+    """Return ``(source, impl)`` pairs for operation *name*.
+
+    Like ``load_extensions`` but keeps the contributing plugin's source
+    name, for diagnostics.
+    """
+    return [(s, i) for s, n, i in _iter_extension_entries() if n == name]
 
 
 def load_backends():

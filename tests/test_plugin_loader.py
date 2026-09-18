@@ -235,6 +235,20 @@ def test_user_plugin_backends_and_sources(plugin_dir, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_user_plugin_extends_contributes_classes(plugin_dir):
+    """A user plugin's ``@extends`` mixin contributes operation extensions."""
+    src = (
+        "from osh.operations import extends\n\n"
+        "@extends('db.list')\n"
+        "class Ext:\n"
+        "    pass\n"
+    )
+    _write_package(plugin_dir, "repo_ext", src)
+
+    entries = plugin_loader.load_extension_entries("db.list")
+    assert any(s == "repo-ext" and i.__name__ == "Ext" for s, i in entries)
+
+
 def test_backend_name_collision_is_skipped(plugin_dir, capsys):
     """A second backend with the same name is skipped with an error."""
     src = (

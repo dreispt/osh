@@ -69,8 +69,9 @@ class EnvSpec:
     stdin content for captured runs. ``stdin`` is an optional readable binary
     file object used as the command's stdin — it carries large payloads such
     as database dumps without buffering them in memory. ``db_name`` and
-    ``config_path`` are informational hints passed to ``odoo.pre_env`` hooks
-    (e.g. a hook may parse the generated config) — backends do not act on them.
+    ``config_path`` are informational hints exposed to ``odoo`` operation
+    extensions in ``pre_env`` (e.g. an extension may parse the generated
+    config) — backends do not act on them.
     """
 
     argv: list = field(default_factory=list)
