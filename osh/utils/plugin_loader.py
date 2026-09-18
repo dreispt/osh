@@ -4,14 +4,13 @@ Loads built-in plugins from `osh.plugins`, third-party plugins registered as
 Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
 
 A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
-`commands`, `backends` and `group_commands` keys, plus an optional `hooks`
-key mapping hook point names to callables or lists of implementations —
-hook points are a plugin-to-plugin mechanism (e.g. `osh_db_get` discovers
-backup sources via ``"osh_db_get.sources"``); core commands are extended
-instead through mixin classes carrying the ``_extends`` marker (see
-`osh.operations.extends`), which are discovered among each plugin's
-module-level attributes. Plugins are expected to be Python packages
-(directories with `__init__.py`) or a single `osh_plugin.py` file.
+`commands`, `backends` and `group_commands` keys. Commands are extended
+through mixin classes carrying the ``_extends`` marker (see
+`osh.operations.extends`), and implementation registries are built from
+subclasses (see `iter_plugin_subclasses`) — both discovered among each
+plugin's module-level attributes. Plugins are expected to be Python
+packages (directories with `__init__.py`) or a single `osh_plugin.py`
+file.
 
 `load_plugins()` returns ``(source, command)`` pairs so callers can resolve
 command-name collisions by prefixing the command with its plugin source.
@@ -51,7 +50,7 @@ def _plugin_name_from_path(path):
     name = path.name
     name = re.sub(r"[^a-zA-Z0-9_]+", "_", name)
     name = name.strip("_")
-    if name[0].isdigit():
+    if name and name[0].isdigit():
         name = f"plugin_{name}"
     return name or "plugin"
 
@@ -186,7 +185,7 @@ def _iter_subplugins(repo_dir, enabled=None):
         except Exception as exc:
             echo.error(f"Could not load plugin '{child}': {exc}")
             continue
-        if module is not None and _plugin_manifest(module):
+        if module is not None and _declares_manifest(module):
             yield source, module
 
 
@@ -204,6 +203,15 @@ def plugin_subdirs(directory):
             and (child / "__init__.py").is_file()
         ):
             yield child
+
+
+def _declares_manifest(module):
+    """Whether the module declares ``OSH_PLUGIN_MANIFEST`` — even an empty one.
+
+    Declaring the manifest is what marks a package as a plugin;
+    extension-only plugins have nothing else to declare.
+    """
+    return isinstance(getattr(module, "OSH_PLUGIN_MANIFEST", None), dict)
 
 
 def _plugin_manifest(module):
@@ -298,40 +306,11 @@ def load_group_commands():
     return result
 
 
-def _iter_hook_entries():
-    """Yield ``(source, hook_name, impl)`` for every hook item in plugins."""
+def _iter_plugin_attrs():
+    """Yield ``(source, obj)`` for every module-level attribute in plugins."""
     for source, module in _iter_plugin_modules():
-        hooks = _plugin_manifest(module).get("hooks", {})
-        if not isinstance(hooks, dict):
-            continue
-        for hook_name, impl in hooks.items():
-            items = impl if isinstance(impl, list) else [impl]
-            for item in items:
-                yield source, hook_name, item
-
-
-def load_hooks(name=None):
-    """Aggregate the ``hooks`` manifest key across all plugins.
-
-    With *name*, return the flat list of implementations registered for that
-    hook point. Without it, return the full ``{name: [impls]}`` dict.
-    Single (non-list) values are normalized to lists; a non-dict ``hooks``
-    entry is ignored.
-    """
-    result = {}
-    for _source, hook_name, impl in _iter_hook_entries():
-        result.setdefault(hook_name, []).append(impl)
-    return result if name is None else result.get(name, [])
-
-
-def load_hook_entries(name):
-    """Return ``(source, impl)`` pairs for hook point *name*.
-
-    Like ``load_hooks`` but keeps the contributing plugin's source name —
-    useful when the consumer reports which plugin provided what (e.g. for
-    collision errors).
-    """
-    return [(s, i) for s, n, i in _iter_hook_entries() if n == name]
+        for impl in vars(module).values():
+            yield source, impl
 
 
 def _iter_extension_entries():
@@ -345,17 +324,36 @@ def _iter_extension_entries():
     name even when imported into several plugin modules.
     """
     seen = set()
-    for source, module in _iter_plugin_modules():
-        for impl in vars(module).values():
-            names = getattr(impl, "_extends", None)
-            if not names:
-                continue
-            if isinstance(names, str):
-                names = (names,)
-            for name in names:
-                if (name, id(impl)) not in seen:
-                    seen.add((name, id(impl)))
-                    yield source, name, impl
+    for source, impl in _iter_plugin_attrs():
+        names = getattr(impl, "_extends", None)
+        if not names:
+            continue
+        if isinstance(names, str):
+            names = (names,)
+        for name in names:
+            if (name, id(impl)) not in seen:
+                seen.add((name, id(impl)))
+                yield source, name, impl
+
+
+def iter_plugin_subclasses(base):
+    """Yield ``(source, cls)`` for plugin classes subclassing *base*.
+
+    A class registers itself by subclassing *base* — e.g. ``BackupSource``
+    implementations — discovered among each plugin's module-level
+    attributes (plugins must re-export their classes). *base* itself is
+    skipped and each class is yielded once even when re-exported.
+    """
+    seen = set()
+    for source, impl in _iter_plugin_attrs():
+        if (
+            isinstance(impl, type)
+            and impl is not base
+            and issubclass(impl, base)
+            and id(impl) not in seen
+        ):
+            seen.add(id(impl))
+            yield source, impl
 
 
 def load_extensions(name=None):

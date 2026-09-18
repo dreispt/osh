@@ -1,8 +1,8 @@
-"""Tests for the plugin ``hooks`` machinery and command operation extensions.
+"""Tests for command operation extensions.
 
-``hooks`` remains a plugin-to-plugin mechanism; core commands are extended
-through operation classes via the ``@extends`` decorator (see
-``osh.operations``) — the ``osh odoo`` tests below exercise that path.
+Commands delegate to operation classes which plugins extend in place via
+the ``@extends`` decorator (see ``osh.operations``) — the ``osh odoo``
+tests below exercise that path.
 """
 
 import types
@@ -36,33 +36,6 @@ def _patch_plugin_modules(monkeypatch, modules):
         "_iter_plugin_modules",
         lambda: (("test", mod) for mod in modules),
     )
-
-
-def test_load_hooks_aggregates_manifest_hooks(monkeypatch):
-    """``load_hooks`` flattens single and list hook implementations."""
-    hook_a, hook_b, hook_c = object(), object(), object()
-    _patch_plugin_modules(
-        monkeypatch,
-        [
-            _module_with_manifest({"hooks": {"point": [hook_a, hook_b]}}),
-            _module_with_manifest({"hooks": {"point": hook_c}}),
-            _module_with_manifest({"commands": []}),  # no hooks key
-            _module_with_manifest(None),  # no manifest at all
-        ],
-    )
-
-    assert plugin_loader.load_hooks("point") == [hook_a, hook_b, hook_c]
-    assert plugin_loader.load_hooks("missing") == []
-    assert plugin_loader.load_hooks() == {"point": [hook_a, hook_b, hook_c]}
-
-
-def test_load_hooks_ignores_non_dict_hooks(monkeypatch):
-    """A non-dict ``hooks`` manifest value is ignored."""
-    _patch_plugin_modules(
-        monkeypatch,
-        [_module_with_manifest({"hooks": ["not", "a", "dict"]})],
-    )
-    assert plugin_loader.load_hooks() == {}
 
 
 def test_load_extensions_aggregates_marked_classes(monkeypatch):

@@ -63,6 +63,10 @@ class Operation:
         self._set_params(params)
         return self
 
+    def run(self):
+        """Entry point — subclasses implement the command behaviour."""
+        raise NotImplementedError
+
     def _set_params(self, params):
         """Set each param as an instance attribute.
 
@@ -157,14 +161,15 @@ class _OperationRegistry(Mapping):
         entries = list(_iter_extension_entries())
         _warn_unknown_operations(entries)
         exts = [(s, e) for s, n, e in entries if n == name]
+        ext_classes = [e for _, e in exts]
 
         # Cache by identity — extension objects may be unhashable.
         cached = _COMPOSED.get(name)
         if (
             cached is not None
             and cached[0] is base
-            and len(cached[1]) == len(exts)
-            and all(e is ce for (_, e), (_, ce) in zip(exts, cached[1]))
+            and len(cached[1]) == len(ext_classes)
+            and all(e is ce for e, ce in zip(ext_classes, cached[1]))
         ):
             return cached[2]
 
@@ -187,7 +192,7 @@ class _OperationRegistry(Mapping):
                     f"'{source}' extension for '{name}' could not be "
                     f"composed: {exc}; ignored."
                 )
-        _COMPOSED[name] = (base, exts, cls)
+        _COMPOSED[name] = (base, ext_classes, cls)
         return cls
 
     def __contains__(self, name):
