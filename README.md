@@ -176,7 +176,7 @@ Your project files, virtual environment (`.venv/`), and any existing Odoo source
 ## Plugins
 
 `osh` is extensible: plugins can add commands, backends, backup
-source schemes and hooks. The bundled plugins provide `osh db get`,
+source schemes and extend core commands in place. The bundled plugins provide `osh db get`,
 `osh db restore`, `osh db remote` and `osh test`, plus the `none` (plain
 host), `venv` and `docker` backends.
 

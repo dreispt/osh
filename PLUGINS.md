@@ -49,8 +49,10 @@ are optional:
 - `backend_commands` — `click.Group` objects providing the backend's
   `osh <name>` command group (e.g. `osh docker init`), listed under
   "Backend Commands" in `osh --help`.
-- `hooks` — `{hook_point: impl or [impls]}` subscribing to plugin-defined
-  hook points — see [Hook plugins](#hook-plugins).
+
+Declaring the manifest — even as `OSH_PLUGIN_MANIFEST = {}` — marks a
+package as a plugin; extension-only plugins (just `@extends` mixins or
+`BackupSource` subclasses) may have nothing else to declare.
 
 ### Command naming convention
 
@@ -380,30 +382,18 @@ apply `@operation("my_plugin.cmd")` to the operation class and delegate
 to `Env(ctx)["my_plugin.cmd"](...).run()` in the Click wrapper; other
 plugins can then extend `"my_plugin.cmd"` the same way.
 
-### Hook plugins
-
-Hooks are a plugin-to-plugin mechanism: a plugin defines a hook point by
-documenting a name and consuming `load_hooks(<name>)` (or
-`load_hook_entries(<name>)` when it needs to know which plugin
-contributed each item). Other plugins subscribe under `hooks`:
-
-```python
-OSH_PLUGIN_MANIFEST = {"hooks": {"my_plugin.point": [my_impl]}}
-```
-
-`osh_db_get` uses this for backup sources — see
-[Backup source plugins](#backup-source-plugins) — so `osh` core carries
-no backup-specific extension machinery. Core defines no hook points of
-its own: to extend a _core command_, use `@extends`.
-
 ### Backup source plugins
 
-The built-in `osh_db_get` plugin defines a hook point,
-`osh_db_get.sources`, that other plugins can use to add schemes
-`osh db get <scheme>://...` understands:
+`osh db get <scheme>://...` schemes come from `BackupSource` subclasses:
+any plugin module that defines (or re-exports) a subclass registers it
+automatically — no manifest key needed:
 
 ```python
-OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.sources": [MySource]}}
+from osh.backup_sources import BackupSource
+
+
+class MySource(BackupSource):
+    scheme = "myscheme"
 ```
 
 A source class must:
@@ -431,15 +421,22 @@ plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` —
 alongside the `osh db get` command and the `osh db restore` group
 subcommand.
 
-`osh_db_get` defines a second hook point, `osh_db_get.post_restore`,
-fired by `osh db restore` after the dump and neutralization complete.
-Each item is a callable `hook(ctx, base, db_name)` — e.g. to record
-module fingerprints in the restored database. Hooks are skipped under
-`--dry-run`, and a failing hook is reported as a warning without failing
-the restore (run `osh --verbose` for the hook's traceback):
+`osh db restore` is a regular operation (`db.restore`), so post-restore
+behaviour is an ordinary `@extends` mixin: override `post_restore()` and
+call `super()`. The operation state carries `self.ctx`, `self.base`,
+`self.db_name` and `self.env_spec`; `post_restore` is skipped under
+`--dry-run`, and a failing extension is reported as a warning without
+failing the restore (run `osh --verbose` for the traceback):
 
 ```python
-OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.post_restore": [my_hook]}}
+from osh.operations import extends
+
+
+@extends("db.restore")
+class FingerprintBaseline:
+    def post_restore(self):
+        super().post_restore()
+        # e.g. record module fingerprints in self.db_name
 ```
 
 Example plugin source:
@@ -473,9 +470,6 @@ Example:
         if dry_run:
             return
         # download from S3 into output
-
-
-OSH_PLUGIN_MANIFEST = {"hooks": {"osh_db_get.sources": [S3BackupSource]}}
 ```
 
 ### EnvSpec
