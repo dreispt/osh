@@ -18,13 +18,196 @@ from ...db import (
     sanitize_db_name,
     set_last_db,
 )
+from ...operations import Env, Operation, operation
 from ...utils.odoo_layout import find_odoo_executable
-from ...utils.plugin_loader import load_hook_entries
 from ...utils.version import get_version_tuple
 from . import restore_ops
 from .remotes import newest_cache_for_remote, newest_cache_for_source
 
-POST_RESTORE_HOOK = "osh_db_get.post_restore"
+
+@operation("db.restore")
+class DbRestore(Operation):
+    """`osh db restore` operation — restore a backup and neutralize it.
+
+    Extensions override step methods via ``@extends``, calling ``super()``.
+    Command state is on ``self``: ``ctx``, the parsed params plus ``base``,
+    ``backend``, ``dump_path`` and ``db_name`` as ``run()`` fills them in.
+    """
+
+    dump = None
+    list_backups = False
+    limit = 20
+    reverse = False
+    force = False
+    no_neutralize = False
+    target_db = None
+    dry_run = False
+
+    def run(self):
+        self.base = find_project_root(required=True)
+        if self.list_backups:
+            restore_ops.list_cached_backups(
+                self.base, limit=self.limit, reverse=self.reverse
+            )
+            return
+        self.dump_path = self.resolve_dump_path()
+        self.db_name = self.resolve_target_db()
+        self.backend = resolve_backend(self.base)
+        check_run_diagnostics(self.base, self.backend, self.ctx)
+        self.prepare_target()
+        self.restore_dump()
+        if not self.no_neutralize:
+            self.neutralize()
+        self.run_post_restore()
+        if not self.dry_run:
+            set_last_db(self.base, self.db_name)
+            self.report()
+
+    def resolve_dump_path(self):
+        """Resolve the DUMP argument to a local backup file path."""
+        return (
+            newest_cache_for_remote(self.base, self.dump)
+            or newest_cache_for_source(self.base, self.dump)
+            or restore_ops.resolve_backup_path(self.base, self.dump)
+        )
+
+    def resolve_target_db(self):
+        """Return the database name to restore into."""
+        db_name = (
+            sanitize_db_name(self.target_db)
+            if self.target_db
+            else resolve_db_name(self.base, verbose=False)
+        )
+        if not db_name:
+            raise click.ClickException("Could not resolve a target database name.")
+        return db_name
+
+    def prepare_target(self):
+        """Drop an existing target database when ``--force`` allows it."""
+        if not db_exists(self.base, self.db_name, ctx=self.ctx, dry_run=self.dry_run):
+            return
+        if not self.force:
+            raise click.ClickException(
+                f"Database '{self.db_name}' already exists. "
+                "Use --force to overwrite."
+            )
+        if self.dry_run:
+            echo.info(f"Would drop database '{self.db_name}'", err=True)
+        else:
+            drop_db(self.base, self.db_name, ctx=self.ctx)
+
+    def restore_dump(self):
+        """Create the target database and stream the dump into it."""
+        if self.dry_run:
+            echo.info(f"Would create database '{self.db_name}'", err=True)
+            restore_ops.restore_dump(
+                self.base, self.dump_path, self.db_name, dry_run=True
+            )
+        else:
+            create_db(self.base, self.db_name, ctx=self.ctx)
+            restore_ops.restore_dump(
+                self.base, self.dump_path, self.db_name, dry_run=False, ctx=self.ctx
+            )
+
+    def neutralize(self):
+        """Neutralize the restored database (Odoo command and/or SQL scripts).
+
+        The neutralization method is chosen from the *database* version, not
+        the *local* Odoo version. This lets a user restore an older dump
+        (e.g. 14.0) into a newer project (e.g. 19.0) without the built-in
+        ``odoo-bin neutralize`` failing on missing tables/columns.
+        """
+        if self.dry_run:
+            # The database does not exist in dry-run mode, so just preview
+            # the built-in neutralize command. The real method is decided
+            # after restore.
+            self.odoo_neutralize(dry_run=True)
+            restore_ops.run_project_neutralize_scripts(
+                self.base, self.db_name, dry_run=True, ctx=self.ctx
+            )
+            return
+
+        db_version = get_database_version(self.base, self.db_name, ctx=self.ctx)
+        exe = find_odoo_executable(self.base)
+        local_version = get_version_tuple(exe) if exe else None
+
+        use_odoo = (
+            db_version is not None
+            and db_version >= (16, 0)
+            and local_version is not None
+            and db_version == local_version
+        )
+
+        if use_odoo:
+            self.odoo_neutralize(dry_run=False)
+        else:
+            if db_version is None:
+                echo.warning(
+                    f"Could not determine database version for '{self.db_name}'; "
+                    "using SQL fallback neutralization."
+                )
+            elif local_version is not None and db_version != local_version:
+                echo.warning(
+                    f"Database is {db_version[0]}.{db_version[1]}, local Odoo is "
+                    f"{local_version[0]}.{local_version[1]}; using SQL fallback "
+                    "neutralization."
+                )
+            restore_ops.neutralize_with_sql(self.base, self.db_name, ctx=self.ctx)
+
+        restore_ops.run_project_neutralize_scripts(
+            self.base, self.db_name, dry_run=self.dry_run, ctx=self.ctx
+        )
+
+    def odoo_neutralize(self, *, dry_run):
+        """Run ``odoo neutralize -d <db_name>`` through ``osh odoo``."""
+        self.ctx.invoke(
+            odoo,
+            dry_run=dry_run,
+            compose_file=None,
+            no_db_filter=True,
+            extra_args=("neutralize", "-d", self.db_name),
+        )
+
+    def run_post_restore(self):
+        """Run ``post_restore`` extensions; failures warn, never fail.
+
+        The database is fully restored at this point, so a failing
+        extension is reported as a warning instead of failing the command.
+        Under ``--dry-run`` no database exists — extensions are skipped.
+        """
+        if self.dry_run:
+            return
+        try:
+            self.post_restore()
+        except Exception as exc:
+            echo.warning(f"post-restore step failed: {type(exc).__name__}: {exc}")
+            echo.internal(
+                f"Traceback for post-restore step:\n{traceback.format_exc()}",
+                err=True,
+            )
+
+    def post_restore(self):
+        """Extension point — runs after the restore and neutralization.
+
+        Plugins override this via ``@extends("db.restore")`` and call
+        ``super()``; ``self.db_name`` is the restored database. Failures
+        are reported as warnings and cannot fail the completed restore.
+        """
+
+    def report(self):
+        """Print the restore success message."""
+        if self.no_neutralize:
+            echo.info(
+                f"Restored database '{self.db_name}' from {self.dump_path} "
+                "(neutralization skipped)",
+                err=True,
+            )
+        else:
+            echo.info(
+                f"Restored and neutralized database '{self.db_name}' "
+                f"from {self.dump_path}",
+                err=True,
+            )
 
 
 @click.command(name="restore")
@@ -110,11 +293,10 @@ def restore(
     `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
     scripts.
 
-    Once the restore (and neutralization) completes, plugins subscribing to
-    the ``osh_db_get.post_restore`` hook point run as ``hook(ctx, base,
-    db_name)`` — e.g. to record module fingerprints in the restored
-    database. Hook failures are reported as warnings; they cannot fail an
-    already-completed restore.
+    Once the restore (and neutralization) completes, plugins extending the
+    ``db.restore`` operation through ``post_restore()`` run — e.g. to record
+    module fingerprints in the restored database. Failures are reported as
+    warnings; they cannot fail an already-completed restore.
 
     Neutralization hooks:
 
@@ -137,149 +319,13 @@ def restore(
       osh db restore /path/to/backup.sql.gz --db prod_restore --force
       osh db restore --list
     """
-    base = find_project_root(required=True)
-
-    if list_backups:
-        restore_ops.list_cached_backups(base, limit=limit, reverse=reverse)
-        return
-
-    dump_path = newest_cache_for_remote(base, dump)
-    if dump_path is None:
-        dump_path = newest_cache_for_source(base, dump)
-    if dump_path is None:
-        dump_path = restore_ops.resolve_backup_path(base, dump)
-
-    db_name = (
-        sanitize_db_name(target_db)
-        if target_db
-        else resolve_db_name(base, verbose=False)
-    )
-    if not db_name:
-        raise click.ClickException("Could not resolve a target database name.")
-
-    backend = resolve_backend(base)
-    check_run_diagnostics(base, backend, ctx)
-
-    if db_exists(base, db_name, ctx=ctx, dry_run=dry_run):
-        if not force:
-            raise click.ClickException(
-                f"Database '{db_name}' already exists. Use --force to overwrite."
-            )
-        if dry_run:
-            echo.info(f"Would drop database '{db_name}'", err=True)
-        else:
-            drop_db(base, db_name, ctx=ctx)
-
-    if dry_run:
-        echo.info(f"Would create database '{db_name}'", err=True)
-        restore_ops.restore_dump(base, dump_path, db_name, dry_run=True)
-    else:
-        create_db(base, db_name, ctx=ctx)
-        restore_ops.restore_dump(base, dump_path, db_name, dry_run=False, ctx=ctx)
-
-    if not no_neutralize:
-        _neutralize(ctx, base, db_name, dry_run=dry_run)
-
-    _run_post_restore_hooks(ctx, base, db_name, dry_run=dry_run)
-
-    if not dry_run:
-        set_last_db(base, db_name)
-        if no_neutralize:
-            echo.info(
-                f"Restored database '{db_name}' from {dump_path} "
-                "(neutralization skipped)",
-                err=True,
-            )
-        else:
-            echo.info(
-                f"Restored and neutralized database '{db_name}' from {dump_path}",
-                err=True,
-            )
-
-
-def _neutralize(ctx, base, db_name, *, dry_run=False):
-    """Neutralize the restored database using Odoo's command and/or SQL scripts.
-
-    The neutralization method is chosen from the *database* version, not the
-    *local* Odoo version. This lets a user restore an older dump (e.g. 14.0)
-    into a newer project (e.g. 19.0) without the built-in ``odoo-bin neutralize``
-    failing on missing tables/columns.
-    """
-    if dry_run:
-        # The database does not exist in dry-run mode, so just preview the
-        # built-in neutralize command. The real method is decided after restore.
-        _odoo_neutralize(ctx, db_name, dry_run=True)
-        restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=True, ctx=ctx)
-        return
-
-    db_version = get_database_version(base, db_name, ctx=ctx)
-    exe = find_odoo_executable(base)
-    local_version = get_version_tuple(exe) if exe else None
-
-    use_odoo = (
-        db_version is not None
-        and db_version >= (16, 0)
-        and local_version is not None
-        and db_version == local_version
-    )
-
-    if use_odoo:
-        _odoo_neutralize(ctx, db_name, dry_run=False)
-    else:
-        if db_version is None:
-            echo.warning(
-                f"Could not determine database version for '{db_name}'; "
-                "using SQL fallback neutralization."
-            )
-        elif local_version is not None and db_version != local_version:
-            echo.warning(
-                f"Database is {db_version[0]}.{db_version[1]}, local Odoo is "
-                f"{local_version[0]}.{local_version[1]}; using SQL fallback "
-                "neutralization."
-            )
-        restore_ops.neutralize_with_sql(base, db_name, ctx=ctx)
-
-    restore_ops.run_project_neutralize_scripts(base, db_name, dry_run=dry_run, ctx=ctx)
-
-
-def _odoo_neutralize(ctx, db_name, *, dry_run):
-    """Run ``odoo neutralize -d <db_name>`` through the ``osh odoo`` command."""
-    ctx.invoke(
-        odoo,
+    Env(ctx)["db.restore"](
+        dump=dump,
+        list_backups=list_backups,
+        limit=limit,
+        reverse=reverse,
+        force=force,
+        no_neutralize=no_neutralize,
+        target_db=target_db,
         dry_run=dry_run,
-        compose_file=None,
-        no_db_filter=True,
-        extra_args=("neutralize", "-d", db_name),
-    )
-
-
-def _run_post_restore_hooks(ctx, base, db_name, *, dry_run):
-    """Invoke plugins subscribed to the ``osh_db_get.post_restore`` hook point.
-
-    Each hook is a callable ``hook(ctx, base, db_name)`` run after the dump
-    and neutralization completed. The database is fully restored at this
-    point, so a failing hook is reported as a warning instead of failing the
-    command. Under ``--dry-run`` no database exists to touch — the hooks are
-    listed but not called.
-
-    A hook failure only warns, so the exception type and traceback are the
-    plugin author's only diagnostics: the type goes in the warning and the
-    traceback is kept for ``--verbose``.
-    """
-    entries = load_hook_entries(POST_RESTORE_HOOK)
-    if dry_run:
-        if entries:
-            echo.info(f"Would run {len(entries)} post-restore hook(s)", err=True)
-        return
-    for source, hook in entries:
-        try:
-            hook(ctx, base, db_name)
-        except Exception as exc:
-            echo.warning(
-                f"post-restore hook from '{source}' failed: {type(exc).__name__}: {exc}"
-            )
-            echo.internal(
-                f"Traceback for '{source}' post-restore hook:\n"
-                f"{traceback.format_exc()}",
-                err=True,
-            )
+    ).run()

@@ -1,13 +1,16 @@
 """Tests for the `osh db restore` command."""
 
 import json
+import types
 from pathlib import Path
 
 from click.testing import CliRunner
 
+from osh import operations
 from osh.commands.helpers import Diagnostics
 from osh.db import set_project_config
 from osh.plugins.osh_db_get.restore_cmd import restore
+from osh.utils import plugin_loader
 
 
 def _setup_fake_db_config(project, db_name="testdb"):
@@ -525,29 +528,32 @@ def test_restore_top_level_alias_is_gone(patched_restore, in_project):
     assert not patched_restore["restore"]
 
 
-# Post-restore hooks ------------------------------------------------------
+# Post-restore extensions ---------------------------------------------------
 
 
-def _register_post_restore_hooks(monkeypatch, entries):
-    """Point ``load_hook_entries`` at *entries* ``(source, hook)`` pairs."""
+def _register_post_restore(monkeypatch, cls):
+    """Expose *cls* as a ``db.restore`` extension via a fake plugin module."""
+    module = types.SimpleNamespace(ext=operations.extends("db.restore")(cls))
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.load_hook_entries",
-        lambda name: entries,
+        plugin_loader, "_iter_plugin_modules", lambda: iter([("test", module)])
     )
 
 
-def test_restore_runs_post_restore_hooks(patched_restore, in_project, monkeypatch):
-    """Post-restore hooks run with (ctx, base, db_name) after the restore."""
+def test_restore_runs_post_restore_extensions(patched_restore, in_project, monkeypatch):
+    """``post_restore`` extensions run with op state after the restore."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
     dump.write_bytes(b"x")
 
     calls = []
-    _register_post_restore_hooks(
-        monkeypatch,
-        [("fake", lambda ctx, base, db_name: calls.append((base, db_name)))],
-    )
+
+    class Probe:
+        def post_restore(self):
+            super().post_restore()
+            calls.append((self.base, self.db_name))
+
+    _register_post_restore(monkeypatch, Probe)
 
     runner = CliRunner()
     result = runner.invoke(restore, [str(dump)])
@@ -556,36 +562,42 @@ def test_restore_runs_post_restore_hooks(patched_restore, in_project, monkeypatc
     assert calls == [(in_project, patched_restore["db_name"])]
 
 
-def test_restore_post_restore_hooks_dry_run(patched_restore, in_project, monkeypatch):
-    """Under --dry-run hooks are announced but not called."""
+def test_restore_post_restore_extensions_dry_run(
+    patched_restore, in_project, monkeypatch
+):
+    """Under --dry-run no database exists — extensions are skipped."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
     dump.write_bytes(b"x")
 
     calls = []
-    _register_post_restore_hooks(
-        monkeypatch,
-        [("fake", lambda ctx, base, db_name: calls.append(db_name))],
-    )
+
+    class Probe:
+        def post_restore(self):
+            super().post_restore()
+            calls.append(self.db_name)
+
+    _register_post_restore(monkeypatch, Probe)
 
     runner = CliRunner()
     result = runner.invoke(restore, [str(dump), "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert calls == []
-    assert "post-restore hook" in result.output
 
 
-def test_restore_post_restore_hook_failure_warns_only(
+def test_restore_post_restore_failure_warns_only(
     patched_restore, in_project, monkeypatch
 ):
-    """A failing hook warns without failing the completed restore."""
+    """A failing extension warns without failing the completed restore."""
 
-    def boom(ctx, base, db_name):
-        raise RuntimeError("hook exploded")
+    class Boom:
+        def post_restore(self):
+            super().post_restore()
+            raise RuntimeError("extension exploded")
 
-    _register_post_restore_hooks(monkeypatch, [("fake", boom)])
+    _register_post_restore(monkeypatch, Boom)
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
@@ -596,17 +608,20 @@ def test_restore_post_restore_hook_failure_warns_only(
     result = runner.invoke(restore, [str(dump)])
 
     assert result.exit_code == 0, result.output
-    assert "'fake' failed" in result.output
+    assert "post-restore step failed" in result.output
     assert patched_restore["restore"]
 
 
-def test_restore_list_does_not_run_hooks(patched_restore, in_project, monkeypatch):
-    """--list returns before any restore work — no hooks run."""
+def test_restore_list_does_not_run_extensions(patched_restore, in_project, monkeypatch):
+    """--list returns before any restore work — no extensions run."""
     calls = []
-    _register_post_restore_hooks(
-        monkeypatch,
-        [("fake", lambda ctx, base, db_name: calls.append(db_name))],
-    )
+
+    class Probe:
+        def post_restore(self):
+            super().post_restore()
+            calls.append(self.db_name)
+
+    _register_post_restore(monkeypatch, Probe)
 
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)

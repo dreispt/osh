@@ -1,8 +1,8 @@
 """Backup source interface for `osh db get`.
 
-Third-party plugins implement :class:`BackupSource` subclasses and register
-them through the ``"osh_db_get.sources"`` hook point declared by the
-``osh_db_get`` plugin — see ``osh.plugins.osh_db_get.registry``.
+Third-party plugins implement :class:`BackupSource` subclasses; any subclass
+defined at a plugin module's top level is discovered automatically — see
+``osh.plugins.osh_db_get.registry``.
 """
 
 import re
@@ -34,8 +34,8 @@ class BackupSource:
     implement ``from_source()``, ``default_output_name()``, and ``fetch()``.
     They may also set ``description`` to a short human-readable summary shown
     in ``osh db get --help``.
-    Plugins register subclasses through the ``"osh_db_get.sources"`` hook
-    point in their ``OSH_PLUGIN_MANIFEST``.
+    Plugins register subclasses simply by defining them at a plugin
+    module's top level — they are discovered automatically.
     """
 
     scheme = ""

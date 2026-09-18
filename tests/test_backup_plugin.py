@@ -455,7 +455,7 @@ def test_download_ssh_source_invokes_fetch(
 
 
 def test_plugin_backup_source_registry(monkeypatch):
-    """Plugins can register backup source classes through the loader hook."""
+    """Plugins register backup sources by subclassing ``BackupSource``."""
     from osh.plugins.osh_db_get import registry as sources
 
     class S3Source(BackupSource):
@@ -473,8 +473,8 @@ def test_plugin_backup_source_registry(monkeypatch):
 
     monkeypatch.setattr(
         sources,
-        "load_hook_entries",
-        lambda name: [("test", S3Source)],
+        "iter_plugin_subclasses",
+        lambda base: iter([("test", S3Source)]),
     )
     monkeypatch.setattr(sources, "_SOURCE_REGISTRY", None)
 

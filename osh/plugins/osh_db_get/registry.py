@@ -1,16 +1,13 @@
 """Backup source registry for `osh db get`.
 
-Sources are discovered through the ``osh_db_get.sources`` hook point this
-plugin defines: any plugin may map it to ``BackupSource`` subclasses in the
-``hooks`` key of its ``OSH_PLUGIN_MANIFEST`` — including ``osh_db_get``
-itself, which registers the bundled schemes that way.
+Sources are discovered by subclassing: any ``BackupSource`` subclass
+importable from a loaded plugin registers automatically — including
+``osh_db_get`` itself, which registers the bundled schemes the same way.
 """
 
 from ... import echo
-from ...backup_sources import SourceError
-from ...utils.plugin_loader import load_hook_entries
-
-SOURCES_HOOK = "osh_db_get.sources"
+from ...backup_sources import BackupSource, SourceError
+from ...utils.plugin_loader import iter_plugin_subclasses
 
 _SOURCE_REGISTRY = None
 
@@ -20,12 +17,12 @@ def _source_registry():
     global _SOURCE_REGISTRY
     if _SOURCE_REGISTRY is None:
         registry = {}
-        for source, cls in load_hook_entries(SOURCES_HOOK):
+        for source, cls in iter_plugin_subclasses(BackupSource):
             scheme = getattr(cls, "scheme", None)
-            if not (isinstance(cls, type) and scheme):
+            if not scheme:
                 echo.error(
-                    f"'{source}' contributed an invalid backup source "
-                    f"for hook '{SOURCES_HOOK}'; ignored."
+                    f"backup source '{cls.__name__}' from '{source}' has no "
+                    "'scheme' attribute; ignored."
                 )
                 continue
             if scheme in registry:
