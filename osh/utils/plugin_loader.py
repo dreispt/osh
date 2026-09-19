@@ -31,6 +31,7 @@ from .plugin_registry import (  # noqa: F401
     PluginRegistry,
     PluginSpec,
     _decl_help,
+    _decl_hidden,
     _decl_is_group,
     _is_plugin_dir,
     plugin_meta,
@@ -314,7 +315,13 @@ def _lazy_command(spec, group, name, decl):
         return spec.resolve_command(group, name)
 
     cls = LazyGroup if is_group else LazyCommand
-    return cls(name, loader, plugin=spec.name, short_help=_decl_help(decl))
+    return cls(
+        name,
+        loader,
+        plugin=spec.name,
+        short_help=_decl_help(decl),
+        hidden=_decl_hidden(decl),
+    )
 
 
 def _callable_command(func, name):

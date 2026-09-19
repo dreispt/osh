@@ -62,6 +62,7 @@ class CommandHandler:
       placement (``<group>.<command>``).
     - ``_cli_group``: target group override (``""`` forces top level).
     - ``_cli_context_settings``: dict passed to the ``click.Command``.
+    - ``_cli_hidden``: truthy hides the command from ``--help`` listings.
 
     Help text has two sources with disjoint roles: the plugin's
     ``osh-plugin.toml`` declaration is the short description shown in
@@ -75,6 +76,7 @@ class CommandHandler:
     _cli_name = None
     _cli_group = None
     _cli_context_settings = None
+    _cli_hidden = False
 
     def __new__(cls, *args, **kwargs):
         # Instantiating a named handler yields its effective class — the

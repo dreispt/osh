@@ -252,6 +252,25 @@ def test_spec_load_not_called_for_help(plugin_dir, monkeypatch):
     assert not spec.loaded
 
 
+def test_hidden_declared_command_is_not_listed(plugin_dir):
+    """``hidden = true`` declarations register hidden lazy stubs."""
+    _copy_plugin(plugin_dir, "repo_help")
+
+    from click.testing import CliRunner
+
+    commands = {cmd.name: cmd for _src, cmd in plugin_loader.load_plugins()}
+
+    assert commands["secret"].hidden
+    assert not commands["helped"].hidden
+
+    group = plugin_loader.click.Group()
+    for cmd in commands.values():
+        group.add_command(cmd)
+    result = CliRunner().invoke(group, ["--help"])
+    assert "helped" in result.output
+    assert "secret" not in result.output
+
+
 def test_lazy_command_import_error_is_reported(plugin_dir):
     """A plugin failing to import reports a clean error at invocation time."""
     _copy_plugin(plugin_dir, "repo_bad")

@@ -98,6 +98,18 @@ def test_underscore_named_handler_generates_no_command():
     assert GroupUtil.cli_command() == (None, None)
 
 
+def test_cli_hidden_handler_generates_hidden_command():
+    """``_cli_hidden`` hides the generated command from help listings."""
+
+    class Sidecar(CommandHandler):
+        _cli_name = "sidecar"
+        _cli_hidden = True
+
+    group, command = Sidecar.cli_command()
+    assert group is None
+    assert command.hidden is True
+
+
 def test_instantiating_named_handler_dispatches_to_effective(monkeypatch):
     """``Handler(...)`` transparently yields the composed class instance."""
     _patch_plugin_modules(monkeypatch, [_module_with_extensions(_LayersFirst)])

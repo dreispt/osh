@@ -225,9 +225,12 @@ class PluginSpec:
             else:
                 command = _module_commands(module).get((group, name))
         if command is not None:
-            short = _decl_help(self._command_decl(group, name))
+            decl = self._command_decl(group, name)
+            short = _decl_help(decl)
             if short:
                 command.short_help = short
+            if _decl_hidden(decl):
+                command.hidden = True
         return command
 
     def _command_decl(self, group, name):
@@ -532,3 +535,8 @@ def _decl_help(decl):
 def _decl_is_group(decl):
     """Whether a command declaration marks a nested ``click.Group``."""
     return isinstance(decl, dict) and bool(decl.get("group"))
+
+
+def _decl_hidden(decl):
+    """Whether a command declaration marks the command as hidden."""
+    return isinstance(decl, dict) and bool(decl.get("hidden"))

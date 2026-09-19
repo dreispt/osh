@@ -1,2 +1,3 @@
 [commands]
 helped = "Helpy command."
+secret = { hidden = true, help = "Not listed." }

@@ -107,6 +107,7 @@ depends = ["osh-db-get"]
 [commands]                 # top-level `osh <name>` commands
 hello = "Say hello."
 remote = { group = true, help = "Manage remotes." }   # a click.Group
+_sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 
 [group_commands.db]        # subcommands of an existing group
 restore = "Restore a backup."
@@ -123,7 +124,9 @@ s3 = "Download a backup from an S3 bucket."
 
 Command declaration values are the short help text shown in `--help`
 listings, or a table with `help` and optional `group = true` when the
-command is a nested `click.Group` (e.g. `osh db remote`).
+command is a nested `click.Group` (e.g. `osh db remote`), or `hidden =
+true` for internal commands that never appear in listings (e.g. sidecar
+helpers spawned by the plugin itself).
 
 The declared names must match what the code provides on import — a
 command listed in `[commands]` resolves to a `CommandHandler` subclass
@@ -334,6 +337,9 @@ import, so listings never drift), and the class docstring is the
   handlers under the `handlers` key in `osh-plugin.toml`.
 - `_cli_group`: target group override for bare names.
 - `_cli_context_settings`: dict passed to the `click.Command`.
+- `_cli_hidden`: truthy hides the command from `--help` listings — the
+  command stays invocable. Pair it with `hidden = true` in the marker so
+  the lazy stub is hidden before the plugin loads.
 
 The handler class is the command's public API — `DbAudit(ctx,
 verbose=True).run()` runs it, resolving any registered extensions

@@ -75,6 +75,7 @@ def handler_command(name, cls):
         params=[],
         help=inspect.getdoc(cls),
         context_settings=cls._cli_context_settings,
+        hidden=cls._cli_hidden,
         handler=cls,
     )
 
