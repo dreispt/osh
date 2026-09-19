@@ -171,16 +171,16 @@ def _git_checkout(repo, name, *, create):
 
 def _refresh(ctx, name, refresh):
     """Restore a backup into *name*'s database, fetching a raw source first."""
-    # Imported lazily: osh_db_get.restore_cmd already imports osh.commands,
-    # so a top-level import here would be circular.
-    from ..plugins.osh_db_get.backup_cmd import get
-    from ..plugins.osh_db_get.restore_cmd import restore
+    # Resolved lazily: osh_db_get already imports osh.commands, so a
+    # top-level import here would be circular — and the handlers live in a
+    # plugin that must not load until invoked.
+    from ..handlers import resolve
 
     dump = refresh or None
     if refresh and "://" in refresh:
-        ctx.invoke(get, source=refresh)
+        resolve("db.get")(ctx, source=refresh).run()
         dump = None  # the freshly fetched backup is now the newest cached one
-    ctx.invoke(restore, dump=dump)
+    resolve("db.restore")(ctx, dump=dump).run()
 
 
 def _repo_label(base, repo):

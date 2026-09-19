@@ -8,10 +8,13 @@ import pytest
 from click.testing import CliRunner
 
 from osh.backup_sources import BackupSource, SourceError
-from osh.plugins.osh_db_get.backup_cmd import get
+from osh.cli_utils import handler_command
+from osh.plugins.osh_db_get.backup_cmd import DbGet
 from osh.plugins.osh_db_get.sources.https import HttpsSource
 from osh.plugins.osh_db_get.sources.odoosh import OdooshSource
 from osh.plugins.osh_db_get.sources.ssh import SshSource
+
+get = handler_command("get", DbGet)
 
 
 def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
@@ -455,7 +458,7 @@ def test_download_ssh_source_invokes_fetch(
 
 
 def test_plugin_backup_source_registry(monkeypatch):
-    """Plugins can register backup source classes through the loader hook."""
+    """Plugins register backup sources by subclassing ``BackupSource``."""
     from osh.plugins.osh_db_get import registry as sources
 
     class S3Source(BackupSource):
@@ -473,10 +476,9 @@ def test_plugin_backup_source_registry(monkeypatch):
 
     monkeypatch.setattr(
         sources,
-        "load_hook_entries",
-        lambda name: [("test", S3Source)],
+        "get_source_class",
+        lambda scheme: S3Source if scheme == "s3" else None,
     )
-    monkeypatch.setattr(sources, "_SOURCE_REGISTRY", None)
 
     source = sources.parse_source("s3://my-bucket/path/to/backup.zip")
     assert isinstance(source, S3Source)

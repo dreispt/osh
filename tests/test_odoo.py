@@ -479,3 +479,13 @@ def test_config_odoo_dev_writes_project_config(in_project):
 
     assert result.exit_code == 0, result.output
     assert get_project_config(in_project, "odoo", "dev") == "off"
+
+
+def test_none_backend_diagnose_reports_installed_odoo_version(
+    tmp_project, fake_odoo_executable
+):
+    """``NoneBackend.diagnose`` reports the installed Odoo version."""
+    from osh.backends import NoneBackend
+
+    diagnostics = NoneBackend().diagnose(tmp_project)
+    assert diagnostics.info["none"]["odoo_version"] == "odoo 19.0"

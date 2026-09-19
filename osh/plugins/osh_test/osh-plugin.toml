@@ -1,0 +1,4 @@
+description = "Run the project's Odoo test suite."
+
+[commands]
+test = "Run Odoo tests for the project's modules."

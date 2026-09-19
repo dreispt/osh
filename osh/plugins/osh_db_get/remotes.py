@@ -15,6 +15,7 @@ from ... import echo
 from ...backup_sources import SourceError
 from ...common import find_project_root
 from ...db import load_osh_config, set_project_config
+from ...handlers import plugin_group
 from .cache import list_cache
 from .registry import canonical_source, parse_source
 
@@ -82,6 +83,7 @@ def _newest_cache_matching(base, source, *, what, hint):
     )
 
 
+@plugin_group("db")
 @click.group(name="remote")
 def remote():  # noqa: D401
     """Manage named backup sources (git-remote style).

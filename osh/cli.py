@@ -14,6 +14,7 @@ from .utils.plugin_loader import (
     load_backend_commands,
     load_group_commands,
     load_plugins,
+    warn_unresolved_meta,
 )
 
 
@@ -147,7 +148,7 @@ for plugin_source, plugin_cmd in load_plugins():
 main.plugin_commands = _plugin_commands
 
 # Register backend command groups, declared by plugins via the
-# ``backend_commands`` manifest key. They render in their own
+# ``[backend_commands]`` metadata section. They render in their own
 # "Backend Commands" help section. The built-in ``none`` backend has no
 # group — it is the absence of a managed backend; ``osh init`` is its
 # setup, ``osh backend stop`` its teardown, ``osh backend deactivate`` the
@@ -160,10 +161,19 @@ for plugin_source, backend_group_cmd in load_backend_commands():
     if name is not None:
         main.backend_commands[name] = plugin_source
 
-# Register plugin-provided subcommands on existing command groups
-# (``group_commands`` manifest key).
+# Register plugin-provided subcommands on command groups — plugin
+# handlers with dotted names (``db.restore``) and ``@plugin_group``-stamped
+# groups, declared under ``[group_commands.<group>]``. Missing
+# target groups are created on demand (e.g. a ``backup.dump`` handler
+# creates the ``backup`` group); targeting a non-group command is an error.
 for group_name, entries in load_group_commands().items():
     target = main.commands.get(group_name)
+    if target is None:
+        target = NaturalOrderGroup(name=group_name)
+        registered = _register_plugin_command(main, target, entries[0][0], group_name)
+        if registered is None:
+            continue
+        main.plugin_commands[registered] = entries[0][0]
     if not isinstance(target, click.Group):
         for source, _cmd in entries:
             echo.error(
@@ -181,6 +191,11 @@ for group_name, entries in load_group_commands().items():
                 name: source,
             }
 
+# Flag plugin metadata referencing things nothing provides — a plugin
+# extending a missing handler would otherwise never load, silently. The
+# check reads declarations and already-loaded classes only.
+warn_unresolved_meta()
+
 # Order the top-level command list to match the documented command surface.
 # Plugin-provided commands keep their registration order at the end and are
 # listed in a separate help section (see NaturalOrderGroup.format_commands).
@@ -192,7 +207,6 @@ _COMMAND_ORDER = [
     "test",
     "db",
     "addon",
-    "doctor",
     "backend",
     "config",
     "plug",

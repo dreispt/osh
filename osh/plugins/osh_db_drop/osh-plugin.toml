@@ -1,0 +1,6 @@
+description = "Drop databases and their filestore directories."
+
+extends = ["db.list"]
+
+[group_commands.db]
+drop = "Drop a PostgreSQL database and its filestore."

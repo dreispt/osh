@@ -1,0 +1,7 @@
+description = "Docker Compose backend."
+
+[backends]
+docker = "Run Odoo inside a Docker Compose stack."
+
+[backend_commands]
+docker = "Manage the project's Docker Compose stack."

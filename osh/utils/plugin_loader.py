@@ -1,357 +1,458 @@
-"""Plugin loader for Osh.
+"""Plugin loader — stage 2 of the two-stage loading model.
 
-Loads built-in plugins from `osh.plugins`, third-party plugins registered as
-Python entry points, and user-installed plugins from `~/.config/osh/plugins/`.
+Stage 1 — metadata discovery and the plugin registry — lives in
+``plugin_registry``. This module resolves *contributions*: it imports a
+plugin's module the first time something it provides is needed — its
+command invoked, a handler it extends executed, its backend selected, or
+its backup source scheme used — and scans the loaded module for
+self-described classes (``CommandHandler`` subclasses, ``Backend`` /
+``BackupSource`` subclasses, ``@plugin_group``-stamped groups).
 
-A plugin declares what it provides in an `OSH_PLUGIN_MANIFEST` dict with
-`commands`, `backends` and `group_commands` keys, plus an optional `hooks`
-key mapping hook point names (see `osh.hooks`) to callables or lists of
-implementations. Plugins may also define their own hook points — e.g. the
-`osh_db_get` plugin discovers backup sources via ``"osh_db_get.sources"``.
-Plugins are expected to be Python packages (directories with `__init__.py`)
-or a single `osh_plugin.py` file.
+Command/handler semantics live with the classes themselves —
+``CommandHandler.cli_command()`` derives placement from ``_cli_name``,
+``CommandHandler.effective()`` composes extensions. The loader only
+decides *when* a module is worth importing and *what* attributes it
+exposes.
 
-`load_plugins()` returns ``(source, command)`` pairs so callers can resolve
-command-name collisions by prefixing the command with its plugin source.
+``load_plugins()`` returns ``(source, command)`` pairs so callers can
+resolve command-name collisions by prefixing the command with its plugin
+source.
 """
-
-import importlib
-import importlib.util
-import os
-import pkgutil
-import re
-import sys
-from pathlib import Path
 
 import click
 
 from .. import echo
-from ..config import get_enabled_plugins
 
-try:
-    import importlib.metadata as _metadata
-except ImportError:  # pragma: no cover
-    _metadata = None
-
-
-def user_plugin_dir():
-    """Return the directory where user plugins are installed."""
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    if config_home:
-        base = Path(config_home)
-    else:
-        base = Path.home() / ".config"
-    return base / "osh" / "plugins"
-
-
-def _plugin_name_from_path(path):
-    """Return a valid Python module name for a plugin directory."""
-    name = path.name
-    name = re.sub(r"[^a-zA-Z0-9_]+", "_", name)
-    name = name.strip("_")
-    if name[0].isdigit():
-        name = f"plugin_{name}"
-    return name or "plugin"
+# Re-exported: the discovery machinery moved to ``plugin_registry`` but
+# remains reachable here for existing imports.
+from .plugin_registry import (  # noqa: F401
+    _BACKEND_SECTION,
+    PLUGIN_MARKER,
+    PluginRegistry,
+    PluginSpec,
+    _decl_help,
+    _decl_hidden,
+    _decl_is_group,
+    _is_plugin_dir,
+    plugin_meta,
+    plugin_registry,
+    plugin_source_name,
+    plugin_subdirs,
+    reset_plugin_registry,
+    user_plugin_dir,
+)
 
 
-def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
-    """Import a plugin package or `osh_plugin.py` from a directory."""
-    if not plugin_dir.is_dir():
-        return None
+def ensure_declared(meta_key, name=None):
+    """Import lazy plugins declaring *meta_key*, optionally entry *name*.
 
-    init_file = plugin_dir / "__init__.py"
-    module_file = plugin_dir / "osh_plugin.py"
-    module_name = f"{prefix}_{_plugin_name_from_path(plugin_dir)}"
-
-    if init_file.is_file():
-        spec = importlib.util.spec_from_file_location(
-            module_name, init_file, submodule_search_locations=[str(plugin_dir)]
-        )
-    elif module_file.is_file():
-        spec = importlib.util.spec_from_file_location(module_name, module_file)
-    else:
-        return None
-
-    if spec is None or spec.loader is None:
-        return None
-
-    cached = sys.modules.get(module_name)
-    if cached is not None and getattr(cached, "__file__", None) in (
-        str(init_file),
-        str(module_file),
-    ):
-        return cached
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(module_name, None)
-        raise
-    return module
-
-
-def plugin_source_name(name):
-    """Return a CLI-friendly source identifier from a plugin module/directory name."""
-    name = re.sub(r"^osh\.plugins\.", "", name)
-    name = re.sub(r"[^a-zA-Z0-9]+", "-", name)
-    return name.strip("-") or "plugin"
-
-
-def _iter_entry_point_modules(group="osh.plugins"):
-    """Yield ``(source, module)`` pairs from Python entry points.
-
-    Distributions can register plugins under the ``osh.plugins`` entry point
-    group. The entry point value must be an importable module path.
+    This is the stage-2 trigger for non-command contributions: composing
+    handler *name* imports plugins listing it under ``extends``; resolving
+    backend *name* or source scheme *name* imports the plugins declaring it.
     """
-    if _metadata is None:
-        return
-    try:
-        eps = _metadata.entry_points()
-    except (ImportError, AttributeError, TypeError) as exc:
-        echo.warning(f"Could not scan entry points: {exc}", err=True)
-        return
-    try:
-        selected = eps.select(group=group)
-    except AttributeError:
-        selected = eps.get(group, [])
-    for ep in selected:
-        try:
-            module = importlib.import_module(ep.value)
-            yield ep.name, module
-        except Exception as exc:
-            echo.error(f"Could not load entry-point plugin '{ep.value}': {exc}")
-            continue
+
+    def wanted(spec):
+        declared = spec.meta.get(meta_key)
+        if not declared:
+            return False
+        if name is None:
+            return True
+        if isinstance(declared, dict):
+            return name in declared
+        declared = declared if isinstance(declared, list) else [declared]
+        return name in declared
+
+    _ensure_specs(wanted)
 
 
-def _iter_plugin_modules():
-    """Yield ``(source, module)`` pairs for built-in, entry-point and user plugins."""
-    try:
-        import osh.plugins as plugins_pkg
+def ensure_handler(name):
+    """Import the lazy plugin declaring handler/command *name*.
 
-        for _, module_name, _ in pkgutil.iter_modules(
-            plugins_pkg.__path__, prefix="osh.plugins."
-        ):
-            try:
-                module = importlib.import_module(module_name)
-                source = plugin_source_name(module_name)
-                yield source, module
-            except Exception as exc:
-                echo.error(f"Could not load built-in plugin '{module_name}': {exc}")
-                continue
-    except ImportError:
-        pass
-
-    yield from _iter_entry_point_modules()
-
-    plugin_dir = user_plugin_dir()
-    if plugin_dir.is_dir():
-        for child in sorted(plugin_dir.iterdir()):
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            enabled = get_enabled_plugins(child.name)
-            if enabled is None or plugin_source_name(child.name) in enabled:
-                try:
-                    module = _import_plugin_from_dir(child)
-                except Exception as exc:
-                    echo.error(f"Could not load user plugin '{child}': {exc}")
-                    module = None
-                if module is not None:
-                    yield plugin_source_name(child.name), module
-            yield from _iter_subplugins(child, enabled=enabled)
-
-
-def _iter_subplugins(repo_dir, enabled=None):
-    """Yield ``(source, module)`` pairs for plugin packages inside *repo_dir*.
-
-    A plugin directory may also be a "repository" of plugins — like an Odoo
-    addons repo: every direct subpackage declaring ``OSH_PLUGIN_MANIFEST``
-    is a plugin of its own, so multi-plugin repos need no aggregation code
-    and the repo root does not even need an ``__init__.py``.
-
-    *enabled* is the repo's configured enabled-plugin list (see
-    ``config.get_enabled_plugins``); ``None`` enables everything. Disabled
-    subplugins are skipped before import, so their code never executes.
+    Maps qualified handler names to declared metadata: ``db.get`` →
+    ``[group_commands.db] get``, ``scan`` → ``[commands] scan``, and
+    ``my_plugin.cmd`` → ``handlers``. Lets ``resolve(name)`` find
+    handlers whose plugin has not been imported yet.
     """
-    prefix = f"osh_user_plugin_{_plugin_name_from_path(repo_dir)}"
-    for child in plugin_subdirs(repo_dir):
-        source = plugin_source_name(child.name)
-        if enabled is not None and source not in enabled:
+    head, _, tail = name.partition(".")
+
+    def wanted(spec):
+        if name in spec.declared_commands() or name in spec.declared_handlers():
+            return True
+        return tail in (spec.declared_group_commands().get(head) or {})
+
+    _ensure_specs(wanted)
+
+
+def declared_meta(meta_key):
+    """Merge ``{name: help}`` declarations of *meta_key* across all specs."""
+    result = {}
+    for spec in plugin_registry().specs.values():
+        declared = spec.meta.get(meta_key)
+        if not isinstance(declared, dict):
             continue
-        try:
-            module = _import_plugin_from_dir(child, prefix=prefix)
-        except Exception as exc:
-            echo.error(f"Could not load plugin '{child}': {exc}")
-            continue
-        if module is not None and _plugin_manifest(module):
-            yield source, module
-
-
-def plugin_subdirs(directory):
-    """Yield direct subdirectories of *directory* that are Python packages."""
-    try:
-        children = sorted(directory.iterdir())
-    except OSError:
-        return
-    for child in children:
-        if (
-            child.is_dir()
-            and not child.name.startswith(".")
-            and child.name.isidentifier()
-            and (child / "__init__.py").is_file()
-        ):
-            yield child
-
-
-def _plugin_manifest(module):
-    """Return the plugin's ``OSH_PLUGIN_MANIFEST`` dict (empty if absent)."""
-    manifest = getattr(module, "OSH_PLUGIN_MANIFEST", None)
-    return manifest if isinstance(manifest, dict) else {}
-
-
-def _load_commands_from_module(module):
-    """Return Click commands exposed by a plugin module."""
-    commands = _plugin_manifest(module).get("commands", [])
-    if not isinstance(commands, list):
-        commands = [commands]
-    return [cmd for cmd in commands if isinstance(cmd, click.Command)]
-
-
-def _load_backend_commands_from_module(module):
-    """Return Click groups declared as backend commands by a plugin module."""
-    commands = _plugin_manifest(module).get("backend_commands", [])
-    if not isinstance(commands, list):
-        commands = [commands]
-    return [cmd for cmd in commands if isinstance(cmd, click.Group)]
-
-
-def load_backend_commands():
-    """Return ``(source, group)`` pairs for plugin-declared backend commands.
-
-    Backend plugins declare a Click group named after their backend (e.g.
-    ``docker``) under the ``backend_commands`` manifest key. These groups
-    carry the backend's lifecycle commands (``init``, ``doctor``, ``stop``,
-    plus any extras) and are listed in a separate help section.
-    """
-    commands = []
-    for source, module in _iter_plugin_modules():
-        commands.extend(
-            (source, cmd) for cmd in _load_backend_commands_from_module(module)
-        )
-    return commands
-
-
-def _load_backends_from_module(module):
-    """Return ``Backend`` subclasses exposed by a plugin module."""
-    from ..backends import Backend
-
-    backends = _plugin_manifest(module).get("backends", [])
-    if not isinstance(backends, list):
-        backends = [backends]
-
-    return [
-        backend
-        for backend in backends
-        if isinstance(backend, type)
-        and issubclass(backend, Backend)
-        and backend is not Backend
-        and getattr(backend, "name", None)
-    ]
+        for name, decl in declared.items():
+            result.setdefault(name, _decl_help(decl))
+    return result
 
 
 def load_plugins():
-    """Return ``(source, command)`` pairs for all loaded plugins."""
+    """Return ``(source, command)`` pairs for all registered plugins.
+
+    Lazy plugins contribute ``LazyCommand`` stubs; unmarked (eager) plugins
+    contribute the commands discovered in their imported modules.
+    """
     commands = []
-    for source, module in _iter_plugin_modules():
-        commands.extend((source, cmd) for cmd in _load_commands_from_module(module))
+    for spec in plugin_registry().specs.values():
+        if spec.lazy:
+            for name, decl in spec.declared_commands().items():
+                commands.append((spec.name, _lazy_command(spec, None, name, decl)))
+            continue
+        module = _load_eager(spec)
+        if module is None:
+            continue
+        for (group, _name), cmd in _module_commands(module).items():
+            if group is None:
+                commands.append((spec.name, cmd))
     return commands
 
 
-def _load_group_commands_from_module(module):
-    """Return the ``{group_name: [click.Command]}`` mapping from a plugin."""
-    groups = _plugin_manifest(module).get("group_commands", {})
-    if not isinstance(groups, dict):
-        return {}
-    result = {}
-    for group_name, commands in groups.items():
-        if not isinstance(commands, list):
-            commands = [commands]
-        valid = [cmd for cmd in commands if isinstance(cmd, click.Command)]
-        if valid:
-            result.setdefault(group_name, []).extend(valid)
-    return result
-
-
 def load_group_commands():
-    """Return ``{group_name: [(source, command)]}`` for all loaded plugins.
-
-    Plugins attach subcommands to existing command groups (e.g. ``db``) via
-    the ``group_commands`` key of their ``OSH_PLUGIN_MANIFEST``.
-    """
+    """Return ``{group_name: [(source, command)]}`` for all plugins."""
     result = {}
-    for source, module in _iter_plugin_modules():
-        for group_name, commands in _load_group_commands_from_module(module).items():
-            result.setdefault(group_name, []).extend((source, c) for c in commands)
+    for spec in plugin_registry().specs.values():
+        if spec.lazy:
+            for group_name, decls in spec.declared_group_commands().items():
+                for name, decl in decls.items():
+                    result.setdefault(group_name, []).append(
+                        (spec.name, _lazy_command(spec, group_name, name, decl))
+                    )
+            continue
+        module = _load_eager(spec)
+        if module is None:
+            continue
+        for (group, _name), cmd in _module_commands(module).items():
+            if group is not None:
+                result.setdefault(group, []).append((spec.name, cmd))
     return result
 
 
-def _iter_hook_entries():
-    """Yield ``(source, hook_name, impl)`` for every hook item in plugins."""
-    for source, module in _iter_plugin_modules():
-        hooks = _plugin_manifest(module).get("hooks", {})
-        if not isinstance(hooks, dict):
+def load_backend_commands():
+    """Return ``(source, group)`` pairs for plugin backend command groups.
+
+    Each group renders ``osh <name>`` lifecycle commands (``init``,
+    ``activate``, ``stop``), built post-import by ``Backend.get_cli_group()``
+    — the default calls ``backend_group(cls)`` — and declared by the
+    ``[backend_commands]`` metadata section.
+    """
+    commands = []
+    for spec in plugin_registry().specs.values():
+        if spec.lazy:
+            for name, decl in spec.declared_backend_commands().items():
+                commands.append(
+                    (
+                        spec.name,
+                        _lazy_command(spec, _BACKEND_SECTION, name, decl),
+                    )
+                )
             continue
-        for hook_name, impl in hooks.items():
-            items = impl if isinstance(impl, list) else [impl]
-            for item in items:
-                yield source, hook_name, item
+        module = _load_eager(spec)
+        if module is None:
+            continue
+        for _name, group in _module_backend_groups(module).items():
+            commands.append((spec.name, group))
+    return commands
 
 
-def load_hooks(name=None):
-    """Aggregate the ``hooks`` manifest key across all plugins.
+def get_backend_class(name):
+    """Return the backend class registered as *name*, or ``None``.
 
-    With *name*, return the flat list of implementations registered for that
-    hook point. Without it, return the full ``{name: [impls]}`` dict.
-    Single (non-list) values are normalized to lists; a non-dict ``hooks``
-    entry is ignored.
+    Only the plugin declaring *name* is imported — resolving the ``venv``
+    backend never touches the ``docker`` plugin.
     """
-    result = {}
-    for _source, hook_name, impl in _iter_hook_entries():
-        result.setdefault(hook_name, []).append(impl)
-    return result if name is None else result.get(name, [])
+    from ..backends import Backend, NoneBackend
+
+    if name == "none":
+        return NoneBackend
+    ensure_declared("backends", name)
+    for _source, cls in iter_plugin_subclasses(Backend):
+        if getattr(cls, "name", None) == name:
+            return cls
+    return None
 
 
-def load_hook_entries(name):
-    """Return ``(source, impl)`` pairs for hook point *name*.
+def backend_meta():
+    """Return ``{name: description}`` for all backends — without importing.
 
-    Like ``load_hooks`` but keeps the contributing plugin's source name —
-    useful when the consumer reports which plugin provided what (e.g. for
-    collision errors).
+    Combines ``[backends]`` declarations with classes already loaded, so
+    help sections can render without evaluating backend plugins.
     """
-    return [(s, i) for s, n, i in _iter_hook_entries() if n == name]
+    from ..backends import Backend
+
+    meta = {"none": "Run on the host (default)."}
+    for name, desc in declared_meta("backends").items():
+        meta.setdefault(name, desc)
+    for _source, cls in _iter_loaded_subclasses(Backend):
+        name = getattr(cls, "name", None)
+        if name:
+            meta[name] = getattr(cls, "description", "") or meta.get(name, "")
+    return meta
 
 
 def load_backends():
-    """Return a mapping of backend name to class.
+    """Return a mapping of backend name to class, importing all declarers.
 
-    Always includes the built-in ``none`` backend — the default used when
-    no other backend is configured. Plugin-provided backends follow; a plugin
-    backend reusing an existing name is skipped with an error.
+    Always includes the built-in ``none`` backend. For resolving the
+    project's active backend prefer ``get_backend_class(name)``, which
+    imports only the plugin providing it.
     """
-    from ..backends import NoneBackend
+    from ..backends import Backend, NoneBackend
 
+    ensure_declared("backends")
     result = {"none": NoneBackend}
-    for source, module in _iter_plugin_modules():
-        for backend in _load_backends_from_module(module):
-            name = getattr(backend, "name")
-            if not name:
-                continue
-            if name in result:
-                echo.error(
-                    f"backend '{name}' from '{source}' conflicts with "
-                    f"an existing backend and is ignored."
-                )
-                continue
-            result[name] = backend
+    for source, cls in iter_plugin_subclasses(Backend):
+        if getattr(cls, "name", None):
+            _register_backend(result, source, cls)
     return result
+
+
+def get_source_class(scheme):
+    """Return the ``BackupSource`` class for *scheme*, or ``None``.
+
+    Only the plugin declaring *scheme* is imported.
+    """
+    from ..backup_sources import BackupSource
+
+    ensure_declared("sources", scheme)
+    found = None
+    for source, cls in iter_plugin_subclasses(BackupSource):
+        if getattr(cls, "scheme", None) != scheme:
+            continue
+        if found is None:
+            found = cls
+        else:
+            echo.error(
+                f"backup source '{scheme}' from '{source}' conflicts with "
+                "an existing source and is ignored."
+            )
+    return found
+
+
+def source_meta():
+    """Return ``{scheme: description}`` for backup sources — no imports."""
+    from ..backup_sources import BackupSource
+
+    meta = dict(declared_meta("sources"))
+    for _source, cls in _iter_loaded_subclasses(BackupSource):
+        scheme = getattr(cls, "scheme", None)
+        if scheme:
+            meta[scheme] = (
+                getattr(cls, "description", "")
+                or (cls.__doc__ or "").strip().split("\n")[0]
+            )
+    return meta
+
+
+def iter_plugin_subclasses(base):
+    """Yield ``(source, cls)`` for *base* subclasses in loaded plugins.
+
+    Iterating triggers non-lazy plugin imports; lazy plugins contribute
+    once loaded — callers that need a specific contribution call
+    ``ensure_declared`` first.
+    """
+    seen = set()
+    for source, module in _iter_plugin_modules():
+        for cls in _module_subclasses(module, base):
+            if id(cls) not in seen:
+                seen.add(id(cls))
+                yield source, cls
+
+
+def warn_unresolved_meta():
+    """Warn about ``extends`` targets and ``depends`` names nothing provides.
+
+    Runs once per registry, after eager plugins have loaded — the CLI
+    calls it after assembling commands — so handler names provided by
+    non-lazy plugins are known. Lazy plugins contribute their declared
+    names and are never imported. Without this check a plugin extending
+    a missing handler would simply never load, with no explanation.
+    """
+    registry = plugin_registry()
+    if registry._meta_checked:
+        return
+    registry._meta_checked = True
+    provided = set()
+    for spec in registry.specs.values():
+        provided.update(_spec_declared_names(spec))
+    from ..handlers import CommandHandler, _declared_name, _walk_subclasses
+
+    for cls in _walk_subclasses(CommandHandler):
+        if name := _declared_name(cls):
+            provided.add(name)
+    for spec in registry.specs.values():
+        for target in spec.declared_extends():
+            if target not in provided:
+                echo.warning(
+                    f"plugin '{spec.name}' extends '{target}', which no "
+                    "installed plugin provides; it will never be imported.",
+                    err=True,
+                )
+        for dep in spec.declared_depends():
+            if dep not in registry.specs:
+                echo.warning(
+                    f"plugin '{spec.name}' depends on '{dep}', which is "
+                    "not installed or enabled.",
+                    err=True,
+                )
+
+
+def _lazy_command(spec, group, name, decl):
+    """Build the click stub delegating to *(group, name)* in *spec*."""
+    from ..cli_utils import LazyCommand, LazyGroup
+
+    is_group = group == _BACKEND_SECTION or _decl_is_group(decl)
+
+    def loader():
+        return spec.resolve_command(group, name)
+
+    cls = LazyGroup if is_group else LazyCommand
+    return cls(
+        name,
+        loader,
+        plugin=spec.name,
+        short_help=_decl_help(decl),
+        hidden=_decl_hidden(decl),
+    )
+
+
+def _callable_command(func, name):
+    """Wrap a plain ``func(argv)`` callable as a Click command."""
+
+    @click.command(
+        name=name,
+        context_settings={
+            "ignore_unknown_options": True,
+            "allow_extra_args": True,
+        },
+    )
+    @click.argument("args", nargs=-1)
+    @click.pass_context
+    def command(ctx, args):
+        return func([*args, *ctx.args])
+
+    return command
+
+
+def _ensure_specs(predicate):
+    """Import each not-yet-loaded lazy spec matching *predicate*."""
+    for spec in plugin_registry().specs.values():
+        if spec.loaded or not spec.lazy or not predicate(spec):
+            continue
+        try:
+            spec.load()
+        except Exception as exc:
+            echo.error(f"Could not load plugin '{spec.name}': {exc}")
+
+
+def _load_eager(spec):
+    """Import an unmarked (non-lazy) plugin, warning on failure."""
+    try:
+        return spec.load()
+    except Exception as exc:
+        echo.error(f"Could not load plugin '{spec.name}': {exc}")
+        return None
+
+
+def _iter_plugin_modules():
+    """Yield ``(source, module)`` for eager and already-loaded plugins."""
+    for spec in plugin_registry().specs.values():
+        if spec.lazy and not spec.loaded:
+            continue
+        module = _load_eager(spec)
+        if module is not None:
+            yield spec.name, module
+
+
+def _iter_loaded_subclasses(base):
+    """Yield ``(source, cls)`` over already-loaded plugin modules only."""
+    seen = set()
+    for spec in plugin_registry().specs.values():
+        if not spec.loaded or spec._module is None:
+            continue
+        for cls in _module_subclasses(spec._module, base):
+            if id(cls) not in seen:
+                seen.add(id(cls))
+                yield spec.name, cls
+
+
+def _spec_declared_names(spec):
+    """Return every handler name *spec* declares in its metadata."""
+    names = set(spec.declared_commands())
+    for group, decls in spec.declared_group_commands().items():
+        names.update(f"{group}.{name}" for name in decls)
+    names.update(spec.declared_handlers())
+    return names
+
+
+def _module_commands(module):
+    """Return ``{(group|None, name): click.Command}`` discovered in *module*.
+
+    Covers named ``CommandHandler`` subclasses and ``@plugin_group``-stamped
+    groups.
+    """
+    from ..handlers import CommandHandler
+
+    commands = {}
+    for cls in _module_subclasses(module, CommandHandler):
+        mod = cls.__module__ or ""
+        if mod != module.__name__ and not mod.startswith(module.__name__ + "."):
+            # Foreign handler classes — imported to subclass or invoke them
+            # — are not this plugin's commands.
+            continue
+        group_name, command = cls.cli_command(module.__name__)
+        if command is not None:
+            commands.setdefault((group_name, command.name), command)
+    for impl in list(vars(module).values()):
+        parent = getattr(impl, "_plugin_group", None)
+        if parent is not None and isinstance(impl, click.Group):
+            commands.setdefault((parent or None, impl.name), impl)
+    return commands
+
+
+def _module_backend_groups(module):
+    """Return ``{name: click.Group}`` backend command groups from *module*."""
+    groups = {}
+    for cls in _module_backends(module):
+        group = cls.get_cli_group()
+        if isinstance(group, click.Group):
+            groups.setdefault(group.name, group)
+    return groups
+
+
+def _module_subclasses(module, base):
+    """Yield ``base`` subclasses among *module*'s attributes."""
+    # Snapshot: resolving a class may import submodules, which mutates the
+    # package's attribute dict.
+    for impl in list(vars(module).values()):
+        if isinstance(impl, type) and impl is not base and issubclass(impl, base):
+            yield impl
+
+
+def _module_backends(module):
+    """Yield named ``Backend`` subclasses among *module*'s attributes."""
+    from ..backends import Backend
+
+    for cls in _module_subclasses(module, Backend):
+        if getattr(cls, "name", None):
+            yield cls
+
+
+def _register_backend(result, source, backend):
+    """Register *backend* in *result* unless its name is taken."""
+    name = backend.name
+    if name in result:
+        echo.error(
+            f"backend '{name}' from '{source}' conflicts with "
+            f"an existing backend and is ignored."
+        )
+        return
+    result[name] = backend

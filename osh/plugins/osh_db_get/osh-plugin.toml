@@ -1,0 +1,13 @@
+description = "Download, cache and restore Odoo database backups."
+
+[group_commands.db]
+get = "Download or dump a backup source."
+restore = "Restore a backup and neutralize it."
+remote = { group = true, help = "Manage named backup sources." }
+
+[sources]
+db = "Dump a local PostgreSQL database using pg_dump."
+http = "Download a backup from an Odoo /web/database/backup endpoint over HTTP."
+https = "Download a backup from an Odoo /web/database/backup endpoint over HTTPS."
+odoosh = "Fetch the latest daily backup from an Odoo.sh container over SSH."
+ssh = "Copy an existing backup file from a remote host via SCP."

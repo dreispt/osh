@@ -22,6 +22,22 @@ def _isolated_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _reset_plugin_registry():
+    """Rebuild the plugin registry for each test.
+
+    The registry caches plugin specs discovered from user dirs and entry
+    points; tests that create plugins monkeypatch ``user_plugin_dir`` and
+    must see a fresh registry, and fake specs must not leak into the next
+    test.
+    """
+    from osh.utils import plugin_loader
+
+    plugin_loader.reset_plugin_registry()
+    yield
+    plugin_loader.reset_plugin_registry()
+
+
 @pytest.fixture
 def tmp_project(tmp_path):
     """Return a temporary project directory with a .osh marker and .git."""
