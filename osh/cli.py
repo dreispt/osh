@@ -11,7 +11,8 @@ from .cli_utils import NaturalOrderGroup
 from .commands import COMMANDS
 from .config import get_plugin_aliases
 from .utils.plugin_loader import (
-    load_backend_commands,
+    backend_meta,
+    declared_meta,
     load_group_commands,
     load_plugins,
     warn_unresolved_meta,
@@ -147,33 +148,32 @@ for plugin_source, plugin_cmd in load_plugins():
         _plugin_commands[name] = plugin_source
 main.plugin_commands = _plugin_commands
 
-# Register backend command groups, declared by plugins via the
-# ``[backend_commands]`` metadata section. They render in their own
-# "Backend Commands" help section. The built-in ``none`` backend has no
-# group — it is the absence of a managed backend; ``osh init`` is its
-# setup, ``osh backend stop`` its teardown, ``osh backend deactivate`` the
-# way back.
-main.backend_commands = {}
-for plugin_source, backend_group_cmd in load_backend_commands():
-    name = _register_plugin_command(
-        main, backend_group_cmd, plugin_source, backend_group_cmd.name
-    )
-    if name is not None:
-        main.backend_commands[name] = plugin_source
-
 # Register plugin-provided subcommands on command groups — plugin
 # handlers with dotted names (``db.restore``) and ``@plugin_group``-stamped
-# groups, declared under ``[group_commands.<group>]``. Missing
-# target groups are created on demand (e.g. a ``backup.dump`` handler
-# creates the ``backup`` group); targeting a non-group command is an error.
+# groups, declared under ``[group_commands.<group>]``. Missing target
+# groups are created on demand: a group named after a declared backend
+# (``osh docker``) renders in the "Backend Commands" help section with
+# the backend's description; any other auto-created group (e.g. a
+# ``backup.dump`` handler creating ``backup``) is a plugin command.
+# The built-in ``none`` backend has no group — it is the absence of a
+# managed backend; ``osh init`` is its setup, ``osh backend stop`` its
+# teardown, ``osh backend deactivate`` the way back.
+# Targeting a non-group command is an error.
+main.backend_commands = {}
 for group_name, entries in load_group_commands().items():
     target = main.commands.get(group_name)
     if target is None:
-        target = NaturalOrderGroup(name=group_name)
+        target = NaturalOrderGroup(
+            name=group_name,
+            help=declared_meta("backends").get(group_name),
+        )
         registered = _register_plugin_command(main, target, entries[0][0], group_name)
         if registered is None:
             continue
-        main.plugin_commands[registered] = entries[0][0]
+        if group_name in backend_meta():
+            main.backend_commands[registered] = entries[0][0]
+        else:
+            main.plugin_commands[registered] = entries[0][0]
     if not isinstance(target, click.Group):
         for source, _cmd in entries:
             echo.error(

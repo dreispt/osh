@@ -7,7 +7,7 @@ This document tracks planned improvements and future development work for the Os
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
 - Extend `osh-plugin.toml` with optional metadata (e.g. a minimum `osh` version) and surface it in `osh plug list`; `description` and `depends` (plugin load ordering) are already handled.
 - Graduate the built-in `osh_db_get` plugin (`osh db get`, `osh db restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
-- Extend the command-handler model (`osh.handlers.CommandHandler`, extension by subclassing — see `PLUGINS.md`) to the remaining commands (`shell`, `db shell`, `db show`/`set`/`copy`/`unset`, `init`, `switch`, `config`, `plug`, `backend`), so the whole command surface is extensible the same way.
+- Extend the command-handler model (`osh.handlers.CommandHandler`, extension by subclassing — see `PLUGINS.md`) to the remaining commands (`shell`, `db shell`, `db show`/`set`/`copy`/`unset`, `init`, `switch`, `config`, `plug`, the `osh backend` management group), so the whole command surface is extensible the same way. Per-backend lifecycle commands (`osh <backend> init`/`activate`/`stop`) are already handlers — backend plugins subclass the `Backend*` bases in `osh.commands.backend_cmd`.
 
 ## `osh doctor` (removed — to be redesigned)
 

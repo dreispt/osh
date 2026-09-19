@@ -1,10 +1,11 @@
-"""``osh <backend>`` command groups — per-backend lifecycle commands.
+"""``osh <backend>`` lifecycle commands and the ``osh backend`` group.
 
-``backend_group`` builds a Click group named after a ``Backend`` class with
-the standard lifecycle commands — ``init``, ``activate`` and ``stop`` —
-wired to the backend API. Backend plugins declare the resulting
-group under the ``[backend_commands]`` metadata section; they may add
-subcommands to it or build a fully custom group instead.
+The ``Backend*`` handler classes are the shared bases backend plugins
+subclass to expose ``osh <backend> init``, ``activate`` and ``stop`` —
+ordinary ``CommandHandler`` commands declared under
+``[group_commands.<backend>]`` in ``osh-plugin.toml`` alongside the
+backend's ``[backends]`` entry. The backend a command manages is named
+by its group: ``docker.init`` binds the ``docker`` backend.
 
 The core ``osh backend`` group owns backend *selection* state: ``status``
 and ``list`` report what is active and available, ``deactivate`` is the
@@ -25,7 +26,8 @@ from ..db import (
     resolve_backend,
     set_project_config,
 )
-from ..utils.plugin_loader import backend_meta
+from ..handlers import CommandHandler
+from ..utils.plugin_loader import backend_meta, get_backend_class
 from .helpers import check_run_diagnostics
 from .init_cmd import (
     _rollback_new_osh_dir,
@@ -106,102 +108,119 @@ def backend_stop(ctx):
     resolve_backend(base).stop(ctx, base)
 
 
-def backend_group(backend_cls):
-    """Build the ``osh <backend>`` command group for *backend_cls*.
+class BackendCommand(CommandHandler):
+    """Base for ``osh <backend> <verb>`` lifecycle commands.
 
-    The group is named after the backend and carries ``init``, ``activate``
-    and ``stop`` subcommands.
-    """
-    group = NaturalOrderGroup(
-        name=backend_cls.name,
-        help=backend_cls.description
-        or f"Commands for the '{backend_cls.name}' backend.",
-    )
-    group.add_command(_init_command(backend_cls))
-    group.add_command(_activate_command(backend_cls))
-    group.add_command(_stop_command(backend_cls))
-    return group
+    The managed backend is named by the command's *group* — a
+    ``docker.init`` handler binds the ``docker`` backend — following the
+    same convention as the generated groups this replaces. Backend
+    plugins subclass the verb bases below, set ``_cli_name`` to
+    ``<backend>.<verb>`` and declare the command under
+    ``[group_commands.<backend>]``.
 
-
-def _init_command(backend_cls):
-    """Build the ``osh <backend> init`` command for *backend_cls*.
-
-    Reuses the base ``osh init`` parameters and adds the backend's
-    ``get_init_options()``. Runs :func:`base_init` first, then
-    :func:`run_backend_init` for the backend-specific setup.
+    Backend-specific parameters come from the backend class's option
+    hooks (``get_init_options``, ``get_stop_options``); their parsed
+    values are collected into kwargs through :meth:`backend_options`.
     """
 
-    @click.pass_context
-    def callback(
-        ctx, version, directory, edition, save, assume_yes, dry_run, dev, **options
-    ):
-        version, directory = _split_version_arg(version, directory)
+    @classmethod
+    def backend_name(cls):
+        """Return the name of the backend this command manages."""
+        if cls._cli_group is not None:
+            return cls._cli_group or None
+        name = cls._cli_name or ""
+        return name.partition(".")[0] or None
+
+    @classmethod
+    def backend_cls(cls):
+        """Return the ``Backend`` class this command manages."""
+        name = cls.backend_name()
+        backend = get_backend_class(name) if name else None
+        if backend is None:
+            raise click.ClickException(f"No backend named '{name}' is available.")
+        return backend
+
+    def backend(self):
+        """Return the managed backend instance."""
+        return self.backend_cls()()
+
+    def backend_options(self, options):
+        """Return ``{name: value}`` for the parsed backend-specific *options*."""
+        return {param.name: getattr(self, param.name) for param in options}
+
+
+class BackendInit(BackendCommand):
+    """``osh <backend> init`` — base project setup plus backend init.
+
+    Combines ``osh init``'s parameters with the backend's
+    ``get_init_options()``; runs ``base_init`` first, then
+    ``run_backend_init`` for the backend-specific setup.
+    """
+
+    version = None
+    directory = None
+    edition = None
+    save = False
+    assume_yes = False
+    dry_run = False
+    dev = True
+
+    @classmethod
+    def get_options(cls):
+        return [*init.params, *cls.backend_cls().get_init_options()]
+
+    def run(self):
+        version, directory = _split_version_arg(self.version, self.directory)
         target = (directory or Path.cwd()).expanduser().resolve()
         with _rollback_new_osh_dir(target):
             edition, version = base_init(
-                ctx,
+                self.ctx,
                 target,
                 version=version,
-                edition=edition,
-                save=save,
-                assume_yes=assume_yes,
-                dry_run=dry_run,
-                dev=dev,
+                edition=self.edition,
+                save=self.save,
+                assume_yes=self.assume_yes,
+                dry_run=self.dry_run,
+                dev=self.dev,
             )
             run_backend_init(
-                ctx,
-                backend_cls(),
+                self.ctx,
+                self.backend(),
                 target,
                 version=version,
                 edition=edition,
-                assume_yes=assume_yes,
-                dry_run=dry_run,
-                **options,
+                assume_yes=self.assume_yes,
+                dry_run=self.dry_run,
+                **self.backend_options(self.backend_cls().get_init_options()),
             )
 
-    return click.Command(
-        name="init",
-        params=[*init.params, *backend_cls.get_init_options()],
-        callback=callback,
-        help=f"Initialise the project for the '{backend_cls.name}' backend, "
-        "on top of `osh init`.",
-    )
 
-
-def _activate_command(backend_cls):
-    """Build the ``osh <backend> activate`` command.
+class BackendActivate(BackendCommand):
+    """``osh <backend> activate`` — record the backend as the run target.
 
     Lighter than ``init``: verifies the backend can run in the project —
     run-phase diagnostics abort on errors — then records it as the
     project's active run backend.
     """
 
-    @click.pass_context
-    def callback(ctx):
+    def run(self):
         base = find_project_root(required=True)
-        backend = backend_cls()
-        check_run_diagnostics(base, backend, ctx)
+        backend = self.backend()
+        check_run_diagnostics(base, backend, self.ctx)
         set_project_config(base, "run", "target", backend.name)
         echo.info(f"Backend '{backend.name}' is now the active run backend.")
 
-    return click.Command(
-        name="activate",
-        callback=callback,
-        help=f"Make '{backend_cls.name}' the project's active run backend.",
-    )
 
+class BackendStop(BackendCommand):
+    """``osh <backend> stop`` — stop resources the backend left running."""
 
-def _stop_command(backend_cls):
-    """Build the ``osh <backend> stop`` command."""
+    @classmethod
+    def get_options(cls):
+        return list(cls.backend_cls().get_stop_options())
 
-    @click.pass_context
-    def callback(ctx, **options):
-        base = find_project_root(required=True)
-        backend_cls().stop(ctx, base, **options)
-
-    return click.Command(
-        name="stop",
-        params=list(backend_cls.get_stop_options()),
-        callback=callback,
-        help=f"Stop resources left running by the '{backend_cls.name}' backend.",
-    )
+    def run(self):
+        self.backend().stop(
+            self.ctx,
+            find_project_root(required=True),
+            **self.backend_options(self.backend_cls().get_stop_options()),
+        )

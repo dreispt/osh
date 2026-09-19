@@ -8,3 +8,6 @@ myscheme = "My source."
 
 [group_commands.db]
 mysub = "My sub."
+
+[group_commands.mybackend]
+stop = "Stop my backend."

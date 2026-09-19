@@ -3,5 +3,8 @@ description = "Docker Compose backend."
 [backends]
 docker = "Run Odoo inside a Docker Compose stack."
 
-[backend_commands]
-docker = "Manage the project's Docker Compose stack."
+[group_commands.docker]
+init = "Initialise the project for the docker backend."
+activate = "Make docker the project's active run backend."
+stop = "Stop the project's Compose stack, or another project's."
+list = "List Docker containers and the ports they publish."

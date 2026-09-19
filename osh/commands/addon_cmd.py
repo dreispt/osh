@@ -2,7 +2,8 @@
 
 Core ships the group as the stable attachment point for module commands;
 plugins contribute the actual lifecycle actions (``osh addon update``,
-``osh addon uninstall``, ...) through the ``group_commands`` manifest key.
+``osh addon uninstall``, ...) through the ``group_commands`` metadata
+section.
 """
 
 import click

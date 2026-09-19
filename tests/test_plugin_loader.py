@@ -165,8 +165,16 @@ def test_user_plugin_backends_and_sources(plugin_dir, capsys):
     groups = plugin_loader.load_group_commands()
     assert any(c.name == "mysub" for _s, c in groups["db"])
 
+    # Backend lifecycle commands are ordinary group subcommands — a lazy
+    # stub until resolved.
+    from osh.cli_utils import LazyCommand
+
+    ((src, stop),) = (e for e in groups["mybackend"] if e[1].name == "stop")
+    assert src == "repo-l" and isinstance(stop, LazyCommand)
+
     spec = plugin_registry.plugin_registry().specs["repo-l"]
     assert spec.resolve_command("db", "mysub").name == "mysub"
+    assert spec.resolve_command("mybackend", "stop").name == "stop"
     assert capsys.readouterr().err == ""
 
 

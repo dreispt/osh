@@ -24,8 +24,8 @@ its backup source scheme used.
     [group_commands.db]                   # subcommands of an existing group
     audit = "Audit the db."
     remote = { group = true, help = "Manage remotes." }
-    [backend_commands]                    # ``osh <name>`` backend groups
-    docker = "Docker backend."
+    [group_commands.docker]               # ``osh docker`` lifecycle commands
+    init = "Initialise for the docker backend."
     [backends]                            # backend classes provided
     docker = "Run inside Docker."
     [sources]                             # BackupSource schemes provided
@@ -69,9 +69,6 @@ except ImportError:  # pragma: no cover
 
 #: Name of the marker file identifying a plugin package in a repository.
 PLUGIN_MARKER = "osh-plugin.toml"
-
-#: Pseudo group key for backend command groups in ``resolve_command``.
-_BACKEND_SECTION = "__backend_commands__"
 
 
 @dataclass
@@ -167,10 +164,6 @@ class PluginSpec:
         """Return the ``{group: {name: declaration}}`` of subcommands."""
         return self.meta.get("group_commands") or {}
 
-    def declared_backend_commands(self):
-        """Return the ``{name: declaration}`` of backend command groups."""
-        return self.meta.get("backend_commands") or {}
-
     def declared_backends(self):
         """Return the ``{name: declaration}`` of provided backends."""
         return self.meta.get("backends") or {}
@@ -197,17 +190,12 @@ class PluginSpec:
     def resolve_command(self, group, name):
         """Return the real command for *(group, name)*, importing the plugin.
 
-        *group* is ``None`` for top-level commands and ``_BACKEND_SECTION``
-        for backend command groups. Returns ``None`` when the plugin does
-        not provide it. The resolved command's ``short_help`` is stamped
-        with the declared help, so listings show the same text before and
-        after the import.
+        *group* is ``None`` for top-level commands and the group name for
+        subcommands. Returns ``None`` when the plugin does not provide it.
+        The resolved command's ``short_help`` is stamped with the declared
+        help, so listings show the same text before and after the import.
         """
-        from .plugin_loader import (
-            _callable_command,
-            _module_backend_groups,
-            _module_commands,
-        )
+        from .plugin_loader import _callable_command, _module_commands
 
         module = self.load()
         if module is None:
@@ -220,10 +208,7 @@ class PluginSpec:
             elif callable(target):
                 command = _callable_command(target, name)
         if command is None:
-            if group == _BACKEND_SECTION:
-                command = _module_backend_groups(module).get(name)
-            else:
-                command = _module_commands(module).get((group, name))
+            command = _module_commands(module).get((group, name))
         if command is not None:
             decl = self._command_decl(group, name)
             short = _decl_help(decl)
@@ -235,8 +220,6 @@ class PluginSpec:
 
     def _command_decl(self, group, name):
         """Return the declared metadata for *(group, name)*, if any."""
-        if group == _BACKEND_SECTION:
-            return self.declared_backend_commands().get(name)
         if group is None:
             return self.declared_commands().get(name)
         return (self.declared_group_commands().get(group) or {}).get(name)

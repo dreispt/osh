@@ -2,9 +2,9 @@
 
 Backends allow plugins to replace the default host-venv execution model with
 other targets, such as Docker or remote containers, while keeping the same
-``osh shell``/``osh odoo`` user interface. Each backend also gets an
-``osh <name>`` command group (``init``, ``activate``, ``stop``) — see
-``osh.commands.backend_cmd.backend_group``.
+``osh shell``/``osh odoo`` user interface. Backend plugins expose
+``osh <name>`` lifecycle commands (``init``, ``activate``, ``stop``) by
+subclassing the handlers in ``osh.commands.backend_cmd``.
 
 ``NoneBackend`` is the built-in default backend, used when no other backend
 is configured: it runs commands directly on the host.
@@ -93,25 +93,6 @@ class Backend(ABC):
     # True when Odoo runs from a host-resolved executable (``.venv/bin/odoo``,
     # ``odoo-bin``, PATH) rather than a backend-managed command name.
     host_executable = False
-    # False suppresses the ``osh <name>`` command group for this backend.
-    cli = True
-
-    @classmethod
-    def get_cli_group(cls):
-        """Return the ``osh <name>`` command group for this backend, or None.
-
-        The default builds the standard group (``init``, ``activate``,
-        ``stop``); backends override this to customize the
-        group or add commands. Returning ``None`` (or ``cli = False``)
-        registers the backend without a command group.
-        """
-        if cls.cli is False:
-            return None
-        # Imported lazily: osh.commands imports this module, so a top-level
-        # import of commands.backend_cmd would be circular.
-        from .commands.backend_cmd import backend_group
-
-        return backend_group(cls)
 
     @classmethod
     def get_init_options(cls):
