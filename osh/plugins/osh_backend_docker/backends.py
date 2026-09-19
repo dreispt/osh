@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -37,6 +38,11 @@ from .utils import (
 # configured one. Database probes and interactive shells keep; Odoo runs
 # always resolve to an explicit port (or None for the configured default).
 _PORT_KEEP = object()
+
+# ``_wait_for_db_ready`` timings after ``up -d``: how long to poll the
+# database service before continuing anyway, and how often to retry.
+_DB_READY_TIMEOUT_SECONDS = 60.0
+_DB_READY_POLL_SECONDS = 0.5
 
 
 class DockerBackend(Backend):
@@ -494,6 +500,7 @@ class DockerBackend(Backend):
         docker_args = [*compose_cmd, "up", "-d"]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
         run_command(docker_args, cwd=base, check=True, stream=True)
+        _wait_for_db_ready(compose_cmd, cfg.get("db_service") or "db", base)
 
     def _check_port_available(self, base, cfg, port=None):
         """Raise an actionable error when the effective host port is taken."""
@@ -851,6 +858,69 @@ def _service_running(compose_cmd, service, base):
         cwd=base,
     )
     return returncode == 0 and bool(out.strip())
+
+
+def _wait_for_db_ready(compose_cmd, db_service, base):
+    """Poll *db_service* until PostgreSQL accepts connections.
+
+    ``compose up -d`` returns when containers start, not when PostgreSQL is
+    ready; probes run right after hit "connection refused" and report
+    existing databases as missing. Services absent from the Compose
+    configuration are skipped, so stacks without a database service (or
+    with an external one) are unaffected.
+    """
+    services = _compose_services(compose_cmd, base)
+    if services is not None and db_service not in services:
+        return
+    if _db_ready(compose_cmd, db_service, base):
+        return
+    echo.info(
+        f"Waiting for the '{db_service}' service to accept connections...",
+        err=True,
+    )
+    deadline = time.monotonic() + _DB_READY_TIMEOUT_SECONDS
+    while not _db_ready(compose_cmd, db_service, base):
+        if time.monotonic() >= deadline:
+            echo.warning(
+                f"The '{db_service}' service is still not accepting "
+                f"connections after {_DB_READY_TIMEOUT_SECONDS:.0f}s; "
+                "continuing anyway."
+            )
+            return
+        time.sleep(_DB_READY_POLL_SECONDS)
+
+
+def _compose_services(compose_cmd, base):
+    """Return the service names in the Compose configuration, or None."""
+    returncode, out, _ = run_subprocess(
+        [*compose_cmd, "config", "--services"], cwd=base
+    )
+    if returncode != 0:
+        return None
+    return set(out.split())
+
+
+def _db_ready(compose_cmd, db_service, base):
+    """Return True once *db_service* answers ``pg_isready``.
+
+    A ``compose exec`` failure — the container is still starting — counts
+    as not ready; an image without ``pg_isready`` counts as ready, since
+    there is nothing to wait for.
+    """
+    returncode, _, _ = run_subprocess(
+        [
+            *compose_cmd,
+            "exec",
+            "-T",
+            db_service,
+            "sh",
+            "-c",
+            "command -v pg_isready > /dev/null 2>&1 || exit 0;"
+            " exec pg_isready -q -h 127.0.0.1",
+        ],
+        cwd=base,
+    )
+    return returncode == 0
 
 
 # Environment defaults applied to every ``compose exec``; ``env_spec.env``
