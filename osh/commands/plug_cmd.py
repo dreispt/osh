@@ -40,8 +40,7 @@ def _iter_plugin_dirs(repo_dir):
     """Yield ``(name, path)`` pairs for the plugins *repo_dir* provides.
 
     The root package is a plugin named after the directory; each direct
-    subpackage marked with ``osh-plugin.toml`` (or a deprecated
-    ``OSH_PLUGIN_MANIFEST`` declaration) is a plugin named after its
+    subpackage marked with ``osh-plugin.toml`` is a plugin named after its
     subdirectory — mirroring the plugin loader, without imports.
     """
     if (repo_dir / "__init__.py").is_file() or (repo_dir / "osh_plugin.py").is_file():

@@ -8,6 +8,7 @@ exclude: |
   \.egg-info/|
   ^build/|
   ^dist/|
+  ^tests/plugins/|
   \.pyc$
 
 default_language_version:

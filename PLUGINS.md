@@ -127,8 +127,8 @@ command is a nested `click.Group` (e.g. `osh db remote`).
 
 The declared names must match what the code provides on import — a
 command listed in `[commands]` resolves to a `CommandHandler` subclass
-named after it (or a `@plugin_group`/manifest-provided command of that
-name) in the plugin package.
+named after it (or a `@plugin_group`-marked group of that name) in the
+plugin package.
 
 `depends` names other plugin _sources_ (the names shown by
 `osh plug list`) that must be imported before this plugin's module.
@@ -140,15 +140,6 @@ the rest: importing another plugin's package directly, relying on its
 import side effects, or using its backends or handlers at module level.
 Unresolved `extends` and `depends` references also warn at startup,
 without importing anything.
-
-### Deprecated: `OSH_PLUGIN_MANIFEST`
-
-The previous mechanism — an `OSH_PLUGIN_MANIFEST` dict in `__init__.py`
-listing command objects — still works but is deprecated: it requires
-importing the plugin at startup, so such plugins load eagerly and warn
-on every run. Migrate by declaring the plugin's surface in
-`osh-plugin.toml` and registering commands as `CommandHandler`
-subclasses.
 
 ### Command naming convention
 
@@ -551,9 +542,10 @@ def list_dbs(ctx, show_all):
 ```
 
 `self.env` (`Env`) offers the same resolution bound to the handler's
-context — `self.env["db.list"](show_all=show_all).run()` — and
-`registry["db.list"]` returns the effective _class_ for class-level
-APIs such as `registry["odoo"].get_options()`.
+context — `self.env["db.list"](show_all=show_all).run()` returns a bound
+instance of the effective class. For class-level access,
+`resolve("db.list").effective()` returns the composed class —
+`resolve("odoo").effective().get_options()`.
 
 Extension points on `osh odoo`:
 
@@ -583,12 +575,6 @@ directly) and declare `extends = ["my_plugin.cmd"]` in their marker the
 same way. Non-CLI handlers use a `_`-prefixed name (e.g. `_util.fmt`)
 and are listed under the `handlers` key so `resolve()` can find them
 without a command.
-
-The pre-subclass API keeps working through `osh.operations` for existing
-plugins: `Operation`, `@operation("name")`, `@extends("name")` mixins,
-`Env`, `registry` and the legacy `cli_*` attributes are honoured, and
-`_extends`-marked mixins still compose into their targets. New code
-should use `osh.handlers` and plain subclassing.
 
 ### Backup source plugins
 

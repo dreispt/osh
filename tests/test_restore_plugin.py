@@ -6,7 +6,6 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from osh import operations
 from osh.cli_utils import handler_command
 from osh.commands.helpers import Diagnostics
 from osh.db import set_project_config
@@ -535,17 +534,12 @@ def test_restore_top_level_alias_is_gone(patched_restore, in_project):
 
 
 def _register_post_restore(monkeypatch, cls):
-    """Expose *cls* as a ``db.restore`` extension via a fake plugin module.
+    """Expose *cls* — a ``DbRestore`` subclass — via a fake plugin module.
 
-    Plain ``DbRestore`` subclasses (no ``_cli_name`` of their own) are
-    discovered as extenders; the deprecated ``_extends`` marker is still
-    honored for other classes.
+    Subclasses without a ``_cli_name`` of their own are discovered as
+    extenders of their nearest named ancestor.
     """
-    if issubclass(cls, DbRestore):
-        ext = cls
-    else:
-        ext = operations.extends("db.restore")(cls)
-    module = types.SimpleNamespace(ext=ext)
+    module = types.SimpleNamespace(ext=cls)
     monkeypatch.setattr(
         plugin_loader, "_iter_plugin_modules", lambda: iter([("test", module)])
     )
@@ -585,7 +579,7 @@ def test_restore_post_restore_extensions_dry_run(
 
     calls = []
 
-    class Probe:
+    class Probe(DbRestore):
         def post_restore(self):
             super().post_restore()
             calls.append(self.db_name)
@@ -604,7 +598,7 @@ def test_restore_post_restore_failure_warns_only(
 ):
     """A failing extension warns without failing the completed restore."""
 
-    class Boom:
+    class Boom(DbRestore):
         def post_restore(self):
             super().post_restore()
             raise RuntimeError("extension exploded")
@@ -628,7 +622,7 @@ def test_restore_list_does_not_run_extensions(patched_restore, in_project, monke
     """--list returns before any restore work — no extensions run."""
     calls = []
 
-    class Probe:
+    class Probe(DbRestore):
         def post_restore(self):
             super().post_restore()
             calls.append(self.db_name)

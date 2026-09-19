@@ -3,8 +3,8 @@
 ``backend_group`` builds a Click group named after a ``Backend`` class with
 the standard lifecycle commands — ``init``, ``activate`` and ``stop`` —
 wired to the backend API. Backend plugins declare the resulting
-group under the ``backend_commands`` manifest key; they may add subcommands
-to it or build a fully custom group instead.
+group under the ``[backend_commands]`` metadata section; they may add
+subcommands to it or build a fully custom group instead.
 
 The core ``osh backend`` group owns backend *selection* state: ``status``
 and ``list`` report what is active and available, ``deactivate`` is the

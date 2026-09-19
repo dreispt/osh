@@ -34,7 +34,6 @@ def _reset_plugin_registry():
     from osh.utils import plugin_loader
 
     plugin_loader.reset_plugin_registry()
-    plugin_loader._WARNED_MANIFESTS.clear()
     yield
     plugin_loader.reset_plugin_registry()
 

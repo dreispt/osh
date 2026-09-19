@@ -21,16 +21,12 @@ class ExtensibleCommand(click.Command):
     handler = None
     handler_name = None
 
-    def __init__(
-        self, *args, handler=None, handler_name=None, operation_name=None, **kwargs
-    ):
+    def __init__(self, *args, handler=None, handler_name=None, **kwargs):
         super().__init__(*args, **kwargs)
         if handler is not None:
             self.handler = handler
         if handler_name is not None:
             self.handler_name = handler_name
-        if operation_name is not None:
-            self.handler_name = operation_name  # deprecated alias
 
     def _handler_cls(self):
         """Return the effective handler class, or ``None``."""
@@ -62,10 +58,6 @@ class ExtensibleCommand(click.Command):
             handler.format_cli_help(formatter)
 
 
-# Deprecated alias for the pre-handler vocabulary.
-OperationCommand = ExtensibleCommand
-
-
 def handler_command(name, cls):
     """Build the ``click.Command`` exposing handler *cls* as *name*."""
 
@@ -81,16 +73,10 @@ def handler_command(name, cls):
         name=name,
         callback=callback,
         params=[],
-        help=getattr(cls, "cli_help", None) or inspect.getdoc(cls),
-        context_settings=cls._cli_context_settings
-        or getattr(cls, "cli_context_settings", None),
+        help=inspect.getdoc(cls),
+        context_settings=cls._cli_context_settings,
         handler=cls,
     )
-
-
-def operation_command(op_name, name, op_cls):
-    """Deprecated — use ``handler_command(name, op_cls)``."""
-    return handler_command(name, op_cls)
 
 
 class LazyCommand(click.Command):

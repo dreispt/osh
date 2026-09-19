@@ -1,11 +1,14 @@
 """Tests for ``osh plug`` install/list/uninstall."""
 
+import shutil
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from osh.commands.plug_cmd import plug
+
+PLUGINS_DATA = Path(__file__).parent / "plugins"
 
 
 @pytest.fixture
@@ -17,12 +20,9 @@ def plugin_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def src_plugin(tmp_path):
-    """Create a minimal plugin package directory to install from."""
-    src = tmp_path / "src" / "my_plugin"
-    src.mkdir(parents=True)
-    (src / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
-    return src
+def src_plugin():
+    """Return the static plugin package directory to install from."""
+    return PLUGINS_DATA / "plug_src" / "my_plugin"
 
 
 def test_install_editable_symlinks_directory(plugin_home, src_plugin):
@@ -69,16 +69,13 @@ def test_install_editable_requires_plugin_package(plugin_home, tmp_path):
 
 def test_install_editable_accepts_bare_plugin_repo(plugin_home, tmp_path):
     """``-e`` accepts an addons-style repo: bare dir of plugin subpackages."""
-    repo = tmp_path / "osh-contrib"
-    sub = repo / "osh_example"
-    sub.mkdir(parents=True)
-    (sub / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
+    repo = PLUGINS_DATA / "plug_repo"
 
     runner = CliRunner()
     result = runner.invoke(plug, ["install", "--trust", "-e", str(repo)])
 
     assert result.exit_code == 0, result.output
-    link = plugin_home / "osh-contrib"
+    link = plugin_home / repo.name
     assert link.is_symlink()
     assert link.resolve() == repo.resolve()
 
@@ -89,9 +86,7 @@ def test_install_clones_git_url(plugin_home, monkeypatch):
 
     def fake_clone(args, **kw):
         calls.append(args)
-        dest = Path(args[-1])
-        dest.mkdir(parents=True)
-        (dest / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
+        shutil.copytree(PLUGINS_DATA / "plug_cloned", Path(args[-1]))
         return 0, "", ""
 
     monkeypatch.setattr("osh.commands.plug_cmd.run_subprocess", fake_clone)
@@ -141,8 +136,8 @@ def test_uninstall_removes_symlink_keeps_source(plugin_home, src_plugin):
 def test_uninstall_removes_cloned_plugin(plugin_home):
     """Uninstalling a regular plugin removes its directory tree."""
     plugin = plugin_home / "my_plugin"
-    plugin.mkdir(parents=True)
-    (plugin / "__init__.py").write_text("")
+    plugin_home.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(PLUGINS_DATA / "plug_src" / "my_plugin", plugin)
 
     runner = CliRunner()
     result = runner.invoke(plug, ["uninstall", "--yes", "my_plugin"])
@@ -184,14 +179,9 @@ def user_config(tmp_path, monkeypatch):
     return config_file
 
 
-def _make_multi_repo(tmp_path, names=("plug_a", "plug_b", "plug_c")):
-    """Create a repo directory containing one plugin package per name."""
-    repo = tmp_path / "osh-contrib"
-    for name in names:
-        sub = repo / name
-        sub.mkdir(parents=True)
-        (sub / "__init__.py").write_text("OSH_PLUGIN_MANIFEST = {}\n")
-    return repo
+def _make_multi_repo(tmp_path):
+    """Return the static multi-plugin repo directory."""
+    return PLUGINS_DATA / "plug_multi" / "osh-contrib"
 
 
 def test_install_multi_plugin_all(plugin_home, user_config, tmp_path):
@@ -248,9 +238,9 @@ def test_install_multi_plugin_unknown_name(plugin_home, tmp_path):
     assert "plug-a" in result.output
 
 
-def _install_repo(plugin_home, tmp_path, names=("plug_a", "plug_b")):
+def _install_repo(plugin_home, tmp_path):
     """Symlink a multi-plugin repo into the plugin dir, all enabled."""
-    repo = _make_multi_repo(tmp_path, names)
+    repo = _make_multi_repo(tmp_path)
     plugin_home.mkdir(parents=True, exist_ok=True)
     (plugin_home / "osh-contrib").symlink_to(repo.resolve())
     return repo

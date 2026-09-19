@@ -31,15 +31,10 @@ class::
         ...
 """
 
-from collections.abc import Mapping
-
 from . import echo
 
 #: Param names that may not collide with handler machinery.
-_RESERVED_PARAMS = frozenset({"env", "ctx", "operation_name"})
-
-#: Extension targets already reported as unknown — warned once each.
-_WARNED_UNKNOWN = set()
+_RESERVED_PARAMS = frozenset({"env", "ctx"})
 
 
 class CommandHandler:
@@ -80,7 +75,6 @@ class CommandHandler:
     _cli_name = None
     _cli_group = None
     _cli_context_settings = None
-    operation_name = None  # legacy attribute — set by the deprecated @operation
 
     def __new__(cls, *args, **kwargs):
         # Instantiating a named handler yields its effective class — the
@@ -127,21 +121,18 @@ class CommandHandler:
         Plugins declaring the handler's name under ``extends`` in
         ``osh-plugin.toml`` are imported first. Every loaded
         ``CommandHandler`` subclass without its own ``_cli_name`` extends
-        its nearest named ancestor; legacy ``_extends`` mixins targeting
-        the name are layered the same way, in plugin discovery order.
-        Returns *cls* itself when nothing extends it.
+        its nearest named ancestor, in plugin discovery order. Returns
+        *cls* itself when nothing extends it.
         """
         from .utils.plugin_loader import (
-            _iter_extension_entries,
             _iter_plugin_modules,
             _module_subclasses,
+            ensure_declared,
         )
 
         name = _declared_name(cls)
-        entries = []
         if name:
-            entries = list(_iter_extension_entries(name))
-            _warn_unknown_targets(entries)
+            ensure_declared("extends", name)
 
         exts = []
         seen = set()
@@ -157,14 +148,6 @@ class CommandHandler:
                     continue
                 seen.add(id(sub))
                 exts.append(sub)
-        for _source, target, impl in entries:
-            if target != name or id(impl) in seen:
-                continue
-            if not isinstance(impl, type):
-                echo.error(f"extension for '{name}' is not a class; ignored.")
-                continue
-            seen.add(id(impl))
-            exts.append(impl)
 
         if not exts:
             return cls
@@ -200,25 +183,22 @@ class CommandHandler:
         derives from the dotted ``_cli_name`` (``db.restore`` → group
         ``db``, command ``restore``); ``_cli_group`` overrides it (``""``
         forces top level). Returns ``(None, None)`` when the handler is
-        unnamed, ``_``-named (programmatic-only) or opts out via the
-        legacy ``cli = False`` attribute.
+        unnamed or ``_``-named (programmatic-only).
         """
         from .cli_utils import handler_command
 
         name = _declared_name(cls)
-        if name is None or getattr(cls, "cli", True) is False:
+        if name is None:
             return None, None
         if any(part.startswith("_") for part in name.split(".")):
             return None, None
         head, sep, tail = name.partition(".")
         group = cls._cli_group
         if group is None:
-            group = getattr(cls, "cli_group", None)  # legacy attribute
-        if group is None:
             group = head if sep else None
         elif not group:
             group = None
-        cmd_name = getattr(cls, "cli_name", None) or (tail if sep else head)
+        cmd_name = tail if sep else head
         if "." in cmd_name:
             echo.error(
                 f"plugin '{source}' handler '{name}' cannot derive a "
@@ -232,7 +212,7 @@ class CommandHandler:
 
         Param names must not shadow the handler machinery: names
         starting with ``_`` — which cover every ``_cli_*`` attribute —
-        reserved attributes (``env``, ``ctx``, ``operation_name``) and
+        reserved attributes (``env``, ``ctx``) and
         any name bound to a method, property or other callable class
         attribute are rejected with ``TypeError``.
         """
@@ -296,38 +276,6 @@ def resolve(name):
     return found
 
 
-class _RegistryShim(Mapping):
-    """Deprecated dict-style access to effective handler classes.
-
-    ``registry["db.list"]`` returns the effective class — the handler
-    plus its loaded extensions. Prefer ``resolve()`` or instantiating
-    the handler class directly.
-    """
-
-    def __getitem__(self, name):
-        return resolve(name).effective()
-
-    def __contains__(self, name):
-        try:
-            resolve(name)
-        except KeyError:
-            return False
-        return True
-
-    def __iter__(self):
-        return (
-            declared
-            for cls in _walk_subclasses(CommandHandler)
-            if (declared := _declared_name(cls)) is not None
-        )
-
-    def __len__(self):
-        return sum(1 for _ in self)
-
-
-registry = _RegistryShim()
-
-
 def plugin_group(parent=""):
     """Decorator marking a ``click.Group`` as a plugin-provided command group.
 
@@ -355,10 +303,9 @@ def _declared_name(cls):
 
     Only ``_cli_name`` set in the class's own ``__dict__`` counts — a
     subclass inheriting its parent's name is an *extension* of the
-    parent, not a new handler. The legacy ``operation_name`` attribute
-    is honored for ``@operation``-decorated classes.
+    parent, not a new handler.
     """
-    return cls.__dict__.get("_cli_name") or cls.__dict__.get("operation_name")
+    return cls.__dict__.get("_cli_name")
 
 
 def _nearest_named(cls):
@@ -374,28 +321,3 @@ def _walk_subclasses(base):
     for sub in base.__subclasses__():
         yield sub
         yield from _walk_subclasses(sub)
-
-
-def _warn_unknown_targets(entries):
-    """Report ``_extends`` targets matching no named handler, once each.
-
-    Targets promised by a not-yet-loaded lazy plugin (its declared
-    commands and handlers) are not errors — the handler registers when
-    that plugin is imported.
-    """
-    from .utils.plugin_loader import _promised_handlers
-
-    known = {
-        name
-        for cls in _walk_subclasses(CommandHandler)
-        if (name := _declared_name(cls))
-    }
-    unknown = (
-        {name for _, name, _ in entries}
-        - known
-        - _promised_handlers()
-        - _WARNED_UNKNOWN
-    )
-    for target in unknown:
-        echo.error(f"plugin extends unknown handler '{target}'; ignored.")
-    _WARNED_UNKNOWN.update(unknown)

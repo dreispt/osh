@@ -40,10 +40,11 @@ subclasses, ``Backend``/``BackupSource`` subclasses and
 ``@plugin_group``-stamped groups are discovered among module attributes
 — the toml only says *when* the module is worth importing.
 
-Compatibility: plugins without ``osh-plugin.toml`` load eagerly, as
-before (the deprecated ``OSH_PLUGIN_MANIFEST`` is still honored with a
-warning); their contributions cannot be registered without importing,
-which is the cost of the legacy contract.
+Compatibility: plugins without ``osh-plugin.toml`` — a bare root package
+(``__init__.py``/``osh_plugin.py``) in the user plugin dir, or an entry
+point without a ``:attr`` target — still load eagerly; their
+self-describing classes are discovered on import. That eager import is
+the cost of the undeclared contract.
 """
 
 import importlib
@@ -84,8 +85,8 @@ class PluginSpec:
     *target_ref* is an importable module path (``"osh.plugins.osh_db_get"``,
     ``"osh_aws.cli"``), optionally ``"module:attr"`` for entry-point
     plugins, or a filesystem path for directory plugins. *lazy* is False
-    for legacy plugins, which must import eagerly because nothing declares
-    their contributions beforehand.
+    for unmarked plugins, which must import eagerly because nothing
+    declares their contributions beforehand.
     """
 
     name: str
@@ -155,7 +156,10 @@ class PluginSpec:
     def declared_commands(self):
         """Return the ``{name: declaration}`` of top-level commands."""
         declared = self.meta.get("commands") or {}
-        if not declared and self.kind == "entry_point":
+        if not declared and self.kind == "entry_point" and not self.meta:
+            # Unmarked ``module:attr`` entry points surface as one command
+            # named after the entry point; a marker's declarations are
+            # authoritative instead.
             declared = {self.name: self.help_text}
         return declared
 
@@ -497,22 +501,12 @@ def plugin_subdirs(directory):
 
 
 def _is_plugin_dir(path):
-    """Whether *path* is marked as a plugin package.
+    """Whether *path* is marked as a plugin package by ``osh-plugin.toml``.
 
-    An ``osh-plugin.toml`` file marks the package; the deprecated
-    ``OSH_PLUGIN_MANIFEST`` declaration in ``__init__.py`` is still
-    recognized so existing plugins keep loading. Checked without
-    importing the package, so unmarked code never executes.
+    Checked without importing the package, so unmarked code never
+    executes.
     """
-    if (path / PLUGIN_MARKER).is_file():
-        return True
-    init_file = path / "__init__.py"
-    try:
-        return init_file.is_file() and "OSH_PLUGIN_MANIFEST" in init_file.read_text(
-            errors="replace"
-        )
-    except OSError:
-        return False
+    return (path / PLUGIN_MARKER).is_file()
 
 
 def plugin_meta(path):

@@ -875,10 +875,14 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
         name = "docker"
         backend_type = "backend"
 
+    class OtherBackend(Backend):
+        name = "docker"
+        backend_type = "backend"
+
     first = types.ModuleType("first")
-    first.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
+    first.FakeBackend = FakeBackend
     second = types.ModuleType("second")
-    second.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
+    second.OtherBackend = OtherBackend
 
     # Isolate the registry so only the patched modules contribute backends.
     monkeypatch.setattr(plugin_registry, "_REGISTRY", plugin_registry.PluginRegistry())
@@ -895,13 +899,13 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
 
 
 def test_entry_point_plugin_loading(monkeypatch):
-    """Plugins registered as Python entry points are loaded by load_plugins."""
+    """``module:attr`` entry points resolve their command lazily."""
     from osh.utils import plugin_registry
 
     fake_cmd = click.Command(name="fake-cmd")
 
     fake_module = types.ModuleType("fake_entry_plugin")
-    fake_module.OSH_PLUGIN_MANIFEST = {"commands": [fake_cmd]}
+    fake_module.fake_cmd = fake_cmd
     monkeypatch.setitem(sys.modules, "fake_entry_plugin", fake_module)
 
     class FakeEntryPoint:
@@ -921,9 +925,11 @@ def test_entry_point_plugin_loading(monkeypatch):
 
     fake_metadata = types.ModuleType("fake_metadata")
     fake_metadata.entry_points = lambda: FakeEntryPoints(
-        [FakeEntryPoint("fake", "fake_entry_plugin")]
+        [FakeEntryPoint("fake", "fake_entry_plugin:fake_cmd")]
     )
     monkeypatch.setattr(plugin_registry, "_metadata", fake_metadata)
 
-    commands = [cmd for _, cmd in load_plugins()]
-    assert fake_cmd in commands
+    commands = {cmd.name: (src, cmd) for src, cmd in load_plugins()}
+    src, cmd = commands["fake"]
+    assert src == "fake"
+    assert cmd.load() is fake_cmd

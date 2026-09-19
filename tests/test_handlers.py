@@ -2,8 +2,7 @@
 
 Commands delegate to ``CommandHandler`` classes which plugins extend in
 place by subclassing them (see ``osh.handlers``) — the ``osh odoo`` tests
-below exercise that path through real command invocations. The deprecated
-``@extends`` marker path is covered as well.
+below exercise that path through real command invocations.
 """
 
 import types
@@ -12,18 +11,9 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from osh import operations
 from osh.commands.odoo_cmd import OdooRun, odoo
-from osh.handlers import CommandHandler, resolve
+from osh.handlers import CommandHandler, Env, resolve
 from osh.utils import plugin_loader
-
-
-def _module_with_manifest(manifest):
-    """Return a fake plugin module exposing *manifest*."""
-    module = types.SimpleNamespace()
-    if manifest is not None:
-        module.OSH_PLUGIN_MANIFEST = manifest
-    return module
 
 
 def _module_with_extensions(*classes):
@@ -38,41 +28,6 @@ def _patch_plugin_modules(monkeypatch, modules):
         "_iter_plugin_modules",
         lambda: (("test", mod) for mod in modules),
     )
-
-
-def test_load_extensions_aggregates_marked_classes(monkeypatch):
-    """``load_extensions`` collects classes carrying the ``_extends`` marker."""
-    ext_a = operations.extends("db.list")(type("A", (), {}))
-    ext_b = operations.extends("db.list")(type("B", (), {}))
-    ext_c = operations.extends("db.list")(type("C", (), {}))
-    _patch_plugin_modules(
-        monkeypatch,
-        [
-            _module_with_extensions(ext_a, ext_b),
-            _module_with_extensions(ext_a, ext_c),  # ext_a re-exported
-            _module_with_manifest({"commands": []}),  # no marked classes
-        ],
-    )
-
-    assert plugin_loader.load_extensions("db.list") == [ext_a, ext_b, ext_c]
-    assert plugin_loader.load_extensions("missing") == []
-    assert plugin_loader.load_extensions() == {"db.list": [ext_a, ext_b, ext_c]}
-    assert plugin_loader.load_extension_entries("db.list") == [
-        ("test", ext_a),
-        ("test", ext_b),
-        ("test", ext_c),
-    ]
-
-
-def test_load_extensions_ignores_unmarked_attributes(monkeypatch):
-    """Attributes without the marker are ignored, incl. manifest entries."""
-    module = types.SimpleNamespace(
-        some_class=type("A", (), {}),
-        some_obj=object(),
-        OSH_PLUGIN_MANIFEST={"extends": {"db.list": [type("B", (), {})]}},
-    )
-    _patch_plugin_modules(monkeypatch, [module])
-    assert plugin_loader.load_extensions() == {}
 
 
 class _LayersBase(CommandHandler):
@@ -114,7 +69,7 @@ def test_subclasses_extend_their_named_parent(monkeypatch):
     effective = _LayersBase.effective()
     assert issubclass(effective, _LayersSecond)
     # Later plugins wrap earlier ones; super() chains them.
-    effective(operations.Env(None)).probe()
+    effective().probe()
     assert calls == ["second", "first", "base"]
 
 
@@ -147,48 +102,29 @@ def test_instantiating_named_handler_dispatches_to_effective(monkeypatch):
     """``Handler(...)`` transparently yields the composed class instance."""
     _patch_plugin_modules(monkeypatch, [_module_with_extensions(_LayersFirst)])
 
-    op = _LayersBase(operations.Env(None))
+    op = _LayersBase()
     assert isinstance(op, _LayersFirst)
 
 
-def test_legacy_extends_marker_still_composes(monkeypatch):
-    """Deprecated ``@extends`` mixins layer onto the named handler."""
-    calls = []
-
-    class MarkerExt:
-        def probe(self):
-            calls.append("marker")
-            return super().probe()
-
-    _LayersBase.calls = calls
-    ext = operations.extends("test_layers.op")(MarkerExt)
-    _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
-
-    effective = _LayersBase.effective()
-    assert issubclass(effective, MarkerExt)
-    effective(operations.Env(None)).probe()
-    assert calls == ["marker", "base"]
-
-
 def test_env_binds_ctx_and_params():
-    """``env["op"]`` returns an instance with ctx and params set."""
+    """``env[cls]`` returns an instance with ctx and params set."""
 
-    class Probe(operations.Operation):
+    class Probe(CommandHandler):
         pass
 
     ctx = types.SimpleNamespace()
-    env = operations.Env(ctx)
-    op = Probe(env)(show_all=True, dry_run=False)
+    env = Env(ctx)
+    op = env[Probe](show_all=True, dry_run=False)
     assert op.env is env
     assert op.ctx is ctx
     assert op.show_all is True
     assert op.dry_run is False
 
 
-def test_operation_rejects_reserved_param_names():
+def test_handler_rejects_reserved_param_names():
     """Params cannot shadow handler attributes or methods."""
 
-    class Probe(operations.Operation):
+    class Probe(CommandHandler):
         dry_run = False
 
         def run(self):
@@ -198,92 +134,45 @@ def test_operation_rejects_reserved_param_names():
         def prop(self):
             return None
 
-    op = Probe(operations.Env(None))
-    for bad in ("env", "ctx", "operation_name", "run", "prop", "_private"):
+    op = Probe()
+    for bad in ("env", "ctx", "run", "prop", "_private"):
         with pytest.raises(TypeError, match=bad):
             op(**{bad: 1})
     op(dry_run=True)  # class-level param defaults may still be overridden
     assert op.dry_run is True
 
 
-def test_registry_returns_same_composed_class(monkeypatch):
-    """Repeated ``registry[name]`` lookups return the same class object."""
-    ext = operations.extends("db.list")(type("Ext", (), {}))
+def test_effective_returns_same_composed_class(monkeypatch):
+    """Repeated ``effective()`` lookups return the same class object."""
+    ext = type("Ext", (_LayersBase,), {})
     _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
-    assert operations.registry["db.list"] is operations.registry["db.list"]
-
-
-def test_registry_contains_has_no_side_effects(monkeypatch, capsys):
-    """Membership tests do not compose classes or emit warnings."""
-    ext = operations.extends("no.such.op")(type("Ext", (), {}))
-    _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
-    monkeypatch.setattr("osh.handlers._WARNED_UNKNOWN", set())
-    assert "odoo" in operations.registry
-    assert "no.such.op" not in operations.registry
-    assert capsys.readouterr().err == ""
-
-
-def test_registry_behaves_like_a_mapping(monkeypatch):
-    """``registry`` supports membership, iteration and KeyError."""
-    _patch_plugin_modules(monkeypatch, [])
-    assert "odoo" in operations.registry
-    assert "db.list" in operations.registry
-    assert "no.such.op" not in operations.registry
-    assert "odoo" in list(operations.registry)
-    with pytest.raises(KeyError):
-        operations.registry["no.such.op"]
+    assert _LayersBase.effective() is _LayersBase.effective()
 
 
 def test_resolve_without_extensions_returns_base(monkeypatch):
     """With no extensions, the literal handler class is the effective one."""
     _patch_plugin_modules(monkeypatch, [])
-    assert operations.registry["odoo"] is OdooRun
+    assert resolve("odoo") is OdooRun
+    assert OdooRun.effective() is OdooRun
 
 
-def test_resolve_warns_on_unknown_handler(monkeypatch, capsys):
-    """An ``extends`` target matching no handler is reported once."""
-    ext = operations.extends("no.such.op")(type("Ext", (), {}))
-    _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
-    monkeypatch.setattr("osh.handlers._WARNED_UNKNOWN", set())
-
-    operations.registry["odoo"]
-    operations.registry["db.list"]
-    err = capsys.readouterr().err
-    assert err.count("unknown handler 'no.such.op'") == 1
-
-
-def test_resolve_skips_non_class_extensions(monkeypatch, capsys):
-    """Marked non-class attributes are reported and skipped."""
-    bad = types.SimpleNamespace()
-    bad._extends = "db.list"
-    _patch_plugin_modules(monkeypatch, [types.SimpleNamespace(bad=bad)])
-    cls = operations.registry["db.list"]
-    assert "not a class" in capsys.readouterr().err
-    assert cls.__name__ == "DbList"
-
-
-def test_resolve_skips_uncomposable_extensions(monkeypatch, capsys):
+def test_effective_skips_uncomposable_extensions(monkeypatch, capsys):
     """An extension that fails class composition is skipped with an error."""
     meta_a = type("MetaA", (type,), {})
     meta_b = type("MetaB", (type,), {})
-    ext_a = operations.extends("db.list")(meta_a("ExtA", (), {}))
-    ext_b = operations.extends("db.list")(meta_b("ExtB", (), {}))
+    ext_a = meta_a("ExtA", (_LayersBase,), {})
+    ext_b = meta_b("ExtB", (_LayersBase,), {})
     _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext_a, ext_b)])
 
-    cls = operations.registry["db.list"]
+    cls = _LayersBase.effective()
     assert "could not be composed" in capsys.readouterr().err
     assert issubclass(cls, ext_a)
     assert not issubclass(cls, ext_b)
 
 
 def _odoo_extensions(monkeypatch, *extensions):
-    """Patch the plugin loader to expose *extensions* for the ``odoo`` op."""
-    modules = [
-        _module_with_extensions(
-            ext if issubclass(ext, CommandHandler) else operations.extends("odoo")(ext)
-        )
-        for ext in extensions
-    ]
+    """Patch the plugin loader to expose *extensions* for the ``odoo`` handler."""
+    modules = [_module_with_extensions(ext) for ext in extensions]
     _patch_plugin_modules(monkeypatch, modules)
 
 

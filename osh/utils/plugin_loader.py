@@ -6,8 +6,7 @@ plugin's module the first time something it provides is needed — its
 command invoked, a handler it extends executed, its backend selected, or
 its backup source scheme used — and scans the loaded module for
 self-described classes (``CommandHandler`` subclasses, ``Backend`` /
-``BackupSource`` subclasses, ``@plugin_group``-stamped groups, legacy
-``_extends`` mixins).
+``BackupSource`` subclasses, ``@plugin_group``-stamped groups).
 
 Command/handler semantics live with the classes themselves —
 ``CommandHandler.cli_command()`` derives placement from ``_cli_name``,
@@ -83,10 +82,6 @@ def ensure_handler(name):
     _ensure_specs(wanted)
 
 
-# Deprecated alias — the pre-handler vocabulary.
-ensure_operation = ensure_handler
-
-
 def declared_meta(meta_key):
     """Merge ``{name: help}`` declarations of *meta_key* across all specs."""
     result = {}
@@ -102,8 +97,8 @@ def declared_meta(meta_key):
 def load_plugins():
     """Return ``(source, command)`` pairs for all registered plugins.
 
-    Lazy plugins contribute ``LazyCommand`` stubs; legacy plugins contribute
-    the commands discovered in their (eagerly imported) modules.
+    Lazy plugins contribute ``LazyCommand`` stubs; unmarked (eager) plugins
+    contribute the commands discovered in their imported modules.
     """
     commands = []
     for spec in plugin_registry().specs.values():
@@ -111,7 +106,7 @@ def load_plugins():
             for name, decl in spec.declared_commands().items():
                 commands.append((spec.name, _lazy_command(spec, None, name, decl)))
             continue
-        module = _load_legacy(spec)
+        module = _load_eager(spec)
         if module is None:
             continue
         for (group, _name), cmd in _module_commands(module).items():
@@ -131,7 +126,7 @@ def load_group_commands():
                         (spec.name, _lazy_command(spec, group_name, name, decl))
                     )
             continue
-        module = _load_legacy(spec)
+        module = _load_eager(spec)
         if module is None:
             continue
         for (group, _name), cmd in _module_commands(module).items():
@@ -145,8 +140,8 @@ def load_backend_commands():
 
     Each group renders ``osh <name>`` lifecycle commands (``init``,
     ``activate``, ``stop``), built post-import by ``Backend.get_cli_group()``
-    — the default calls ``backend_group(cls)`` — or declared by the
-    deprecated ``backend_commands`` manifest key.
+    — the default calls ``backend_group(cls)`` — and declared by the
+    ``[backend_commands]`` metadata section.
     """
     commands = []
     for spec in plugin_registry().specs.values():
@@ -159,7 +154,7 @@ def load_backend_commands():
                     )
                 )
             continue
-        module = _load_legacy(spec)
+        module = _load_eager(spec)
         if module is None:
             continue
         for _name, group in _module_backend_groups(module).items():
@@ -213,16 +208,9 @@ def load_backends():
 
     ensure_declared("backends")
     result = {"none": NoneBackend}
-    seen = set()
     for source, cls in iter_plugin_subclasses(Backend):
         if getattr(cls, "name", None):
-            seen.add(id(cls))
             _register_backend(result, source, cls)
-    for source, module in _iter_plugin_modules():
-        for backend in _load_backends_from_module(module):
-            if id(backend) in seen:
-                continue
-            _register_backend(result, source, backend)
     return result
 
 
@@ -263,33 +251,11 @@ def source_meta():
     return meta
 
 
-def load_extensions(name=None):
-    """Aggregate legacy ``_extends`` extension mixins across all plugins.
-
-    With *name*, return the list of mixin classes marked for that
-    handler name, in plugin load order. Without it, return the full
-    ``{handler_name: [classes]}`` dict.
-    """
-    result = {}
-    for _source, op_name, impl in _iter_extension_entries(name):
-        result.setdefault(op_name, []).append(impl)
-    return result if name is None else result.get(name, [])
-
-
-def load_extension_entries(name):
-    """Return ``(source, impl)`` pairs for handler *name*.
-
-    Like ``load_extensions`` but keeps the contributing plugin's source
-    name, for diagnostics.
-    """
-    return [(s, i) for s, n, i in _iter_extension_entries(name) if n == name]
-
-
 def iter_plugin_subclasses(base):
     """Yield ``(source, cls)`` for *base* subclasses in loaded plugins.
 
-    Iterating triggers legacy (non-lazy) plugin imports; lazy plugins
-    contribute once loaded — callers that need a specific contribution call
+    Iterating triggers non-lazy plugin imports; lazy plugins contribute
+    once loaded — callers that need a specific contribution call
     ``ensure_declared`` first.
     """
     seen = set()
@@ -380,56 +346,23 @@ def _ensure_specs(predicate):
             echo.error(f"Could not load plugin '{spec.name}': {exc}")
 
 
-def _load_legacy(spec):
-    """Import a legacy (non-lazy) plugin, warning on failure or manifest."""
+def _load_eager(spec):
+    """Import an unmarked (non-lazy) plugin, warning on failure."""
     try:
-        module = spec.load()
+        return spec.load()
     except Exception as exc:
         echo.error(f"Could not load plugin '{spec.name}': {exc}")
         return None
-    if module is not None:
-        _warn_manifest(spec.name, module)
-    return module
 
 
 def _iter_plugin_modules():
-    """Yield ``(source, module)`` for legacy and already-loaded plugins."""
+    """Yield ``(source, module)`` for eager and already-loaded plugins."""
     for spec in plugin_registry().specs.values():
         if spec.lazy and not spec.loaded:
             continue
-        module = _load_legacy(spec)
+        module = _load_eager(spec)
         if module is not None:
             yield spec.name, module
-
-
-def _iter_plugin_attrs():
-    """Yield ``(source, obj)`` for every module-level attribute in plugins."""
-    for source, module in _iter_plugin_modules():
-        for impl in vars(module).values():
-            yield source, impl
-
-
-def _iter_extension_entries(op_name=None):
-    """Yield ``(source, name, impl)`` for legacy ``_extends`` mixins.
-
-    A class becomes a handler extension by carrying the ``_extends``
-    marker — set by the deprecated ``osh.operations.extends`` or declared
-    directly as ``_extends = "handler.name"``. With *op_name*, plugins
-    declaring it under ``extends`` are imported first, so composition
-    loads only the plugins that extend the handler being executed.
-    """
-    ensure_declared("extends", op_name)
-    seen = set()
-    for source, impl in _iter_plugin_attrs():
-        names = getattr(impl, "_extends", None)
-        if not names:
-            continue
-        if isinstance(names, str):
-            names = (names,)
-        for name in names:
-            if (name, id(impl)) not in seen:
-                seen.add((name, id(impl)))
-                yield source, name, impl
 
 
 def _iter_loaded_subclasses(base):
@@ -444,16 +377,6 @@ def _iter_loaded_subclasses(base):
                 yield spec.name, cls
 
 
-def _promised_handlers():
-    """Return handler names lazy plugins promise via their declarations."""
-    promised = set()
-    for spec in plugin_registry().specs.values():
-        if not spec.lazy or spec.loaded:
-            continue
-        promised.update(_spec_declared_names(spec))
-    return promised
-
-
 def _spec_declared_names(spec):
     """Return every handler name *spec* declares in its metadata."""
     names = set(spec.declared_commands())
@@ -466,8 +389,8 @@ def _spec_declared_names(spec):
 def _module_commands(module):
     """Return ``{(group|None, name): click.Command}`` discovered in *module*.
 
-    Covers named ``CommandHandler`` subclasses, ``@plugin_group``-stamped
-    groups and the deprecated ``commands``/``group_commands`` manifest keys.
+    Covers named ``CommandHandler`` subclasses and ``@plugin_group``-stamped
+    groups.
     """
     from ..handlers import CommandHandler
 
@@ -485,11 +408,6 @@ def _module_commands(module):
         parent = getattr(impl, "_plugin_group", None)
         if parent is not None and isinstance(impl, click.Group):
             commands.setdefault((parent or None, impl.name), impl)
-    for cmd in _load_commands_from_module(module):
-        commands.setdefault((None, cmd.name), cmd)
-    for group_name, cmds in _load_group_commands_from_module(module).items():
-        for cmd in cmds:
-            commands.setdefault((group_name, cmd.name), cmd)
     return commands
 
 
@@ -500,8 +418,6 @@ def _module_backend_groups(module):
         group = cls.get_cli_group()
         if isinstance(group, click.Group):
             groups.setdefault(group.name, group)
-    for group in _load_backend_commands_from_module(module):
-        groups.setdefault(group.name, group)
     return groups
 
 
@@ -521,85 +437,6 @@ def _module_backends(module):
     for cls in _module_subclasses(module, Backend):
         if getattr(cls, "name", None):
             yield cls
-
-
-def _declares_manifest(module):
-    """Whether the module declares ``OSH_PLUGIN_MANIFEST`` — even an empty one.
-
-    Deprecated: kept for backwards compatibility while manifests are still
-    honored (see ``_warn_manifest``).
-    """
-    return isinstance(getattr(module, "OSH_PLUGIN_MANIFEST", None), dict)
-
-
-_WARNED_MANIFESTS = set()
-
-
-def _warn_manifest(source, module):
-    """Warn once per plugin still declaring ``OSH_PLUGIN_MANIFEST``."""
-    if not _declares_manifest(module) or module.__name__ in _WARNED_MANIFESTS:
-        return
-    _WARNED_MANIFESTS.add(module.__name__)
-    echo.warning(
-        f"plugin '{source}' declares OSH_PLUGIN_MANIFEST, which is "
-        f"deprecated. Declare the plugin's surface in {PLUGIN_MARKER} and "
-        "let commands, backends and sources self-describe on import."
-    )
-
-
-def _plugin_manifest(module):
-    """Return the plugin's ``OSH_PLUGIN_MANIFEST`` dict (empty if absent)."""
-    manifest = getattr(module, "OSH_PLUGIN_MANIFEST", None)
-    return manifest if isinstance(manifest, dict) else {}
-
-
-def _load_commands_from_module(module):
-    """Return Click commands exposed by a plugin module."""
-    commands = _plugin_manifest(module).get("commands", [])
-    if not isinstance(commands, list):
-        commands = [commands]
-    return [cmd for cmd in commands if isinstance(cmd, click.Command)]
-
-
-def _load_group_commands_from_module(module):
-    """Return the ``{group_name: [click.Command]}`` mapping from a plugin."""
-    groups = _plugin_manifest(module).get("group_commands", {})
-    if not isinstance(groups, dict):
-        return {}
-    result = {}
-    for group_name, commands in groups.items():
-        if not isinstance(commands, list):
-            commands = [commands]
-        valid = [cmd for cmd in commands if isinstance(cmd, click.Command)]
-        if valid:
-            result.setdefault(group_name, []).extend(valid)
-    return result
-
-
-def _load_backend_commands_from_module(module):
-    """Return Click groups declared as backend commands by a plugin module."""
-    commands = _plugin_manifest(module).get("backend_commands", [])
-    if not isinstance(commands, list):
-        commands = [commands]
-    return [cmd for cmd in commands if isinstance(cmd, click.Group)]
-
-
-def _load_backends_from_module(module):
-    """Return ``Backend`` subclasses exposed by a plugin module."""
-    from ..backends import Backend
-
-    backends = _plugin_manifest(module).get("backends", [])
-    if not isinstance(backends, list):
-        backends = [backends]
-
-    return [
-        backend
-        for backend in backends
-        if isinstance(backend, type)
-        and issubclass(backend, Backend)
-        and backend is not Backend
-        and getattr(backend, "name", None)
-    ]
 
 
 def _register_backend(result, source, backend):
