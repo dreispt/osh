@@ -18,7 +18,7 @@ from ..db import (
     set_project_config,
     unset_project_config,
 )
-from ..operations import Env, Operation, operation
+from ..handlers import CommandHandler
 from .helpers import check_run_diagnostics
 from .shell_cmd import parse_explicit_db, prepare_env_context
 
@@ -70,17 +70,18 @@ def show(ctx):  # noqa: D401
     echo.info(f"Exists:   {'yes' if exists else 'no'}")
 
 
-@operation("db.list")
-class DbList(Operation):
-    """`osh db list` operation — project database listing plus extra sections.
+class DbList(CommandHandler):
+    """`osh db list` handler — project database listing plus extra sections.
 
-    Extensions add output after the listing by overriding
-    :meth:`extra_sections` and calling ``super()``. Command state is on
-    ``self``: ``ctx``, ``base``, ``show_all``, ``prefix`` and ``db_names``
-    (the full, unfiltered name set parsed from ``psql -l`` — it decides
-    e.g. whether a filestore dangles, while ``prefix`` only filters what is
-    displayed).
+    Extensions add output after the listing by subclassing ``DbList``,
+    overriding :meth:`extra_sections` and calling ``super()``. Command
+    state is on ``self``: ``ctx``, ``base``, ``show_all``, ``prefix`` and
+    ``db_names`` (the full, unfiltered name set parsed from ``psql -l`` —
+    it decides e.g. whether a filestore dangles, while ``prefix`` only
+    filters what is displayed).
     """
+
+    _cli_name = "db.list"  # extension target; the command is ``list_dbs`` below
 
     show_all = False
 
@@ -106,10 +107,9 @@ class DbList(Operation):
     def extra_sections(self):
         """Extra sections printed after the database listing.
 
-        Extension point — plugins override this via the ``@extends``
-        decorator and append to ``super().extra_sections()``; e.g.
-        ``osh_db_drop`` reports filestore directories with no matching
-        database.
+        Extension point — plugins subclass ``DbList``, override this and
+        append to ``super().extra_sections()``; e.g. ``osh_db_drop``
+        reports filestore directories with no matching database.
         """
         return []
 
@@ -136,7 +136,7 @@ def list_dbs(ctx, show_all):  # noqa: D401
       osh db list
       osh db list --all
     """
-    Env(ctx)["db.list"](show_all=show_all).run()
+    DbList(ctx, show_all=show_all).run()
 
 
 def _psql_table_split(output):

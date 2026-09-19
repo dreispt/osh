@@ -1,8 +1,8 @@
 """``osh <backend>`` command groups — per-backend lifecycle commands.
 
 ``backend_group`` builds a Click group named after a ``Backend`` class with
-the standard lifecycle commands — ``init``, ``activate``, ``doctor`` and
-``stop`` — wired to the backend API. Backend plugins declare the resulting
+the standard lifecycle commands — ``init``, ``activate`` and ``stop`` —
+wired to the backend API. Backend plugins declare the resulting
 group under the ``backend_commands`` manifest key; they may add subcommands
 to it or build a fully custom group instead.
 
@@ -25,8 +25,8 @@ from ..db import (
     resolve_backend,
     set_project_config,
 )
-from ..utils.plugin_loader import load_backends
-from .helpers import check_run_diagnostics, collect_diagnostics, report_diagnostics
+from ..utils.plugin_loader import backend_meta
+from .helpers import check_run_diagnostics
 from .init_cmd import (
     _rollback_new_osh_dir,
     _split_version_arg,
@@ -55,7 +55,7 @@ def backend_status():
         echo.info("Active backend: none — commands run on the host.")
         return
     echo.info(f"Active backend: {name}")
-    if name not in load_backends():
+    if name not in backend_meta():
         echo.warning(f"Backend '{name}' is not available — is its plugin enabled?")
 
 
@@ -68,9 +68,8 @@ def backend_list():
     """
     base = find_project_root(required=False)
     active = get_active_backend_name(base) if base else None
-    for name, backend_cls in sorted(load_backends().items()):
+    for name, description in sorted(backend_meta().items()):
         marker = " (active)" if name == active else ""
-        description = getattr(backend_cls, "description", "")
         echo.info(f"{name}{marker}" + (f" — {description}" if description else ""))
 
 
@@ -110,8 +109,8 @@ def backend_stop(ctx):
 def backend_group(backend_cls):
     """Build the ``osh <backend>`` command group for *backend_cls*.
 
-    The group is named after the backend and carries ``init``, ``activate``,
-    ``doctor`` and ``stop`` subcommands.
+    The group is named after the backend and carries ``init``, ``activate``
+    and ``stop`` subcommands.
     """
     group = NaturalOrderGroup(
         name=backend_cls.name,
@@ -120,7 +119,6 @@ def backend_group(backend_cls):
     )
     group.add_command(_init_command(backend_cls))
     group.add_command(_activate_command(backend_cls))
-    group.add_command(_doctor_command(backend_cls))
     group.add_command(_stop_command(backend_cls))
     return group
 
@@ -190,22 +188,6 @@ def _activate_command(backend_cls):
         name="activate",
         callback=callback,
         help=f"Make '{backend_cls.name}' the project's active run backend.",
-    )
-
-
-def _doctor_command(backend_cls):
-    """Build the ``osh <backend> doctor`` diagnostics command."""
-
-    @click.pass_context
-    def callback(ctx):
-        base = find_project_root(required=True)
-        diagnostics = collect_diagnostics(base, backend_cls(), ctx, check_nesting=True)
-        report_diagnostics(diagnostics)
-
-    return click.Command(
-        name="doctor",
-        callback=callback,
-        help=f"Show diagnostics for the '{backend_cls.name}' backend.",
     )
 
 

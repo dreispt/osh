@@ -869,7 +869,7 @@ def test_osh_run_docker_uses_branch_database(
 
 def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
     """A backend name collision is reported instead of silently ignored."""
-    from osh.utils import plugin_loader
+    from osh.utils import plugin_loader, plugin_registry
 
     class FakeBackend(Backend):
         name = "docker"
@@ -880,6 +880,8 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
     second = types.ModuleType("second")
     second.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
 
+    # Isolate the registry so only the patched modules contribute backends.
+    monkeypatch.setattr(plugin_registry, "_REGISTRY", plugin_registry.PluginRegistry())
     monkeypatch.setattr(
         plugin_loader,
         "_iter_plugin_modules",
@@ -894,7 +896,7 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
 
 def test_entry_point_plugin_loading(monkeypatch):
     """Plugins registered as Python entry points are loaded by load_plugins."""
-    from osh.utils import plugin_loader
+    from osh.utils import plugin_registry
 
     fake_cmd = click.Command(name="fake-cmd")
 
@@ -921,7 +923,7 @@ def test_entry_point_plugin_loading(monkeypatch):
     fake_metadata.entry_points = lambda: FakeEntryPoints(
         [FakeEntryPoint("fake", "fake_entry_plugin")]
     )
-    monkeypatch.setattr(plugin_loader, "_metadata", fake_metadata)
+    monkeypatch.setattr(plugin_registry, "_metadata", fake_metadata)
 
     commands = [cmd for _, cmd in load_plugins()]
     assert fake_cmd in commands

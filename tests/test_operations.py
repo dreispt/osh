@@ -1,8 +1,9 @@
-"""Tests for command operation extensions.
+"""Tests for command handler extensions.
 
-Commands delegate to operation classes which plugins extend in place via
-the ``@extends`` decorator (see ``osh.operations``) — the ``osh odoo``
-tests below exercise that path.
+Commands delegate to ``CommandHandler`` classes which plugins extend in
+place by subclassing them (see ``osh.handlers``) — the ``osh odoo`` tests
+below exercise that path through real command invocations. The deprecated
+``@extends`` marker path is covered as well.
 """
 
 import types
@@ -12,7 +13,8 @@ import pytest
 from click.testing import CliRunner
 
 from osh import operations
-from osh.commands.odoo_cmd import odoo
+from osh.commands.odoo_cmd import OdooRun, odoo
+from osh.handlers import CommandHandler, resolve
 from osh.utils import plugin_loader
 
 
@@ -25,7 +27,7 @@ def _module_with_manifest(manifest):
 
 
 def _module_with_extensions(*classes):
-    """Return a fake plugin module exposing extension mixins as attributes."""
+    """Return a fake plugin module exposing extension classes as attributes."""
     return types.SimpleNamespace(**{f"ext_{i}": c for i, c in enumerate(classes)})
 
 
@@ -73,37 +75,99 @@ def test_load_extensions_ignores_unmarked_attributes(monkeypatch):
     assert plugin_loader.load_extensions() == {}
 
 
-def test_resolve_layers_extensions_in_load_order(monkeypatch):
-    """Later plugins override earlier ones; ``super()`` chains them."""
+class _LayersBase(CommandHandler):
+    """Named handler used by the layering tests below."""
+
+    _cli_name = "test_layers.op"
+
     calls = []
 
-    class First:
-        def probe(self):
-            calls.append("first")
-            return super().probe()
+    def probe(self):
+        self.calls.append("base")
 
-    class Second:
-        def probe(self):
-            calls.append("second")
-            return super().probe()
 
-    class Base(operations.Operation):
-        def probe(self):
-            calls.append("base")
+class _LayersFirst(_LayersBase):
+    def probe(self):
+        self.calls.append("first")
+        return super().probe()
 
+
+class _LayersSecond(_LayersBase):
+    def probe(self):
+        self.calls.append("second")
+        return super().probe()
+
+
+def test_subclasses_extend_their_named_parent(monkeypatch):
+    """Plain subclasses without ``_cli_name`` compose onto the parent."""
+    _LayersBase.calls = calls = []
     _patch_plugin_modules(
         monkeypatch,
         [
-            _module_with_extensions(operations.extends("op")(First)),
-            _module_with_extensions(operations.extends("op")(Second)),
+            _module_with_extensions(_LayersFirst),
+            _module_with_extensions(_LayersFirst, _LayersSecond),
         ],
     )
-    monkeypatch.setitem(operations._OPERATIONS, "op", Base)
 
-    cls = operations.registry["op"]
-    assert issubclass(cls, Base)
-    cls(operations.Env(None)).probe()
+    cls = resolve("test_layers.op")
+    assert cls is _LayersBase
+    effective = _LayersBase.effective()
+    assert issubclass(effective, _LayersSecond)
+    # Later plugins wrap earlier ones; super() chains them.
+    effective(operations.Env(None)).probe()
     assert calls == ["second", "first", "base"]
+
+
+def test_named_subclass_is_a_new_handler_not_an_extender(monkeypatch):
+    """A subclass declaring its own ``_cli_name`` is not an extension."""
+
+    class Derived(_LayersBase):
+        _cli_name = "test_layers.derived"
+
+    _patch_plugin_modules(monkeypatch, [_module_with_extensions(Derived)])
+
+    assert resolve("test_layers.derived") is Derived
+    assert not issubclass(_LayersBase.effective(), Derived)
+
+
+def test_underscore_named_handler_generates_no_command():
+    """A ``_``-prefixed name segment marks a programmatic-only handler."""
+
+    class Util(CommandHandler):
+        _cli_name = "_test_ops.fmt"
+
+    class GroupUtil(CommandHandler):
+        _cli_name = "test_ops._fmt"
+
+    assert Util.cli_command() == (None, None)
+    assert GroupUtil.cli_command() == (None, None)
+
+
+def test_instantiating_named_handler_dispatches_to_effective(monkeypatch):
+    """``Handler(...)`` transparently yields the composed class instance."""
+    _patch_plugin_modules(monkeypatch, [_module_with_extensions(_LayersFirst)])
+
+    op = _LayersBase(operations.Env(None))
+    assert isinstance(op, _LayersFirst)
+
+
+def test_legacy_extends_marker_still_composes(monkeypatch):
+    """Deprecated ``@extends`` mixins layer onto the named handler."""
+    calls = []
+
+    class MarkerExt:
+        def probe(self):
+            calls.append("marker")
+            return super().probe()
+
+    _LayersBase.calls = calls
+    ext = operations.extends("test_layers.op")(MarkerExt)
+    _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
+
+    effective = _LayersBase.effective()
+    assert issubclass(effective, MarkerExt)
+    effective(operations.Env(None)).probe()
+    assert calls == ["marker", "base"]
 
 
 def test_env_binds_ctx_and_params():
@@ -122,7 +186,7 @@ def test_env_binds_ctx_and_params():
 
 
 def test_operation_rejects_reserved_param_names():
-    """Params cannot shadow operation attributes or methods."""
+    """Params cannot shadow handler attributes or methods."""
 
     class Probe(operations.Operation):
         dry_run = False
@@ -153,7 +217,7 @@ def test_registry_contains_has_no_side_effects(monkeypatch, capsys):
     """Membership tests do not compose classes or emit warnings."""
     ext = operations.extends("no.such.op")(type("Ext", (), {}))
     _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
-    monkeypatch.setattr(operations, "_WARNED_UNKNOWN", set())
+    monkeypatch.setattr("osh.handlers._WARNED_UNKNOWN", set())
     assert "odoo" in operations.registry
     assert "no.such.op" not in operations.registry
     assert capsys.readouterr().err == ""
@@ -171,22 +235,21 @@ def test_registry_behaves_like_a_mapping(monkeypatch):
 
 
 def test_resolve_without_extensions_returns_base(monkeypatch):
-    """With no plugins declaring extensions, the base class resolves."""
+    """With no extensions, the literal handler class is the effective one."""
     _patch_plugin_modules(monkeypatch, [])
-    assert operations.registry["odoo"] is not None
-    assert "db.list" in operations._OPERATIONS
+    assert operations.registry["odoo"] is OdooRun
 
 
-def test_resolve_warns_on_unknown_operation(monkeypatch, capsys):
-    """An ``extends`` target matching no operation is reported once."""
+def test_resolve_warns_on_unknown_handler(monkeypatch, capsys):
+    """An ``extends`` target matching no handler is reported once."""
     ext = operations.extends("no.such.op")(type("Ext", (), {}))
     _patch_plugin_modules(monkeypatch, [_module_with_extensions(ext)])
-    monkeypatch.setattr(operations, "_WARNED_UNKNOWN", set())
+    monkeypatch.setattr("osh.handlers._WARNED_UNKNOWN", set())
 
     operations.registry["odoo"]
     operations.registry["db.list"]
     err = capsys.readouterr().err
-    assert err.count("unknown operation 'no.such.op'") == 1
+    assert err.count("unknown handler 'no.such.op'") == 1
 
 
 def test_resolve_skips_non_class_extensions(monkeypatch, capsys):
@@ -195,7 +258,7 @@ def test_resolve_skips_non_class_extensions(monkeypatch, capsys):
     bad._extends = "db.list"
     _patch_plugin_modules(monkeypatch, [types.SimpleNamespace(bad=bad)])
     cls = operations.registry["db.list"]
-    assert "non-class extension" in capsys.readouterr().err
+    assert "not a class" in capsys.readouterr().err
     assert cls.__name__ == "DbList"
 
 
@@ -216,7 +279,10 @@ def test_resolve_skips_uncomposable_extensions(monkeypatch, capsys):
 def _odoo_extensions(monkeypatch, *extensions):
     """Patch the plugin loader to expose *extensions* for the ``odoo`` op."""
     modules = [
-        _module_with_extensions(operations.extends("odoo")(ext)) for ext in extensions
+        _module_with_extensions(
+            ext if issubclass(ext, CommandHandler) else operations.extends("odoo")(ext)
+        )
+        for ext in extensions
     ]
     _patch_plugin_modules(monkeypatch, modules)
 
@@ -242,7 +308,7 @@ def test_odoo_runs_pre_env_extensions(
     """``pre_env`` extensions run with the assembled state before exec."""
     calls = []
 
-    class Recorder:
+    class Recorder(OdooRun):
         def pre_env(self):
             super().pre_env()
             calls.append(self)
@@ -272,7 +338,7 @@ def test_odoo_get_options_adds_cli_options(
     """``get_options`` params parse and land in ``ctx.params``."""
     seen_params = {}
 
-    class Recorder(_OpenOption):
+    class Recorder(_OpenOption, OdooRun):
         def pre_env(self):
             super().pre_env()
             seen_params.update(self.ctx.params)
@@ -289,7 +355,11 @@ def test_odoo_get_options_adds_cli_options(
 
 def test_odoo_help_lists_extension_options(monkeypatch):
     """Extension-provided options appear in ``osh odoo --help``."""
-    _odoo_extensions(monkeypatch, _OpenOption)
+
+    class Recorder(_OpenOption, OdooRun):
+        pass
+
+    _odoo_extensions(monkeypatch, Recorder)
     runner = CliRunner()
     result = runner.invoke(odoo, ["--help"])
 
@@ -306,7 +376,7 @@ def test_odoo_pre_env_extension_can_abort(
 ):
     """A ``ClickException`` raised in ``pre_env`` aborts before exec."""
 
-    class Abort:
+    class Abort(OdooRun):
         def pre_env(self):
             super().pre_env()
             raise click.ClickException("extension says no")
@@ -329,15 +399,15 @@ def test_odoo_extensions_chain_through_super(
     osh_source_dirs,
     capture_execvp,
 ):
-    """Two extensions for the same op both run, last-loaded first."""
+    """Two extensions for the same handler both run, last-loaded first."""
     calls = []
 
-    class First:
+    class First(OdooRun):
         def pre_env(self):
             calls.append("first")
             super().pre_env()
 
-    class Second:
+    class Second(OdooRun):
         def pre_env(self):
             calls.append("second")
             super().pre_env()

@@ -18,21 +18,76 @@ from ...db import (
     sanitize_db_name,
     set_last_db,
 )
-from ...operations import Env, Operation, operation
+from ...handlers import CommandHandler
 from ...utils.odoo_layout import find_odoo_executable
 from ...utils.version import get_version_tuple
 from . import restore_ops
 from .remotes import newest_cache_for_remote, newest_cache_for_source
 
 
-@operation("db.restore")
-class DbRestore(Operation):
-    """`osh db restore` operation — restore a backup and neutralize it.
+# `osh db restore` handler — extensions subclass DbRestore and override
+# step methods, calling super(). Command state is on ``self``: ``ctx``,
+# the parsed params plus ``base``, ``backend``, ``dump_path`` and
+# ``db_name`` as ``run()`` fills them in.
+class DbRestore(CommandHandler):
+    """Restore a backup into the current branch's database and neutralize it.
 
-    Extensions override step methods via ``@extends``, calling ``super()``.
-    Command state is on ``self``: ``ctx``, the parsed params plus ``base``,
-    ``backend``, ``dump_path`` and ``db_name`` as ``run()`` fills them in.
+    With no DUMP argument, the newest backup from the project cache is used.
+    Use `cache:<id>` to pick a specific entry shown by `osh db restore --list`.
+    DUMP may also be a remote name (see `osh db remote`) or a backup source
+    URL — the newest cached backup fetched from it is restored.
+
+    PostgreSQL credentials are read from ``.osh/odoo.conf`` (or ``.odoorc``)
+    for every spawned tool, so no process environment changes are needed.
+
+    The restore tool is chosen based on the backup extension:
+
+    \b
+      .dump   -> pg_restore
+      .sql    -> psql
+      .sql.gz -> gunzip -c | psql
+      .zip    -> unzip + psql + filestore copy
+
+    Backup contents are streamed to the tool's standard input, so host file
+    paths never reach the backend environment — this works the same on the
+    host and inside a Docker container.
+
+    For `.zip` backups, the filestore directory is copied into the configured
+    Odoo `data_dir` under `filestore/<dbname>/`. If `data_dir` cannot be
+    determined, `osh db restore` warns and continues without the filestore.
+
+    After the dump is restored, the database is neutralized. Odoo 16.0+ uses
+    `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
+    scripts.
+
+    Once the restore (and neutralization) completes, plugins extending the
+    ``db.restore`` handler through ``post_restore()`` run — e.g. to record
+    module fingerprints in the restored database. Failures are reported as
+    warnings; they cannot fail an already-completed restore.
+
+    Neutralization hooks:
+
+    Custom `.sql` scripts inside `.osh/neutralize/` run after the built-in
+    neutralization step, in sorted order. Use numeric prefixes to control the
+    order (e.g. `000_default.sql`, `100_anonymize_partners.sql`). Global
+    defaults can be placed in `~/.config/osh/neutralize/` and are copied to
+    `.osh/neutralize/` during `osh init`.
+
+    Examples:
+
+    \b
+      osh db restore
+      osh db restore cache:1
+      osh db restore prod
+      osh db restore https://my.odoo.com/web?db=prod
+      osh db restore /path/to/backup.zip
+      osh db restore /path/to/backup.zip --db prod_restore
+      osh db restore /path/to/backup.sql.gz --force
+      osh db restore /path/to/backup.sql.gz --db prod_restore --force
+      osh db restore --list
     """
+
+    _cli_name = "db.restore"
 
     dump = None
     list_backups = False
@@ -42,6 +97,49 @@ class DbRestore(Operation):
     no_neutralize = False
     target_db = None
     dry_run = False
+
+    @classmethod
+    def get_options(cls):
+        return [
+            click.Argument(["dump"], required=False),
+            click.Option(
+                ["--list", "list_backups"],
+                is_flag=True,
+                help="List cached backups instead of restoring.",
+            ),
+            click.Option(
+                ["--limit"],
+                default=20,
+                show_default=True,
+                help="Maximum number of backups to show (with --list).",
+            ),
+            click.Option(
+                ["--reverse"],
+                is_flag=True,
+                help="List oldest backups first (with --list).",
+            ),
+            click.Option(
+                ["--force"],
+                is_flag=True,
+                help="Overwrite the target database if it already exists.",
+            ),
+            click.Option(
+                ["--no-neutralize"],
+                is_flag=True,
+                help="Skip neutralizing the database after restoring.",
+            ),
+            click.Option(
+                ["-d", "--db", "target_db"],
+                default=None,
+                help="Target database name to restore into (defaults to the "
+                "branch database).",
+            ),
+            click.Option(
+                ["--dry-run"],
+                is_flag=True,
+                help="Print the steps that would be executed without running them.",
+            ),
+        ]
 
     def run(self):
         self.base = find_project_root(required=True)
@@ -189,7 +287,7 @@ class DbRestore(Operation):
     def post_restore(self):
         """Extension point — runs after the restore and neutralization.
 
-        Plugins override this via ``@extends("db.restore")`` and call
+        Plugins subclass ``DbRestore``, override this and call
         ``super()``; ``self.db_name`` is the restored database. Failures
         are reported as warnings and cannot fail the completed restore.
         """
@@ -208,124 +306,3 @@ class DbRestore(Operation):
                 f"from {self.dump_path}",
                 err=True,
             )
-
-
-@click.command(name="restore")
-@click.argument("dump", required=False)
-@click.option(
-    "--list",
-    "list_backups",
-    is_flag=True,
-    help="List cached backups instead of restoring.",
-)
-@click.option(
-    "--limit",
-    default=20,
-    show_default=True,
-    help="Maximum number of backups to show (with --list).",
-)
-@click.option(
-    "--reverse",
-    is_flag=True,
-    help="List oldest backups first (with --list).",
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Overwrite the target database if it already exists.",
-)
-@click.option(
-    "--no-neutralize",
-    is_flag=True,
-    help="Skip neutralizing the database after restoring.",
-)
-@click.option(
-    "-d",
-    "--db",
-    "target_db",
-    default=None,
-    help="Target database name to restore into (defaults to the branch database).",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Print the steps that would be executed without running them.",
-)
-@click.pass_context
-def restore(
-    ctx,
-    dump,
-    list_backups,
-    limit,
-    reverse,
-    force,
-    no_neutralize,
-    target_db,
-    dry_run,
-):  # noqa: D401
-    """Restore a backup into the current branch's database and neutralize it.
-
-    With no DUMP argument, the newest backup from the project cache is used.
-    Use `cache:<id>` to pick a specific entry shown by `osh db restore --list`.
-    DUMP may also be a remote name (see `osh db remote`) or a backup source
-    URL — the newest cached backup fetched from it is restored.
-
-    PostgreSQL credentials are read from ``.osh/odoo.conf`` (or ``.odoorc``)
-    for every spawned tool, so no process environment changes are needed.
-
-    The restore tool is chosen based on the backup extension:
-
-    \b
-      .dump   -> pg_restore
-      .sql    -> psql
-      .sql.gz -> gunzip -c | psql
-      .zip    -> unzip + psql + filestore copy
-
-    Backup contents are streamed to the tool's standard input, so host file
-    paths never reach the backend environment — this works the same on the
-    host and inside a Docker container.
-
-    For `.zip` backups, the filestore directory is copied into the configured
-    Odoo `data_dir` under `filestore/<dbname>/`. If `data_dir` cannot be
-    determined, `osh db restore` warns and continues without the filestore.
-
-    After the dump is restored, the database is neutralized. Odoo 16.0+ uses
-    `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
-    scripts.
-
-    Once the restore (and neutralization) completes, plugins extending the
-    ``db.restore`` operation through ``post_restore()`` run — e.g. to record
-    module fingerprints in the restored database. Failures are reported as
-    warnings; they cannot fail an already-completed restore.
-
-    Neutralization hooks:
-
-    Custom `.sql` scripts inside `.osh/neutralize/` run after the built-in
-    neutralization step, in sorted order. Use numeric prefixes to control the
-    order (e.g. `000_default.sql`, `100_anonymize_partners.sql`). Global
-    defaults can be placed in `~/.config/osh/neutralize/` and are copied to
-    `.osh/neutralize/` during `osh init`.
-
-    Examples:
-
-    \b
-      osh db restore
-      osh db restore cache:1
-      osh db restore prod
-      osh db restore https://my.odoo.com/web?db=prod
-      osh db restore /path/to/backup.zip
-      osh db restore /path/to/backup.zip --db prod_restore
-      osh db restore /path/to/backup.sql.gz --force
-      osh db restore /path/to/backup.sql.gz --db prod_restore --force
-      osh db restore --list
-    """
-    Env(ctx)["db.restore"](
-        dump=dump,
-        list_backups=list_backups,
-        limit=limit,
-        reverse=reverse,
-        force=force,
-        no_neutralize=no_neutralize,
-        target_db=target_db,
-        dry_run=dry_run,
-    ).run()

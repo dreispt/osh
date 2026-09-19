@@ -45,7 +45,7 @@ python -m osh --version
 python -m osh plug list
 ```
 
-Commands such as `init`, `odoo`, `doctor`, `config`, and `test` need an
+Commands such as `init`, `odoo`, `config`, and `test` need an
 initialized Osh project. To exercise those, create a temporary project as
 described in `README.md`.
 
@@ -55,7 +55,7 @@ Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh db set`, `osh backend stop`,
 `osh plug install`, `osh addon update`), while bare top-level verbs are
 reserved for the primary day-to-day workflow actions (`osh init`,
-`osh odoo`, `osh switch`, `osh shell`, `osh doctor`, `osh test`). Verbs may
+`osh odoo`, `osh switch`, `osh shell`, `osh test`). Verbs may
 deliberately diverge between groups when the underlying concepts differ —
 `osh plug uninstall` deletes an osh plugin while `osh addon uninstall`
 removes an Odoo module, and `osh db set`/`unset` moves a mutable pointer
@@ -79,11 +79,9 @@ itself (e.g. `.osh/odoo`) is refused outright, and initialising the home
 directory asks for confirmation since a `~/.osh` would apply to every
 project-less directory under it.
 
-`osh doctor` reports both directions: an enclosing project the current one
-is nested inside (a warning unless it was acknowledged at init), and nested
-`.osh` environments found below the project root. Nested subtrees are still
-visible to the parent's `osh switch` and addons discovery — nesting changes
-which environment commands bind to, not which repositories the parent sees.
+Nested subtrees are still visible to the parent's `osh switch` and addons
+discovery — nesting changes which environment commands bind to, not which
+repositories the parent sees.
 
 ## Testing
 

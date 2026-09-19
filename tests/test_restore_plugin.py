@@ -7,10 +7,13 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from osh import operations
+from osh.cli_utils import handler_command
 from osh.commands.helpers import Diagnostics
 from osh.db import set_project_config
-from osh.plugins.osh_db_get.restore_cmd import restore
+from osh.plugins.osh_db_get.restore_cmd import DbRestore
 from osh.utils import plugin_loader
+
+restore = handler_command("restore", DbRestore)
 
 
 def _setup_fake_db_config(project, db_name="testdb"):
@@ -532,8 +535,17 @@ def test_restore_top_level_alias_is_gone(patched_restore, in_project):
 
 
 def _register_post_restore(monkeypatch, cls):
-    """Expose *cls* as a ``db.restore`` extension via a fake plugin module."""
-    module = types.SimpleNamespace(ext=operations.extends("db.restore")(cls))
+    """Expose *cls* as a ``db.restore`` extension via a fake plugin module.
+
+    Plain ``DbRestore`` subclasses (no ``_cli_name`` of their own) are
+    discovered as extenders; the deprecated ``_extends`` marker is still
+    honored for other classes.
+    """
+    if issubclass(cls, DbRestore):
+        ext = cls
+    else:
+        ext = operations.extends("db.restore")(cls)
+    module = types.SimpleNamespace(ext=ext)
     monkeypatch.setattr(
         plugin_loader, "_iter_plugin_modules", lambda: iter([("test", module)])
     )
@@ -548,7 +560,7 @@ def test_restore_runs_post_restore_extensions(patched_restore, in_project, monke
 
     calls = []
 
-    class Probe:
+    class Probe(DbRestore):
         def post_restore(self):
             super().post_restore()
             calls.append((self.base, self.db_name))

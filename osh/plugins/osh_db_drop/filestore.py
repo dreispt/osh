@@ -1,12 +1,11 @@
 """Filestore helpers for the `osh db drop` plugin."""
 
 from ... import echo
+from ...commands.db_cmd import DbList
 from ...db import resolve_backend, run_in_backend
-from ...operations import extends
 
 
-@extends("db.list")
-class DanglingFilestores:
+class DanglingFilestores(DbList):
     """Extends `osh db list` — filestore dirs without a matching database.
 
     ``self.db_names`` is the full (unfiltered) database name set from

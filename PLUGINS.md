@@ -7,23 +7,38 @@ For general `osh` development, see `DEVELOP.md`. For using `osh`, see `README.md
 
 ## Quick start
 
-A plugin is a Python package (a directory with `__init__.py`) or a single
-`osh_plugin.py` file. It declares what it provides in an
-`OSH_PLUGIN_MANIFEST` dict:
+A plugin is a Python package marked by an `osh-plugin.toml` file. The
+marker declares what the plugin provides; the code self-describes on
+import:
+
+```toml
+# my_plugin/osh-plugin.toml
+description = "My hello plugin."
+
+[commands]
+hello = "Say hello."
+```
 
 ```python
 # my_plugin/__init__.py
 import click
 
+from osh.handlers import CommandHandler
 
-@click.command(name="hello")
-@click.option("--name", default="world", help="Who to greet.")
-def hello(name):
+
+class Hello(CommandHandler):
     """Say hello."""
-    click.echo(f"Hello, {name}!")
 
+    _cli_name = "hello"
 
-OSH_PLUGIN_MANIFEST = {"commands": [hello]}
+    name = "world"
+
+    @classmethod
+    def get_options(cls):
+        return [click.Option(["--name"], default="world", help="Who to greet.")]
+
+    def run(self):
+        click.echo(f"Hello, {self.name}!")
 ```
 
 Install it in editable mode — the directory is symlinked into the plugin
@@ -34,25 +49,106 @@ osh plug install -e /path/to/my_plugin
 python -m osh hello --name developer
 ```
 
-`osh` only loads plugins at startup — restart the CLI after changing
-plugin code.
+The package's `__init__.py` must expose the plugin's contributions —
+`CommandHandler` subclasses, `@plugin_group` groups, `Backend`/
+`BackupSource` subclasses and handler extensions are discovered among
+its attributes, so re-export implementations living in submodules.
 
-## The manifest
+## How plugins load
 
-`OSH_PLUGIN_MANIFEST` maps capability names to implementations. All keys
+`osh` loads plugins in two stages, so `osh --help` stays fast no matter
+what plugins install:
+
+1. **Metadata inspection** — at startup, `osh` scans plugin sources and
+   reads only `osh-plugin.toml` files and entry-point declarations.
+   Command, backend and source names register as lightweight stubs; **no
+   plugin module is imported**.
+2. **Import on use** — a plugin's module is imported only when needed:
+   invoking `osh hello` imports the plugin declaring `hello`, resolving
+   the `docker` backend imports only the plugin declaring it, and
+   composing `db.restore` imports only plugins declaring
+   `extends = ["db.restore"]`. Other installed plugins are never
+   evaluated.
+
+A plugin that fails to import reports a clean error at invocation time
+(`Could not load plugin 'x' command 'y': ...`) — typically a missing
+dependency — without affecting other commands.
+
+Plugins are discovered from three sources, in order:
+
+- built-in packages under `osh/plugins/`;
+- the `osh.plugins` entry-point group of installed distributions
+  (`[project.entry-points."osh.plugins"]` in `pyproject.toml` — the value
+  is a module path, optionally `module:callable` for a plain handler that
+  receives the remaining argv);
+- user plugins in `~/.config/osh/plugins/`.
+
+## `osh-plugin.toml`
+
+The marker file declares the plugin's command surface — the metadata
+needed to list and place commands without importing the plugin. All keys
 are optional:
 
-- `commands` — `click.Command` objects, added as `osh <command>`.
-- `group_commands` — `{group: [commands]}`, added as subcommands of an
-  existing `osh` group (e.g. `osh db <sub>`).
-- `backends` — `Backend` subclasses (execution targets).
-- `backend_commands` — `click.Group` objects providing the backend's
-  `osh <name>` command group (e.g. `osh docker init`), listed under
-  "Backend Commands" in `osh --help`.
+```toml
+description = "What this plugin does."   # shown by `osh plug list`
 
-Declaring the manifest — even as `OSH_PLUGIN_MANIFEST = {}` — marks a
-package as a plugin; extension-only plugins (just `@extends` mixins or
-`BackupSource` subclasses) may have nothing else to declare.
+# Handlers this plugin extends — the plugin is imported when one of
+# them is composed.
+extends = ["db.restore"]
+
+# Named non-CLI handlers this plugin provides — resolvable by name
+# through resolve() without generating a command.
+handlers = ["my_plugin.cmd"]
+
+# Plugin source names imported before this plugin — for couplings
+# extends/resolve() do not cover (direct package imports, side effects).
+depends = ["osh-db-get"]
+
+[commands]                 # top-level `osh <name>` commands
+hello = "Say hello."
+remote = { group = true, help = "Manage remotes." }   # a click.Group
+
+[group_commands.db]        # subcommands of an existing group
+restore = "Restore a backup."
+
+[backend_commands]         # `osh <name>` backend lifecycle groups
+docker = "Manage the project's Docker Compose stack."
+
+[backends]                 # Backend subclasses provided
+docker = "Run Odoo inside a Docker Compose stack."
+
+[sources]                  # `osh db get` backup source schemes provided
+s3 = "Download a backup from an S3 bucket."
+```
+
+Command declaration values are the short help text shown in `--help`
+listings, or a table with `help` and optional `group = true` when the
+command is a nested `click.Group` (e.g. `osh db remote`).
+
+The declared names must match what the code provides on import — a
+command listed in `[commands]` resolves to a `CommandHandler` subclass
+named after it (or a `@plugin_group`/manifest-provided command of that
+name) in the plugin package.
+
+`depends` names other plugin _sources_ (the names shown by
+`osh plug list`) that must be imported before this plugin's module.
+Dependencies are imported recursively first; an unknown, disabled or
+failing dependency fails the plugin's load with a clear error, and
+circular dependencies are reported. Handler extension doesn't need it —
+`extends` plus `resolve()` already order the imports — `depends` covers
+the rest: importing another plugin's package directly, relying on its
+import side effects, or using its backends or handlers at module level.
+Unresolved `extends` and `depends` references also warn at startup,
+without importing anything.
+
+### Deprecated: `OSH_PLUGIN_MANIFEST`
+
+The previous mechanism — an `OSH_PLUGIN_MANIFEST` dict in `__init__.py`
+listing command objects — still works but is deprecated: it requires
+importing the plugin at startup, so such plugins load eagerly and warn
+on every run. Migrate by declaring the plugin's surface in
+`osh-plugin.toml` and registering commands as `CommandHandler`
+subclasses.
 
 ### Command naming convention
 
@@ -60,7 +156,7 @@ Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh db restore`, `osh plug install`,
 `osh addon update`), while bare top-level verbs are reserved for the
 primary day-to-day workflow actions (`osh init`, `osh odoo`, `osh switch`,
-`osh shell`, `osh doctor`, `osh test`). If your plugin manages a resource,
+`osh shell`, `osh test`). If your plugin manages a resource,
 attach its commands to the matching group via `group_commands` instead of
 claiming a bare top-level verb. Verbs may deliberately diverge between
 groups when the underlying concepts differ — `osh plug uninstall` deletes
@@ -95,19 +191,24 @@ osh plug alias PLUGIN COMMAND NAME
 osh plug unalias PLUGIN COMMAND
 ```
 
+`osh plug list` shows each plugin's `description` from
+`osh-plugin.toml` — read from the file, never by importing the plugin.
+
 ### Multi-plugin repositories
 
 A repository can ship several plugins — like an Odoo addons repo. Every
-direct subpackage declaring an `OSH_PLUGIN_MANIFEST` is a plugin of its
-own — the repo root doesn't even need an `__init__.py`, and a root-level
-manifest loads alongside the subplugins':
+direct subpackage containing an `osh-plugin.toml` marker is a plugin of
+its own — the repo root doesn't even need an `__init__.py`, and a
+marked root package loads alongside the subplugins:
 
 ```
 osh-contrib/
 ├── osh_scan/
-│   └── __init__.py      # OSH_PLUGIN_MANIFEST = {"commands": [scan]}
+│   ├── osh-plugin.toml  # [commands] scan = "..."
+│   └── __init__.py
 ├── osh_audit/
-│   └── __init__.py      # OSH_PLUGIN_MANIFEST = {"commands": [audit]}
+│   ├── osh-plugin.toml
+│   └── __init__.py
 └── osh_misc/
     └── osh_plugin.py    # single-file plugin works too
 ```
@@ -154,18 +255,21 @@ a collision is an error and the contribution is skipped.
 
 ### Built-in plugins
 
-Built-in plugins live in `osh/plugins/` and load automatically;
+Built-in plugins live in `osh/plugins/` and register automatically;
 `osh/plugins/osh_test/` is the canonical example. To add one:
 
 1. Create a package under `osh/plugins/<name>/`.
-2. Declare `OSH_PLUGIN_MANIFEST` in `__init__.py`.
-3. Implement the Click commands in one or more modules.
+2. Declare the plugin's surface in `osh-plugin.toml`.
+3. Implement the commands as `CommandHandler` subclasses, re-exported
+   from `__init__.py`.
 4. Run `python -m osh --help` to verify the command appears.
 
 ### Plugin dependencies
 
 `osh` does not manage plugin dependencies. Document the packages your
 plugin needs; users install them into the same environment as `osh`.
+Because plugins import lazily, a missing dependency surfaces as an error
+when the plugin's command runs — other commands keep working.
 
 ## Public API surface
 
@@ -182,8 +286,8 @@ without notice.
   for new `osh db get` schemes.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
-- `osh.operations` — `Operation`, `Env`, `operation()`, `extends()`,
-  `registry` — see
+- `osh.handlers` — `CommandHandler`, `Env`, `resolve()`,
+  `plugin_group()`, `registry` — see
   [Extending core commands](#extending-core-commands).
 - `osh.db` — database and backend-selection helpers: `run_in_backend`,
   `create_db`, `drop_db`, `db_exists`, `resolve_db_name`,
@@ -200,54 +304,118 @@ of the backend contract.
 
 ### Command plugins
 
-Commands declared under the `commands` key are added as `osh <command>`:
+A plugin command is a `CommandHandler` subclass declaring `_cli_name` —
+the name doubles as command placement: a dotted name attaches to the
+group named by its first segment (`db.restore` → `osh db restore`), a
+bare name registers top-level (`scan` → `osh scan`). Declare each
+command in `osh-plugin.toml` under `[commands]` or
+`[group_commands.<group>]` so it can be listed without importing:
 
 ```python
-OSH_PLUGIN_MANIFEST = {"commands": [hello]}
+from osh.handlers import CommandHandler
+
+
+class DbAudit(CommandHandler):
+    """Audit the database."""      # the command's --help body
+
+    _cli_name = "db.audit"
+
+    verbose = False
+
+    @classmethod
+    def get_options(cls):
+        return [click.Option(["--verbose"], is_flag=True)]
+
+    def run(self):
+        ...
 ```
 
-Plugins load from three sources, in order: built-in packages under
-`osh/plugins/`, the `osh.plugins` entry-point group, and user plugins in
-`~/.config/osh/plugins/`. Name conflicts resolve as described in
-[Command name collisions](#command-name-collisions).
+`get_options()` returns the `click.Parameter`s of the generated command;
+parsed values become instance attributes. `format_cli_help(formatter)`
+writes extra sections after the `--help` body. Help text has two homes
+with distinct roles: the `osh-plugin.toml` declaration is the short
+description shown in command listings (it stays authoritative after
+import, so listings never drift), and the class docstring is the
+`--help` body. The `_cli_*` class attributes customize the wiring:
 
-### Group subcommands
+- A `_`-prefixed name segment (`_util.fmt`, `db._fmt`) marks a
+  programmatic-only handler — no command generated. Declare such
+  handlers under the `handlers` key in `osh-plugin.toml`.
+- `_cli_group`: target group override for bare names.
+- `_cli_context_settings`: dict passed to the `click.Command`.
 
-Attach subcommands to an existing `osh` command group with
-`group_commands`:
+The handler class is the command's public API — `DbAudit(ctx,
+verbose=True).run()` runs it, resolving any registered extensions
+transparently (see below). To reach a handler by name without importing
+it directly, `osh.handlers.resolve("db.audit")` returns the class.
+
+A plugin-provided command group — a `click.Group` with its own
+subcommands, like `osh db remote` — is marked with `@plugin_group`
+instead; _parent_ names the group to attach under:
 
 ```python
-OSH_PLUGIN_MANIFEST = {"group_commands": {"db": [my_subcommand]}}
+from osh.handlers import plugin_group
+
+
+@plugin_group("db")
+@click.group(name="remote")
+def remote():
+    """Manage named backup sources."""
+
+
+@remote.command()
+def add(...):
+    ...
 ```
 
-The command then appears as `osh db my-subcommand`; the group must
-already exist (targeting a non-group command is an error). Collision and
-alias handling work as for top-level commands — the alias key is
-`<group>.<name>`.
+Declare it in the marker as `{ group = true, help = "..." }` so the
+loader builds a lazy group stub.
 
 ### Backend plugins
 
-A backend plugin declares `Backend` subclasses under `backends` and its
-command group under `backend_commands`:
+A backend plugin subclasses `Backend` and declares the backend and its
+command group in `osh-plugin.toml`:
 
-```python
-from osh.commands.backend_cmd import backend_group
+```toml
+[backends]
+mybackend = "Run Odoo on my custom target."
 
-backend = backend_group(MyBackend)
-
-OSH_PLUGIN_MANIFEST = {
-    "backends": [MyBackend],
-    "backend_commands": [backend],
-}
+[backend_commands]
+mybackend = "Manage my custom target."
 ```
 
-`backend_group(cls)` returns a ready-to-use `click.Group` (a
-`NaturalOrderGroup`) named after the backend and pre-populated with the
-standard `init`, `activate`, `doctor` and `stop` subcommands. `osh <name>
+```python
+from osh.backends import Backend
+
+
+class MyBackend(Backend):
+    backend_type = "backend"
+    name = "mybackend"
+    ...
+```
+
+The backend class is imported only when the backend is selected
+(`run.target = mybackend`) or its command group is invoked — listing
+backends in `--help` and `osh backend list` reads the declared
+descriptions instead.
+
+The command group comes from `Backend.get_cli_group()` — the default
+calls `backend_group(cls)`, a ready-to-use `click.Group`
+(`NaturalOrderGroup`) named after the backend and pre-populated with the
+standard `init`, `activate` and `stop` subcommands. `osh <name>
 init` runs the common base setup and then calls `cls.init(...)`; `osh
 <name> activate` is the lightweight way to switch the project to an
 already-initialized backend. A backend needing extra or different
-commands can build its own `click.Group` instead.
+commands overrides `get_cli_group()`:
+
+```python
+class DockerBackend(Backend):
+    @classmethod
+    def get_cli_group(cls):
+        group = super().get_cli_group()
+        ...  # add or replace subcommands
+        return group
+```
 
 Activation records `run.target = <name>` in `.osh/config.toml`, and
 `osh odoo`/`osh shell`/`osh db` then run through the backend. Built-in
@@ -274,6 +442,10 @@ class MyBackend(Backend):
   `osh <name> init` should accept, on top of the common init options
   (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
 
+- `get_cli_group(cls)`: return the backend's `osh <name>` `click.Group`;
+  defaults to `backend_group(cls)`. Called when the group is first
+  invoked — the backend class is already imported at that point.
+
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
   _base_, or `None` if it cannot be determined. The base implementation reads
   the version from the checked-out Odoo sources; backends override it to try
@@ -281,8 +453,8 @@ class MyBackend(Backend):
   tag).
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
-  Return a `Diagnostics` object. `osh <name> doctor`, `osh <name> init` and
-  `osh odoo` all use this. `options` may include `phase` (`"doctor"`, `"init"`
+  Return a `Diagnostics` object. `osh <name> init` and
+  `osh odoo` both use this. `options` may include `phase` (`"init"`
   or `"run"`) and any CLI options passed by the command.
 
 - `init(self, target, *, version="", edition="ce", dry_run=False, **options)`:
@@ -309,51 +481,79 @@ class MyBackend(Backend):
 
 ### Extending core commands
 
-Core commands delegate to _operation classes_ — one per command,
-registered under a stable name in `osh.operations` — behind thin Click
-wrappers. Plugins extend a command's behaviour in place (Odoo
-`_inherit`-style) by marking mixin classes with `@extends` — no manifest
-entry is needed; the class must just be importable from the plugin
-package:
+Core commands delegate to _handler classes_ — `CommandHandler`
+subclasses declared under a stable `_cli_name`. A plugin extends a
+command's behaviour in place (Odoo `_inherit`-style) by subclassing the
+handler it extends — a plain subclass with no `_cli_name` of its own is
+an extension of its nearest named ancestor. Declare the extended
+handlers in the marker so the plugin is imported when that handler is
+composed — **the declaration is required**: nothing else ever triggers
+the plugin's import, so without it the extension silently never applies:
+
+```toml
+# osh-plugin.toml
+extends = ["db.list"]
+```
 
 ```python
-from osh.operations import extends
+from osh.commands.db_cmd import DbList
 
 
-@extends("db.list")
-class DanglingFilestores:
+class DanglingFilestores(DbList):
     def extra_sections(self):
         lines = list(super().extra_sections())
         ...  # append extra output lines
         return lines
 ```
 
-Mixins layer onto the operation class in plugin load order: a later
-plugin's mixin is outermost (its methods win) and reaches the earlier
-ones through `super()`. **Always call `super()`** in an overridden method —
-skipping it silently drops every earlier extension.
+When the extended handler lives in a plugin (not core), importing it
+just to subclass it couples the plugins — subclass `resolve("name")`
+instead, which returns the effective class by name:
+
+```python
+from osh.handlers import CommandHandler, resolve
+
+
+class FingerprintBaseline(resolve("db.restore")):
+    def post_restore(self):
+        super().post_restore()
+        ...
+```
+
+Extensions layer onto the handler class in plugin discovery order: a
+later plugin's subclass is outermost (its methods win) and reaches the
+earlier ones through `super()`. **Always call `super()`** in an overridden
+method — skipping it silently drops every earlier extension.
+
+A subclass that _does_ declare its own `_cli_name` is a new command
+reusing the parent's implementation — it does not affect the parent:
+
+```python
+class SmartRestore(resolve("db.restore")):
+    _cli_name = "db.smart_restore"
+```
 
 Command state lives on `self`: `self.env` is the per-invocation `Env`,
 `self.ctx` its Click context (`self.ctx.params` holds the parsed CLI
-values, including plugin-injected options), and the parsed parameters are
-attributes (`self.show_all`, `self.dry_run`, ...). Operations decompose
-their work into methods so any step is an extension point. Registered
-operation names include `"odoo"` (`OdooRun` in `osh.commands.odoo_cmd`)
+values, including plugin-injected options), and the parsed parameters
+are attributes (`self.show_all`, `self.dry_run`, ...). Handlers
+decompose their work into methods so any step is an extension point.
+Named handlers include `"odoo"` (`OdooRun` in `osh.commands.odoo_cmd`)
 and `"db.list"` (`DbList` in `osh.commands.db_cmd`).
 
-The `Env` binds a Click context to the registry — the Odoo
-`env["model.name"]` equivalent. `env["db.list"]` returns a bound
-operation instance; calling it with the command's params configures it:
+`resolve(name)` is the lazy name→class bridge — it imports only the
+plugin declaring the handler, then returns the class. Use it wherever a
+name is all you have:
 
 ```python
 def list_dbs(ctx, show_all):
-    Env(ctx)["db.list"](show_all=show_all).run()
+    resolve("db.list")(ctx, show_all=show_all).run()
 ```
 
-`self.env` also lets an operation delegate to other operations without
-threading `ctx` — `self.env["other.op"](...).run()`. The `registry`
-lookup returns the operation _class_ and is used for class-level APIs
-such as `registry["odoo"].get_options()`.
+`self.env` (`Env`) offers the same resolution bound to the handler's
+context — `self.env["db.list"](show_all=show_all).run()` — and
+`registry["db.list"]` returns the effective _class_ for class-level
+APIs such as `registry["odoo"].get_options()`.
 
 Extension points on `osh odoo`:
 
@@ -377,16 +577,29 @@ directories with no matching database). Available state: `self.base`,
 `self.db_names` (the full, unfiltered name set parsed from `psql -l`),
 `self.prefix` and `self.show_all`.
 
-Any command can be made extensible — including plugin-provided ones:
-apply `@operation("my_plugin.cmd")` to the operation class and delegate
-to `Env(ctx)["my_plugin.cmd"](...).run()` in the Click wrapper; other
-plugins can then extend `"my_plugin.cmd"` the same way.
+Any named handler can be extended — including plugin-provided ones:
+other plugins subclass `resolve("my_plugin.cmd")` (or the class
+directly) and declare `extends = ["my_plugin.cmd"]` in their marker the
+same way. Non-CLI handlers use a `_`-prefixed name (e.g. `_util.fmt`)
+and are listed under the `handlers` key so `resolve()` can find them
+without a command.
+
+The pre-subclass API keeps working through `osh.operations` for existing
+plugins: `Operation`, `@operation("name")`, `@extends("name")` mixins,
+`Env`, `registry` and the legacy `cli_*` attributes are honoured, and
+`_extends`-marked mixins still compose into their targets. New code
+should use `osh.handlers` and plain subclassing.
 
 ### Backup source plugins
 
-`osh db get <scheme>://...` schemes come from `BackupSource` subclasses:
-any plugin module that defines (or re-exports) a subclass registers it
-automatically — no manifest key needed:
+`osh db get <scheme>://...` schemes come from `BackupSource` subclasses.
+Declare each scheme in `osh-plugin.toml` so the plugin is imported only
+when the scheme is actually used, and so `osh db get --help` can list it:
+
+```toml
+[sources]
+myscheme = "Download a backup from my service."
+```
 
 ```python
 from osh.backup_sources import BackupSource
@@ -421,19 +634,18 @@ plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` —
 alongside the `osh db get` command and the `osh db restore` group
 subcommand.
 
-`osh db restore` is a regular operation (`db.restore`), so post-restore
-behaviour is an ordinary `@extends` mixin: override `post_restore()` and
-call `super()`. The operation state carries `self.ctx`, `self.base`,
+`osh db restore` is a regular handler (`db.restore`), so post-restore
+behaviour is an ordinary extension subclass: override `post_restore()`
+and call `super()`. The handler state carries `self.ctx`, `self.base`,
 `self.db_name` and `self.env_spec`; `post_restore` is skipped under
 `--dry-run`, and a failing extension is reported as a warning without
 failing the restore (run `osh --verbose` for the traceback):
 
 ```python
-from osh.operations import extends
+from osh.handlers import resolve
 
 
-@extends("db.restore")
-class FingerprintBaseline:
+class FingerprintBaseline(resolve("db.restore")):
     def post_restore(self):
         super().post_restore()
         # e.g. record module fingerprints in self.db_name
@@ -483,7 +695,7 @@ execute inside the prepared target environment:
 - `env`: a mapping of extra environment variables (`ODOO_RC`,
   `PGDATABASE`, `PGHOST`, etc.) to expose before running the command.
 - `db_name`: the resolved Odoo database name, if any.
-- `config_path`: the generated `--config` file path, if any.
+- `config_path`: the generated `--osh-config` file path, if any.
 
 ### Diagnostics
 
@@ -497,10 +709,20 @@ Backends return diagnostics via the `Diagnostics` dataclass in
   `add_plan(item)`: helper methods.
 
 `osh odoo` aborts on `errors`; `osh <name> init` uses `plan` to show the
-user what will happen; `osh <name> doctor` reports everything via
-`report_diagnostics()`.
+user what will happen.
 
 ### Minimal backend plugin example
+
+```toml
+# ~/.config/osh/plugins/my_backend/osh-plugin.toml
+description = "Echo backend plugin."
+
+[backends]
+echo = "Print the Odoo command instead of running it."
+
+[backend_commands]
+echo = "Manage the echo backend."
+```
 
 ```python
 # ~/.config/osh/plugins/my_backend/__init__.py
@@ -525,24 +747,7 @@ class EchoBackend(Backend):
         d.add_plan("Print the assembled Odoo command.")
         return d
 
-    def init(self, target, *, version="", edition="ce", dry_run=False, **options):
-        click.echo(f"Would initialise {target} for {edition} {version}")
-        return True
-
     def env(self, ctx, base, env_spec, *, dry_run=False, **options):
-        command = ' '.join(env_spec.argv) if env_spec.argv else '<interactive shell>'
-        click.echo(f"Would run in {self.name} environment: {command}")
-
-
-from osh.commands.backend_cmd import backend_group
-
-echo = backend_group(EchoBackend)
-
-OSH_PLUGIN_MANIFEST = {
-    "backends": [EchoBackend],
-    "backend_commands": [echo],
-}
+        click.echo(" ".join(env_spec.argv))
+        return 0
 ```
-
-Once the plugin is loaded, `osh echo init` sets the project up and makes
-`echo` the active backend, so `osh odoo` runs Odoo through it.

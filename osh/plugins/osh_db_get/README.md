@@ -60,18 +60,16 @@ source contract.
 
 ## Extending restore
 
-`osh db restore` is a regular operation (`db.restore`), so plugins extend
-it with an `@extends` mixin — override `post_restore()` and call
-`super()` to act on the freshly restored database, e.g. to record module
-fingerprints. The operation state carries `self.ctx`, `self.base` and
-`self.db_name`:
+`osh db restore` is a regular handler (`db.restore`), so plugins extend
+it by subclassing — override `post_restore()` and call `super()` to act
+on the freshly restored database, e.g. to record module fingerprints.
+The handler state carries `self.ctx`, `self.base` and `self.db_name`:
 
 ```python
-from osh.operations import extends
+from osh.handlers import resolve
 
 
-@extends("db.restore")
-class MyRestoreStep:
+class MyRestoreStep(resolve("db.restore")):
     def post_restore(self):
         super().post_restore()
         # act on self.db_name

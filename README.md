@@ -35,8 +35,6 @@ addons, picks a database name for you, and runs the right virtual environment.
 cd my-odoo-project
 # Initialise it for Odoo 19.0
 osh venv init 19.0
-# Check the project status
-osh doctor
 # Run Odoo
 osh odoo
 ```
@@ -54,7 +52,6 @@ Run `osh <command> --help` for full usage details.
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
 | `osh db`                   | List, show, set, copy, drop, shell, unset, get, restore, or register named remote sources for project databases      |
 | `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
-| `osh doctor`               | Check the project for common setup problems                                                                          |
 | `osh backend ...`          | Active-backend state: `status`, `list`, `deactivate` (back to host), `stop` (stop its resources)                     |
 | `osh config`               | View or change osh settings for this project                                                                         |
 | `osh plug`                 | Install, list, enable, disable, alias, or uninstall osh plugins                                                      |
@@ -62,10 +59,10 @@ Run `osh <command> --help` for full usage details.
 Each backend contributes its own command group for target-specific setup
 and lifecycle:
 
-| Backend commands | What it does                                                            |
-| ---------------- | ----------------------------------------------------------------------- |
-| `osh venv ...`   | Managed virtualenv + Odoo sources: `init`, `activate`, `doctor`, `stop` |
-| `osh docker ...` | Docker Compose stack: `init`, `activate`, `doctor`, `list`, `stop`      |
+| Backend commands | What it does                                                  |
+| ---------------- | ------------------------------------------------------------- |
+| `osh venv ...`   | Managed virtualenv + Odoo sources: `init`, `activate`, `stop` |
+| `osh docker ...` | Docker Compose stack: `init`, `activate`, `list`, `stop`      |
 
 `osh <backend> init` runs the base setup first, then the backend's own
 steps (e.g. `osh docker init` writes `docker.toml` and generates the

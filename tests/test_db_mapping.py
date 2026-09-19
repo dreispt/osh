@@ -158,8 +158,11 @@ def test_drop_command_drops_db_filestore_and_last_db(
     tmp_project, pg_db, monkeypatch, tmp_path
 ):
     """`osh db drop --force` drops the database, its filestore and last_db."""
+    from osh.cli_utils import operation_command
     from osh.db import get_last_db, set_last_db
-    from osh.plugins.osh_db_drop.drop_cmd import drop
+    from osh.plugins.osh_db_drop.drop_cmd import DbDrop
+
+    drop = operation_command("db.drop", "drop", DbDrop)
 
     name = pg_db.create()
     data_dir = tmp_path / "data"
@@ -181,7 +184,10 @@ def test_drop_command_drops_db_filestore_and_last_db(
 
 def test_drop_command_aborts_without_confirmation(tmp_project, pg_db, monkeypatch):
     """`osh db drop` leaves everything alone when the prompt is refused."""
-    from osh.plugins.osh_db_drop.drop_cmd import drop
+    from osh.cli_utils import operation_command
+    from osh.plugins.osh_db_drop.drop_cmd import DbDrop
+
+    drop = operation_command("db.drop", "drop", DbDrop)
 
     name = pg_db.create()
     monkeypatch.chdir(tmp_project)
@@ -194,7 +200,10 @@ def test_drop_command_aborts_without_confirmation(tmp_project, pg_db, monkeypatc
 
 def test_drop_command_reports_missing_db(tmp_project, pg_db, monkeypatch):
     """`osh db drop` on a missing database exits quietly without prompting."""
-    from osh.plugins.osh_db_drop.drop_cmd import drop
+    from osh.cli_utils import operation_command
+    from osh.plugins.osh_db_drop.drop_cmd import DbDrop
+
+    drop = operation_command("db.drop", "drop", DbDrop)
 
     monkeypatch.chdir(tmp_project)
 

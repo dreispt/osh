@@ -188,10 +188,10 @@ def resolve_backend(base, default="none"):
     *default*. This is the supported way for commands and plugins to obtain
     the active backend instance.
     """
-    from .utils.plugin_loader import load_backends
+    from .utils.plugin_loader import get_backend_class
 
     target = get_active_backend_name(base, default=default)
-    backend_cls = load_backends().get(target)
+    backend_cls = get_backend_class(target)
     if backend_cls is None:
         raise click.ClickException(f"Unknown backend: {target}")
     return backend_cls()

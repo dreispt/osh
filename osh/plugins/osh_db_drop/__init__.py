@@ -6,11 +6,7 @@ database together with its Odoo filestore directory, and extends
 matching database.
 """
 
-from .drop_cmd import drop
+from .drop_cmd import DbDrop  # noqa: F401 — re-exported for handler discovery
 from .filestore import (  # noqa: F401 — re-exported for extension discovery
     DanglingFilestores,
 )
-
-OSH_PLUGIN_MANIFEST = {
-    "group_commands": {"db": [drop]},
-}

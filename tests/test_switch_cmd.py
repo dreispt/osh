@@ -53,16 +53,24 @@ def _write_cached_backup(cache_dir, filename, source):
 
 @pytest.fixture
 def capture_get_restore(monkeypatch):
-    """Capture ctx.invoke calls to the get/restore command functions."""
+    """Capture handler invocations for ``db.get``/``db.restore``."""
     calls = {"get": [], "restore": []}
-    monkeypatch.setattr(
-        "osh.plugins.osh_db_get.backup_cmd.get",
-        lambda **kw: calls["get"].append(kw),
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.restore",
-        lambda **kw: calls["restore"].append(kw),
-    )
+
+    def _fake_resolve(name):
+        if name not in ("db.get", "db.restore"):
+            raise KeyError(name)
+        record = calls[name.split(".", 1)[1]]
+
+        class _RecordedOp:
+            def __init__(self, ctx=None, **kwargs):
+                record.append(kwargs)
+
+            def run(self):
+                pass
+
+        return _RecordedOp
+
+    monkeypatch.setattr("osh.handlers.resolve", _fake_resolve)
     return calls
 
 

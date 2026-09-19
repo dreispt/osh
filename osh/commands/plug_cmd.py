@@ -17,7 +17,13 @@ from ..config import (
     set_enabled_plugins,
     set_plugin_alias,
 )
-from ..utils.plugin_loader import plugin_source_name, plugin_subdirs, user_plugin_dir
+from ..utils.plugin_registry import (
+    _is_plugin_dir,
+    plugin_meta,
+    plugin_source_name,
+    plugin_subdirs,
+    user_plugin_dir,
+)
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
@@ -30,32 +36,24 @@ def _repo_name_from_url(url):
     return name or "plugin"
 
 
-def _declares_manifest(path):
-    """Return True when *path* exists and mentions ``OSH_PLUGIN_MANIFEST``."""
-    try:
-        return path.is_file() and "OSH_PLUGIN_MANIFEST" in path.read_text(
-            errors="replace"
-        )
-    except OSError:
-        return False
+def _iter_plugin_dirs(repo_dir):
+    """Yield ``(name, path)`` pairs for the plugins *repo_dir* provides.
+
+    The root package is a plugin named after the directory; each direct
+    subpackage marked with ``osh-plugin.toml`` (or a deprecated
+    ``OSH_PLUGIN_MANIFEST`` declaration) is a plugin named after its
+    subdirectory — mirroring the plugin loader, without imports.
+    """
+    if (repo_dir / "__init__.py").is_file() or (repo_dir / "osh_plugin.py").is_file():
+        yield plugin_source_name(repo_dir.name), repo_dir
+    for subdir in plugin_subdirs(repo_dir):
+        if _is_plugin_dir(subdir):
+            yield plugin_source_name(subdir.name), subdir
 
 
 def _discover_plugins(repo_dir):
-    """Return the plugin names a repo directory can provide, without imports.
-
-    The root package (when it declares ``OSH_PLUGIN_MANIFEST``) is a plugin
-    named after the directory; each direct subpackage declaring a manifest is
-    a plugin named after its subdirectory — mirroring the plugin loader.
-    """
-    names = []
-    if _declares_manifest(repo_dir / "__init__.py") or _declares_manifest(
-        repo_dir / "osh_plugin.py"
-    ):
-        names.append(plugin_source_name(repo_dir.name))
-    for subdir in plugin_subdirs(repo_dir):
-        if _declares_manifest(subdir / "__init__.py"):
-            names.append(plugin_source_name(subdir.name))
-    return names
+    """Return the plugin names a repo directory can provide, without imports."""
+    return [name for name, _path in _iter_plugin_dirs(repo_dir)]
 
 
 def _effective_enabled(repo_name, discovered):
@@ -163,9 +161,10 @@ def plug(ctx):  # noqa: D401
 def install(ctx, source, editable, trust, install_all, plugin_names):  # noqa: D401
     """Install a plugin repository from a git URL or a local directory.
 
-    A repository may provide several plugins (each subpackage declaring an
-    ``OSH_PLUGIN_MANIFEST``). Use ``--all`` or ``--plugin NAME`` to choose which
-    to enable; without flags a multi-plugin repository asks interactively.
+    A repository may provide several plugins (each subpackage marked with
+    an ``osh-plugin.toml`` file). Use ``--all`` or ``--plugin NAME`` to choose
+    which to enable; without flags a multi-plugin repository asks
+    interactively.
 
     With ``-e/--editable``, SOURCE is a local directory that is symlinked
     into the plugins directory — edits are picked up on the next `osh` run,
@@ -214,7 +213,8 @@ def install(ctx, source, editable, trust, install_all, plugin_names):  # noqa: D
         else:
             shutil.rmtree(plugin_dir, ignore_errors=True)
         raise click.ClickException(
-            f"'{name}' does not contain any plugin (no OSH_PLUGIN_MANIFEST found)."
+            f"'{name}' does not contain any plugin "
+            "(no plugin package or osh-plugin.toml found)."
         )
 
     enabled = _select_plugins(name, discovered, install_all, list(plugin_names))
@@ -250,7 +250,7 @@ def list_(ctx):  # noqa: D401
     echo.info("Installed plugins:")
     for repo in repos:
         marker = " (editable)" if repo.is_symlink() else ""
-        discovered = _discover_plugins(repo)
+        discovered = {name: path for name, path in _iter_plugin_dirs(repo)}
         enabled = _effective_enabled(repo.name, discovered)
         echo.info(f"  {repo.name}{marker}:")
         if not discovered:
@@ -258,13 +258,15 @@ def list_(ctx):  # noqa: D401
             continue
         for plugin_name in discovered:
             state = "enabled" if plugin_name in enabled else "disabled"
+            description = plugin_meta(discovered[plugin_name]).get("description")
+            desc_note = f" — {description}" if description else ""
             aliases = get_plugin_aliases(plugin_name)
             alias_note = (
                 f" — aliases: {', '.join(f'{k}→{v}' for k, v in sorted(aliases.items()))}"
                 if aliases
                 else ""
             )
-            echo.info(f"    - {plugin_name} ({state}){alias_note}")
+            echo.info(f"    - {plugin_name} ({state}){desc_note}{alias_note}")
 
 
 @plug.command(name="uninstall")

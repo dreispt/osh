@@ -16,7 +16,7 @@ import click
 
 from .. import echo
 from ..backends import EnvSpec
-from ..cli_utils import format_backends_section
+from ..cli_utils import ExtensibleCommand, format_backends_section
 from ..common import find_project_root, has_arg, odoo_http_port
 from ..config import get_user_preference
 from ..db import (
@@ -29,41 +29,23 @@ from ..db import (
     resolve_db_name,
     set_last_db,
 )
-from ..operations import Env, Operation, operation, registry
-from ..utils.plugin_loader import load_backends
+from ..handlers import CommandHandler
+from ..utils.plugin_loader import backend_meta
 from .helpers import check_run_diagnostics
 from .shell_cmd import parse_explicit_db, prepare_env_context
 
 
-class OdooCommand(click.Command):
-    """Click command that appends a Backends section to `osh odoo --help`."""
+class OdooRun(CommandHandler):
+    """`osh odoo` handler — prepare the environment and execute Odoo.
 
-    def get_params(self, ctx):
-        """Append options declared by ``odoo`` operation extensions."""
-        params = [*super().get_params(ctx)]
-        params.extend(
-            param
-            for param in registry["odoo"].get_options()
-            if isinstance(param, click.Parameter)
-        )
-        return params
-
-    def format_help_text(self, ctx, formatter):
-        """Write the docstring followed by the list of available backends."""
-        super().format_help_text(ctx, formatter)
-        format_backends_section(formatter, load_backends())
-
-
-@operation("odoo")
-class OdooRun(Operation):
-    """`osh odoo` operation — prepare the environment and execute Odoo.
-
-    Extensions override the step methods via the ``@extends`` decorator,
-    calling ``super()`` to keep the rest of the chain. Command state is on
-    ``self``: ``ctx``, the parsed params (``dry_run``, ``extra_args``, ...)
-    plus ``base``, ``backend``, ``diagnostics``, ``db_name`` and
+    Extensions subclass ``OdooRun`` and override the step methods,
+    calling ``super()`` to keep the rest of the chain. Command state is
+    on ``self``: ``ctx``, the parsed params (``dry_run``, ``extra_args``,
+    ...) plus ``base``, ``backend``, ``diagnostics``, ``db_name`` and
     ``env_spec`` as ``run()`` fills them in.
     """
+
+    _cli_name = "odoo"  # extension target; the command is ``odoo`` below
 
     dry_run = False
     compose_file = None
@@ -76,11 +58,20 @@ class OdooRun(Operation):
     def get_options(cls):
         """Extra ``click.Parameter``s appended to ``osh odoo``'s parameters.
 
-        Extension point — plugins override this via ``@extends`` and append
+        Extension point — extending subclasses override this and append
         to ``super().get_options()``; the parsed values land in
         ``ctx.params`` like regular options.
         """
         return []
+
+    @classmethod
+    def format_cli_help(cls, formatter):
+        """Append the list of available backends to ``osh odoo --help``.
+
+        Uses declared metadata only, so rendering help never imports
+        backend plugins.
+        """
+        format_backends_section(formatter, backend_meta())
 
     def run(self):
         self.base = find_project_root(required=True)
@@ -179,7 +170,7 @@ class OdooRun(Operation):
     def pre_env(self):
         """Run after the EnvSpec is assembled, before ``backend.env()``.
 
-        Extension point — plugins override this via ``@extends``; the parsed
+        Extension point — extending subclasses override this; the parsed
         CLI values (including ``extra_args``, ``dry_run`` and
         plugin-injected options) are in ``self.ctx.params`` and
         ``self.env_spec`` carries the assembled ``EnvSpec``. It runs for
@@ -198,6 +189,12 @@ class OdooRun(Operation):
         self.backend.env(
             self.ctx, self.base, self.env_spec, dry_run=self.dry_run, wait=wait
         )
+
+
+class OdooCommand(ExtensibleCommand):
+    """Click command delegating to the ``OdooRun`` handler."""
+
+    handler = OdooRun
 
 
 @click.command(
@@ -271,7 +268,8 @@ def odoo(
       osh odoo neutralize -d mydb
       osh odoo --compose-file devel.yaml
     """
-    Env(ctx)["odoo"](
+    OdooRun(
+        ctx,
         dry_run=dry_run,
         compose_file=compose_file,
         no_dev=no_dev,
