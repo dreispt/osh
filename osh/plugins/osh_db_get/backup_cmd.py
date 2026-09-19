@@ -7,89 +7,18 @@ import click
 from ... import echo
 from ...backup_sources import SourceError
 from ...common import find_project_root
+from ...handlers import CommandHandler
 from .cache import ensure_cache_dir, write_metadata
 from .format_detect import detect_backup_format_by_content
 from .registry import get_backup_source_help, list_backup_schemes, parse_source
 from .remotes import resolve_remote_source
 
 
-def _print_scheme_help(ctx, param, value):
-    """Eager callback that prints detailed help for a source scheme and exits."""
-    if not value or ctx.resilient_parsing:
-        return
-    try:
-        text = get_backup_source_help(value)
-    except SourceError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if text:
-        click.echo(text.strip())
-    else:
-        click.echo(f"No detailed help available for scheme '{value}'.")
-    ctx.exit()
-
-
-class BackupCommand(click.Command):
-    """Click command that appends registered source schemes to --help."""
-
-    def format_help(self, ctx, formatter):
-        """Write standard help followed by the dynamically discovered scheme list."""
-        super().format_help(ctx, formatter)
-        schemes = list_backup_schemes()
-        if not schemes:
-            return
-        records = [(f"{scheme}://", desc) for scheme, desc in sorted(schemes.items())]
-        with formatter.section("Supported source schemes"):
-            formatter.write_dl(records)
-
-
-@click.command(name="get", cls=BackupCommand)
-@click.option(
-    "--help-scheme",
-    metavar="SCHEME",
-    is_eager=True,
-    expose_value=False,
-    callback=_print_scheme_help,
-    help="Show detailed help for a backup source scheme and exit.",
-)
-@click.argument("source")
-@click.argument("output", required=False, type=click.Path())
-@click.option(
-    "--format",
-    "output_format",
-    type=click.Choice(["dump", "sql", "zip"], case_sensitive=False),
-    default="dump",
-    help="Output format for db:// sources (default: dump).",
-)
-@click.option(
-    "--master-password",
-    help="Master password for https:// sources.",
-)
-@click.option(
-    "--ssh-key",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="SSH private key for odoosh:// and ssh:// sources.",
-)
-@click.option(
-    "--filestore",
-    is_flag=True,
-    help="For odoosh:// sources, also download the filestore and produce a .zip backup.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Print the commands that would be run without executing them.",
-)
-@click.pass_context
-def get(
-    ctx,
-    source,
-    output,
-    output_format,
-    master_password,
-    ssh_key,
-    filestore,
-    dry_run,
-):  # noqa: D401
+# `osh db get` handler — extensions subclass DbGet and override step
+# methods, calling super(). Command state is on ``self``: ``ctx``, the
+# parsed params plus ``base``, ``parsed`` and ``output_path`` as ``run()``
+# fills them in.
+class DbGet(CommandHandler):
     """Download or dump a backup source to the project cache or current directory.
 
     The available source schemes are listed below; they are registered by
@@ -155,50 +84,137 @@ def get(
       osh db get odoosh://123456@my-project-master-123456.dev.odoo.com
       osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
-    base = find_project_root()
-    source = resolve_remote_source(base, source)
-    parsed = parse_source(
-        source,
-        base=base,
-        output_format=output_format,
-        master_password=master_password,
-        ssh_key=ssh_key,
-        include_filestore=filestore,
-    )
 
-    if output:
-        candidate = Path(output).expanduser().resolve()
-        if output.endswith(("/", "\\")) or candidate.is_dir():
-            candidate.mkdir(parents=True, exist_ok=True)
-            output_path = candidate / parsed.default_output_name()
-        else:
-            output_path = candidate
-    elif base is not None:
-        cache_dir = ensure_cache_dir(base)
-        output_path = cache_dir / parsed.default_output_name()
-    else:
-        output_path = Path.cwd() / parsed.default_output_name()
+    _cli_name = "db.get"
 
-    if dry_run:
-        echo.info(f"Would download {source} to {output_path}", err=True)
-        parsed.fetch(output_path, dry_run=True)
+    source = None
+    output = None
+    output_format = "dump"
+    master_password = None
+    ssh_key = None
+    filestore = False
+    dry_run = False
+
+    @classmethod
+    def get_options(cls):
+        return [
+            click.Option(
+                ["--help-scheme"],
+                metavar="SCHEME",
+                is_eager=True,
+                expose_value=False,
+                callback=_print_scheme_help,
+                help="Show detailed help for a backup source scheme and exit.",
+            ),
+            click.Argument(["source"]),
+            click.Argument(["output"], required=False, type=click.Path()),
+            click.Option(
+                ["--format", "output_format"],
+                type=click.Choice(["dump", "sql", "zip"], case_sensitive=False),
+                default="dump",
+                help="Output format for db:// sources (default: dump).",
+            ),
+            click.Option(
+                ["--master-password"],
+                help="Master password for https:// sources.",
+            ),
+            click.Option(
+                ["--ssh-key"],
+                type=click.Path(exists=True, dir_okay=False, path_type=Path),
+                help="SSH private key for odoosh:// and ssh:// sources.",
+            ),
+            click.Option(
+                ["--filestore"],
+                is_flag=True,
+                help="For odoosh:// sources, also download the filestore and "
+                "produce a .zip backup.",
+            ),
+            click.Option(
+                ["--dry-run"],
+                is_flag=True,
+                help="Print the commands that would be run without executing them.",
+            ),
+        ]
+
+    @classmethod
+    def format_cli_help(cls, formatter):
+        """Append the registered backup source schemes to ``--help``."""
+        schemes = list_backup_schemes()
+        if not schemes:
+            return
+        records = [(f"{scheme}://", desc) for scheme, desc in sorted(schemes.items())]
+        with formatter.section("Supported source schemes"):
+            formatter.write_dl(records)
+
+    def run(self):
+        self.base = find_project_root()
+        self.source = resolve_remote_source(self.base, self.source)
+        self.parsed = self.parse()
+        self.output_path = self.resolve_output_path()
+        self.fetch()
+        if self.base is not None and _is_in_cache(self.base, self.output_path):
+            self.output_path = self.record_metadata()
+        echo.info(str(self.output_path))
+
+    def parse(self):
+        """Parse the (remote-resolved) source URL into a source instance."""
+        return parse_source(
+            self.source,
+            base=self.base,
+            output_format=self.output_format,
+            master_password=self.master_password,
+            ssh_key=self.ssh_key,
+            include_filestore=self.filestore,
+        )
+
+    def resolve_output_path(self):
+        """Return the destination: explicit OUTPUT, the cache dir, or cwd."""
+        if self.output:
+            candidate = Path(self.output).expanduser().resolve()
+            if self.output.endswith(("/", "\\")) or candidate.is_dir():
+                candidate.mkdir(parents=True, exist_ok=True)
+                return candidate / self.parsed.default_output_name()
+            return candidate
+        if self.base is not None:
+            return ensure_cache_dir(self.base) / self.parsed.default_output_name()
+        return Path.cwd() / self.parsed.default_output_name()
+
+    def fetch(self):
+        """Fetch the source to ``output_path``, cleaning up partial files.
+
+        A failed fetch must not leave a partial file in the cache — it
+        would otherwise be picked as the newest backup by `db restore`.
+        """
+        if self.dry_run:
+            echo.info(f"Would download {self.source} to {self.output_path}", err=True)
+            self.parsed.fetch(self.output_path, dry_run=True)
+            return
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.parsed.fetch(self.output_path, dry_run=False)
+        except BaseException:
+            if self.base is not None and _is_in_cache(self.base, self.output_path):
+                self.output_path.unlink(missing_ok=True)
+            raise
+
+    def record_metadata(self):
+        """Normalize the cached filename and write metadata; return the path."""
+        return _record_cache_metadata(self.output_path, self.source, self.parsed)
+
+
+def _print_scheme_help(ctx, param, value):
+    """Eager callback that prints detailed help for a source scheme and exits."""
+    if not value or ctx.resilient_parsing:
         return
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        parsed.fetch(output_path, dry_run=False)
-    except BaseException:
-        # A failed fetch must not leave a partial file in the cache — it
-        # would otherwise be picked as the newest backup by `db restore`.
-        if base is not None and _is_in_cache(base, output_path):
-            output_path.unlink(missing_ok=True)
-        raise
-
-    # Write metadata only when the file landed in the project cache.
-    if base is not None and _is_in_cache(base, output_path):
-        output_path = _record_cache_metadata(output_path, source, parsed)
-
-    echo.info(str(output_path))
+        text = get_backup_source_help(value)
+    except SourceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if text:
+        click.echo(text.strip())
+    else:
+        click.echo(f"No detailed help available for scheme '{value}'.")
+    ctx.exit()
 
 
 def _record_cache_metadata(output_path, source, parsed):

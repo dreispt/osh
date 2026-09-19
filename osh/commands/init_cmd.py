@@ -139,7 +139,6 @@ def init(
         echo.friendly(
             "  osh <backend> init  # e.g. 'osh venv init' or 'osh docker init'"
         )
-        echo.friendly("  osh doctor          # Check your setup")
 
 
 def _split_version_arg(version, directory):
@@ -252,8 +251,9 @@ def base_init(
 
     init_values = {"version": version, "edition": edition, "dev": dev}
     if enclosing is not None:
-        # Acknowledge the nesting so doctor does not report it as an accident.
-        # Stored relative so the config stays valid if the checkout moves.
+        # Acknowledge the nesting as intentional — diagnostics tools read
+        # ``init.parent``. Stored relative so the config stays valid if the
+        # checkout moves.
         init_values["parent"] = os.path.relpath(enclosing, target)
     set_project_config(target, "init", values=init_values)
     if enclosing is None and get_project_config(target, "init", "parent"):

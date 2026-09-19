@@ -1,0 +1,10 @@
+description = "Test plugin."
+
+[backends]
+mybackend = "My backend."
+
+[sources]
+myscheme = "My source."
+
+[group_commands.db]
+mysub = "My sub."

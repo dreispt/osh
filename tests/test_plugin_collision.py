@@ -1,23 +1,19 @@
 """Tests for plugin command name collision handling."""
 
 import importlib
+import shutil
+from pathlib import Path
 
 import click
 import pytest
 from click.testing import CliRunner
 
+PLUGINS_DATA = Path(__file__).parent / "plugins"
 
-def _write_fake_plugin(plugin_dir, name, command_name):
-    """Create a minimal plugin package that exposes one Click command."""
-    plugin_path = plugin_dir / name
-    plugin_path.mkdir(parents=True)
-    (plugin_path / "__init__.py").write_text(
-        f"import click\n\n"
-        f"@click.command(name='{command_name}')\n"
-        f"def {command_name}():\n"
-        f"    click.echo('from {name}')\n\n"
-        f"OSH_PLUGIN_MANIFEST = {{'commands': [{command_name}]}}\n"
-    )
+
+def _copy_plugin(plugin_dir, name, dest):
+    """Copy the static *name* plugin tree into the fake user plugin dir."""
+    shutil.copytree(PLUGINS_DATA / name, plugin_dir / dest)
 
 
 @pytest.fixture(autouse=True)
@@ -33,9 +29,9 @@ def test_collision_with_core_command_is_renamed(monkeypatch, tmp_path):
     """A user plugin command with the same name as a core command is prefixed."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
-    _write_fake_plugin(plugin_dir, "fake", "init")
+    _copy_plugin(plugin_dir, "fake_init", "fake")
 
-    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_registry.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -74,9 +70,9 @@ def test_no_collision_registers_plugin_command(monkeypatch, tmp_path):
     """A plugin command with a unique name is registered normally."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
-    _write_fake_plugin(plugin_dir, "fake", "unique")
+    _copy_plugin(plugin_dir, "fake_unique", "fake")
 
-    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_registry.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -89,9 +85,9 @@ def test_renamed_command_appears_in_help(monkeypatch, tmp_path):
     """The derived command name is visible in `osh --help`."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
-    _write_fake_plugin(plugin_dir, "fake", "init")
+    _copy_plugin(plugin_dir, "fake_init", "fake")
 
-    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_registry.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 
@@ -108,9 +104,9 @@ def test_plugin_commands_listed_in_separate_help_section(monkeypatch, tmp_path):
     """`osh --help` lists plugin commands in their own section."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
-    _write_fake_plugin(plugin_dir, "fake", "unique")
+    _copy_plugin(plugin_dir, "fake_unique", "fake")
 
-    monkeypatch.setattr("osh.utils.plugin_loader.user_plugin_dir", lambda: plugin_dir)
+    monkeypatch.setattr("osh.utils.plugin_registry.user_plugin_dir", lambda: plugin_dir)
 
     from osh import cli
 

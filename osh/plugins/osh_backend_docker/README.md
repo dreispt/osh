@@ -63,9 +63,7 @@ arguments itself:
   variables re-exported as the standard `PG*` names.
 
 Containers are intentionally **left running** after commands exit.
-`osh docker stop` runs `docker compose down` for the project stack;
-`osh docker doctor` reports whether the container is running and for
-how long.
+`osh docker stop` runs `docker compose down` for the project stack.
 
 ## Addons paths
 

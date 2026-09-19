@@ -1,0 +1,1 @@
+"""Thin repo package."""

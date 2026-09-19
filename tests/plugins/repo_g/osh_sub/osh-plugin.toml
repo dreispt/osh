@@ -1,0 +1,4 @@
+extends = ["db.list"]
+
+[commands]
+sub_cmd = "Sub."

@@ -18,8 +18,7 @@ from ..db import (
     set_project_config,
     unset_project_config,
 )
-from ..hooks import HOOK_DB_LIST_SECTIONS
-from ..utils.plugin_loader import load_hooks
+from ..handlers import CommandHandler
 from .helpers import check_run_diagnostics
 from .shell_cmd import parse_explicit_db, prepare_env_context
 
@@ -71,6 +70,50 @@ def show(ctx):  # noqa: D401
     echo.info(f"Exists:   {'yes' if exists else 'no'}")
 
 
+class DbList(CommandHandler):
+    """`osh db list` handler — project database listing plus extra sections.
+
+    Extensions add output after the listing by subclassing ``DbList``,
+    overriding :meth:`extra_sections` and calling ``super()``. Command
+    state is on ``self``: ``ctx``, ``base``, ``show_all``, ``prefix`` and
+    ``db_names`` (the full, unfiltered name set parsed from ``psql -l`` —
+    it decides e.g. whether a filestore dangles, while ``prefix`` only
+    filters what is displayed).
+    """
+
+    _cli_name = "db.list"  # extension target; the command is ``list_dbs`` below
+
+    show_all = False
+
+    def run(self):
+        self.base = find_project_root(required=True)
+        returncode, stdout, stderr = run_in_backend(self.ctx, self.base, ["psql", "-l"])
+        if returncode is None:
+            raise click.ClickException(
+                "Could not locate `psql`. Is PostgreSQL installed?"
+            )
+        if returncode != 0:
+            raise click.ClickException(f"Could not list databases: {stderr.strip()}")
+        self.prefix = f"{sanitize_db_name(self.base.name)}-"
+        if self.show_all:
+            click.echo(stdout, nl=False)
+        else:
+            click.echo(_filter_db_listing(stdout, self.prefix), nl=False)
+
+        self.db_names = set(_list_db_names(stdout))
+        for line in self.extra_sections():
+            click.echo(line)
+
+    def extra_sections(self):
+        """Extra sections printed after the database listing.
+
+        Extension point — plugins subclass ``DbList``, override this and
+        append to ``super().extra_sections()``; e.g. ``osh_db_drop``
+        reports filestore directories with no matching database.
+        """
+        return []
+
+
 @db.command(name="list")
 @click.option(
     "--all",
@@ -93,31 +136,15 @@ def list_dbs(ctx, show_all):  # noqa: D401
       osh db list
       osh db list --all
     """
-    base = find_project_root(required=True)
-    returncode, stdout, stderr = run_in_backend(ctx, base, ["psql", "-l"])
-    if returncode is None:
-        raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
-    if returncode != 0:
-        raise click.ClickException(f"Could not list databases: {stderr.strip()}")
-    prefix = f"{sanitize_db_name(base.name)}-"
-    if show_all:
-        click.echo(stdout, nl=False)
-    else:
-        click.echo(_filter_db_listing(stdout, prefix), nl=False)
-
-    # Filestore directories with no matching database — e.g. leftovers of
-    # dropped databases. The full (unfiltered) name set decides whether a
-    # filestore dangles; the prefix only filters what is displayed.
-    # Extra listing sections contributed by plugins — e.g. `osh_db_drop`
-    # reports filestore directories with no matching database.
-    db_names = set(_list_db_names(stdout))
-    for hook in load_hooks(HOOK_DB_LIST_SECTIONS):
-        for line in hook(ctx, base, db_names, prefix, show_all) or []:
-            click.echo(line)
+    DbList(ctx, show_all=show_all).run()
 
 
-def _list_db_names(output):
-    """Return the database names listed in ``psql -l`` output."""
+def _psql_table_split(output):
+    """Split ``psql -l`` output at the ``---+---`` separator line.
+
+    Returns ``(lines, sep_index)``; *sep_index* is None when the output
+    does not look like a ``psql -l`` table.
+    """
     lines = output.splitlines()
     sep = next(
         (
@@ -127,6 +154,12 @@ def _list_db_names(output):
         ),
         None,
     )
+    return lines, sep
+
+
+def _list_db_names(output):
+    """Return the database names listed in ``psql -l`` output."""
+    lines, sep = _psql_table_split(output)
     if sep is None:
         return []
     return [line.split("|", 1)[0].strip() for line in lines[sep + 1 :] if "|" in line]
@@ -139,15 +172,7 @@ def _filter_db_listing(output, prefix):
     does not look like a ``psql -l`` table (no ``---+---`` separator line)
     is returned unchanged.
     """
-    lines = output.splitlines()
-    sep = next(
-        (
-            i
-            for i, line in enumerate(lines)
-            if line.strip() and set(line.strip()) <= {"-", "+"}
-        ),
-        None,
-    )
+    lines, sep = _psql_table_split(output)
     if sep is None:
         return output
     rows = [

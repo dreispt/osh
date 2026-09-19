@@ -1,26 +1,30 @@
 """Filestore helpers for the `osh db drop` plugin."""
 
 from ... import echo
+from ...commands.db_cmd import DbList
 from ...db import resolve_backend, run_in_backend
 
 
-def dangling_filestore_lines(ctx, base, db_names, prefix, show_all):
-    """``db.list_sections`` hook — filestore dirs without a database.
+class DanglingFilestores(DbList):
+    """Extends `osh db list` — filestore dirs without a matching database.
 
-    *db_names* is the full (unfiltered) database name set from ``psql -l``;
-    it decides whether a filestore dangles. *prefix* filters what is
-    displayed unless *show_all* is set.
+    ``self.db_names`` is the full (unfiltered) database name set from
+    ``psql -l``; it decides whether a filestore dangles. ``self.prefix``
+    filters what is displayed unless ``self.show_all`` is set.
     """
-    dangling = [
-        name
-        for name in list_filestore_dirs(ctx, base)
-        if name not in db_names and (show_all or name.startswith(prefix))
-    ]
-    if not dangling:
-        return []
-    lines = ["Filestore directories without a database:"]
-    lines.extend(f"  {name}" for name in dangling)
-    return lines
+
+    def extra_sections(self):
+        lines = list(super().extra_sections())
+        dangling = [
+            name
+            for name in list_filestore_dirs(self.ctx, self.base)
+            if name not in self.db_names
+            and (self.show_all or name.startswith(self.prefix))
+        ]
+        if dangling:
+            lines.append("Filestore directories without a database:")
+            lines.extend(f"  {name}" for name in dangling)
+        return lines
 
 
 def remove_filestore(ctx, base, db_name):

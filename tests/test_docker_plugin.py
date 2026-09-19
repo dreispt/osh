@@ -514,6 +514,112 @@ def test_docker_addons_paths_mount_out_of_project_sources(
     assert f"{external / 'addons'}:{container_path}:ro" in text
 
 
+def _write_docker_project(tmp_project):
+    """Write a minimal docker backend config and compose file."""
+    osh_dir = tmp_project / ".osh"
+    osh_dir.mkdir(parents=True, exist_ok=True)
+    (osh_dir / "docker.toml").write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+
+def _patch_compose_calls(
+    monkeypatch, *, running="", services="odoo\ndb\n", pg_attempts=()
+):
+    """Fake the Compose calls ``ensure_service_up`` makes; return the calls.
+
+    *running* is the container id ``compose ps`` reports (empty means the
+    service is down and ``up -d`` runs); *services* is the ``config
+    --services`` output; *pg_attempts* is the sequence of ``pg_isready``
+    exit codes to return — once exhausted the last one repeats.
+    """
+    calls = []
+    remaining = list(pg_attempts or [0])
+
+    def fake_run_subprocess(args, **kwargs):
+        calls.append(list(args))
+        if "ps" in args:
+            return 0, running, ""
+        if "config" in args:
+            return 0, services, ""
+        if "exec" in args:
+            if len(remaining) > 1:
+                return remaining.pop(0), "", ""
+            return remaining[0], "", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        fake_run_subprocess,
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_command",
+        lambda *a, **kw: calls.append(list(a[0])),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        lambda *a, **kw: False,
+    )
+    return calls
+
+
+def test_ensure_service_up_waits_for_db_ready(tmp_project, monkeypatch, capsys):
+    """A cold ``up -d`` is followed by a ``pg_isready`` poll on the db service.
+
+    ``compose up -d`` returns once containers start, before PostgreSQL
+    accepts connections; without the wait, probes racing it report
+    existing databases as missing.
+    """
+    _write_docker_project(tmp_project)
+    calls = _patch_compose_calls(monkeypatch, pg_attempts=[1, 0])
+
+    DockerBackend().ensure_service_up(tmp_project)
+
+    execs = [c for c in calls if "exec" in c]
+    assert len(execs) == 2
+    assert "db" in execs[0]
+    assert "pg_isready" in execs[0][-1]
+    up_index = next(i for i, c in enumerate(calls) if "up" in c)
+    assert up_index < calls.index(execs[0])
+    assert "accept connections" in capsys.readouterr().err
+
+
+def test_ensure_service_up_skips_wait_when_stack_running(tmp_project, monkeypatch):
+    """An already-running stack skips ``up -d`` and the readiness poll."""
+    _write_docker_project(tmp_project)
+    calls = _patch_compose_calls(monkeypatch, running="abc123\n")
+
+    DockerBackend().ensure_service_up(tmp_project)
+
+    assert not any("up" in c for c in calls)
+    assert not any("exec" in c for c in calls)
+
+
+def test_ensure_service_up_skips_wait_without_db_service(tmp_project, monkeypatch):
+    """Compose files without the db service skip the readiness poll."""
+    _write_docker_project(tmp_project)
+    calls = _patch_compose_calls(monkeypatch, services="odoo\n")
+
+    DockerBackend().ensure_service_up(tmp_project)
+
+    assert any("up" in c for c in calls)
+    assert not any("exec" in c for c in calls)
+
+
+def test_ensure_service_up_warns_on_db_timeout(tmp_project, monkeypatch, capsys):
+    """A db service that never gets ready warns instead of blocking forever."""
+    _write_docker_project(tmp_project)
+    _patch_compose_calls(monkeypatch, pg_attempts=[1])
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends._DB_READY_TIMEOUT_SECONDS", 0
+    )
+
+    DockerBackend().ensure_service_up(tmp_project)
+
+    assert "not accepting connections" in capsys.readouterr().out
+
+
 def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):
     """An interactive ``osh shell`` session also gets the libpq variables."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -869,17 +975,23 @@ def test_osh_run_docker_uses_branch_database(
 
 def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
     """A backend name collision is reported instead of silently ignored."""
-    from osh.utils import plugin_loader
+    from osh.utils import plugin_loader, plugin_registry
 
     class FakeBackend(Backend):
         name = "docker"
         backend_type = "backend"
 
-    first = types.ModuleType("first")
-    first.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
-    second = types.ModuleType("second")
-    second.OSH_PLUGIN_MANIFEST = {"backends": [FakeBackend]}
+    class OtherBackend(Backend):
+        name = "docker"
+        backend_type = "backend"
 
+    first = types.ModuleType("first")
+    first.FakeBackend = FakeBackend
+    second = types.ModuleType("second")
+    second.OtherBackend = OtherBackend
+
+    # Isolate the registry so only the patched modules contribute backends.
+    monkeypatch.setattr(plugin_registry, "_REGISTRY", plugin_registry.PluginRegistry())
     monkeypatch.setattr(
         plugin_loader,
         "_iter_plugin_modules",
@@ -893,13 +1005,13 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
 
 
 def test_entry_point_plugin_loading(monkeypatch):
-    """Plugins registered as Python entry points are loaded by load_plugins."""
-    from osh.utils import plugin_loader
+    """``module:attr`` entry points resolve their command lazily."""
+    from osh.utils import plugin_registry
 
     fake_cmd = click.Command(name="fake-cmd")
 
     fake_module = types.ModuleType("fake_entry_plugin")
-    fake_module.OSH_PLUGIN_MANIFEST = {"commands": [fake_cmd]}
+    fake_module.fake_cmd = fake_cmd
     monkeypatch.setitem(sys.modules, "fake_entry_plugin", fake_module)
 
     class FakeEntryPoint:
@@ -919,9 +1031,11 @@ def test_entry_point_plugin_loading(monkeypatch):
 
     fake_metadata = types.ModuleType("fake_metadata")
     fake_metadata.entry_points = lambda: FakeEntryPoints(
-        [FakeEntryPoint("fake", "fake_entry_plugin")]
+        [FakeEntryPoint("fake", "fake_entry_plugin:fake_cmd")]
     )
-    monkeypatch.setattr(plugin_loader, "_metadata", fake_metadata)
+    monkeypatch.setattr(plugin_registry, "_metadata", fake_metadata)
 
-    commands = [cmd for _, cmd in load_plugins()]
-    assert fake_cmd in commands
+    commands = {cmd.name: (src, cmd) for src, cmd in load_plugins()}
+    src, cmd = commands["fake"]
+    assert src == "fake"
+    assert cmd.load() is fake_cmd
