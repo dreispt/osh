@@ -2,10 +2,10 @@
 
 from click.testing import CliRunner
 
-from osh.cli_utils import operation_command
+from osh.cli_utils import handler_command
 from osh.plugins.osh_backend_venv.commands import Prune
 
-prune = operation_command("prune", "prune", Prune)
+prune = handler_command("prune", Prune)
 
 
 def test_prune_outside_project_fails(tmp_path, monkeypatch):

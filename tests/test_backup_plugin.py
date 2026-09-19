@@ -8,13 +8,13 @@ import pytest
 from click.testing import CliRunner
 
 from osh.backup_sources import BackupSource, SourceError
-from osh.cli_utils import operation_command
+from osh.cli_utils import handler_command
 from osh.plugins.osh_db_get.backup_cmd import DbGet
 from osh.plugins.osh_db_get.sources.https import HttpsSource
 from osh.plugins.osh_db_get.sources.odoosh import OdooshSource
 from osh.plugins.osh_db_get.sources.ssh import SshSource
 
-get = operation_command("db.get", "get", DbGet)
+get = handler_command("get", DbGet)
 
 
 def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):

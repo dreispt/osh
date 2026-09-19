@@ -7,7 +7,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 import osh.cli  # noqa: F401  (registers plugin group commands on `db`)
-from osh.cli_utils import operation_command
+from osh.cli_utils import handler_command
 from osh.commands.db_cmd import db
 from osh.plugins.osh_db_get.backup_cmd import DbGet
 from osh.plugins.osh_db_get.remotes import (
@@ -19,8 +19,8 @@ from osh.plugins.osh_db_get.remotes import (
 )
 from osh.plugins.osh_db_get.restore_cmd import DbRestore
 
-get = operation_command("db.get", "get", DbGet)
-restore = operation_command("db.restore", "restore", DbRestore)
+get = handler_command("get", DbGet)
+restore = handler_command("restore", DbRestore)
 
 
 def _write_cached_backup(cache_dir, filename, source, data=b"x"):
