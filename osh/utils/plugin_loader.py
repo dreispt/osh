@@ -26,7 +26,6 @@ from .. import echo
 # Re-exported: the discovery machinery moved to ``plugin_registry`` but
 # remains reachable here for existing imports.
 from .plugin_registry import (  # noqa: F401
-    _BACKEND_SECTION,
     PLUGIN_MARKER,
     PluginRegistry,
     PluginSpec,
@@ -134,33 +133,6 @@ def load_group_commands():
             if group is not None:
                 result.setdefault(group, []).append((spec.name, cmd))
     return result
-
-
-def load_backend_commands():
-    """Return ``(source, group)`` pairs for plugin backend command groups.
-
-    Each group renders ``osh <name>`` lifecycle commands (``init``,
-    ``activate``, ``stop``), built post-import by ``Backend.get_cli_group()``
-    — the default calls ``backend_group(cls)`` — and declared by the
-    ``[backend_commands]`` metadata section.
-    """
-    commands = []
-    for spec in plugin_registry().specs.values():
-        if spec.lazy:
-            for name, decl in spec.declared_backend_commands().items():
-                commands.append(
-                    (
-                        spec.name,
-                        _lazy_command(spec, _BACKEND_SECTION, name, decl),
-                    )
-                )
-            continue
-        module = _load_eager(spec)
-        if module is None:
-            continue
-        for _name, group in _module_backend_groups(module).items():
-            commands.append((spec.name, group))
-    return commands
 
 
 def get_backend_class(name):
@@ -309,7 +281,7 @@ def _lazy_command(spec, group, name, decl):
     """Build the click stub delegating to *(group, name)* in *spec*."""
     from ..cli_utils import LazyCommand, LazyGroup
 
-    is_group = group == _BACKEND_SECTION or _decl_is_group(decl)
+    is_group = _decl_is_group(decl)
 
     def loader():
         return spec.resolve_command(group, name)
@@ -418,16 +390,6 @@ def _module_commands(module):
     return commands
 
 
-def _module_backend_groups(module):
-    """Return ``{name: click.Group}`` backend command groups from *module*."""
-    groups = {}
-    for cls in _module_backends(module):
-        group = cls.get_cli_group()
-        if isinstance(group, click.Group):
-            groups.setdefault(group.name, group)
-    return groups
-
-
 def _module_subclasses(module, base):
     """Yield ``base`` subclasses among *module*'s attributes."""
     # Snapshot: resolving a class may import submodules, which mutates the
@@ -435,15 +397,6 @@ def _module_subclasses(module, base):
     for impl in list(vars(module).values()):
         if isinstance(impl, type) and impl is not base and issubclass(impl, base):
             yield impl
-
-
-def _module_backends(module):
-    """Yield named ``Backend`` subclasses among *module*'s attributes."""
-    from ..backends import Backend
-
-    for cls in _module_subclasses(module, Backend):
-        if getattr(cls, "name", None):
-            yield cls
 
 
 def _register_backend(result, source, backend):

@@ -6,5 +6,7 @@ prune = "Run git gc on the project's Odoo source clones."
 [backends]
 venv = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
 
-[backend_commands]
-venv = "Manage the project's Python virtualenv."
+[group_commands.venv]
+init = "Initialise the project for the venv backend."
+activate = "Make venv the project's active run backend."
+stop = "Stop resources left running by the venv backend."

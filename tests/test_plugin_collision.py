@@ -122,6 +122,35 @@ def test_plugin_commands_listed_in_separate_help_section(monkeypatch, tmp_path):
     assert "[fake]" in plugin_section
 
 
+def test_backend_groups_listed_in_separate_help_section(monkeypatch, tmp_path):
+    """`osh --help` lists backend groups under Backend Commands — lazily."""
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir()
+
+    monkeypatch.setattr("osh.utils.plugin_registry.user_plugin_dir", lambda: plugin_dir)
+
+    from osh import cli
+
+    importlib.reload(cli)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["--help"])
+
+    assert result.exit_code == 0
+    assert "docker" in cli.main.backend_commands
+    core_section, _, rest = result.output.partition("Backend Commands:")
+    backend_section, _, _ = rest.partition("Plugin Commands:")
+    assert "\n  docker " not in core_section
+    assert "\n  docker " in backend_section
+    assert "[osh-backend-docker]" in backend_section
+    # Help renders from metadata — the backend plugins are never imported.
+    from osh.utils.plugin_registry import plugin_registry
+
+    specs = plugin_registry().specs
+    assert not specs["osh-backend-docker"].loaded
+    assert not specs["osh-backend-venv"].loaded
+
+
 def test_group_plugin_subcommand_listed_in_separate_section(monkeypatch, tmp_path):
     """`osh db --help` sections plugin-provided subcommands too."""
 

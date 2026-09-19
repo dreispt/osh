@@ -63,14 +63,6 @@ class DockerBackend(Backend):
     )
 
     @classmethod
-    def get_cli_group(cls):
-        # The ``docker`` group carries extra commands beyond the generated
-        # lifecycle ones (custom ``stop``, ``list``) — built in commands.py.
-        from .commands import docker
-
-        return docker
-
-    @classmethod
     def get_init_options(cls):
         return [
             click.Option(

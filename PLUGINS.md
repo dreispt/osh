@@ -112,8 +112,8 @@ _sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 [group_commands.db]        # subcommands of an existing group
 restore = "Restore a backup."
 
-[backend_commands]         # `osh <name>` backend lifecycle groups
-docker = "Manage the project's Docker Compose stack."
+[group_commands.docker]    # `osh docker` subcommands (backend lifecycle)
+init = "Initialise the project for the docker backend."
 
 [backends]                 # Backend subclasses provided
 docker = "Run Odoo inside a Docker Compose stack."
@@ -370,49 +370,63 @@ loader builds a lazy group stub.
 
 ### Backend plugins
 
-A backend plugin subclasses `Backend` and declares the backend and its
-command group in `osh-plugin.toml`:
+A backend plugin subclasses `Backend`, declares the backend under
+`[backends]` and exposes its lifecycle commands as `CommandHandler`
+subclasses under `[group_commands.<backend>]`:
 
 ```toml
 [backends]
 mybackend = "Run Odoo on my custom target."
 
-[backend_commands]
-mybackend = "Manage my custom target."
+[group_commands.mybackend]
+init = "Initialise the project for the mybackend backend."
+activate = "Make mybackend the project's active run backend."
+stop = "Stop resources left running by the mybackend backend."
 ```
 
 ```python
 from osh.backends import Backend
+from osh.commands.backend_cmd import BackendActivate, BackendInit, BackendStop
 
 
 class MyBackend(Backend):
     backend_type = "backend"
     name = "mybackend"
     ...
+
+
+class MyInit(BackendInit):
+    _cli_name = "mybackend.init"
+
+
+class MyActivate(BackendActivate):
+    _cli_name = "mybackend.activate"
+
+
+class MyStop(BackendStop):
+    _cli_name = "mybackend.stop"
 ```
+
+`BackendInit`/`BackendActivate`/`BackendStop` (from
+`osh.commands.backend_cmd`) implement the standard lifecycle: `osh
+<name> init` runs the common base setup and then calls `cls.init(...)`
+with the parsed `get_init_options()`; `osh <name> activate` is the
+lightweight way to switch the project to an already-initialized backend;
+`osh <name> stop` calls `cls.stop(...)` with `get_stop_options()`. The
+`osh <name>` group is created automatically — `osh <name> --help` lists
+the declared subcommands without importing the plugin, and the group
+shows under "Backend Commands" in `osh --help`.
+
+The lifecycle commands are ordinary handlers: extra subcommands are
+plain `CommandHandler` classes named `<backend>.<verb>` (like the docker
+plugin's `osh docker list`), and a verb's behaviour is customized by
+subclassing its base and overriding `run()` or `get_options()` — or by
+another plugin `extends`-ing the handler.
 
 The backend class is imported only when the backend is selected
-(`run.target = mybackend`) or its command group is invoked — listing
+(`run.target = mybackend`) or one of its commands is invoked — listing
 backends in `--help` and `osh backend list` reads the declared
 descriptions instead.
-
-The command group comes from `Backend.get_cli_group()` — the default
-calls `backend_group(cls)`, a ready-to-use `click.Group`
-(`NaturalOrderGroup`) named after the backend and pre-populated with the
-standard `init`, `activate` and `stop` subcommands. `osh <name>
-init` runs the common base setup and then calls `cls.init(...)`; `osh
-<name> activate` is the lightweight way to switch the project to an
-already-initialized backend. A backend needing extra or different
-commands overrides `get_cli_group()`:
-
-```python
-class DockerBackend(Backend):
-    @classmethod
-    def get_cli_group(cls):
-        group = super().get_cli_group()
-        ...  # add or replace subcommands
-        return group
-```
 
 Activation records `run.target = <name>` in `.osh/config.toml`, and
 `osh odoo`/`osh shell`/`osh db` then run through the backend. Built-in
@@ -437,11 +451,12 @@ class MyBackend(Backend):
 
 - `get_init_options(cls)`: return a list of `click.Option` instances that
   `osh <name> init` should accept, on top of the common init options
-  (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
+  (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...). The parsed
+  values are passed to `init()` as `**options`.
 
-- `get_cli_group(cls)`: return the backend's `osh <name>` `click.Group`;
-  defaults to `backend_group(cls)`. Called when the group is first
-  invoked — the backend class is already imported at that point.
+- `get_stop_options(cls)`: return a list of `click.Option` instances that
+  `osh <name> stop` should accept; the parsed values are passed to
+  `stop()` as `**options`.
 
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
   _base_, or `None` if it cannot be determined. The base implementation reads
@@ -712,14 +727,17 @@ description = "Echo backend plugin."
 [backends]
 echo = "Print the Odoo command instead of running it."
 
-[backend_commands]
-echo = "Manage the echo backend."
+[group_commands.echo]
+init = "Initialise the project for the echo backend."
+activate = "Make echo the project's active run backend."
+stop = "Stop resources left running by the echo backend."
 ```
 
 ```python
 # ~/.config/osh/plugins/my_backend/__init__.py
 import click
 from osh.backends import Backend, EnvSpec
+from osh.commands.backend_cmd import BackendActivate, BackendInit, BackendStop
 from osh.commands.helpers import Diagnostics
 
 
@@ -742,4 +760,16 @@ class EchoBackend(Backend):
     def env(self, ctx, base, env_spec, *, dry_run=False, **options):
         click.echo(" ".join(env_spec.argv))
         return 0
+
+
+class EchoInit(BackendInit):
+    _cli_name = "echo.init"
+
+
+class EchoActivate(BackendActivate):
+    _cli_name = "echo.activate"
+
+
+class EchoStop(BackendStop):
+    _cli_name = "echo.stop"
 ```
