@@ -494,18 +494,7 @@ def test_docker_addons_paths_mount_out_of_project_sources(
     assert container_path.startswith("/mnt/osh-src/addons-")
 
     # The override is generated on ensure_service_up and carries the mount.
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
-        lambda *a, **kw: (1, "", ""),
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
-        lambda *a, **kw: None,
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._port_in_use",
-        lambda *a, **kw: False,
-    )
+    _patch_compose_calls(monkeypatch)
     backend.ensure_service_up(tmp_project)
 
     override = tmp_project / ".osh" / "docker-compose.osh.yml"

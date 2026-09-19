@@ -231,8 +231,9 @@ def real_git_only_subprocess(monkeypatch):
     """Run git commands for real; record/no-op everything else.
 
     Patches ``run_subprocess`` in the source-acquisition modules so that
-    calls containing ``git`` are executed normally, ``pip`` is no-opped,
-    and other commands are also executed. Calls are recorded in the
+    ``pip`` is no-opped, ``python -m venv`` creates only the ``.venv/bin``
+    skeleton (the real run costs ~1.5s per test), and other commands —
+    ``git`` included — are executed for real. Calls are recorded in the
     returned list. Also disables ``venv.create``.
     """
     calls = []
@@ -263,6 +264,10 @@ def real_git_only_subprocess(monkeypatch):
             return result.returncode, result.stdout or "", result.stderr or ""
 
         if _name(cmd).startswith("pip"):
+            return 0, "", ""
+
+        if isinstance(args, list | tuple) and {"-m", "venv"} <= set(args):
+            (Path(str(args[-1])) / "bin").mkdir(parents=True, exist_ok=True)
             return 0, "", ""
 
         result = subprocess.run(
