@@ -91,6 +91,8 @@ are optional:
 
 ```toml
 description = "What this plugin does."   # shown by `osh plug list`
+version = "1.0.0"                        # shown by `osh plug list`
+min_osh = "1.1"                          # minimum osh version required
 
 # Handlers this plugin extends — the plugin is imported when one of
 # them is composed.
@@ -185,8 +187,20 @@ osh plug alias PLUGIN COMMAND NAME
 osh plug unalias PLUGIN COMMAND
 ```
 
-`osh plug list` shows each plugin's `description` from
+`osh plug list` shows each plugin's `version` and `description` from
 `osh-plugin.toml` — read from the file, never by importing the plugin.
+For pip-installed plugins the package's own dist version is used instead
+(`osh-plugin.toml` `version` is the fallback and the only channel for
+git-cloned plugins, which have no package metadata). Built-in plugins
+ship inside the `osh` distribution and inherit `osh.__version__` — they
+need no `version` key.
+
+`min_osh` declares the minimum osh version the plugin needs — compared
+numerically (`1.1` matches `1.1.0`; a `+commit` local suffix is ignored).
+When the running osh is older the plugin still lists its commands, but
+any attempt to import it — invoking a command, composing an `extends`
+target, loading a dependent — fails with a `requires osh >= X` error,
+and startup warns once. An unparsable value warns but never blocks.
 
 ### Multi-plugin repositories
 

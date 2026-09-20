@@ -171,6 +171,18 @@ def test_list_marks_editable_plugins(plugin_home, src_plugin):
     assert "cloned_plugin (editable)" not in result.output
 
 
+def test_list_shows_plugin_version(plugin_home, src_plugin):
+    """``osh plug list`` shows the ``version`` from ``osh-plugin.toml``."""
+    plugin_home.mkdir(parents=True)
+    (plugin_home / "my_plugin").symlink_to(src_plugin.resolve())
+
+    runner = CliRunner()
+    result = runner.invoke(plug, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert "my-plugin v1.2.3 (enabled)" in result.output
+
+
 @pytest.fixture
 def user_config(tmp_path, monkeypatch):
     """Redirect the user config file to a temporary location."""

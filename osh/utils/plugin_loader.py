@@ -33,6 +33,8 @@ from .plugin_registry import (  # noqa: F401
     _decl_hidden,
     _decl_is_group,
     _is_plugin_dir,
+    _version_tuple,
+    min_osh_ok,
     plugin_meta,
     plugin_registry,
     plugin_source_name,
@@ -267,6 +269,22 @@ def warn_unresolved_meta():
             provided.add(name)
             provided.update(f"{name}.{method}" for method in _subcommand_methods(cls))
     for spec in registry.specs.values():
+        min_osh = spec.meta.get("min_osh")
+        if min_osh:
+            if _version_tuple(str(min_osh)) == (0, 0, 0):
+                echo.warning(
+                    f"plugin '{spec.name}' declares min_osh={min_osh!r}, "
+                    "which is not a version.",
+                    err=True,
+                )
+            elif not min_osh_ok(str(min_osh)):
+                from .. import __version__
+
+                echo.warning(
+                    f"plugin '{spec.name}' requires osh >= {min_osh} "
+                    f"(running {__version__}); it will not load.",
+                    err=True,
+                )
         for target in spec.declared_extends():
             if target not in provided:
                 echo.warning(

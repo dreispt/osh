@@ -51,6 +51,74 @@ def test_root_plugin_and_subplugins_both_load(plugin_dir):
     assert specs["repo-b"].lazy and specs["osh-sub"].lazy
 
 
+def test_builtin_plugins_inherit_osh_version(plugin_dir):
+    """Builtin specs inherit the osh package version — no toml needed."""
+    import osh
+
+    spec = plugin_registry.plugin_registry().specs["osh-db-get"]
+    assert spec.kind == "builtin"
+    assert spec.version == osh.__version__
+
+
+def test_user_plugin_version_comes_from_marker(plugin_dir):
+    """A user plugin's ``version`` marker key lands on its spec."""
+    _copy_plugin(plugin_dir, "plug_src")
+
+    spec = plugin_registry.plugin_registry().specs["my-plugin"]
+    assert spec.version == "1.2.3"
+
+
+def test_min_osh_blocks_incompatible_plugin(plugin_dir):
+    """A plugin declaring ``min_osh`` newer than osh fails to load."""
+    _copy_plugin(plugin_dir, "repo_min")
+
+    spec = plugin_registry.plugin_registry().specs["osh-future"]
+    with pytest.raises(RuntimeError, match="requires osh >= 99.0"):
+        spec.load()
+
+
+def test_min_osh_satisfied_plugin_loads(plugin_dir):
+    """A plugin whose ``min_osh`` is met loads and resolves commands."""
+    _copy_plugin(plugin_dir, "repo_min")
+
+    spec = plugin_registry.plugin_registry().specs["osh-okmin"]
+    assert spec.resolve_command(None, "okmin_cmd") is not None
+
+
+def test_min_osh_warns_once(plugin_dir, capsys):
+    """An unmet ``min_osh`` warns at startup without importing the plugin."""
+    _copy_plugin(plugin_dir, "repo_min")
+
+    plugin_loader.warn_unresolved_meta()
+    err = capsys.readouterr().err
+    assert "plugin 'osh-future' requires osh >= 99.0" in err
+    assert "osh-okmin" not in err
+    assert not plugin_registry.plugin_registry().specs["osh-future"].loaded
+
+
+def test_min_osh_unparsable_warns_not_blocks(plugin_dir, capsys):
+    """An unparsable ``min_osh`` warns but does not block the plugin."""
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    pkg = plugin_dir / "repo_bad" / "osh_bad"
+    pkg.mkdir(parents=True)
+    (pkg / "osh-plugin.toml").write_text(
+        'min_osh = "banana"\n[commands]\nbad_cmd = "Bad."\n'
+    )
+    (pkg / "__init__.py").write_text(
+        "from osh.handlers import CommandHandler\n\n\n"
+        "class Bad(CommandHandler):\n"
+        '    _cli_name = "bad_cmd"\n'
+        "    def run(self):\n"
+        "        pass\n"
+    )
+
+    plugin_loader.warn_unresolved_meta()
+    err = capsys.readouterr().err
+    assert "plugin 'osh-bad' declares min_osh='banana'" in err
+    spec = plugin_registry.plugin_registry().specs["osh-bad"]
+    assert spec.resolve_command(None, "bad_cmd") is not None
+
+
 def test_subplugin_relative_imports_work(plugin_dir):
     """Subplugin packages are real packages, so relative imports resolve."""
     _copy_plugin(plugin_dir, "repo_c")

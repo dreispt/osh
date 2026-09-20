@@ -21,6 +21,7 @@ from ..config import (
 from ..handlers import CommandHandler, subcommand
 from ..utils.plugin_registry import (
     _is_plugin_dir,
+    min_osh_ok,
     plugin_meta,
     plugin_source_name,
     plugin_subdirs,
@@ -170,7 +171,13 @@ class Plug(CommandHandler):
                 continue
             for plugin_name in discovered:
                 state = "enabled" if plugin_name in enabled else "disabled"
-                description = plugin_meta(discovered[plugin_name]).get("description")
+                meta = plugin_meta(discovered[plugin_name])
+                min_osh = meta.get("min_osh")
+                if min_osh and not min_osh_ok(str(min_osh)):
+                    state += f", needs osh >= {min_osh}"
+                version = meta.get("version")
+                ver_note = f" v{version}" if version else ""
+                description = meta.get("description")
                 desc_note = f" — {description}" if description else ""
                 aliases = get_plugin_aliases(plugin_name)
                 alias_note = (
@@ -179,7 +186,9 @@ class Plug(CommandHandler):
                     if aliases
                     else ""
                 )
-                echo.info(f"    - {plugin_name} ({state}){desc_note}{alias_note}")
+                echo.info(
+                    f"    - {plugin_name}{ver_note} ({state}){desc_note}{alias_note}"
+                )
 
     @subcommand
     @click.argument("name")
