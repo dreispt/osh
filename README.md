@@ -130,6 +130,12 @@ keep the name safe for PostgreSQL and for Odoo's `--db-filter`.
 
 ### Multi-repository projects
 
+In a git-rooted project, `osh switch <branch>` also looks below the root:
+nested clones that are not submodules — source checkouts like `odoo/`,
+`enterprise/` or the managed `.osh/` clones — switch to the same branch when
+they have it, and submodules are synced with `git submodule update --init
+--recursive` after the switch.
+
 The project root does not need to be a git repository itself. When `osh` finds
 a `.osh` directory but no `.git`, it treats every git repository found below
 the project root as part of the project:

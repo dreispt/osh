@@ -1,17 +1,21 @@
 """`osh switch` command — switch branch/environment and report its database.
 
-In a git project this wraps ``git switch``; when the project root is not a
-repository but contains git repositories below it, all of them are switched.
-In a git-less project it moves a per-machine "active environment" pointer
-instead. Either way the environment name resolves to a database through the
-same ``osh db`` mapping used everywhere else. ``--refresh`` composes
-switching with restoring a backup.
+In a git project this wraps ``git switch`` — embedded clones below the
+repository root (e.g. ``.osh`` source checkouts) follow the switch when they
+have the target branch, and submodules are synced with ``git submodule
+update``. When the project root is not a repository but contains git
+repositories below it, all of them are switched. In a git-less project it
+moves a per-machine "active environment" pointer instead. Either way the
+environment name resolves to a database through the same ``osh db`` mapping
+used everywhere else. ``--refresh`` composes switching with restoring a
+backup.
 """
 
 import click
 
 from ... import echo
 from ...common import (
+    find_nested_repos,
     find_project_repos,
     find_project_root,
     git_current_branch,
@@ -28,11 +32,15 @@ class Switch(CommandHandler):
     database — the same content as ``osh db show``.
 
     In a git repository this runs ``git switch NAME`` (``git checkout`` on
-    older git versions); ``--create`` passes through as ``-c``. When the
-    project root is not a repository but git repositories are found below
-    it, every one of them is switched. Without any repository, NAME becomes
-    the active environment — per-machine state, resolved to a database
-    through the same ``osh db`` branch mappings.
+    older git versions); ``--create`` passes through as ``-c``. Repositories
+    nested below the root — source checkouts like ``odoo``/``enterprise``/
+    ``design-themes``, including the managed ``.osh`` clones — follow the
+    switch when they have the branch, and submodules are synced with
+    ``git submodule update --init --recursive``. When the project root is
+    not a repository but git repositories are found below it, every one of
+    them is switched. Without any repository, NAME becomes the active
+    environment — per-machine state, resolved to a database through the
+    same ``osh db`` branch mappings.
 
     ``--refresh`` additionally restores a backup into the environment's
     database, creating the database first if needed:
@@ -93,6 +101,10 @@ class Switch(CommandHandler):
                 create=self.create,
                 dry_run=self.dry_run,
             )
+            if len(self.repos) == 1:
+                # Git-rooted project: embedded clones (``./odoo``,
+                # ``.osh/odoo``, ...) follow the switch when they can.
+                _switch_nested(self.base, self.name, dry_run=self.dry_run)
             if self.dry_run:
                 return
             if len(self.repos) > 1:
@@ -128,8 +140,14 @@ def _switch_repos(base, repos, name, *, create, dry_run):
     failed = []
     for repo in repos:
         label = _repo_label(base, repo)
+        has_submodules = (repo / ".gitmodules").exists()
         if dry_run:
             echo.info(f"Would run in {label}: git switch {name}", err=True)
+            if has_submodules:
+                echo.info(
+                    f"Would run in {label}: " "git submodule update --init --recursive",
+                    err=True,
+                )
             continue
         error = _git_switch(repo, name, create=create)
         if error is not None:
@@ -139,11 +157,8 @@ def _switch_repos(base, repos, name, *, create, dry_run):
             continue
         if multi:
             echo.info(f"{label}: switched to '{name}'")
-        if (repo / ".gitmodules").exists():
-            echo.info(
-                f"{label}: has submodules; "
-                "run 'git submodule update --init' there to sync them."
-            )
+        if has_submodules:
+            _update_submodules(repo, label)
     if not failed:
         return
     if not multi:
@@ -156,6 +171,44 @@ def _switch_repos(base, repos, name, *, create, dry_run):
         hint = " Use -c/--create to create the branch."
     names = ", ".join(label for label, _ in failed)
     raise click.ClickException(f"Could not switch: {names}.{hint}")
+
+
+def _switch_nested(base, name, *, dry_run):
+    """Switch embedded clones below the git-rooted *base* to *name*.
+
+    A nested clone follows the project only when it has the target branch —
+    a source checkout on another version is kept as-is. ``--create`` never
+    applies here: missing branches are skipped, not created, and a clone
+    that cannot switch is a warning rather than a failure.
+    """
+    for repo in find_nested_repos(base):
+        label = _repo_label(base, repo)
+        if dry_run:
+            echo.info(
+                f"Would run in {label}: git switch {name} "
+                "(skipped when the branch is missing)",
+                err=True,
+            )
+            continue
+        error = _git_switch(repo, name, create=False)
+        if error is None:
+            echo.info(f"{label}: switched to '{name}'")
+        elif "invalid reference" in error or "did not match" in error:
+            echo.info(
+                f"{label}: no '{name}' branch — "
+                f"kept on '{git_current_branch(repo)}'"
+            )
+        else:
+            echo.warning(f"{label}: could not switch to '{name}': {error}")
+
+
+def _update_submodules(repo, label):
+    """Check out *repo*'s pinned submodule commits after a branch switch."""
+    returncode, _, stderr = run_subprocess(
+        ["git", "submodule", "update", "--init", "--recursive"], cwd=repo
+    )
+    if returncode != 0:
+        echo.warning(f"{label}: could not update submodules: {stderr.strip()}")
 
 
 def _git_switch(repo, name, *, create):

@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from osh.cli_utils import handler_command
-from osh.common import find_project_repos
+from osh.common import find_nested_repos, find_project_repos
 from osh.db import get_active_env, get_current_branch, resolve_db_name
 from osh.plugins.osh_switch.switch_cmd import Switch
 
@@ -354,3 +354,178 @@ def test_switch_multi_repo_dry_run(multi_repo_project):
     assert result.exit_code == 0, result.output
     assert "Would run in odoo: git switch other" in result.output
     assert _git_current_branch(multi_repo_project / "odoo") == "19.0"
+
+
+# Nested clones under a git-rooted project ---------------------------------
+
+
+@pytest.fixture
+def rooted_project(in_project):
+    """A git-rooted project with an embedded clone and a managed .osh clone."""
+    _init_git(in_project)
+    for rel in ("odoo", ".osh/odoo"):
+        repo = in_project / rel
+        repo.mkdir(parents=True, exist_ok=True)
+        _init_git(repo)
+    return in_project
+
+
+def test_find_nested_repos_non_git_base(tmp_project):
+    """A project root without git reports no nested repositories."""
+    assert find_nested_repos(tmp_project) == []
+
+
+@requires_git
+def test_find_nested_repos_discovers_clones(rooted_project):
+    """Embedded clones are found, including managed clones under .osh."""
+    assert find_nested_repos(rooted_project) == [
+        rooted_project / ".osh" / "odoo",
+        rooted_project / "odoo",
+    ]
+
+
+@requires_git
+def test_find_nested_repos_skips_submodule(rooted_project, tmp_path):
+    """Submodules are pinned to commits and excluded from nested repos."""
+    sub_src = tmp_path / "subsrc"
+    sub_src.mkdir()
+    _init_git(sub_src)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(sub_src),
+            "vendor/sub",
+        ],
+        cwd=rooted_project,
+        check=True,
+        capture_output=True,
+    )
+
+    assert rooted_project / "vendor" / "sub" / ".git"  # it is a git repo
+    assert rooted_project / "vendor" / "sub" not in find_nested_repos(rooted_project)
+
+
+@requires_git
+def test_switch_nested_clone_follows(rooted_project):
+    """A nested clone with the target branch switches along with the root."""
+    for repo in (rooted_project, rooted_project / "odoo"):
+        subprocess.run(
+            ["git", "branch", "other"], cwd=repo, check=True, capture_output=True
+        )
+    osh_odoo = rooted_project / ".osh" / "odoo"
+    kept_branch = _git_current_branch(osh_odoo)
+
+    result = CliRunner().invoke(switch, ["other"])
+
+    assert result.exit_code == 0, result.output
+    assert _git_current_branch(rooted_project) == "other"
+    assert _git_current_branch(rooted_project / "odoo") == "other"
+    assert "odoo: switched to 'other'" in result.output
+    # The managed clone lacks the branch and is kept.
+    assert _git_current_branch(osh_odoo) == kept_branch
+    assert "no 'other' branch" in result.output
+
+
+@requires_git
+def test_switch_nested_clone_create_not_propagated(rooted_project):
+    """--create applies to the root only; clones without the branch stay."""
+    branches = {
+        rel: _git_current_branch(rooted_project / rel) for rel in ("odoo", ".osh/odoo")
+    }
+
+    result = CliRunner().invoke(switch, ["-c", "fix-1"])
+
+    assert result.exit_code == 0, result.output
+    assert _git_current_branch(rooted_project) == "fix-1"
+    for rel, branch in branches.items():
+        assert _git_current_branch(rooted_project / rel) == branch
+    assert "no 'fix-1' branch" in result.output
+
+
+@requires_git
+def test_switch_updates_submodules(rooted_project, tmp_path):
+    """After the root switches, pinned submodule commits are checked out."""
+    sub_src = tmp_path / "subsrc"
+    sub_src.mkdir()
+    _init_git(sub_src)
+    sha_a = _git_rev_parse(sub_src, "HEAD")
+    (sub_src / "README").write_text("y")
+    subprocess.run(
+        ["git", "commit", "-am", "b"], cwd=sub_src, check=True, capture_output=True
+    )
+    sha_b = _git_rev_parse(sub_src, "HEAD")
+
+    default_branch = _git_current_branch(rooted_project)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(sub_src),
+            "vendor/sub",
+        ],
+        cwd=rooted_project,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add sub"],
+        cwd=rooted_project,
+        check=True,
+        capture_output=True,
+    )
+    # Branch "other" pins the submodule at commit A.
+    subprocess.run(
+        ["git", "switch", "-c", "other"],
+        cwd=rooted_project,
+        check=True,
+        capture_output=True,
+    )
+    sub = rooted_project / "vendor" / "sub"
+    subprocess.run(["git", "checkout", sha_a], cwd=sub, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-am", "pin A"],
+        cwd=rooted_project,
+        check=True,
+        capture_output=True,
+    )
+
+    result = CliRunner().invoke(switch, [default_branch])
+
+    assert result.exit_code == 0, result.output
+    assert _git_current_branch(rooted_project) == default_branch
+    assert _git_rev_parse(sub, "HEAD") == sha_b
+
+
+@requires_git
+def test_switch_dry_run_nested(rooted_project):
+    """--dry-run reports nested clone switches without running them."""
+    branches = {
+        rel: _git_current_branch(rooted_project / rel) for rel in ("odoo", ".osh/odoo")
+    }
+
+    result = CliRunner().invoke(switch, ["other", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would run in odoo: git switch other" in result.output
+    assert f"Would run in {Path('.osh') / 'odoo'}: git switch other" in result.output
+    for rel, branch in branches.items():
+        assert _git_current_branch(rooted_project / rel) == branch
+
+
+def _git_rev_parse(repo, ref):
+    """Return the commit *ref* resolves to in *repo*."""
+    result = subprocess.run(
+        ["git", "rev-parse", ref],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
