@@ -13,13 +13,11 @@ from . import (
     odoo_cmd,
     plug_cmd,
     shell_cmd,
-    switch_cmd,
 )
 
 COMMANDS = [
     init_cmd.init,
     odoo_cmd.odoo,
-    switch_cmd.switch,
     shell_cmd.shell,
     db_cmd.db,
     addon_cmd.addon,

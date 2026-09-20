@@ -10,16 +10,15 @@ switching with restoring a backup.
 
 import click
 
-from .. import echo
-from ..cli_utils import handler_command
-from ..common import (
+from ... import echo
+from ...common import (
     find_project_repos,
     find_project_root,
     git_current_branch,
     run_subprocess,
 )
-from ..db import set_active_env
-from ..handlers import CommandHandler
+from ...db import set_active_env
+from ...handlers import CommandHandler
 
 
 class Switch(CommandHandler):
@@ -110,9 +109,6 @@ class Switch(CommandHandler):
             _refresh(self.ctx, self.name, self.refresh)
 
 
-switch = handler_command("switch", Switch)
-
-
 def _report_repo_branches(base, repos):
     """Print each repository's current branch when there are several."""
     if len(repos) <= 1:
@@ -195,7 +191,7 @@ def _refresh(ctx, name, refresh):
     # Resolved lazily: osh_db_get already imports osh.commands, so a
     # top-level import here would be circular — and the handlers live in a
     # plugin that must not load until invoked.
-    from ..handlers import resolve
+    from ...handlers import resolve
 
     dump = refresh or None
     if refresh and "://" in refresh:

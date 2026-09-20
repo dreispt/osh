@@ -8,9 +8,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osh.commands.switch_cmd import switch
+from osh.cli_utils import handler_command
 from osh.common import find_project_repos
 from osh.db import get_active_env, get_current_branch, resolve_db_name
+from osh.plugins.osh_switch.switch_cmd import Switch
+
+switch = handler_command("switch", Switch)
 
 requires_git = pytest.mark.skipif(
     shutil.which("git") is None, reason="git not available"
