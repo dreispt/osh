@@ -37,21 +37,16 @@ class Prune(CommandHandler):
     aggressive = False
     dry_run = False
 
-    @classmethod
-    def get_options(cls):
-        return [
-            click.Option(
-                ["--aggressive"],
-                is_flag=True,
-                help="Run git gc --aggressive to reclaim more space (slower).",
-            ),
-            click.Option(
-                ["--dry-run"],
-                is_flag=True,
-                help="Print the commands that would be run without executing " "them.",
-            ),
-        ]
-
+    @click.option(
+        "--aggressive",
+        is_flag=True,
+        help="Run git gc --aggressive to reclaim more space (slower).",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the commands that would be run without executing " "them.",
+    )
     def run(self):
         base = find_project_root(required=True)
 

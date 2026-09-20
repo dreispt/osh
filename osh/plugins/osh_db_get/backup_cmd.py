@@ -96,47 +96,6 @@ class DbGet(CommandHandler):
     dry_run = False
 
     @classmethod
-    def get_options(cls):
-        return [
-            click.Option(
-                ["--help-scheme"],
-                metavar="SCHEME",
-                is_eager=True,
-                expose_value=False,
-                callback=_print_scheme_help,
-                help="Show detailed help for a backup source scheme and exit.",
-            ),
-            click.Argument(["source"]),
-            click.Argument(["output"], required=False, type=click.Path()),
-            click.Option(
-                ["--format", "output_format"],
-                type=click.Choice(["dump", "sql", "zip"], case_sensitive=False),
-                default="dump",
-                help="Output format for db:// sources (default: dump).",
-            ),
-            click.Option(
-                ["--master-password"],
-                help="Master password for https:// sources.",
-            ),
-            click.Option(
-                ["--ssh-key"],
-                type=click.Path(exists=True, dir_okay=False, path_type=Path),
-                help="SSH private key for odoosh:// and ssh:// sources.",
-            ),
-            click.Option(
-                ["--filestore"],
-                is_flag=True,
-                help="For odoosh:// sources, also download the filestore and "
-                "produce a .zip backup.",
-            ),
-            click.Option(
-                ["--dry-run"],
-                is_flag=True,
-                help="Print the commands that would be run without executing them.",
-            ),
-        ]
-
-    @classmethod
     def format_cli_help(cls, formatter):
         """Append the registered backup source schemes to ``--help``."""
         schemes = list_backup_schemes()
@@ -146,6 +105,43 @@ class DbGet(CommandHandler):
         with formatter.section("Supported source schemes"):
             formatter.write_dl(records)
 
+    @click.option(
+        "--help-scheme",
+        metavar="SCHEME",
+        is_eager=True,
+        expose_value=False,
+        callback=lambda ctx, param, value: _print_scheme_help(ctx, param, value),
+        help="Show detailed help for a backup source scheme and exit.",
+    )
+    @click.argument("source")
+    @click.argument("output", required=False, type=click.Path())
+    @click.option(
+        "--format",
+        "output_format",
+        type=click.Choice(["dump", "sql", "zip"], case_sensitive=False),
+        default="dump",
+        help="Output format for db:// sources (default: dump).",
+    )
+    @click.option(
+        "--master-password",
+        help="Master password for https:// sources.",
+    )
+    @click.option(
+        "--ssh-key",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        help="SSH private key for odoosh:// and ssh:// sources.",
+    )
+    @click.option(
+        "--filestore",
+        is_flag=True,
+        help="For odoosh:// sources, also download the filestore and "
+        "produce a .zip backup.",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the commands that would be run without executing them.",
+    )
     def run(self):
         self.base = find_project_root()
         self.source = resolve_remote_source(self.base, self.source)
