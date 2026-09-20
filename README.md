@@ -201,6 +201,6 @@ available in your setup.
 
 ## License
 
-Copyright © 2025 Daniel Reis
+Copyright © 2026 Daniel Reis
 
 Distributed under the GNU AGPL-3.0-only license.
