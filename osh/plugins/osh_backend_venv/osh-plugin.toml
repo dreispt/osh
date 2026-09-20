@@ -1,8 +1,5 @@
 description = "Python virtualenv backend."
 
-[commands]
-prune = "Run git gc on the project's Odoo source clones."
-
 [backends]
 venv = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
 
