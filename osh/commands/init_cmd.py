@@ -19,6 +19,7 @@ import click
 
 from .. import echo
 from ..backends import copy_odoo_rc_to_osh_conf
+from ..cli_utils import handler_command
 from ..common import (
     find_enclosing_project,
     find_nested_projects,
@@ -26,74 +27,11 @@ from ..common import (
 )
 from ..config import get_init_parent, load_user_init_config, save_user_preference
 from ..db import get_project_config, set_project_config, unset_project_config
+from ..handlers import CommandHandler
 from .helpers import Diagnostics
 
 
-@click.command(name="init")
-@click.argument("version", required=False, type=str)
-@click.argument(
-    "directory", required=False, type=click.Path(file_okay=False, path_type=Path)
-)
-@click.option(
-    "--edition",
-    type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
-    default=None,
-    help="Edition to initialize: ce (Community), ee (Enterprise), "
-    "sh (Odoo.sh with Enterprise + design-themes). "
-    "Defaults to $OSH_INIT_EDITION, then the saved configuration.",
-)
-@click.option(
-    "--ce",
-    "edition",
-    flag_value="ce",
-    help="Alias for --edition ce.",
-)
-@click.option(
-    "--ee",
-    "edition",
-    flag_value="ee",
-    help="Alias for --edition ee.",
-)
-@click.option(
-    "--sh",
-    "edition",
-    flag_value="sh",
-    help="Alias for --edition sh.",
-)
-@click.option(
-    "--dev/--no-dev",
-    "dev",
-    default=True,
-    help="Add development-friendly Odoo config options (limit_time_cpu=0, "
-    "limit_time_real=0) to .osh/odoo.conf. Use --no-dev to disable.",
-)
-@click.option(
-    "--save",
-    is_flag=True,
-    help="Save the resolved edition to ~/.config/osh/config.toml as the default.",
-)
-@click.option(
-    "--yes",
-    "assume_yes",
-    is_flag=True,
-    help="Assume yes for interactive prompts; useful when a TTY is available but input is not desired.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Show the planned actions without modifying anything.",
-)
-@click.pass_context
-def init(
-    ctx,
-    version,
-    directory,
-    edition,
-    save,
-    assume_yes,
-    dry_run,
-    dev=True,
-):  # noqa: D401
+class Init(CommandHandler):
     """Initialise an Osh project directory (base setup only).
 
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master').
@@ -118,27 +56,88 @@ def init(
     With VERSION omitted, DIRECTORY can only be given as a path containing
     a separator (e.g. './another-project') — a bare name is read as VERSION.
     """
-    version, directory = _split_version_arg(version, directory)
-    target = (directory or Path.cwd()).expanduser().resolve()
-    with _rollback_new_osh_dir(target):
-        base_init(
-            ctx,
-            target,
-            version=version,
-            edition=edition,
-            save=save,
-            assume_yes=assume_yes,
-            dry_run=dry_run,
-            dev=dev,
-        )
-    if dry_run:
-        echo.info(f"Dry run for project directory at {target}")
-    else:
-        echo.info(f"Initialised project directory at {target}")
-        echo.friendly("Next steps:")
-        echo.friendly(
-            "  osh <backend> init  # e.g. 'osh venv init' or 'osh docker init'"
-        )
+
+    # Command state is on ``self``: the parsed params (``version``,
+    # ``directory``, ``edition``, ...) plus ``target`` as ``run()`` fills
+    # it in.
+    _cli_name = "init"
+
+    version = None
+    directory = None
+    edition = None
+    save = False
+    assume_yes = False
+    dry_run = False
+    dev = True
+
+    @click.argument("version", required=False, type=str)
+    @click.argument(
+        "directory",
+        required=False,
+        type=click.Path(file_okay=False, path_type=Path),
+    )
+    @click.option(
+        "--edition",
+        type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
+        default=None,
+        help="Edition to initialize: ce (Community), ee (Enterprise), "
+        "sh (Odoo.sh with Enterprise + design-themes). "
+        "Defaults to $OSH_INIT_EDITION, then the saved configuration.",
+    )
+    @click.option("--ce", "edition", flag_value="ce", help="Alias for --edition ce.")
+    @click.option("--ee", "edition", flag_value="ee", help="Alias for --edition ee.")
+    @click.option("--sh", "edition", flag_value="sh", help="Alias for --edition sh.")
+    @click.option(
+        "--dev/--no-dev",
+        "dev",
+        default=True,
+        help="Add development-friendly Odoo config options "
+        "(limit_time_cpu=0, limit_time_real=0) to .osh/odoo.conf. "
+        "Use --no-dev to disable.",
+    )
+    @click.option(
+        "--save",
+        is_flag=True,
+        help="Save the resolved edition to "
+        "~/.config/osh/config.toml as the default.",
+    )
+    @click.option(
+        "--yes",
+        "assume_yes",
+        is_flag=True,
+        help="Assume yes for interactive prompts; useful when a TTY "
+        "is available but input is not desired.",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Show the planned actions without modifying anything.",
+    )
+    def run(self):
+        version, directory = _split_version_arg(self.version, self.directory)
+        self.target = (directory or Path.cwd()).expanduser().resolve()
+        with _rollback_new_osh_dir(self.target):
+            base_init(
+                self.ctx,
+                self.target,
+                version=version,
+                edition=self.edition,
+                save=self.save,
+                assume_yes=self.assume_yes,
+                dry_run=self.dry_run,
+                dev=self.dev,
+            )
+        if self.dry_run:
+            echo.info(f"Dry run for project directory at {self.target}")
+        else:
+            echo.info(f"Initialised project directory at {self.target}")
+            echo.friendly("Next steps:")
+            echo.friendly(
+                "  osh <backend> init  # e.g. 'osh venv init' or 'osh docker init'"
+            )
+
+
+init = handler_command("init", Init)
 
 
 def _split_version_arg(version, directory):

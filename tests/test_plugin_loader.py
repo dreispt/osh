@@ -100,9 +100,11 @@ def test_bare_repo_dir_loads_subplugins(plugin_dir):
     commands = {cmd.name: src for src, cmd in plugin_loader.load_plugins()}
     assert commands["sub_cmd"] == "osh-sub"
 
-    from osh.commands.db_cmd import DbList
+    # Composing `osh db list`'s handler imports the `extends` declarer.
+    from osh.commands.db_cmd import db
 
-    assert "Ext" in [c.__name__ for c in DbList.effective().__mro__]
+    effective = db.commands["list"]._handler_cls()
+    assert "Ext" in [c.__name__ for c in effective.__mro__]
 
 
 def test_bare_repo_ignores_non_packages(plugin_dir, capsys):
@@ -358,12 +360,16 @@ def test_entry_point_with_marker_declares_no_implicit_command(plugin_dir, monkey
 
 
 def test_lazy_subclass_extends_parent_handler(plugin_dir):
-    """A subclass without ``_cli_name`` extends its nearest named ancestor."""
+    """A subclass without ``_cli_name`` extends its nearest named ancestor.
+
+    The ``extends = ["db.list"]`` declaration is the lazy trigger —
+    composing the ``db list`` command's handler imports the plugin.
+    """
     _copy_plugin(plugin_dir, "repo_sub")
 
-    from osh.commands.db_cmd import DbList
+    from osh.commands.db_cmd import db
 
-    effective = DbList.effective()
+    effective = db.commands["list"]._handler_cls()
     mro_names = [c.__name__ for c in effective.__mro__]
     assert "Filestores" in mro_names
     specs = plugin_registry.plugin_registry().specs
@@ -386,14 +392,14 @@ def test_derived_handler_is_a_new_command(plugin_dir):
     """A subclass with its own ``_cli_name`` is a command, not an extender."""
     _copy_plugin(plugin_dir, "repo_derived")
 
-    from osh.commands.db_cmd import DbList
+    from osh.commands.db_cmd import Db
     from osh.handlers import resolve
 
     # The derived handler resolves to itself as a distinct named handler…
     cls = resolve("db.smart_list")
     assert cls.__name__ == "SmartList"
     # …and does not extend its parent once loaded.
-    assert not issubclass(DbList.effective(), cls)
+    assert not issubclass(Db.effective(), cls)
 
 
 def test_depends_imports_dependency_first(plugin_dir):

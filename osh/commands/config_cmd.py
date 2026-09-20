@@ -3,129 +3,132 @@
 import click
 
 from .. import echo
+from ..cli_utils import handler_group
 from ..common import find_project_root
 from ..config import get_project_config_path, save_user_preference
 from ..db import load_osh_config, save_osh_config, set_project_config
+from ..handlers import CommandHandler, subcommand
 
 
-@click.group(name="config")
-@click.pass_context
-def config(ctx):  # noqa: D401
+class Config(CommandHandler):
     """Manage Osh project settings stored in `.osh/config.toml`."""
 
+    _cli_name = "config"
 
-@config.command(name="show")
-@click.pass_context
-def show(ctx):  # noqa: D401
-    """Show the current Osh project configuration."""
+    @subcommand
+    def show(self):
+        """Show the current Osh project configuration."""
+        self.base = find_project_root(required=True)
 
-    base = find_project_root(required=True)
+        cfg = load_osh_config(self.base)
+        config_path = get_project_config_path(self.base)
+        echo.info(f"Configuration file: {config_path}")
 
-    cfg = load_osh_config(base)
-    config_path = get_project_config_path(base)
-    echo.info(f"Configuration file: {config_path}")
-
-    if cfg.has_section("db"):
-        echo.info("Database configuration:")
-        for key, value in cfg.items("db"):
-            echo.info(f"  {key} = {value}")
-    else:
-        echo.info("  No database configuration.")
-
-    if cfg.has_section("user"):
-        echo.info("User preferences:")
-        for key, value in cfg.items("user"):
-            value_str = str(value)
-            # Format boolean values nicely
-            if value_str.lower() in ("true", "false"):
-                display = "on" if value_str.lower() == "true" else "off"
-                echo.info(f"  {key} = {display}")
-            else:
+        if cfg.has_section("db"):
+            echo.info("Database configuration:")
+            for key, value in cfg.items("db"):
                 echo.info(f"  {key} = {value}")
-    else:
-        echo.info("  No user preferences.")
+        else:
+            echo.info("  No database configuration.")
+
+        if cfg.has_section("user"):
+            echo.info("User preferences:")
+            for key, value in cfg.items("user"):
+                value_str = str(value)
+                # Format boolean values nicely
+                if value_str.lower() in ("true", "false"):
+                    display = "on" if value_str.lower() == "true" else "off"
+                    echo.info(f"  {key} = {display}")
+                else:
+                    echo.info(f"  {key} = {value}")
+        else:
+            echo.info("  No user preferences.")
 
 
-@config.group(name="user")
-@click.pass_context
-def user(ctx):  # noqa: D401
+config = handler_group("config", Config)
+
+
+class ConfigUser(CommandHandler):
     """Manage user preferences for this project."""
 
+    _cli_name = "config.user"
 
-@user.command(name="verbosity")
-@click.argument("level", type=click.Choice(["silent", "normal", "verbose", "debug"]))
-@click.option(
-    "--global",
-    "global_setting",
-    is_flag=True,
-    help="Set globally in ~/.config/osh/config.toml instead of project-specific.",
-)
-@click.pass_context
-def verbosity(
-    ctx,
-    level,
-    global_setting,
-):  # noqa: D401
-    """Set the verbosity level for Osh commands.
+    @subcommand
+    @click.argument(
+        "level", type=click.Choice(["silent", "normal", "verbose", "debug"])
+    )
+    @click.option(
+        "--global",
+        "global_setting",
+        is_flag=True,
+        help="Set globally in ~/.config/osh/config.toml instead of "
+        "project-specific.",
+    )
+    def verbosity(self):
+        """Set the verbosity level for Osh commands.
 
-    Levels:
-      silent    - Only errors
-      normal    - Essential information
-      verbose   - Detailed information about what's happening
-      debug     - Verbose plus internal diagnostics (exit codes, timing)
+        Levels:
+          silent    - Only errors
+          normal    - Essential information
+          verbose   - Detailed information about what's happening
+          debug     - Verbose plus internal diagnostics (exit codes, timing)
 
-    Examples:
+        Examples:
 
-    \b
-      osh config user verbosity normal
-      osh config user verbosity silent --global
-    """
-    if global_setting:
-        # Set in global user config
-        save_user_preference("verbosity", level)
-        echo.info(f"Set global verbosity to: {level}")
-    else:
-        # Set in project config
-        base = find_project_root(required=True)
-        cfg = load_osh_config(base)
-        cfg.set("user", "verbosity", level)
-        save_osh_config(base, cfg)
-        echo.info(f"Set project verbosity to: {level}")
+        \b
+          osh config user verbosity normal
+          osh config user verbosity silent --global
+        """
+        if self.global_setting:
+            # Set in global user config
+            save_user_preference("verbosity", self.level)
+            echo.info(f"Set global verbosity to: {self.level}")
+        else:
+            # Set in project config
+            self.base = find_project_root(required=True)
+            cfg = load_osh_config(self.base)
+            cfg.set("user", "verbosity", self.level)
+            save_osh_config(self.base, cfg)
+            echo.info(f"Set project verbosity to: {self.level}")
 
 
-@config.group(name="odoo")
-def odoo_group():  # noqa: D401
+class ConfigOdoo(CommandHandler):
     """Manage Odoo runtime defaults."""
 
+    _cli_name = "config.odoo"
 
-@odoo_group.command(name="dev")
-@click.argument("value")
-@click.option(
-    "--global",
-    "global_setting",
-    is_flag=True,
-    help="Set globally in ~/.config/osh/config.toml instead of project-specific.",
-)
-@click.pass_context
-def odoo_dev(ctx, value, global_setting):  # noqa: D401
-    """Set the default ``--dev`` value injected by ``osh odoo``.
+    @subcommand
+    @click.argument("value")
+    @click.option(
+        "--global",
+        "global_setting",
+        is_flag=True,
+        help="Set globally in ~/.config/osh/config.toml instead of "
+        "project-specific.",
+    )
+    def dev(self):
+        """Set the default ``--dev`` value injected by ``osh odoo``.
 
-    VALUE is any ``--dev`` option value such as ``all`` or a comma-separated
-    list (e.g. ``xml,reload``). ``off`` disables the injection entirely —
-    equivalent to always passing ``--no-dev``.
+        VALUE is any ``--dev`` option value such as ``all`` or a comma-separated
+        list (e.g. ``xml,reload``). ``off`` disables the injection entirely —
+        equivalent to always passing ``--no-dev``.
 
-    Examples:
+        Examples:
 
-    \b
-      osh config odoo dev all
-      osh config odoo dev xml,reload
-      osh config odoo dev off
-      osh config odoo dev all --global
-    """
-    if global_setting:
-        save_user_preference("dev", value, section="odoo")
-        echo.info(f"Set global Odoo dev mode to: {value}")
-        return
-    base = find_project_root(required=True)
-    set_project_config(base, "odoo", "dev", value)
-    echo.info(f"Set project Odoo dev mode to: {value}")
+        \b
+          osh config odoo dev all
+          osh config odoo dev xml,reload
+          osh config odoo dev off
+          osh config odoo dev all --global
+        """
+        if self.global_setting:
+            save_user_preference("dev", self.value, section="odoo")
+            echo.info(f"Set global Odoo dev mode to: {self.value}")
+            return
+        self.base = find_project_root(required=True)
+        set_project_config(self.base, "odoo", "dev", self.value)
+        echo.info(f"Set project Odoo dev mode to: {self.value}")
+
+
+config.add_command(handler_group("user", ConfigUser))
+config.add_command(handler_group("odoo", ConfigOdoo))

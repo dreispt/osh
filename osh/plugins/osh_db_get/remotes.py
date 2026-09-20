@@ -15,7 +15,7 @@ from ... import echo
 from ...backup_sources import SourceError
 from ...common import find_project_root
 from ...db import load_osh_config, set_project_config
-from ...handlers import plugin_group
+from ...handlers import CommandHandler, subcommand
 from .cache import list_cache
 from .registry import canonical_source, parse_source
 
@@ -83,9 +83,7 @@ def _newest_cache_matching(base, source, *, what, hint):
     )
 
 
-@plugin_group("db")
-@click.group(name="remote")
-def remote():  # noqa: D401
+class DbRemote(CommandHandler):
     """Manage named backup sources (git-remote style).
 
     A remote maps a short name to a backup source string, so
@@ -93,40 +91,40 @@ def remote():  # noqa: D401
     the full source URL.
     """
 
+    _cli_name = "db.remote"
 
-@remote.command(name="add")
-@click.argument("name")
-@click.argument("source")
-@click.pass_context
-def remote_add(ctx, name, source):  # noqa: D401
-    """Register SOURCE under NAME for use with ``osh db get``/``restore``.
+    @subcommand
+    @click.argument("name")
+    @click.argument("source")
+    def add(self):
+        """Register SOURCE under NAME for use with ``osh db get``/``restore``.
 
-    NAME must not look like a source URL or cache reference, so it stays
-    unambiguous when used as an argument to ``osh db get``/``osh db restore``.
-    """
-    base = find_project_root(required=True)
-    if not _REMOTE_NAME_RE.match(name):
-        raise click.ClickException(
-            f"Invalid remote name '{name}'. Use letters, digits, '-', '_' or '.'."
-        )
-    if resolve_remote(base, name) is not None:
-        raise click.ClickException(f"Remote '{name}' already exists.")
-    try:
-        parse_source(source, base=base)
-    except SourceError as exc:
-        raise click.ClickException(f"Invalid backup source: {exc}") from exc
-    set_project_config(base, "remote", name, source)
-    echo.info(f"Remote '{name}' -> {source}")
+        NAME must not look like a source URL or cache reference, so it stays
+        unambiguous when used as an argument to ``osh db get``/``osh db
+        restore``.
+        """
+        base = find_project_root(required=True)
+        if not _REMOTE_NAME_RE.match(self.name):
+            raise click.ClickException(
+                f"Invalid remote name '{self.name}'. "
+                "Use letters, digits, '-', '_' or '.'."
+            )
+        if resolve_remote(base, self.name) is not None:
+            raise click.ClickException(f"Remote '{self.name}' already exists.")
+        try:
+            parse_source(self.source, base=base)
+        except SourceError as exc:
+            raise click.ClickException(f"Invalid backup source: {exc}") from exc
+        set_project_config(base, "remote", self.name, self.source)
+        echo.info(f"Remote '{self.name}' -> {self.source}")
 
-
-@remote.command(name="list")
-@click.pass_context
-def remote_list(ctx):  # noqa: D401
-    """List registered remotes."""
-    base = find_project_root(required=True)
-    remotes = get_remotes(base)
-    if not remotes:
-        echo.info("No remotes configured.", err=True)
-        return
-    for name, source in sorted(remotes.items()):
-        echo.info(f"{name}\t{source}")
+    @subcommand
+    def list(self):
+        """List registered remotes."""
+        base = find_project_root(required=True)
+        remotes = get_remotes(base)
+        if not remotes:
+            echo.info("No remotes configured.", err=True)
+            return
+        for name, source in sorted(remotes.items()):
+            echo.info(f"{name}\t{source}")

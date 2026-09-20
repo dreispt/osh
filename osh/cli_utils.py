@@ -8,9 +8,11 @@ import click
 class ExtensibleCommand(click.Command):
     """Click command delegating to a handler class.
 
-    Parameters come from the handler's ``get_options()`` — looked up on
-    the *effective* class at parse time, so extending plugins can inject
-    options — and the callback delegates to ``handler(ctx, **params).run()``.
+    Parameters come from the handler's ``get_options()`` — or, for a
+    group subcommand (*method* set), from the method's click decorators
+    and ``<method>_options()`` hooks — looked up on the *effective* class
+    at parse time, so extending plugins can inject options. The callback
+    delegates to ``handler(ctx, **params).run()`` or ``.<method>()``.
     ``format_cli_help`` on the effective class appends extra help sections.
 
     The handler is a ``CommandHandler`` subclass (*handler*) or a
@@ -20,29 +22,48 @@ class ExtensibleCommand(click.Command):
 
     handler = None
     handler_name = None
+    method = None
 
-    def __init__(self, *args, handler=None, handler_name=None, **kwargs):
+    def __init__(self, *args, handler=None, handler_name=None, method=None, **kwargs):
         super().__init__(*args, **kwargs)
         if handler is not None:
             self.handler = handler
         if handler_name is not None:
             self.handler_name = handler_name
+        if method is not None:
+            self.method = method
 
     def _handler_cls(self):
         """Return the effective handler class, or ``None``."""
         if self.handler is not None:
-            return self.handler.effective()
-        if self.handler_name is not None:
+            cls = self.handler
+        elif self.handler_name is not None:
             from .handlers import resolve
 
-            return resolve(self.handler_name).effective()
-        return None
+            cls = resolve(self.handler_name)
+        else:
+            return None
+        if self.method is not None:
+            # Method-level extension targets keep their own lazy trigger:
+            # ``extends = ["db.list"]`` imports the plugin only when the
+            # ``db list`` command is composed.
+            from .handlers import _declared_name
+            from .utils.plugin_loader import ensure_declared
+
+            name = _declared_name(cls)
+            if name:
+                ensure_declared("extends", f"{name}.{self.method}")
+        return cls.effective()
 
     def get_params(self, ctx):
         """Append the handler's declared options to the base parameters."""
         params = [*super().get_params(ctx)]
         handler = self._handler_cls()
-        if handler is not None:
+        if handler is None:
+            return params
+        if self.method is not None:
+            params.extend(_method_params(handler, self.method))
+        else:
             params.extend(
                 param
                 for param in handler.get_options()
@@ -63,7 +84,7 @@ def handler_command(name, cls):
 
     @click.pass_context
     def callback(ctx, **kwargs):
-        cls(ctx, **ctx.params).run()
+        cls(ctx, **{**ctx.params, **kwargs}).run()
 
     callback.__module__ = cls.__module__
     callback.__name__ = cls.__name__
@@ -78,6 +99,72 @@ def handler_command(name, cls):
         hidden=cls._cli_hidden,
         handler=cls,
     )
+
+
+def handler_group(name, cls):
+    """Build the ``click.Group`` exposing handler *cls*'s subcommand methods.
+
+    The class docstring is the group's help body. Each ``@subcommand``
+    method becomes one command: its name comes from the marker's ``name``
+    (defaulting to the method name), its ``--help`` body from the method
+    docstring and its parameters from the method's click decorators plus
+    an optional ``<method>_options()`` hook.
+    """
+    from .handlers import _subcommand_methods
+
+    group = NaturalOrderGroup(name=name, help=inspect.getdoc(cls))
+    for method, attrs in _subcommand_methods(cls).items():
+        group.add_command(method_command(cls, method, attrs))
+    return group
+
+
+def method_command(cls, method, attrs, handler=None):
+    """Build the click command delegating to ``cls.<method>()``.
+
+    *cls* supplies the method (docstring, decorators); *handler* — the
+    named class to instantiate, defaulting to *cls* — controls which
+    handler's effective composition runs, so a method added by an
+    anonymous subclass still resolves through the named handler.
+    """
+    handler = handler or cls
+
+    @click.pass_context
+    def callback(ctx, **kwargs):
+        getattr(handler(ctx, **{**ctx.params, **kwargs}), method)()
+
+    callback.__module__ = cls.__module__
+    callback.__name__ = f"{cls.__name__}.{method}"
+    callback.__doc__ = inspect.getdoc(getattr(cls, method))
+
+    return ExtensibleCommand(
+        name=attrs.get("name", method),
+        callback=callback,
+        params=[],
+        help=callback.__doc__,
+        context_settings=attrs.get("context_settings") or handler._cli_context_settings,
+        hidden=attrs.get("hidden", handler._cli_hidden),
+        handler=handler,
+        method=method,
+    )
+
+
+def _method_params(cls, method):
+    """Return the click params of subcommand *method* on handler *cls*.
+
+    ``@click.option``/``@click.argument`` decorators and
+    ``<method>_options()`` hooks are concatenated per MRO level, base
+    class first — so an extension's parameters append after the ones it
+    extends, and hooks never call ``super()``.
+    """
+    params = []
+    for klass in reversed(cls.__mro__):
+        member = vars(klass).get(method)
+        own = getattr(member, "__click_params__", None) or []
+        params.extend(reversed(own))
+        hook = vars(klass).get(f"{method}_options")
+        if hook is not None:
+            params.extend(hook.__get__(cls, cls)())
+    return [param for param in params if isinstance(param, click.Parameter)]
 
 
 class LazyCommand(click.Command):

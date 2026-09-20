@@ -16,7 +16,7 @@ import click
 
 from .. import echo
 from ..backends import EnvSpec
-from ..cli_utils import ExtensibleCommand, format_backends_section
+from ..cli_utils import format_backends_section, handler_command
 from ..common import find_project_root, has_arg, odoo_http_port
 from ..config import get_user_preference
 from ..db import (
@@ -36,7 +36,42 @@ from .shell_cmd import parse_explicit_db, prepare_env_context
 
 
 class OdooRun(CommandHandler):
-    """`osh odoo` handler — prepare the environment and execute Odoo.
+    """Run the project's Odoo executable.
+
+    Extra arguments are passed through to odoo-bin. Odoo subcommands such as
+    ``shell``, ``neutralize`` or ``scaffold`` are supported.
+
+    Environment preparation – addons path, database name and dbfilter – is handled
+    by ``osh shell`` through the dynamic config in ``.osh/cache/env``.
+    ``ODOO_RC`` and the ``PG*`` connection variables are already exported into
+    the subprocess environment.
+
+    Passing an explicit ``--config``/``-c`` argument suppresses the generated
+    config, and passing ``--db-filter`` overrides the one ``osh`` injects –
+    same as calling ``odoo-bin`` directly.
+
+    Dev mode is on by default: ``--dev=all`` is appended unless you pass
+    ``--dev`` yourself or use ``--no-dev``. The default can be changed with
+    ``osh config odoo dev <value>`` (``off`` disables the injection).
+
+    The execution backend is the one activated for the project — see
+    ``osh <backend> init``/``osh <backend> activate`` (e.g. ``osh docker
+    activate``).
+
+    Environment variables:
+
+    \b
+      OSH_COMPOSE_FILE   compose file (same as --compose-file)
+      OSH_WAIT           wait for the command instead of exec/replacing it
+
+    Examples:
+
+    \b
+      osh odoo
+      osh odoo -- --http-port=8080 --workers=0
+      osh odoo shell
+      osh odoo neutralize -d mydb
+      osh odoo --compose-file devel.yaml
 
     Extensions subclass ``OdooRun`` and override the step methods,
     calling ``super()`` to keep the rest of the chain. Command state is
@@ -45,7 +80,8 @@ class OdooRun(CommandHandler):
     ``env_spec`` as ``run()`` fills them in.
     """
 
-    _cli_name = "odoo"  # extension target; the command is ``odoo`` below
+    _cli_name = "odoo"
+    _cli_context_settings = dict(ignore_unknown_options=True)
 
     dry_run = False
     compose_file = None
@@ -53,16 +89,6 @@ class OdooRun(CommandHandler):
     no_db_filter = False
     wait_for_exit = None
     extra_args = ()
-
-    @classmethod
-    def get_options(cls):
-        """Extra ``click.Parameter``s appended to ``osh odoo``'s parameters.
-
-        Extension point — extending subclasses override this and append
-        to ``super().get_options()``; the parsed values land in
-        ``ctx.params`` like regular options.
-        """
-        return []
 
     @classmethod
     def format_cli_help(cls, formatter):
@@ -73,6 +99,24 @@ class OdooRun(CommandHandler):
         """
         format_backends_section(formatter, backend_meta())
 
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the assembled command without executing it.",
+    )
+    @click.option(
+        "--compose-file",
+        default=None,
+        envvar="OSH_COMPOSE_FILE",
+        help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+        "Defaults to $OSH_COMPOSE_FILE.",
+    )
+    @click.option(
+        "--no-dev",
+        is_flag=True,
+        help="Do not inject the default --dev option.",
+    )
+    @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
         self.base = find_project_root(required=True)
         self.backend = resolve_backend(self.base)
@@ -191,93 +235,7 @@ class OdooRun(CommandHandler):
         )
 
 
-class OdooCommand(ExtensibleCommand):
-    """Click command delegating to the ``OdooRun`` handler."""
-
-    handler = OdooRun
-
-
-@click.command(
-    name="odoo",
-    cls=OdooCommand,
-    context_settings=dict(ignore_unknown_options=True),
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Print the assembled command without executing it.",
-)
-@click.option(
-    "--compose-file",
-    default=None,
-    envvar="OSH_COMPOSE_FILE",
-    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
-    "Defaults to $OSH_COMPOSE_FILE.",
-)
-@click.option(
-    "--no-dev",
-    is_flag=True,
-    help="Do not inject the default --dev option.",
-)
-@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
-@click.pass_context
-def odoo(
-    ctx,
-    dry_run,
-    compose_file,
-    no_dev,
-    extra_args,
-    no_db_filter=False,
-    wait_for_exit=None,
-    **_plugin_params,
-):  # noqa: D401
-    """Run the project's Odoo executable.
-
-    Extra arguments are passed through to odoo-bin. Odoo subcommands such as
-    ``shell``, ``neutralize`` or ``scaffold`` are supported.
-
-    Environment preparation – addons path, database name and dbfilter – is handled
-    by ``osh shell`` through the dynamic config in ``.osh/cache/env``.
-    ``ODOO_RC`` and the ``PG*`` connection variables are already exported into
-    the subprocess environment.
-
-    Passing an explicit ``--config``/``-c`` argument suppresses the generated
-    config, and passing ``--db-filter`` overrides the one ``osh`` injects –
-    same as calling ``odoo-bin`` directly.
-
-    Dev mode is on by default: ``--dev=all`` is appended unless you pass
-    ``--dev`` yourself or use ``--no-dev``. The default can be changed with
-    ``osh config odoo dev <value>`` (``off`` disables the injection).
-
-    The execution backend is the one activated for the project — see
-    ``osh <backend> init``/``osh <backend> activate`` (e.g. ``osh docker
-    activate``).
-
-    Environment variables:
-
-    \b
-      OSH_COMPOSE_FILE   compose file (same as --compose-file)
-      OSH_WAIT           wait for the command instead of exec/replacing it
-
-    Examples:
-
-    \b
-      osh odoo
-      osh odoo -- --http-port=8080 --workers=0
-      osh odoo shell
-      osh odoo neutralize -d mydb
-      osh odoo --compose-file devel.yaml
-    """
-    OdooRun(
-        ctx,
-        dry_run=dry_run,
-        compose_file=compose_file,
-        no_dev=no_dev,
-        extra_args=extra_args,
-        no_db_filter=no_db_filter,
-        wait_for_exit=wait_for_exit,
-        **_plugin_params,
-    ).run()
+odoo = handler_command("odoo", OdooRun)
 
 
 def _env_flag(name):

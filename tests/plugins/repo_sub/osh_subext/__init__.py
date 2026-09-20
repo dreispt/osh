@@ -1,6 +1,6 @@
-from osh.commands.db_cmd import DbList
+from osh.commands.db_cmd import Db
 
 
-class Filestores(DbList):
+class Filestores(Db):
     def extra_sections(self):
         return [*super().extra_sections(), "extra"]

@@ -255,11 +255,17 @@ def warn_unresolved_meta():
     provided = set()
     for spec in registry.specs.values():
         provided.update(_spec_declared_names(spec))
-    from ..handlers import CommandHandler, _declared_name, _walk_subclasses
+    from ..handlers import (
+        CommandHandler,
+        _declared_name,
+        _subcommand_methods,
+        _walk_subclasses,
+    )
 
     for cls in _walk_subclasses(CommandHandler):
         if name := _declared_name(cls):
             provided.add(name)
+            provided.update(f"{name}.{method}" for method in _subcommand_methods(cls))
     for spec in registry.specs.values():
         for target in spec.declared_extends():
             if target not in provided:
@@ -368,10 +374,16 @@ def _spec_declared_names(spec):
 def _module_commands(module):
     """Return ``{(group|None, name): click.Command}`` discovered in *module*.
 
-    Covers named ``CommandHandler`` subclasses and ``@plugin_group``-stamped
-    groups.
+    Covers named ``CommandHandler`` subclasses, ``@subcommand`` methods
+    on group handlers and ``@plugin_group``-stamped groups.
     """
-    from ..handlers import CommandHandler
+    from ..cli_utils import method_command
+    from ..handlers import (
+        CommandHandler,
+        _declared_name,
+        _nearest_named,
+        _subcommand_methods,
+    )
 
     commands = {}
     for cls in _module_subclasses(module, CommandHandler):
@@ -379,6 +391,24 @@ def _module_commands(module):
         if mod != module.__name__ and not mod.startswith(module.__name__ + "."):
             # Foreign handler classes — imported to subclass or invoke them
             # — are not this plugin's commands.
+            continue
+        methods = _subcommand_methods(cls)
+        declared = _declared_name(cls)
+        if methods and (declared is None or "." not in declared):
+            # A method-bearing class named ``docker`` contributes its
+            # methods as commands of the ``docker`` group (auto-created
+            # when needed); an anonymous subclass contributes only the
+            # methods its nearest named ancestor does not provide.
+            nearest = cls if declared is not None else _nearest_named(cls)
+            if nearest is None:
+                continue
+            group_name = nearest._cli_group or _declared_name(nearest)
+            inherited = {} if nearest is cls else _subcommand_methods(nearest)
+            for method, attrs in methods.items():
+                if method in inherited:
+                    continue
+                command = method_command(cls, method, attrs, handler=nearest)
+                commands.setdefault((group_name, command.name), command)
             continue
         group_name, command = cls.cli_command(module.__name__)
         if command is not None:

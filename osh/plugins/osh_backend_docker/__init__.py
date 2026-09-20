@@ -7,9 +7,4 @@ Provides the ``docker`` backend for ``osh odoo``/``osh shell`` and the
 """
 
 from .backends import DockerBackend  # noqa: F401 — re-exported for backend discovery
-from .commands import (  # noqa: F401 — re-exported for command discovery
-    DockerActivate,
-    DockerInit,
-    DockerList,
-    DockerStop,
-)
+from .commands import Docker  # noqa: F401 — re-exported for command discovery

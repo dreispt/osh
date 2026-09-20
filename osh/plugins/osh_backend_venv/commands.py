@@ -3,27 +3,18 @@
 import click
 
 from ... import echo
-from ...commands.backend_cmd import BackendActivate, BackendInit, BackendStop
+from ...commands.backend_cmd import BackendCommands
 from ...common import find_project_root, run_subprocess
 from ...handlers import CommandHandler
 
 
-class VenvInit(BackendInit):
-    """Initialise the project for the 'venv' backend, on top of `osh init`."""
+class Venv(BackendCommands):
+    """The ``osh venv`` command group — virtualenv backend lifecycle.
 
-    _cli_name = "venv.init"
+    ``init``, ``activate`` and ``stop`` all come from ``BackendCommands``.
+    """
 
-
-class VenvActivate(BackendActivate):
-    """Make 'venv' the project's active run backend."""
-
-    _cli_name = "venv.activate"
-
-
-class VenvStop(BackendStop):
-    """Stop resources left running by the 'venv' backend."""
-
-    _cli_name = "venv.stop"
+    _cli_name = "venv"
 
 
 class Prune(CommandHandler):

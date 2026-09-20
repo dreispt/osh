@@ -11,11 +11,19 @@ Plugins extend a handler in place simply by *subclassing* it — a
 subclass without its own ``_cli_name`` is an extension of its nearest
 named ancestor::
 
-    class DanglingFilestores(DbList):
+    class DanglingFilestores(Db):
         def extra_sections(self):
             lines = list(super().extra_sections())
             ...
             return lines
+
+A named handler whose methods are marked ``@subcommand`` is a command
+*group*: each method is one subcommand, its ``--help`` body the method
+docstring and its parameters the method's click decorators (plus a
+``<method>_options()`` hook for dynamic params). Extending a group
+subcommand is subclassing the group class and overriding the method —
+``extends = ["db.list"]`` in ``osh-plugin.toml`` keeps the lazy trigger
+at subcommand granularity.
 
 Instantiating a named handler returns an instance of its *effective*
 class — the handler plus every loaded extension, layered in plugin
@@ -31,10 +39,37 @@ class::
         ...
 """
 
+import functools
+
 from . import echo
 
 #: Param names that may not collide with handler machinery.
 _RESERVED_PARAMS = frozenset({"env", "ctx"})
+
+
+def subcommand(func=None, **attrs):
+    """Mark a ``CommandHandler`` method as a CLI subcommand.
+
+    Used on the methods of a *group* handler — a class whose
+    ``_cli_name`` names a command group (``db``). Each marked method
+    becomes one subcommand; its ``--help`` body is the method docstring
+    and its parameters are ordinary ``@click.option``/``@click.argument``
+    decorators stacked below this one::
+
+        @subcommand
+        @click.option("--all", "show_all", is_flag=True)
+        def list(self):
+            ...
+
+    *attrs* customize the generated command: ``name`` (defaults to the
+    method name), ``context_settings`` and ``hidden``. For dynamic
+    parameters a ``<method>_options()`` classmethod hook is consulted —
+    see ``osh.cli_utils.handler_group``.
+    """
+    if func is None:
+        return functools.partial(subcommand, **attrs)
+    func._cli_subcommand = attrs
+    return func
 
 
 class CommandHandler:
@@ -102,11 +137,19 @@ class CommandHandler:
     def get_options(cls):
         """Return the ``click.Parameter``s of the generated CLI command.
 
-        Extension point — extending subclasses override this and append
-        to ``super().get_options()``; the parsed values land in
-        ``ctx.params`` like regular options.
+        By default the parameters are the ``@click.option`` /
+        ``@click.argument`` decorators stacked on ``run()``, merged over
+        the MRO (base class first). Extension point — subclasses override
+        this and append to ``super().get_options()`` when parameters are
+        dynamic, e.g. backend-provided options.
         """
-        return []
+        params = []
+        for klass in reversed(cls.__mro__):
+            method = vars(klass).get("run")
+            # Decorators append bottom-up; click.Command expects the
+            # top-down declaration order — same as click.command() does.
+            params.extend(reversed(getattr(method, "__click_params__", None) or []))
+        return params
 
     @classmethod
     def format_cli_help(cls, formatter):
@@ -184,10 +227,12 @@ class CommandHandler:
         *group_name* is ``None`` for top-level commands. Placement
         derives from the dotted ``_cli_name`` (``db.restore`` → group
         ``db``, command ``restore``); ``_cli_group`` overrides it (``""``
-        forces top level). Returns ``(None, None)`` when the handler is
+        forces top level). A class with ``@subcommand`` methods produces
+        a ``click.Group`` — ``db.remote`` becomes the ``remote`` subgroup
+        of ``db``. Returns ``(None, None)`` when the handler is
         unnamed or ``_``-named (programmatic-only).
         """
-        from .cli_utils import handler_command
+        from .cli_utils import handler_command, handler_group
 
         name = _declared_name(cls)
         if name is None:
@@ -207,6 +252,9 @@ class CommandHandler:
                 "command name; use a '<group>.<command>' name."
             )
             return None, None
+        if _subcommand_methods(cls):
+            # A class with ``@subcommand`` methods is itself the group.
+            return group, handler_group(cmd_name, cls)
         return group, handler_command(cmd_name, cls)
 
     def _set_params(self, params):
@@ -258,12 +306,17 @@ def resolve(name):
     class in the ``CommandHandler`` tree — the class hierarchy itself is
     the lookup, not a registration dict. Use it to subclass or invoke a
     handler that cannot be imported directly (e.g. another plugin's).
+
+    A *name* naming a group subcommand (``db.list``) with no handler of
+    its own resolves to the group class (``Db``), whose effective class
+    owns the method — ``resolve("db.list")`` and ``resolve("db")`` are
+    the same class.
     """
     from .utils.plugin_loader import ensure_handler
 
     ensure_handler(name)
     found = None
-    for cls in _walk_subclasses(CommandHandler):
+    for cls in _resolve_candidates():
         if _declared_name(cls) != name:
             continue
         if found is not None:
@@ -273,9 +326,14 @@ def resolve(name):
             )
             continue
         found = cls
-    if found is None:
-        raise KeyError(f"No handler registered as '{name}'.")
-    return found
+    if found is not None:
+        return found
+    head, _, method = name.rpartition(".")
+    if head and method:
+        group_cls = resolve(head)
+        if method in _subcommand_methods(group_cls):
+            return group_cls
+    raise KeyError(f"No handler registered as '{name}'.")
 
 
 def plugin_group(parent=""):
@@ -316,6 +374,37 @@ def _nearest_named(cls):
         if _declared_name(base):
             return base
     return None
+
+
+def _subcommand_methods(cls):
+    """Return ``{method_name: marker_attrs}`` for *cls*'s subcommand methods.
+
+    Iterates the MRO base-first so inherited methods keep their
+    definition order; a method marked again in a subclass keeps its
+    position but takes the most-derived marker attributes.
+    """
+    methods = {}
+    for klass in reversed(cls.__mro__):
+        for name, member in vars(klass).items():
+            mark = getattr(member, "_cli_subcommand", None)
+            if mark is not None:
+                methods[name] = mark
+    return methods
+
+
+def _resolve_candidates():
+    """Yield ``CommandHandler`` subclasses, core commands included.
+
+    Core handlers live in ``osh.commands`` modules which may not be
+    imported yet when ``resolve`` runs standalone (e.g. a single command
+    module imported directly) — importing the package is a no-op when
+    the CLI already loaded it.
+    """
+    try:
+        from . import commands as _commands  # noqa: F401
+    except ImportError:
+        pass
+    yield from _walk_subclasses(CommandHandler)
 
 
 def _walk_subclasses(base):
