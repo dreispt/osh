@@ -51,59 +51,55 @@ class TestRun(CommandHandler):
     dry_run = False
     compose_file = None
 
-    @classmethod
-    def get_options(cls):
-        return [
-            click.Argument(["modules"], nargs=-1),
-            click.Option(
-                ["--db", "test_db"],
-                help="Test database name (defaults to <project>-<branch>-test).",
-            ),
-            click.Option(
-                ["--current-db"],
-                is_flag=True,
-                help="Run tests on the current branch database instead of a "
-                "test database.",
-            ),
-            click.Option(
-                ["--all", "test_all"],
-                is_flag=True,
-                help="Test all project modules.",
-            ),
-            click.Option(
-                ["--tags"],
-                help="Test tags (e.g. /module:Class.method).",
-            ),
-            click.Option(
-                ["--dropdb"],
-                is_flag=True,
-                help="Drop the test database before running tests, then "
-                "install modules on a fresh database.",
-            ),
-            click.Option(
-                ["--http"],
-                is_flag=True,
-                help="Run the HTTP server during tests.",
-            ),
-            click.Option(
-                ["--no-stop-after-init"],
-                is_flag=True,
-                help="Do not stop after init; keep the server running.",
-            ),
-            click.Option(
-                ["--dry-run"],
-                is_flag=True,
-                help="Print the command that would be run without executing it.",
-            ),
-            click.Option(
-                ["--compose-file"],
-                default=None,
-                envvar="OSH_COMPOSE_FILE",
-                help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
-                "Defaults to $OSH_COMPOSE_FILE.",
-            ),
-        ]
-
+    @click.argument("modules", nargs=-1)
+    @click.option(
+        "--db",
+        "test_db",
+        help="Test database name (defaults to <project>-<branch>-test).",
+    )
+    @click.option(
+        "--current-db",
+        is_flag=True,
+        help="Run tests on the current branch database instead of a " "test database.",
+    )
+    @click.option(
+        "--all",
+        "test_all",
+        is_flag=True,
+        help="Test all project modules.",
+    )
+    @click.option(
+        "--tags",
+        help="Test tags (e.g. /module:Class.method).",
+    )
+    @click.option(
+        "--dropdb",
+        is_flag=True,
+        help="Drop the test database before running tests, then "
+        "install modules on a fresh database.",
+    )
+    @click.option(
+        "--http",
+        is_flag=True,
+        help="Run the HTTP server during tests.",
+    )
+    @click.option(
+        "--no-stop-after-init",
+        is_flag=True,
+        help="Do not stop after init; keep the server running.",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the command that would be run without executing it.",
+    )
+    @click.option(
+        "--compose-file",
+        default=None,
+        envvar="OSH_COMPOSE_FILE",
+        help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+        "Defaults to $OSH_COMPOSE_FILE.",
+    )
     def run(self):
         ctx = self.ctx
         modules = self.modules

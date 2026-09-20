@@ -34,17 +34,12 @@ class DbDrop(CommandHandler):
     db_name = None
     force = False
 
-    @classmethod
-    def get_options(cls):
-        return [
-            click.Argument(["db_name"]),
-            click.Option(
-                ["--force"],
-                is_flag=True,
-                help="Drop without asking for confirmation.",
-            ),
-        ]
-
+    @click.argument("db_name")
+    @click.option(
+        "--force",
+        is_flag=True,
+        help="Drop without asking for confirmation.",
+    )
     def run(self):
         ctx = self.ctx
         base = find_project_root(required=True)

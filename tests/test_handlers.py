@@ -16,6 +16,53 @@ from osh.handlers import CommandHandler, Env, resolve
 from osh.utils import plugin_loader
 
 
+def test_core_commands_resolve_to_their_handlers():
+    """Every built-in command name resolves to its handler class."""
+    from osh.commands import (
+        backend_cmd,
+        config_cmd,
+        db_cmd,
+        init_cmd,
+        plug_cmd,
+        shell_cmd,
+        switch_cmd,
+    )
+
+    expected = {
+        "shell": shell_cmd.ShellRun,
+        "init": init_cmd.Init,
+        "switch": switch_cmd.Switch,
+        "db": db_cmd.Db,
+        "db.show": db_cmd.Db,
+        "db.list": db_cmd.Db,
+        "db.set": db_cmd.Db,
+        "db.copy": db_cmd.Db,
+        "db.shell": db_cmd.Db,
+        "db.unset": db_cmd.Db,
+        "backend": backend_cmd.BackendCtl,
+        "backend.status": backend_cmd.BackendCtl,
+        "backend.list": backend_cmd.BackendCtl,
+        "backend.deactivate": backend_cmd.BackendCtl,
+        "backend.stop": backend_cmd.BackendCtl,
+        "config": config_cmd.Config,
+        "config.show": config_cmd.Config,
+        "config.user": config_cmd.ConfigUser,
+        "config.user.verbosity": config_cmd.ConfigUser,
+        "config.odoo": config_cmd.ConfigOdoo,
+        "config.odoo.dev": config_cmd.ConfigOdoo,
+        "plug": plug_cmd.Plug,
+        "plug.install": plug_cmd.Plug,
+        "plug.list": plug_cmd.Plug,
+        "plug.uninstall": plug_cmd.Plug,
+        "plug.enable": plug_cmd.Plug,
+        "plug.disable": plug_cmd.Plug,
+        "plug.alias": plug_cmd.Plug,
+        "plug.unalias": plug_cmd.Plug,
+    }
+    for name, cls in expected.items():
+        assert resolve(name) is cls, name
+
+
 def _module_with_extensions(*classes):
     """Return a fake plugin module exposing extension classes as attributes."""
     return types.SimpleNamespace(**{f"ext_{i}": c for i, c in enumerate(classes)})
@@ -339,3 +386,61 @@ def test_odoo_without_extensions_is_unchanged(
 
     assert result.exit_code == 0, result.output
     assert capture_execvp
+
+
+def test_core_command_extensions_run_through_the_command(monkeypatch, tmp_path):
+    """Subclassing a group handler hooks its subcommand invocation."""
+    from osh.commands.plug_cmd import Plug, plug
+
+    calls = []
+
+    class Recorder(Plug):
+        def list(self):
+            calls.append("extension")
+            super().list()
+
+    _patch_plugin_modules(monkeypatch, [_module_with_extensions(Recorder)])
+    monkeypatch.setenv("OSH_PLUGINS_DIR", str(tmp_path))
+    monkeypatch.setattr("osh.commands.plug_cmd.user_plugin_dir", lambda: tmp_path)
+
+    result = CliRunner().invoke(plug, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["extension"]
+    assert "No plugins installed." in result.output
+
+
+def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):
+    """``db shell`` reuses ``osh shell``'s steps, swapping ``env`` for ``db_env``."""
+    from osh.commands.db_cmd import db
+
+    seen = {}
+
+    class FakeBackend:
+        def env(self, ctx, base, env_spec, **kwargs):
+            seen["env"] = env_spec
+
+        def db_env(self, ctx, base, env_spec, **kwargs):
+            seen["db_env"] = env_spec
+
+        def build_addons_paths(self, base, include_themes=False):
+            return []
+
+    monkeypatch.setattr(
+        "osh.commands.shell_cmd.db_module.resolve_backend",
+        lambda base: FakeBackend(),
+    )
+    monkeypatch.setattr(
+        "osh.commands.shell_cmd.check_run_diagnostics", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "osh.commands.shell_cmd.prepare_env_context",
+        lambda *a, **k: (None, {}, None),
+    )
+
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(db, ["shell", "psql"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["db_env"].argv == ["psql"]
+    assert "env" not in seen

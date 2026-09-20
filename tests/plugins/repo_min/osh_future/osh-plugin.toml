@@ -1,0 +1,5 @@
+description = "Needs a newer osh."
+min_osh = "99.0"
+
+[commands]
+future_cmd = "From the future."

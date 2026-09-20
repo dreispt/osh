@@ -54,11 +54,13 @@ def _write_cached_backup(cache_dir, filename, source):
 @pytest.fixture
 def capture_get_restore(monkeypatch):
     """Capture handler invocations for ``db.get``/``db.restore``."""
+    from osh.handlers import resolve as _real_resolve
+
     calls = {"get": [], "restore": []}
 
     def _fake_resolve(name):
         if name not in ("db.get", "db.restore"):
-            raise KeyError(name)
+            return _real_resolve(name)
         record = calls[name.split(".", 1)[1]]
 
         class _RecordedOp:
@@ -191,8 +193,10 @@ def test_switch_refresh_source_fetches_first(in_project, capture_get_restore):
 
 def test_switch_refresh_remote_end_to_end(in_project, patched_restore):
     """--refresh=<remote> restores that remote's newest cached backup."""
-    from osh.plugins.osh_db_get.remotes import remote
+    from osh.cli_utils import handler_group
+    from osh.plugins.osh_db_get.remotes import DbRemote
 
+    remote = handler_group("remote", DbRemote)
     runner = CliRunner()
     runner.invoke(remote, ["add", "prod", "db://proddb"])
 

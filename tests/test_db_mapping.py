@@ -4,7 +4,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from osh.commands.db_cmd import set_db
+from osh.commands.db_cmd import db
 from osh.config import set_project_config
 from osh.db import _require_db_name, resolve_db_name
 
@@ -92,7 +92,7 @@ def test_set_sanitizes_name(tmp_project, monkeypatch):
     """`osh db set` stores the sanitized database name."""
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(set_db, [" My Legacy.DB ", "--branch", "main"])
+    result = runner.invoke(db, ["set", " My Legacy.DB ", "--branch", "main"])
     assert result.exit_code == 0
     assert "my-legacy-db" in result.output
 
@@ -130,14 +130,14 @@ def test_db_drop_comes_from_plugin():
 
 def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):
     """`osh db copy` copies a real database to a new name."""
-    from osh.commands.db_cmd import copy
+    from osh.commands.db_cmd import db
 
     src = pg_db.create()
     dst = pg_db.name()
     pg_db.track(dst)
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(copy, [src, dst])
+    result = runner.invoke(db, ["copy", src, dst])
     assert result.exit_code == 0
     assert f"Copied database '{src}' to '{dst}'" in result.output
     assert pg_db.exists(dst)
@@ -145,11 +145,11 @@ def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):
 
 def test_copy_command_refuses_missing_source(tmp_project, pg_db, monkeypatch):
     """`osh db copy` fails when the source database does not exist."""
-    from osh.commands.db_cmd import copy
+    from osh.commands.db_cmd import db
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(copy, [pg_db.name(), pg_db.name()])
+    result = runner.invoke(db, ["copy", pg_db.name(), pg_db.name()])
     assert result.exit_code != 0
     assert "Source database" in result.output
 
@@ -221,7 +221,7 @@ def test_list_command_reports_dangling_filestores(
     """`osh db list` lists filestore dirs that no database owns anymore."""
     import uuid
 
-    from osh.commands.db_cmd import list_dbs
+    from osh.commands.db_cmd import db
 
     pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
     data_dir = tmp_path / "data"
@@ -232,13 +232,13 @@ def test_list_command_reports_dangling_filestores(
     monkeypatch.chdir(tmp_project)
     prefix = "project-"
 
-    result = CliRunner().invoke(list_dbs, [])
+    result = CliRunner().invoke(db, ["list"])
     assert result.exit_code == 0, result.output
     assert "Filestore directories without a database" in result.output
     assert f"{prefix}stale-" in result.output
     assert "other-stale-" not in result.output
 
-    result = CliRunner().invoke(list_dbs, ["--all"])
+    result = CliRunner().invoke(db, ["list", "--all"])
     assert result.exit_code == 0, result.output
     assert "other-stale-" in result.output
 
@@ -351,12 +351,12 @@ def test_list_command_filters_by_project_prefix(tmp_project, pg_db, monkeypatch)
     """`osh db list` shows only databases under the project prefix."""
     import uuid
 
-    from osh.commands.db_cmd import list_dbs
+    from osh.commands.db_cmd import db
 
     matching = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
     other = pg_db.create()
     monkeypatch.chdir(tmp_project)
-    result = CliRunner().invoke(list_dbs, [])
+    result = CliRunner().invoke(db, ["list"])
     assert result.exit_code == 0, result.output
     assert matching in result.output
     assert other not in result.output
@@ -366,12 +366,12 @@ def test_list_command_all_shows_everything(tmp_project, pg_db, monkeypatch):
     """`osh db list --all` shows databases outside the project prefix."""
     import uuid
 
-    from osh.commands.db_cmd import list_dbs
+    from osh.commands.db_cmd import db
 
     matching = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
     other = pg_db.create()
     monkeypatch.chdir(tmp_project)
-    result = CliRunner().invoke(list_dbs, ["--all"])
+    result = CliRunner().invoke(db, ["list", "--all"])
     assert result.exit_code == 0, result.output
     assert matching in result.output
     assert other in result.output
@@ -379,14 +379,14 @@ def test_list_command_all_shows_everything(tmp_project, pg_db, monkeypatch):
 
 def test_list_command_reports_missing_psql(tmp_project, monkeypatch):
     """A missing `psql` executable reports a clear error."""
-    from osh.commands.db_cmd import list_dbs
+    from osh.commands.db_cmd import db
 
     monkeypatch.setattr(
         "osh.commands.db_cmd.run_in_backend",
         lambda *args, **kwargs: (None, "", "command not found"),
     )
     monkeypatch.chdir(tmp_project)
-    result = CliRunner().invoke(list_dbs, [])
+    result = CliRunner().invoke(db, ["list"])
     assert result.exit_code != 0
     assert "psql" in result.output
 

@@ -1,5 +1,5 @@
-from osh.commands.db_cmd import DbList
+from osh.commands.db_cmd import Db
 
 
-class SmartList(DbList):
+class SmartList(Db):
     _cli_name = "db.smart_list"

@@ -1,4 +1,4 @@
-from osh.commands.db_cmd import DbList
+from osh.commands.db_cmd import Db
 from osh.handlers import CommandHandler
 
 
@@ -9,5 +9,5 @@ class Sub(CommandHandler):
         pass
 
 
-class Ext(DbList):
+class Ext(Db):
     pass

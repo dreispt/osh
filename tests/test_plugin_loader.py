@@ -51,6 +51,74 @@ def test_root_plugin_and_subplugins_both_load(plugin_dir):
     assert specs["repo-b"].lazy and specs["osh-sub"].lazy
 
 
+def test_builtin_plugins_inherit_osh_version(plugin_dir):
+    """Builtin specs inherit the osh package version — no toml needed."""
+    import osh
+
+    spec = plugin_registry.plugin_registry().specs["osh-db-get"]
+    assert spec.kind == "builtin"
+    assert spec.version == osh.__version__
+
+
+def test_user_plugin_version_comes_from_marker(plugin_dir):
+    """A user plugin's ``version`` marker key lands on its spec."""
+    _copy_plugin(plugin_dir, "plug_src")
+
+    spec = plugin_registry.plugin_registry().specs["my-plugin"]
+    assert spec.version == "1.2.3"
+
+
+def test_min_osh_blocks_incompatible_plugin(plugin_dir):
+    """A plugin declaring ``min_osh`` newer than osh fails to load."""
+    _copy_plugin(plugin_dir, "repo_min")
+
+    spec = plugin_registry.plugin_registry().specs["osh-future"]
+    with pytest.raises(RuntimeError, match="requires osh >= 99.0"):
+        spec.load()
+
+
+def test_min_osh_satisfied_plugin_loads(plugin_dir):
+    """A plugin whose ``min_osh`` is met loads and resolves commands."""
+    _copy_plugin(plugin_dir, "repo_min")
+
+    spec = plugin_registry.plugin_registry().specs["osh-okmin"]
+    assert spec.resolve_command(None, "okmin_cmd") is not None
+
+
+def test_min_osh_warns_once(plugin_dir, capsys):
+    """An unmet ``min_osh`` warns at startup without importing the plugin."""
+    _copy_plugin(plugin_dir, "repo_min")
+
+    plugin_loader.warn_unresolved_meta()
+    err = capsys.readouterr().err
+    assert "plugin 'osh-future' requires osh >= 99.0" in err
+    assert "osh-okmin" not in err
+    assert not plugin_registry.plugin_registry().specs["osh-future"].loaded
+
+
+def test_min_osh_unparsable_warns_not_blocks(plugin_dir, capsys):
+    """An unparsable ``min_osh`` warns but does not block the plugin."""
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    pkg = plugin_dir / "repo_bad" / "osh_bad"
+    pkg.mkdir(parents=True)
+    (pkg / "osh-plugin.toml").write_text(
+        'min_osh = "banana"\n[commands]\nbad_cmd = "Bad."\n'
+    )
+    (pkg / "__init__.py").write_text(
+        "from osh.handlers import CommandHandler\n\n\n"
+        "class Bad(CommandHandler):\n"
+        '    _cli_name = "bad_cmd"\n'
+        "    def run(self):\n"
+        "        pass\n"
+    )
+
+    plugin_loader.warn_unresolved_meta()
+    err = capsys.readouterr().err
+    assert "plugin 'osh-bad' declares min_osh='banana'" in err
+    spec = plugin_registry.plugin_registry().specs["osh-bad"]
+    assert spec.resolve_command(None, "bad_cmd") is not None
+
+
 def test_subplugin_relative_imports_work(plugin_dir):
     """Subplugin packages are real packages, so relative imports resolve."""
     _copy_plugin(plugin_dir, "repo_c")
@@ -100,9 +168,11 @@ def test_bare_repo_dir_loads_subplugins(plugin_dir):
     commands = {cmd.name: src for src, cmd in plugin_loader.load_plugins()}
     assert commands["sub_cmd"] == "osh-sub"
 
-    from osh.commands.db_cmd import DbList
+    # Composing `osh db list`'s handler imports the `extends` declarer.
+    from osh.commands.db_cmd import db
 
-    assert "Ext" in [c.__name__ for c in DbList.effective().__mro__]
+    effective = db.commands["list"]._handler_cls()
+    assert "Ext" in [c.__name__ for c in effective.__mro__]
 
 
 def test_bare_repo_ignores_non_packages(plugin_dir, capsys):
@@ -242,13 +312,14 @@ def test_spec_load_not_called_for_help(plugin_dir, monkeypatch):
     """Rendering help lists the command without calling ``spec.load()``."""
     _copy_plugin(plugin_dir, "repo_help")
 
+    import click
     from click.testing import CliRunner
 
     spec = plugin_loader.plugin_registry().specs["osh-helped"]
     calls = []
     monkeypatch.setattr(spec, "load", lambda: calls.append(1))
 
-    group = plugin_loader.click.Group()
+    group = click.Group()
     for _src, cmd in plugin_loader.load_plugins():
         group.add_command(cmd)
 
@@ -271,7 +342,9 @@ def test_hidden_declared_command_is_not_listed(plugin_dir):
     assert commands["secret"].hidden
     assert not commands["helped"].hidden
 
-    group = plugin_loader.click.Group()
+    import click
+
+    group = click.Group()
     for cmd in commands.values():
         group.add_command(cmd)
     result = CliRunner().invoke(group, ["--help"])
@@ -310,13 +383,11 @@ def test_entry_point_spec_registers_without_load(plugin_dir, monkeypatch):
     import sys
     import types
 
+    import click
+
     fake_module = types.ModuleType("fake_lazy_plugin")
     seen = []
-
-    def main(argv):
-        seen.extend(argv)
-
-    fake_module.main = main
+    fake_module.main = click.Command("echo", callback=lambda: seen.append("called"))
     monkeypatch.setitem(sys.modules, "fake_lazy_plugin", fake_module)
 
     ep = types.SimpleNamespace(name="echo", value="fake_lazy_plugin:main")
@@ -328,14 +399,14 @@ def test_entry_point_spec_registers_without_load(plugin_dir, monkeypatch):
     assert spec.declared_commands() == {"echo": ""}
     assert not spec.loaded
 
-    # Invocation triggers stage 2 and delegates the remaining argv.
+    # Invocation triggers stage 2 and resolves the module attribute.
     from click.testing import CliRunner
 
     commands = {cmd.name: cmd for _src, cmd in plugin_loader.load_plugins()}
-    result = CliRunner().invoke(commands["echo"], ["one", "two"])
+    result = CliRunner().invoke(commands["echo"], [])
 
     assert result.exit_code == 0, result.output
-    assert seen == ["one", "two"]
+    assert seen == ["called"]
 
 
 def test_entry_point_with_marker_declares_no_implicit_command(plugin_dir, monkeypatch):
@@ -358,12 +429,16 @@ def test_entry_point_with_marker_declares_no_implicit_command(plugin_dir, monkey
 
 
 def test_lazy_subclass_extends_parent_handler(plugin_dir):
-    """A subclass without ``_cli_name`` extends its nearest named ancestor."""
+    """A subclass without ``_cli_name`` extends its nearest named ancestor.
+
+    The ``extends = ["db.list"]`` declaration is the lazy trigger —
+    composing the ``db list`` command's handler imports the plugin.
+    """
     _copy_plugin(plugin_dir, "repo_sub")
 
-    from osh.commands.db_cmd import DbList
+    from osh.commands.db_cmd import db
 
-    effective = DbList.effective()
+    effective = db.commands["list"]._handler_cls()
     mro_names = [c.__name__ for c in effective.__mro__]
     assert "Filestores" in mro_names
     specs = plugin_registry.plugin_registry().specs
@@ -386,14 +461,14 @@ def test_derived_handler_is_a_new_command(plugin_dir):
     """A subclass with its own ``_cli_name`` is a command, not an extender."""
     _copy_plugin(plugin_dir, "repo_derived")
 
-    from osh.commands.db_cmd import DbList
+    from osh.commands.db_cmd import Db
     from osh.handlers import resolve
 
     # The derived handler resolves to itself as a distinct named handler…
     cls = resolve("db.smart_list")
     assert cls.__name__ == "SmartList"
     # …and does not extend its parent once loaded.
-    assert not issubclass(DbList.effective(), cls)
+    assert not issubclass(Db.effective(), cls)
 
 
 def test_depends_imports_dependency_first(plugin_dir):

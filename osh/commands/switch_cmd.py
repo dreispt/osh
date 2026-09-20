@@ -11,6 +11,7 @@ switching with restoring a backup.
 import click
 
 from .. import echo
+from ..cli_utils import handler_command
 from ..common import (
     find_project_repos,
     find_project_root,
@@ -18,34 +19,10 @@ from ..common import (
     run_subprocess,
 )
 from ..db import set_active_env
-from .db_cmd import show
+from ..handlers import CommandHandler
 
 
-@click.command(name="switch")
-@click.argument("name", required=False)
-@click.option(
-    "--create",
-    "-c",
-    is_flag=True,
-    help="Create the branch/environment before switching to it.",
-)
-@click.option(
-    "--refresh",
-    is_flag=False,
-    flag_value="",
-    default=None,
-    metavar="[SOURCE-OR-REMOTE]",
-    help="Restore the newest cached backup into the branch database. "
-    "With a remote name, restore that remote's newest cached backup; "
-    "with a raw source URL, fetch it first with 'osh db get'.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Print the git commands without executing them.",
-)
-@click.pass_context
-def switch(ctx, name, create, refresh, dry_run):  # noqa: D401
+class Switch(CommandHandler):
     """Switch branch/environment (git or git-less) and report its database.
 
     With no NAME, print the active branch/environment and its resolved
@@ -66,30 +43,74 @@ def switch(ctx, name, create, refresh, dry_run):  # noqa: D401
       --refresh=REMOTE     newest cached backup from that remote
       --refresh=URL        raw source: fetch first, then restore
     """
-    base = find_project_root(required=True)
-    repos = find_project_repos(base)
 
-    if name is None:
-        _report_repo_branches(base, repos)
-        ctx.invoke(show)
-        return
+    # Command state is on ``self``: the parsed params (``name``,
+    # ``create``, ``refresh``, ``dry_run``) plus ``base`` and ``repos`` as
+    # ``run()`` fills them in.
+    _cli_name = "switch"
 
-    if repos:
-        _switch_repos(base, repos, name, create=create, dry_run=dry_run)
-        if dry_run:
+    name = None
+    create = False
+    refresh = None
+    dry_run = False
+
+    @click.argument("name", required=False)
+    @click.option(
+        "--create",
+        "-c",
+        is_flag=True,
+        help="Create the branch/environment before switching to it.",
+    )
+    @click.option(
+        "--refresh",
+        is_flag=False,
+        flag_value="",
+        default=None,
+        metavar="[SOURCE-OR-REMOTE]",
+        help="Restore the newest cached backup into the branch "
+        "database. With a remote name, restore that remote's newest "
+        "cached backup; with a raw source URL, fetch it first with "
+        "'osh db get'.",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the git commands without executing them.",
+    )
+    def run(self):
+        self.base = find_project_root(required=True)
+        self.repos = find_project_repos(self.base)
+
+        if self.name is None:
+            _report_repo_branches(self.base, self.repos)
+            self.env["db"].show()
             return
-        if len(repos) > 1:
-            # Record the environment name so database resolution keeps
-            # working if the repositories later diverge.
-            set_active_env(base, name)
-    else:
-        set_active_env(base, name)
-        echo.info(f"Active environment: {name}")
 
-    ctx.invoke(show)
+        if self.repos:
+            _switch_repos(
+                self.base,
+                self.repos,
+                self.name,
+                create=self.create,
+                dry_run=self.dry_run,
+            )
+            if self.dry_run:
+                return
+            if len(self.repos) > 1:
+                # Record the environment name so database resolution keeps
+                # working if the repositories later diverge.
+                set_active_env(self.base, self.name)
+        else:
+            set_active_env(self.base, self.name)
+            echo.info(f"Active environment: {self.name}")
 
-    if refresh is not None:
-        _refresh(ctx, name, refresh)
+        self.env["db"].show()
+
+        if self.refresh is not None:
+            _refresh(self.ctx, self.name, self.refresh)
+
+
+switch = handler_command("switch", Switch)
 
 
 def _report_repo_branches(base, repos):

@@ -33,10 +33,7 @@ class Hello(CommandHandler):
 
     name = "world"
 
-    @classmethod
-    def get_options(cls):
-        return [click.Option(["--name"], default="world", help="Who to greet.")]
-
+    @click.option("--name", default="world", help="Who to greet.")
     def run(self):
         click.echo(f"Hello, {self.name}!")
 ```
@@ -50,7 +47,7 @@ python -m osh hello --name developer
 ```
 
 The package's `__init__.py` must expose the plugin's contributions —
-`CommandHandler` subclasses, `@plugin_group` groups, `Backend`/
+`CommandHandler` subclasses, `Backend`/
 `BackupSource` subclasses and handler extensions are discovered among
 its attributes, so re-export implementations living in submodules.
 
@@ -91,6 +88,8 @@ are optional:
 
 ```toml
 description = "What this plugin does."   # shown by `osh plug list`
+version = "1.0.0"                        # shown by `osh plug list`
+min_osh = "1.1"                          # minimum osh version required
 
 # Handlers this plugin extends — the plugin is imported when one of
 # them is composed.
@@ -106,7 +105,7 @@ depends = ["osh-db-get"]
 
 [commands]                 # top-level `osh <name>` commands
 hello = "Say hello."
-remote = { group = true, help = "Manage remotes." }   # a click.Group
+remote = { group = true, help = "Manage remotes." }   # a command group
 _sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 
 [group_commands.db]        # subcommands of an existing group
@@ -124,14 +123,14 @@ s3 = "Download a backup from an S3 bucket."
 
 Command declaration values are the short help text shown in `--help`
 listings, or a table with `help` and optional `group = true` when the
-command is a nested `click.Group` (e.g. `osh db remote`), or `hidden =
+command is itself a group (e.g. `osh db remote` — a handler class with
+`@subcommand` methods), or `hidden =
 true` for internal commands that never appear in listings (e.g. sidecar
 helpers spawned by the plugin itself).
 
 The declared names must match what the code provides on import — a
 command listed in `[commands]` resolves to a `CommandHandler` subclass
-named after it (or a `@plugin_group`-marked group of that name) in the
-plugin package.
+named after it in the plugin package.
 
 `depends` names other plugin _sources_ (the names shown by
 `osh plug list`) that must be imported before this plugin's module.
@@ -185,8 +184,20 @@ osh plug alias PLUGIN COMMAND NAME
 osh plug unalias PLUGIN COMMAND
 ```
 
-`osh plug list` shows each plugin's `description` from
+`osh plug list` shows each plugin's `version` and `description` from
 `osh-plugin.toml` — read from the file, never by importing the plugin.
+For pip-installed plugins the package's own dist version is used instead
+(`osh-plugin.toml` `version` is the fallback and the only channel for
+git-cloned plugins, which have no package metadata). Built-in plugins
+ship inside the `osh` distribution and inherit `osh.__version__` — they
+need no `version` key.
+
+`min_osh` declares the minimum osh version the plugin needs — compared
+numerically (`1.1` matches `1.1.0`; a `+commit` local suffix is ignored).
+When the running osh is older the plugin still lists its commands, but
+any attempt to import it — invoking a command, composing an `extends`
+target, loading a dependent — fails with a `requires osh >= X` error,
+and startup warns once. An unparsable value warns but never blocks.
 
 ### Multi-plugin repositories
 
@@ -281,7 +292,7 @@ without notice.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.handlers` — `CommandHandler`, `Env`, `resolve()`,
-  `plugin_group()`, `registry` — see
+  `subcommand()` — see
   [Extending core commands](#extending-core-commands).
 - `osh.db` — database and backend-selection helpers: `run_in_backend`,
   `create_db`, `drop_db`, `db_exists`, `resolve_db_name`,
@@ -316,17 +327,19 @@ class DbAudit(CommandHandler):
 
     verbose = False
 
-    @classmethod
-    def get_options(cls):
-        return [click.Option(["--verbose"], is_flag=True)]
-
+    @click.option("--verbose", is_flag=True)
     def run(self):
         ...
 ```
 
-`get_options()` returns the `click.Parameter`s of the generated command;
-parsed values become instance attributes. `format_cli_help(formatter)`
-writes extra sections after the `--help` body. Help text has two homes
+`run()`'s `@click.option`/`@click.argument` decorators are the
+command's parameters — `get_options()` reads them across the MRO, so an
+extension adds options just by stacking decorators on its `run()`
+override. For parameters computed at runtime, override the
+`get_options()` classmethod and append to `super().get_options()`.
+Parsed values become instance attributes.
+`format_cli_help(formatter)` writes extra sections after the `--help`
+body. Help text has two homes
 with distinct roles: the `osh-plugin.toml` declaration is the short
 description shown in command listings (it stays authoritative after
 import, so listings never drift), and the class docstring is the
@@ -346,27 +359,34 @@ verbose=True).run()` runs it, resolving any registered extensions
 transparently (see below). To reach a handler by name without importing
 it directly, `osh.handlers.resolve("db.audit")` returns the class.
 
-A plugin-provided command group — a `click.Group` with its own
-subcommands, like `osh db remote` — is marked with `@plugin_group`
-instead; _parent_ names the group to attach under:
+A plugin-provided command group — one handler class whose
+`@subcommand`-marked methods become the subcommands — declares its
+`_cli_name` as `<group>.<name>`, like `osh db remote`:
 
 ```python
-from osh.handlers import plugin_group
+from osh.handlers import CommandHandler, subcommand
 
 
-@plugin_group("db")
-@click.group(name="remote")
-def remote():
-    """Manage named backup sources."""
+class DbRemote(CommandHandler):
+    """Manage named backup sources."""     # the group's --help body
 
+    _cli_name = "db.remote"
 
-@remote.command()
-def add(...):
-    ...
+    @subcommand
+    @click.argument("name")
+    @click.argument("url")
+    def add(self):
+        """Add a named backup source."""   # `osh db remote add --help`
+        ...
 ```
 
-Declare it in the marker as `{ group = true, help = "..." }` so the
-loader builds a lazy group stub.
+Each marked method generates a command whose `--help` body is the
+method docstring and whose parameters are its own
+`@click.option`/`@click.argument` decorators; a `<method>_options()`
+classmethod hook adds dynamic parameters without overriding the method.
+Extensions subclass the group class and override methods — an anonymous
+subclass can also _add_ a method, which registers as a new subcommand
+of the group.
 
 ### Backend plugins
 
@@ -386,7 +406,7 @@ stop = "Stop resources left running by the mybackend backend."
 
 ```python
 from osh.backends import Backend
-from osh.commands.backend_cmd import BackendActivate, BackendInit, BackendStop
+from osh.commands.backend_cmd import BackendCommands
 
 
 class MyBackend(Backend):
@@ -395,33 +415,26 @@ class MyBackend(Backend):
     ...
 
 
-class MyInit(BackendInit):
-    _cli_name = "mybackend.init"
-
-
-class MyActivate(BackendActivate):
-    _cli_name = "mybackend.activate"
-
-
-class MyStop(BackendStop):
-    _cli_name = "mybackend.stop"
+class MyBackendCommands(BackendCommands):
+    _cli_name = "mybackend"
 ```
 
-`BackendInit`/`BackendActivate`/`BackendStop` (from
-`osh.commands.backend_cmd`) implement the standard lifecycle: `osh
-<name> init` runs the common base setup and then calls `cls.init(...)`
-with the parsed `get_init_options()`; `osh <name> activate` is the
-lightweight way to switch the project to an already-initialized backend;
-`osh <name> stop` calls `cls.stop(...)` with `get_stop_options()`. The
-`osh <name>` group is created automatically — `osh <name> --help` lists
-the declared subcommands without importing the plugin, and the group
-shows under "Backend Commands" in `osh --help`.
+`BackendCommands` (from `osh.commands.backend_cmd`) provides the
+standard lifecycle as `@subcommand` methods: `osh <name> init` runs the
+common base setup and then calls `cls.init(...)` with the parsed
+`get_init_options()`; `osh <name> activate` is the lightweight way to
+switch the project to an already-initialized backend; `osh <name> stop`
+calls `cls.stop(...)` with `get_stop_options()`. The `osh <name>` group
+is created automatically — `osh <name> --help` lists the declared
+subcommands without importing the plugin, and the group shows under
+"Backend Commands" in `osh --help`.
 
-The lifecycle commands are ordinary handlers: extra subcommands are
-plain `CommandHandler` classes named `<backend>.<verb>` (like the docker
+The lifecycle methods are ordinary `@subcommand` methods: extra
+subcommands are more methods on the same class (like the docker
 plugin's `osh docker list`), and a verb's behaviour is customized by
-subclassing its base and overriding `run()` or `get_options()` — or by
-another plugin `extends`-ing the handler.
+overriding the method and calling `super()`, adding parameters through
+a `<method>_options()` hook — or by another plugin `extends`-ing the
+handler.
 
 The backend class is imported only when the backend is selected
 (`run.target = mybackend`) or one of its commands is invoked — listing
@@ -508,15 +521,19 @@ extends = ["db.list"]
 ```
 
 ```python
-from osh.commands.db_cmd import DbList
+from osh.commands.db_cmd import Db
 
 
-class DanglingFilestores(DbList):
+class DanglingFilestores(Db):
     def extra_sections(self):
         lines = list(super().extra_sections())
         ...  # append extra output lines
         return lines
 ```
+
+The `extends` name keeps subcommand granularity: a class extending a
+group handler is imported when any `extends` entry names the group
+(`db`) or one of its subcommands (`db.list`).
 
 When the extended handler lives in a plugin (not core), importing it
 just to subclass it couples the plugins — subclass `resolve("name")`
@@ -550,29 +567,55 @@ Command state lives on `self`: `self.env` is the per-invocation `Env`,
 values, including plugin-injected options), and the parsed parameters
 are attributes (`self.show_all`, `self.dry_run`, ...). Handlers
 decompose their work into methods so any step is an extension point.
-Named handlers include `"odoo"` (`OdooRun` in `osh.commands.odoo_cmd`)
-and `"db.list"` (`DbList` in `osh.commands.db_cmd`).
+
+Every built-in command is a named handler — the `_cli_name` is the
+extension target to declare under `extends`:
+
+| `_cli_name`              | Commands                                                                   | Handler                      |
+| ------------------------ | -------------------------------------------------------------------------- | ---------------------------- |
+| `init`                   | `osh init`                                                                 | `Init` (`init_cmd`)          |
+| `odoo`                   | `osh odoo`                                                                 | `OdooRun` (`odoo_cmd`)       |
+| `switch`                 | `osh switch`                                                               | `Switch` (`switch_cmd`)      |
+| `shell`                  | `osh shell`                                                                | `ShellRun` (`shell_cmd`)     |
+| `db`, `db.<sub>`         | `osh db show`/`list`/`set`/`copy`/`shell`/`unset`                          | `Db` (`db_cmd`)              |
+| `backend`, `backend.<s>` | `osh backend status`/`list`/`deactivate`/`stop`                            | `BackendCtl` (`backend_cmd`) |
+| `config`, `config.show`  | `osh config show`                                                          | `Config` (`config_cmd`)      |
+| `config.user.<sub>`      | `osh config user verbosity`                                                | `ConfigUser` (`config_cmd`)  |
+| `config.odoo.<sub>`      | `osh config odoo dev`                                                      | `ConfigOdoo` (`config_cmd`)  |
+| `plug`, `plug.<sub>`     | `osh plug install`/`list`/`uninstall`/`enable`/`disable`/`alias`/`unalias` | `Plug` (`plug_cmd`)          |
+
+All modules live in `osh/commands/`. A _group_ handler like `Db` owns
+each `db.<sub>` name — subcommands are `@subcommand` methods on the
+class, so extending `osh db list` means subclassing `Db` and overriding
+`list()` (or a helper it calls, like `extra_sections()`). Nested groups
+work the same way: `config.user` is itself a handler class whose
+`verbosity` method backs `osh config user verbosity`. Plugin-generated
+groups are limited to one level — a plugin can name `db.remote`, not
+`db.remote.foo`.
 
 `resolve(name)` is the lazy name→class bridge — it imports only the
-plugin declaring the handler, then returns the class. Use it wherever a
-name is all you have:
+plugin declaring the handler, then returns the class. Subcommand names
+resolve to their group handler — `resolve("db.list")` and
+`resolve("db")` both return `Db`. Use it wherever a name is all you
+have:
 
 ```python
 def list_dbs(ctx, show_all):
-    resolve("db.list")(ctx, show_all=show_all).run()
+    resolve("db.list")(ctx, show_all=show_all).list()
 ```
 
 `self.env` (`Env`) offers the same resolution bound to the handler's
-context — `self.env["db.list"](show_all=show_all).run()` returns a bound
-instance of the effective class. For class-level access,
-`resolve("db.list").effective()` returns the composed class —
-`resolve("odoo").effective().get_options()`.
+context — `self.env["db.list"](show_all=show_all).list()` returns a
+bound instance of the effective class and invokes its `list`
+subcommand. For class-level access, `resolve("db").effective()` returns
+the composed class — `resolve("odoo").effective().get_options()`.
 
 Extension points on `osh odoo`:
 
-- `get_options()` (classmethod) — extra `click.Parameter`s appended to
-  `osh odoo`'s parameters at parse time. Use it to add flags such as
-  `--open` without modifying core; values land in `ctx.params`.
+- `run()` decorators — stacking a `@click.option` on the extension's
+  `run()` override adds a flag such as `--open` without modifying core
+  (`get_options()` merges them across the MRO). For parameters computed
+  at runtime, override `get_options()` and append to `super()`.
 - `pre_env()` — runs after the `EnvSpec` is assembled, right before
   `Backend.env()` executes. It runs for every `osh odoo` invocation —
   exec and `--wait` paths, `--dry-run` and subcommands included — so
@@ -584,11 +627,11 @@ Extension points on `osh odoo`:
   `self.dry_run`, `self.env_spec` and `self.has_subcommand` (whether
   `extra_args` invokes an Odoo subcommand such as `shell`).
 
-`osh db list` exposes `extra_sections()` — extra output lines printed
-after the database listing (`osh_db_drop` uses it to report filestore
-directories with no matching database). Available state: `self.base`,
-`self.db_names` (the full, unfiltered name set parsed from `psql -l`),
-`self.prefix` and `self.show_all`.
+`osh db list` (`Db.list`) exposes `extra_sections()` — extra output
+lines printed after the database listing (`osh_db_drop` uses it to
+report filestore directories with no matching database). Available
+state: `self.base`, `self.db_names` (the full, unfiltered name set
+parsed from `psql -l`), `self.prefix` and `self.show_all`.
 
 Any named handler can be extended — including plugin-provided ones:
 other plugins subclass `resolve("my_plugin.cmd")` (or the class
@@ -737,7 +780,7 @@ stop = "Stop resources left running by the echo backend."
 # ~/.config/osh/plugins/my_backend/__init__.py
 import click
 from osh.backends import Backend, EnvSpec
-from osh.commands.backend_cmd import BackendActivate, BackendInit, BackendStop
+from osh.commands.backend_cmd import BackendCommands
 from osh.commands.helpers import Diagnostics
 
 
@@ -762,14 +805,8 @@ class EchoBackend(Backend):
         return 0
 
 
-class EchoInit(BackendInit):
-    _cli_name = "echo.init"
+class EchoCommands(BackendCommands):
+    """``osh echo`` group — init/activate/stop inherited."""
 
-
-class EchoActivate(BackendActivate):
-    _cli_name = "echo.activate"
-
-
-class EchoStop(BackendStop):
-    _cli_name = "echo.stop"
+    _cli_name = "echo"
 ```

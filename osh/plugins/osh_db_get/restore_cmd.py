@@ -98,49 +98,47 @@ class DbRestore(CommandHandler):
     target_db = None
     dry_run = False
 
-    @classmethod
-    def get_options(cls):
-        return [
-            click.Argument(["dump"], required=False),
-            click.Option(
-                ["--list", "list_backups"],
-                is_flag=True,
-                help="List cached backups instead of restoring.",
-            ),
-            click.Option(
-                ["--limit"],
-                default=20,
-                show_default=True,
-                help="Maximum number of backups to show (with --list).",
-            ),
-            click.Option(
-                ["--reverse"],
-                is_flag=True,
-                help="List oldest backups first (with --list).",
-            ),
-            click.Option(
-                ["--force"],
-                is_flag=True,
-                help="Overwrite the target database if it already exists.",
-            ),
-            click.Option(
-                ["--no-neutralize"],
-                is_flag=True,
-                help="Skip neutralizing the database after restoring.",
-            ),
-            click.Option(
-                ["-d", "--db", "target_db"],
-                default=None,
-                help="Target database name to restore into (defaults to the "
-                "branch database).",
-            ),
-            click.Option(
-                ["--dry-run"],
-                is_flag=True,
-                help="Print the steps that would be executed without running them.",
-            ),
-        ]
-
+    @click.argument("dump", required=False)
+    @click.option(
+        "--list",
+        "list_backups",
+        is_flag=True,
+        help="List cached backups instead of restoring.",
+    )
+    @click.option(
+        "--limit",
+        default=20,
+        show_default=True,
+        help="Maximum number of backups to show (with --list).",
+    )
+    @click.option(
+        "--reverse",
+        is_flag=True,
+        help="List oldest backups first (with --list).",
+    )
+    @click.option(
+        "--force",
+        is_flag=True,
+        help="Overwrite the target database if it already exists.",
+    )
+    @click.option(
+        "--no-neutralize",
+        is_flag=True,
+        help="Skip neutralizing the database after restoring.",
+    )
+    @click.option(
+        "-d",
+        "--db",
+        "target_db",
+        default=None,
+        help="Target database name to restore into (defaults to the "
+        "branch database).",
+    )
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the steps that would be executed without running them.",
+    )
     def run(self):
         self.base = find_project_root(required=True)
         if self.list_backups:

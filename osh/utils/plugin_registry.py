@@ -36,9 +36,9 @@ Declaration values are short help strings, or tables with ``help`` and
 contributions.
 
 Plugin modules still self-describe on import — ``CommandHandler``
-subclasses, ``Backend``/``BackupSource`` subclasses and
-``@plugin_group``-stamped groups are discovered among module attributes
-— the toml only says *when* the module is worth importing.
+subclasses and ``Backend``/``BackupSource`` subclasses are discovered
+among module attributes — the toml only says *when* the module is worth
+importing.
 
 Compatibility: plugins without ``osh-plugin.toml`` — a bare root package
 (``__init__.py``/``osh_plugin.py``) in the user plugin dir, or an entry
@@ -94,6 +94,7 @@ class PluginSpec:
     prefix: str = "osh_user_plugin"
     lazy: bool = True
     help_text: str = ""
+    version: str = ""
     _module: object = None
     _loaded: bool = False
     _loading: bool = False
@@ -108,9 +109,17 @@ class PluginSpec:
 
         Plugins named in ``depends`` are imported first, recursively; an
         unknown, disabled or failing dependency fails this plugin too.
+        A ``min_osh`` marker newer than the running osh also fails.
         """
         if not self._loaded:
             try:
+                min_osh = str(self.meta.get("min_osh") or "")
+                if min_osh and not min_osh_ok(min_osh):
+                    from .. import __version__
+
+                    raise RuntimeError(
+                        f"requires osh >= {min_osh} (running {__version__})"
+                    )
                 self._load_dependencies()
                 self._module = self._import()
             finally:
@@ -164,14 +173,6 @@ class PluginSpec:
         """Return the ``{group: {name: declaration}}`` of subcommands."""
         return self.meta.get("group_commands") or {}
 
-    def declared_backends(self):
-        """Return the ``{name: declaration}`` of provided backends."""
-        return self.meta.get("backends") or {}
-
-    def declared_sources(self):
-        """Return the ``{scheme: declaration}`` of provided backup sources."""
-        return self.meta.get("sources") or {}
-
     def declared_extends(self):
         """Return the handler names the plugin extends."""
         extends = self.meta.get("extends") or []
@@ -195,7 +196,7 @@ class PluginSpec:
         The resolved command's ``short_help`` is stamped with the declared
         help, so listings show the same text before and after the import.
         """
-        from .plugin_loader import _callable_command, _module_commands
+        from .plugin_loader import _module_commands
 
         module = self.load()
         if module is None:
@@ -205,8 +206,6 @@ class PluginSpec:
             target = getattr(module, self.target_ref.rsplit(":", 1)[1], None)
             if isinstance(target, click.Command):
                 command = target
-            elif callable(target):
-                command = _callable_command(target, name)
         if command is None:
             command = _module_commands(module).get((group, name))
         if command is not None:
@@ -270,6 +269,7 @@ class PluginRegistry:
                 kind="entry_point",
                 meta=meta,
                 help_text=_ep_summary(ep),
+                version=_ep_version(ep),
             )
 
     def _discover_user_plugins(self):
@@ -315,6 +315,7 @@ class PluginRegistry:
         prefix="osh_user_plugin",
         meta=None,
         help_text="",
+        version="",
     ):
         if name in self.specs:
             echo.error(f"duplicate plugin source '{name}' ignored: {target_ref}")
@@ -329,6 +330,11 @@ class PluginRegistry:
             lazy = has_marker or ":" in target_ref
         else:
             lazy = has_marker
+        version = version or str(meta.get("version") or "")
+        if not version and kind == "builtin":
+            from .. import __version__
+
+            version = __version__
         self.specs[name] = PluginSpec(
             name=name,
             target_ref=target_ref,
@@ -338,6 +344,7 @@ class PluginRegistry:
             prefix=prefix,
             lazy=lazy,
             help_text=help_text or str(meta.get("description", "")),
+            version=version,
         )
 
 
@@ -400,6 +407,17 @@ def _ep_summary(ep):
         dist = getattr(ep, "dist", None)
         if dist is not None:
             return dist.metadata.get("Summary", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _ep_version(ep):
+    """Return the distribution's Version for an entry point."""
+    try:
+        dist = getattr(ep, "dist", None)
+        if dist is not None:
+            return dist.version or ""
     except Exception:
         pass
     return ""
@@ -506,6 +524,27 @@ def plugin_meta(path):
         return tomllib.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+
+
+def min_osh_ok(requirement):
+    """Whether the running osh satisfies a ``min_osh`` marker value.
+
+    An empty or unparsable *requirement* never blocks the plugin — the
+    warning for it lives in ``warn_unresolved_meta``.
+    """
+    required = _version_tuple(requirement)
+    if required == (0, 0, 0):
+        return True
+    from .. import __version__
+
+    return _version_tuple(__version__) >= required
+
+
+def _version_tuple(text):
+    """Parse ``"1.2.3+local"`` into a ``(1, 2, 3)`` tuple for comparison."""
+    match = re.match(r"\d+(?:\.\d+)*", str(text))
+    parts = [int(p) for p in match.group(0).split(".")] if match else []
+    return tuple(parts + [0] * (3 - len(parts)))
 
 
 def _decl_help(decl):

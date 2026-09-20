@@ -13,12 +13,14 @@ import click
 from .. import db as db_module
 from .. import echo
 from ..backends import EnvSpec
+from ..cli_utils import handler_command
 from ..common import (
     find_project_root,
     get_odoo_config_path,
     get_osh_odoo_config_path,
     has_arg,
 )
+from ..handlers import CommandHandler
 from .helpers import check_run_diagnostics
 
 
@@ -113,30 +115,7 @@ def prepare_env_context(
     return conf_path, env_vars, db_name
 
 
-@click.command(
-    name="shell",
-    context_settings=dict(ignore_unknown_options=True),
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Print the assembled command without executing it.",
-)
-@click.option(
-    "--compose-file",
-    default=None,
-    envvar="OSH_COMPOSE_FILE",
-    help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
-    "Defaults to $OSH_COMPOSE_FILE.",
-)
-@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
-@click.pass_context
-def shell(
-    ctx,
-    dry_run,
-    compose_file,
-    extra_args,
-):  # noqa: D401
+class ShellRun(CommandHandler):
     """Enter the project's runtime environment or run a command in it.
 
     Without arguments this opens an interactive shell in the active target
@@ -157,36 +136,79 @@ def shell(
       osh shell psql
       osh shell odoo -i base
     """
-    base = find_project_root(required=True)
 
-    backend = db_module.resolve_backend(base)
+    # Extension surface: parsed params (``dry_run``, ``compose_file``,
+    # ``extra_args``) plus ``base``, ``backend``, ``args``, ``db_name`` and
+    # ``env_spec`` as ``run()`` fills them in; ``execute()`` dispatches on
+    # ``use_db_env`` — set by ``db shell`` to enter the database
+    # environment instead of the project one.
+    _cli_name = "shell"
+    _cli_context_settings = dict(ignore_unknown_options=True)
 
-    check_run_diagnostics(base, backend, ctx, compose_file=compose_file)
+    dry_run = False
+    compose_file = None
+    extra_args = ()
+    use_db_env = False
 
-    args = list(extra_args)
-    if args and args[0] == "--":
-        args.pop(0)
-
-    conf_path, env_vars, resolved_db = prepare_env_context(
-        base,
-        backend,
-        ctx=ctx,
-        db_name=parse_explicit_db(args),
-        extra_args=args,
-        dry_run=dry_run,
+    @click.option(
+        "--dry-run",
+        is_flag=True,
+        help="Print the assembled command without executing it.",
     )
-    if conf_path:
-        echo.info(f"Using config: {conf_path}")
-    if resolved_db:
-        echo.info(f"Using database: {resolved_db}")
-
-    env_spec = EnvSpec(
-        argv=args,
-        env=env_vars,
-        db_name=resolved_db,
-        config_path=str(conf_path) if conf_path else None,
+    @click.option(
+        "--compose-file",
+        default=None,
+        envvar="OSH_COMPOSE_FILE",
+        help="Docker Compose file to use (e.g. devel.yaml for Doodba). "
+        "Defaults to $OSH_COMPOSE_FILE.",
     )
-    backend.env(ctx, base, env_spec, dry_run=dry_run)
+    @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+    def run(self):
+        self.base = find_project_root(required=True)
+        self.backend = db_module.resolve_backend(self.base)
+        check_run_diagnostics(
+            self.base, self.backend, self.ctx, compose_file=self.compose_file
+        )
+        self.args = list(self.extra_args)
+        if self.args and self.args[0] == "--":
+            self.args.pop(0)
+        self.env_spec = self.build_env_spec()
+        self.execute()
+
+    def build_env_spec(self):
+        """Assemble the ``EnvSpec`` passed to ``backend.env()``."""
+        conf_path, env_vars, resolved_db = prepare_env_context(
+            self.base,
+            self.backend,
+            ctx=self.ctx,
+            db_name=parse_explicit_db(self.args),
+            extra_args=self.args,
+            dry_run=self.dry_run,
+        )
+        if conf_path:
+            echo.info(f"Using config: {conf_path}")
+        if resolved_db:
+            echo.info(f"Using database: {resolved_db}")
+        self.db_name = resolved_db
+        return EnvSpec(
+            argv=self.args,
+            env=env_vars,
+            db_name=resolved_db,
+            config_path=str(conf_path) if conf_path else None,
+        )
+
+    def execute(self):
+        """Enter the environment with the prepared ``EnvSpec``.
+
+        ``use_db_env`` selects the environment where the database runs —
+        the Compose ``db`` service on Docker projects — over the project
+        environment.
+        """
+        env_fn = self.backend.db_env if self.use_db_env else self.backend.env
+        env_fn(self.ctx, self.base, self.env_spec, dry_run=self.dry_run)
+
+
+shell = handler_command("shell", ShellRun)
 
 
 def parse_explicit_db(extra_args):

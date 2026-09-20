@@ -90,3 +90,4 @@ docs/_build/
 
 # Osh local project cache
 .osh/
+*.code-workspace
