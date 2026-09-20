@@ -36,9 +36,9 @@ Declaration values are short help strings, or tables with ``help`` and
 contributions.
 
 Plugin modules still self-describe on import — ``CommandHandler``
-subclasses, ``Backend``/``BackupSource`` subclasses and
-``@plugin_group``-stamped groups are discovered among module attributes
-— the toml only says *when* the module is worth importing.
+subclasses and ``Backend``/``BackupSource`` subclasses are discovered
+among module attributes — the toml only says *when* the module is worth
+importing.
 
 Compatibility: plugins without ``osh-plugin.toml`` — a bare root package
 (``__init__.py``/``osh_plugin.py``) in the user plugin dir, or an entry
@@ -173,14 +173,6 @@ class PluginSpec:
         """Return the ``{group: {name: declaration}}`` of subcommands."""
         return self.meta.get("group_commands") or {}
 
-    def declared_backends(self):
-        """Return the ``{name: declaration}`` of provided backends."""
-        return self.meta.get("backends") or {}
-
-    def declared_sources(self):
-        """Return the ``{scheme: declaration}`` of provided backup sources."""
-        return self.meta.get("sources") or {}
-
     def declared_extends(self):
         """Return the handler names the plugin extends."""
         extends = self.meta.get("extends") or []
@@ -204,7 +196,7 @@ class PluginSpec:
         The resolved command's ``short_help`` is stamped with the declared
         help, so listings show the same text before and after the import.
         """
-        from .plugin_loader import _callable_command, _module_commands
+        from .plugin_loader import _module_commands
 
         module = self.load()
         if module is None:
@@ -214,8 +206,6 @@ class PluginSpec:
             target = getattr(module, self.target_ref.rsplit(":", 1)[1], None)
             if isinstance(target, click.Command):
                 command = target
-            elif callable(target):
-                command = _callable_command(target, name)
         if command is None:
             command = _module_commands(module).get((group, name))
         if command is not None:

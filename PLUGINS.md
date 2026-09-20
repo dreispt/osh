@@ -33,10 +33,7 @@ class Hello(CommandHandler):
 
     name = "world"
 
-    @classmethod
-    def get_options(cls):
-        return [click.Option(["--name"], default="world", help="Who to greet.")]
-
+    @click.option("--name", default="world", help="Who to greet.")
     def run(self):
         click.echo(f"Hello, {self.name}!")
 ```
@@ -50,7 +47,7 @@ python -m osh hello --name developer
 ```
 
 The package's `__init__.py` must expose the plugin's contributions —
-`CommandHandler` subclasses, `@plugin_group` groups, `Backend`/
+`CommandHandler` subclasses, `Backend`/
 `BackupSource` subclasses and handler extensions are discovered among
 its attributes, so re-export implementations living in submodules.
 
@@ -108,7 +105,7 @@ depends = ["osh-db-get"]
 
 [commands]                 # top-level `osh <name>` commands
 hello = "Say hello."
-remote = { group = true, help = "Manage remotes." }   # a click.Group
+remote = { group = true, help = "Manage remotes." }   # a command group
 _sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 
 [group_commands.db]        # subcommands of an existing group
@@ -126,14 +123,14 @@ s3 = "Download a backup from an S3 bucket."
 
 Command declaration values are the short help text shown in `--help`
 listings, or a table with `help` and optional `group = true` when the
-command is a nested `click.Group` (e.g. `osh db remote`), or `hidden =
+command is itself a group (e.g. `osh db remote` — a handler class with
+`@subcommand` methods), or `hidden =
 true` for internal commands that never appear in listings (e.g. sidecar
 helpers spawned by the plugin itself).
 
 The declared names must match what the code provides on import — a
 command listed in `[commands]` resolves to a `CommandHandler` subclass
-named after it (or a `@plugin_group`-marked group of that name) in the
-plugin package.
+named after it in the plugin package.
 
 `depends` names other plugin _sources_ (the names shown by
 `osh plug list`) that must be imported before this plugin's module.
@@ -295,7 +292,7 @@ without notice.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.handlers` — `CommandHandler`, `Env`, `resolve()`,
-  `plugin_group()`, `registry` — see
+  `subcommand()` — see
   [Extending core commands](#extending-core-commands).
 - `osh.db` — database and backend-selection helpers: `run_in_backend`,
   `create_db`, `drop_db`, `db_exists`, `resolve_db_name`,
@@ -390,12 +387,6 @@ classmethod hook adds dynamic parameters without overriding the method.
 Extensions subclass the group class and override methods — an anonymous
 subclass can also _add_ a method, which registers as a new subcommand
 of the group.
-
-For a group that is not a handler — plain click subcommands without an
-extension model — mark a `click.Group` with `@plugin_group("db")`
-instead, and declare it in the marker as
-`{ group = true, help = "..." }` so the loader builds a lazy group
-stub.
 
 ### Backend plugins
 
@@ -621,9 +612,10 @@ the composed class — `resolve("odoo").effective().get_options()`.
 
 Extension points on `osh odoo`:
 
-- `get_options()` (classmethod) — extra `click.Parameter`s appended to
-  `osh odoo`'s parameters at parse time. Use it to add flags such as
-  `--open` without modifying core; values land in `ctx.params`.
+- `run()` decorators — stacking a `@click.option` on the extension's
+  `run()` override adds a flag such as `--open` without modifying core
+  (`get_options()` merges them across the MRO). For parameters computed
+  at runtime, override `get_options()` and append to `super()`.
 - `pre_env()` — runs after the `EnvSpec` is assembled, right before
   `Backend.env()` executes. It runs for every `osh odoo` invocation —
   exec and `--wait` paths, `--dry-run` and subcommands included — so

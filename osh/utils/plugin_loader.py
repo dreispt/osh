@@ -6,7 +6,7 @@ plugin's module the first time something it provides is needed — its
 command invoked, a handler it extends executed, its backend selected, or
 its backup source scheme used — and scans the loaded module for
 self-described classes (``CommandHandler`` subclasses, ``Backend`` /
-``BackupSource`` subclasses, ``@plugin_group``-stamped groups).
+``BackupSource`` subclasses).
 
 Command/handler semantics live with the classes themselves —
 ``CommandHandler.cli_command()`` derives placement from ``_cli_name``,
@@ -19,28 +19,18 @@ resolve command-name collisions by prefixing the command with its plugin
 source.
 """
 
-import click
-
 from .. import echo
 
-# Re-exported: the discovery machinery moved to ``plugin_registry`` but
-# remains reachable here for existing imports.
+# ``reset_plugin_registry`` is re-exported: the discovery machinery moved
+# to ``plugin_registry`` but remains reachable here for existing imports.
 from .plugin_registry import (  # noqa: F401
-    PLUGIN_MARKER,
-    PluginRegistry,
-    PluginSpec,
     _decl_help,
     _decl_hidden,
     _decl_is_group,
-    _is_plugin_dir,
     _version_tuple,
     min_osh_ok,
-    plugin_meta,
     plugin_registry,
-    plugin_source_name,
-    plugin_subdirs,
     reset_plugin_registry,
-    user_plugin_dir,
 )
 
 
@@ -320,24 +310,6 @@ def _lazy_command(spec, group, name, decl):
     )
 
 
-def _callable_command(func, name):
-    """Wrap a plain ``func(argv)`` callable as a Click command."""
-
-    @click.command(
-        name=name,
-        context_settings={
-            "ignore_unknown_options": True,
-            "allow_extra_args": True,
-        },
-    )
-    @click.argument("args", nargs=-1)
-    @click.pass_context
-    def command(ctx, args):
-        return func([*args, *ctx.args])
-
-    return command
-
-
 def _ensure_specs(predicate):
     """Import each not-yet-loaded lazy spec matching *predicate*."""
     for spec in plugin_registry().specs.values():
@@ -392,8 +364,8 @@ def _spec_declared_names(spec):
 def _module_commands(module):
     """Return ``{(group|None, name): click.Command}`` discovered in *module*.
 
-    Covers named ``CommandHandler`` subclasses, ``@subcommand`` methods
-    on group handlers and ``@plugin_group``-stamped groups.
+    Covers named ``CommandHandler`` subclasses and ``@subcommand``
+    methods on group handlers.
     """
     from ..cli_utils import method_command
     from ..handlers import (
@@ -431,10 +403,6 @@ def _module_commands(module):
         group_name, command = cls.cli_command(module.__name__)
         if command is not None:
             commands.setdefault((group_name, command.name), command)
-    for impl in list(vars(module).values()):
-        parent = getattr(impl, "_plugin_group", None)
-        if parent is not None and isinstance(impl, click.Group):
-            commands.setdefault((parent or None, impl.name), impl)
     return commands
 
 

@@ -312,13 +312,14 @@ def test_spec_load_not_called_for_help(plugin_dir, monkeypatch):
     """Rendering help lists the command without calling ``spec.load()``."""
     _copy_plugin(plugin_dir, "repo_help")
 
+    import click
     from click.testing import CliRunner
 
     spec = plugin_loader.plugin_registry().specs["osh-helped"]
     calls = []
     monkeypatch.setattr(spec, "load", lambda: calls.append(1))
 
-    group = plugin_loader.click.Group()
+    group = click.Group()
     for _src, cmd in plugin_loader.load_plugins():
         group.add_command(cmd)
 
@@ -341,7 +342,9 @@ def test_hidden_declared_command_is_not_listed(plugin_dir):
     assert commands["secret"].hidden
     assert not commands["helped"].hidden
 
-    group = plugin_loader.click.Group()
+    import click
+
+    group = click.Group()
     for cmd in commands.values():
         group.add_command(cmd)
     result = CliRunner().invoke(group, ["--help"])
@@ -380,13 +383,11 @@ def test_entry_point_spec_registers_without_load(plugin_dir, monkeypatch):
     import sys
     import types
 
+    import click
+
     fake_module = types.ModuleType("fake_lazy_plugin")
     seen = []
-
-    def main(argv):
-        seen.extend(argv)
-
-    fake_module.main = main
+    fake_module.main = click.Command("echo", callback=lambda: seen.append("called"))
     monkeypatch.setitem(sys.modules, "fake_lazy_plugin", fake_module)
 
     ep = types.SimpleNamespace(name="echo", value="fake_lazy_plugin:main")
@@ -398,14 +399,14 @@ def test_entry_point_spec_registers_without_load(plugin_dir, monkeypatch):
     assert spec.declared_commands() == {"echo": ""}
     assert not spec.loaded
 
-    # Invocation triggers stage 2 and delegates the remaining argv.
+    # Invocation triggers stage 2 and resolves the module attribute.
     from click.testing import CliRunner
 
     commands = {cmd.name: cmd for _src, cmd in plugin_loader.load_plugins()}
-    result = CliRunner().invoke(commands["echo"], ["one", "two"])
+    result = CliRunner().invoke(commands["echo"], [])
 
     assert result.exit_code == 0, result.output
-    assert seen == ["one", "two"]
+    assert seen == ["called"]
 
 
 def test_entry_point_with_marker_declares_no_implicit_command(plugin_dir, monkeypatch):

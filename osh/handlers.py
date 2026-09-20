@@ -336,28 +336,6 @@ def resolve(name):
     raise KeyError(f"No handler registered as '{name}'.")
 
 
-def plugin_group(parent=""):
-    """Decorator marking a ``click.Group`` as a plugin-provided command group.
-
-    The group is attached under *parent* — ``@plugin_group("db")`` makes it
-    ``osh db <group>``; with no argument it registers as a top-level
-    ``osh <group>``. The parent group is created automatically when missing.
-    No manifest entry is needed; the loader discovers marked groups among
-    each plugin's module-level attributes::
-
-        @plugin_group("db")
-        @click.group(name="remote")
-        def remote():
-            ...
-    """
-
-    def decorator(group):
-        group._plugin_group = parent
-        return group
-
-    return decorator
-
-
 def _declared_name(cls):
     """Return *cls*'s own declared handler name, or ``None``.
 
