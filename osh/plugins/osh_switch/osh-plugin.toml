@@ -1,0 +1,4 @@
+description = "Switch branch/environment and report its database."
+
+[commands]
+switch = "Switch branch/environment (git or git-less) and report its database."

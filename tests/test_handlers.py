@@ -25,8 +25,8 @@ def test_core_commands_resolve_to_their_handlers():
         init_cmd,
         plug_cmd,
         shell_cmd,
-        switch_cmd,
     )
+    from osh.plugins.osh_switch import switch_cmd
 
     expected = {
         "shell": shell_cmd.ShellRun,

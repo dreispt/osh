@@ -1,6 +1,6 @@
 # osh_backend_venv — managed virtualenv backend
 
-Provides the `venv` run backend and the `osh prune` command.
+Provides the `venv` run backend.
 
 `venv` is the managed host backend: unlike the core `none` backend (which
 just executes on the host with whatever is already installed), `venv` sets
@@ -31,9 +31,3 @@ from `.venv/bin` first, so no manual activation is needed.
 `osh venv stop` mirrors `osh backend stop`: it probes the configured HTTP
 port and terminates a rogue Odoo process left behind by a previous run
 (foreign listeners are reported, never killed).
-
-## `osh prune`
-
-Deletes the managed source checkouts under `.osh/` (`odoo`, `enterprise`,
-`design-themes`) that `osh init` cloned, so they can be re-fetched or the
-project moved to the `none`/`docker` backends.

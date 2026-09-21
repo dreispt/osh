@@ -200,6 +200,67 @@ def find_project_repos(base, *, max_depth=4):
     return sorted(repos)
 
 
+def find_nested_repos(base, *, max_depth=4):
+    """Return git repositories nested inside the git-rooted project *base*.
+
+    Embedded clones — repositories below a repository root that are not
+    submodules — are part of the working environment (e.g. source checkouts
+    like ``odoo``/``enterprise``/``design-themes``) and follow ``osh switch``.
+    Submodules are pinned to commits by the parent repository and are
+    excluded — ``git submodule update`` handles them.
+
+    ``.osh`` is descended despite its dot-prefix — managed source clones
+    live there — while other dot-directories, ``__``-prefixed directories,
+    ``node_modules`` and symlinks are skipped. Found repositories are not
+    descended into. Returns ``[]`` when *base* is not a repository.
+    """
+    base = Path(base)
+    if not _is_git_repo(base):
+        return []
+    submodules = {(base / path).resolve() for path in _gitmodules_paths(base)}
+
+    repos = []
+
+    def _walk(current, depth):
+        if depth > max_depth:
+            return
+        try:
+            children = list(current.iterdir())
+        except OSError:
+            return
+        for child in children:
+            if child.is_symlink() or not child.is_dir():
+                continue
+            if child.name.startswith("__") or child.name == "node_modules":
+                continue
+            if child.name.startswith(".") and child.name != ".osh":
+                continue
+            if _is_git_repo(child):
+                if child.resolve() not in submodules:
+                    repos.append(child)
+                continue
+            _walk(child, depth + 1)
+
+    _walk(base, 0)
+    return sorted(repos)
+
+
+def _gitmodules_paths(base):
+    """Return the submodule paths declared in *base*'s ``.gitmodules``."""
+    cfg = configparser.ConfigParser(interpolation=None)
+    try:
+        cfg.read(base / ".gitmodules", encoding="utf-8")
+    except (OSError, configparser.Error):
+        return []
+    return [
+        path
+        for section in cfg.sections()
+        if section.startswith("submodule ")
+        for path in [cfg.get(section, "path", fallback=None)]
+        if path
+    ]
+
+
 def find_nested_projects(base, *, max_depth=4):
     """Return directories below *base* that contain their own ``.osh``.
 
