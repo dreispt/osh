@@ -3,8 +3,9 @@
 `osh` is a command-line wrapper around `odoo-bin` that makes it easier to run
 Odoo in development and staging environments.
 
-Think of it as a lightweight project manager for Odoo: it discovers your
-addons, picks a database name for you, and runs the right virtual environment.
+Think of it as a virtual environment manager for Odoo projects:
+it discovers your addons, picks a database name for you,
+and runs the right Odoo installation initialized for the project.
 
 > **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
 
@@ -33,8 +34,12 @@ addons, picks a database name for you, and runs the right virtual environment.
 ```bash
 # Create a project directory
 cd my-odoo-project
-# Initialise it for Odoo 19.0
+
+# Initialise it for Odoo 19.0, using venv
 osh venv init 19.0
+# ... or reuuning in Docker containers
+osh docker init 19.0
+
 # Run Odoo
 osh odoo
 ```
