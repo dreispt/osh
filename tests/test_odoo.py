@@ -1,5 +1,6 @@
 """Tests for ``osh odoo`` command assembly."""
 
+import re
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -85,7 +86,7 @@ def test_odoo_generates_dynamic_config_and_sets_env(
     assert str(osh_source_dirs / "enterprise") in text
     assert str(osh_source_dirs / "design-themes") in text
     assert f"db_name = {test_db}" in text
-    assert f"dbfilter = ^{test_db}$" in text
+    assert f"dbfilter = ^{re.escape(test_db)}$" in text
 
     assert len(capture_execvp) == 1
     exe, final_args, exec_env = capture_execvp[0]

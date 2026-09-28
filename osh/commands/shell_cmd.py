@@ -7,6 +7,7 @@ on top of it.
 """
 
 import configparser
+import re
 
 import click
 
@@ -63,7 +64,7 @@ def build_dynamic_odoo_config(
     if db_name:
         cfg.set("options", "db_name", db_name)
         if not no_db_filter:
-            cfg.set("options", "dbfilter", f"^{db_name}$")
+            cfg.set("options", "dbfilter", f"^{re.escape(db_name)}$")
 
     with conf_path.open("w", encoding="utf-8") as f:
         cfg.write(f)

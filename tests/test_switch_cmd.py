@@ -284,7 +284,7 @@ def test_switch_multi_repo_switches_all(multi_repo_project):
 @requires_git
 def test_switch_multi_repo_resolves_shared_branch_db(multi_repo_project):
     """The generated database name uses the shared multi-repo branch."""
-    assert resolve_db_name(multi_repo_project) == "project-19-0"
+    assert resolve_db_name(multi_repo_project) == "project-19.0"
 
 
 @requires_git
@@ -328,7 +328,7 @@ def test_switch_multi_repo_reports_each_branch(multi_repo_project):
     assert result.exit_code == 0, result.output
     assert "odoo: 19.0" in result.output
     assert f"{Path('addons') / 'custom'}: 19.0" in result.output
-    assert "Database: project-19-0" in result.output
+    assert "Database: project-19.0" in result.output
 
 
 @requires_git

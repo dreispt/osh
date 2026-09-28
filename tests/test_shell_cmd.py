@@ -1,6 +1,7 @@
 """Tests for ``osh shell`` command implementation."""
 
 import os
+import re
 
 from click.testing import CliRunner
 
@@ -142,7 +143,7 @@ def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch
     assert "limit_time_cpu = 0" in text
     assert "addons_path" in text
     assert f"db_name = {branch_db}" in text
-    assert f"dbfilter = ^{branch_db}$" in text
+    assert f"dbfilter = ^{re.escape(branch_db)}$" in text
 
 
 def test_shell_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
@@ -245,6 +246,15 @@ def test_build_dynamic_odoo_config_uses_container_paths_for_docker(
     assert "/mnt/extra-addons/.osh/enterprise" in text
     assert "db_name = mydb" in text
     assert "dbfilter = ^mydb$" in text
+
+
+def test_build_dynamic_odoo_config_escapes_dbfilter(tmp_project):
+    """Dots in database names do not become ``dbfilter`` regex wildcards."""
+    backend = NoneBackend()
+    conf = build_dynamic_odoo_config(tmp_project, "my.db", backend)
+    text = conf.read_text()
+    assert "db_name = my.db" in text
+    assert "dbfilter = ^my\\.db$" in text
 
 
 def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
