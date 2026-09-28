@@ -27,23 +27,20 @@ from .common import (
 
 
 def sanitize_db_name(name):
-    """Return a name that is safe for PostgreSQL and Odoo's --db-filter."""
-    name = (name or "").strip().lower()
-    name = re.sub(r"[^a-z0-9_]+", "-", name)
-    name = name.strip("-")
-    return name or "db"
-
-
-def _require_db_name(name):
     """Return a sanitized database name or raise if one is not given."""
     if not name or not str(name).strip():
         raise click.ClickException("A database name is required.")
-    name = sanitize_db_name(name)
+    name = str(name).strip().lower()
+    name = re.sub(r"[^a-z0-9_.]+", "-", name)
+    name = name.strip("-")
     if name == "auto":
         # ``auto`` is rejected so legacy/hand-written configs can be told
         # apart from real database names when resolving.
         raise click.ClickException("'auto' is a reserved database name.")
-    return name
+    name = name.replace("..", "._")
+    if name == ".":
+        name = "._"
+    return name or "db"
 
 
 def load_osh_config(base):

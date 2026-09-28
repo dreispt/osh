@@ -6,7 +6,6 @@ from .. import echo
 from ..cli_utils import handler_group
 from ..common import find_project_root
 from ..db import (
-    _require_db_name,
     copy_db,
     db_exists,
     resolve_branch,
@@ -147,8 +146,8 @@ class Db(CommandHandler):
     def copy(self):
         """Copy a PostgreSQL database to a new name, replacing the target if it exists."""
         self.base = find_project_root(required=True)
-        from_name = _require_db_name(self.from_db)
-        to_name = _require_db_name(self.to_db)
+        from_name = sanitize_db_name(self.from_db)
+        to_name = sanitize_db_name(self.to_db)
         if not db_exists(self.base, from_name, ctx=self.ctx):
             raise click.ClickException(f"Source database '{from_name}' does not exist.")
         copy_db(self.base, from_name, to_name, ctx=self.ctx)
@@ -262,6 +261,6 @@ def _filter_db_listing(output, prefix):
 def _set_branch_db(base, db_name, branch):
     """Record *db_name* as the database for *branch* and return both names."""
     branch = resolve_branch(base, branch)
-    value = _require_db_name(db_name)
+    value = sanitize_db_name(db_name)
     set_project_config(base, "db", branch, value)
     return branch, value

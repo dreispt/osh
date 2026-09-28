@@ -5,10 +5,10 @@ import click
 from ... import echo
 from ...common import find_project_root
 from ...db import (
-    _require_db_name,
     db_exists,
     drop_db,
     get_last_db,
+    sanitize_db_name,
     unset_project_config,
 )
 from ...handlers import CommandHandler
@@ -43,7 +43,7 @@ class DbDrop(CommandHandler):
     def run(self):
         ctx = self.ctx
         base = find_project_root(required=True)
-        name = _require_db_name(self.db_name)
+        name = sanitize_db_name(self.db_name)
         exists = db_exists(base, name, ctx=ctx)
         has_filestore = filestore_exists(ctx, base, name)
         if not exists and not has_filestore:

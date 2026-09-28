@@ -6,7 +6,7 @@ from click.testing import CliRunner
 
 from osh.commands.db_cmd import db
 from osh.config import set_project_config
-from osh.db import _require_db_name, resolve_db_name
+from osh.db import resolve_db_name, sanitize_db_name
 
 
 def test_exact_branch_wins_over_pattern(tmp_project):
@@ -40,6 +40,7 @@ def test_default_key_is_not_used_as_a_pattern(tmp_project):
 def test_generated_name_when_unconfigured(tmp_project):
     """An unconfigured branch falls back to ``<project>-<branch>``."""
     assert resolve_db_name(tmp_project, branch="fix/bug-1") == "project-fix-bug-1"
+    assert resolve_db_name(tmp_project, branch="release/19.0") == "project-release-19.0"
 
 
 def test_auto_value_raises_clear_error(tmp_project):
@@ -52,7 +53,7 @@ def test_auto_value_raises_clear_error(tmp_project):
 def test_configured_name_is_sanitized_on_read(tmp_project):
     """Values are sanitized on read so hand-written names are always safe."""
     set_project_config(tmp_project, "db", values={"main": "My Legacy.DB"})
-    assert resolve_db_name(tmp_project, branch="main") == "my-legacy-db"
+    assert resolve_db_name(tmp_project, branch="main") == "my-legacy.db"
 
 
 def test_empty_mapping_raises_clear_error(tmp_project):
@@ -69,23 +70,31 @@ def test_non_string_mapping_raises_clear_error(tmp_project):
         resolve_db_name(tmp_project, branch="main")
 
 
-def test_require_db_name_sanitizes_input():
-    """Names are normalized to a safe form."""
-    assert _require_db_name(" My Legacy.DB ") == "my-legacy-db"
+def test_sanitize_db_name_sanitizes_input():
+    """Names are normalized to a safe form while preserving dots."""
+    assert sanitize_db_name(" My Legacy.DB ") == "my-legacy.db"
+    assert sanitize_db_name("vinha_test_19.0") == "vinha_test_19.0"
 
 
-def test_require_db_name_rejects_empty():
+def test_sanitize_db_name_rejects_empty():
     """An empty or missing name is rejected with a user-facing error."""
     with pytest.raises(click.ClickException, match="database name is required"):
-        _require_db_name("   ")
+        sanitize_db_name("   ")
     with pytest.raises(click.ClickException, match="database name is required"):
-        _require_db_name(None)
+        sanitize_db_name(None)
 
 
-def test_require_db_name_rejects_auto():
+def test_sanitize_db_name_rejects_auto():
     """``auto`` is a reserved name and cannot be stored as a database."""
     with pytest.raises(click.ClickException, match="reserved"):
-        _require_db_name("auto")
+        sanitize_db_name("auto")
+
+
+def test_sanitize_db_name_protects_relative_names():
+    """Dot-only names cannot be used as filestore path components."""
+    assert sanitize_db_name(".") == "._"
+    assert sanitize_db_name("..") == "._"
+    assert sanitize_db_name("...") == "._."
 
 
 def test_set_sanitizes_name(tmp_project, monkeypatch):
@@ -94,7 +103,7 @@ def test_set_sanitizes_name(tmp_project, monkeypatch):
     runner = CliRunner()
     result = runner.invoke(db, ["set", " My Legacy.DB ", "--branch", "main"])
     assert result.exit_code == 0
-    assert "my-legacy-db" in result.output
+    assert "my-legacy.db" in result.output
 
 
 def test_db_group_command_surface():
