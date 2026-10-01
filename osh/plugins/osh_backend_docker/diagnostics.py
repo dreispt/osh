@@ -1,0 +1,186 @@
+"""Diagnostics for the Docker Compose backend.
+
+Implements the ``osh doctor``/init/run health-check sections for
+``DockerBackend``; the backend's ``diagnose`` method delegates here so the
+backend module stays focused on the run lifecycle.
+"""
+
+from pathlib import Path
+
+import click
+
+from ...commands.helpers import Diagnostics
+from .discovery import _container_running_status
+from .utils import (
+    _COMPOSE_FILE,
+    _compose_base_command,
+    _detect_compose_file,
+    _detect_dockerfile,
+    _find_compose_tool,
+    _load_docker_config,
+    _resolve_compose_file,
+)
+
+
+def diagnose(backend, base, *, sections=None, **options):
+    """Inspect Docker Compose environment and project configuration."""
+    phase = options.get("phase", "doctor")
+    d = Diagnostics(backend.name, project=base)
+
+    if sections is None:
+        sections = backend._DIAGNOSE_SECTIONS
+    sections = set(sections)
+
+    cfg = _load_docker_config(base)
+    service = options.get("service") or cfg.get("service")
+    command = options.get("command") or cfg.get("command")
+    compose_file = options.get("compose_file") or cfg.get("compose_file")
+    dockerfile = options.get("dockerfile") or cfg.get("dockerfile")
+    edition = (options.get("edition") or cfg.get("edition") or "ce").lower()
+    version = options.get("version") or cfg.get("version") or ""
+
+    if "compose_tool" in sections:
+        _diagnose_compose_tool(d, phase, cfg)
+    if "config" in sections:
+        _diagnose_config(
+            d, phase, cfg, service, command, compose_file, dockerfile, edition
+        )
+    if "compose_file" in sections:
+        _diagnose_compose_file(d, phase, base, compose_file, dockerfile, cfg)
+    if "odoo_version" in sections:
+        _diagnose_odoo_version(backend, d, phase, base)
+    if "service" in sections:
+        _diagnose_service(d, phase, service)
+    if "container" in sections and cfg:
+        _diagnose_container(d, base, service or "odoo", cfg)
+    if (
+        "sources" in sections
+        and phase == "run"
+        and edition in ("ee", "sh")
+        and not version
+    ):
+        _diagnose_sources(d, base, edition)
+
+    return d
+
+
+def _diagnose_compose_tool(d, phase, cfg):
+    """Detect and record the available Docker Compose tool."""
+    cached_tool = cfg.get("compose_tool") if cfg else None
+    # Use the cached tool during ``run`` for efficiency; init/doctor detect.
+    if phase == "run" and cached_tool:
+        compose_tool = cached_tool.split()
+    else:
+        compose_tool = _find_compose_tool()
+    if compose_tool:
+        d.add_info("compose_tool", " ".join(compose_tool), topic="System")
+    else:
+        d.add_error(
+            "No Docker Compose tool found. "
+            "Install 'docker compose' or 'docker-compose'."
+        )
+
+
+def _diagnose_config(
+    d, phase, cfg, service, command, compose_file, dockerfile, edition
+):
+    """Report the saved Docker backend configuration."""
+    if cfg:
+        d.add_info("service", service or "odoo")
+        d.add_info("command", command or "odoo-bin")
+        d.add_info("compose_file", compose_file or "<none>")
+        if dockerfile:
+            d.add_info("dockerfile", dockerfile)
+        d.add_info("edition", edition)
+        if cfg.get("db_service"):
+            d.add_info("db_service", cfg["db_service"])
+        if cfg.get("compose_tool"):
+            d.add_info("configured_compose_tool", cfg["compose_tool"])
+    elif phase == "init":
+        d.add_warning(
+            "Docker backend config not found; it will be created during init."
+        )
+    elif phase == "run":
+        d.add_error("Docker backend config not found. Run 'osh docker init' first.")
+    else:
+        d.add_warning("Docker backend config not found. Run 'osh docker init'.")
+
+
+def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=None):
+    """Check the resolved Docker Compose file."""
+    if phase == "init" and not compose_file:
+        detected = _detect_compose_file(base)
+        if len(detected) > 1:
+            d.add_warning(
+                "Multiple compose files found: "
+                + ", ".join(detected)
+                + f"; using {detected[0]}. "
+                "Pass --compose-file to use another one."
+            )
+    resolved = _resolve_compose_file(base, compose_file, cfg=cfg)
+    if resolved:
+        compose_path = Path(resolved)
+        if not compose_path.is_absolute():
+            compose_path = base / compose_path
+        if compose_path.exists():
+            d.add_info("resolved_compose_file", str(compose_path))
+        elif phase == "doctor":
+            d.add_warning(f"Compose file not found: {compose_path}")
+        else:
+            d.add_error(f"Compose file not found: {compose_path}")
+        return
+    if phase == "init":
+        dockerfile = dockerfile or _detect_dockerfile(base)
+        suffix = f" building {dockerfile}" if dockerfile else ""
+        d.add_plan(f"Generate {base / _COMPOSE_FILE}{suffix}")
+    elif phase == "run":
+        d.add_error(f"Compose file not found: {base / _COMPOSE_FILE}")
+    else:
+        d.add_warning(f"Compose file not found: {base / _COMPOSE_FILE}")
+
+
+def _diagnose_odoo_version(backend, d, phase, base):
+    """Detect and record the installed Odoo version."""
+    odoo_version = backend.detect_odoo_version(base)
+    if odoo_version:
+        d.add_info("odoo_version", odoo_version)
+    elif phase == "doctor":
+        d.add_warning("Could not determine installed Odoo version.")
+
+
+def _diagnose_service(d, phase, service):
+    """Validate the configured Docker Compose service."""
+    if not service:
+        if phase == "init":
+            d.add_warning("No --service provided; defaulting to 'odoo'.")
+        elif phase == "run":
+            d.add_error("No Docker service configured.")
+
+
+def _diagnose_container(d, base, service, cfg=None):
+    """Report whether the project's service container is running."""
+    try:
+        compose_cmd = _compose_base_command(base, cfg=cfg)
+    except click.ClickException:
+        return
+    running, uptime = _container_running_status(base, compose_cmd, service)
+    if running is None:
+        return
+    if running:
+        detail = f"running, started {uptime} ago" if uptime else "running"
+        d.add_info("container", detail)
+    else:
+        d.add_info("container", "not running")
+
+
+def _diagnose_sources(d, base, edition):
+    """Check that required source copies are present for EE/SH editions."""
+    required = ["enterprise"]
+    if edition == "sh":
+        required.append("design-themes")
+    missing = [name for name in required if not (base / ".osh" / name).exists()]
+    if missing:
+        d.add_error(
+            f"Project is missing required source copies: {', '.join(missing)}. "
+            "Run 'osh init' first."
+        )

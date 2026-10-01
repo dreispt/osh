@@ -94,8 +94,9 @@ and lifecycle:
 | `osh docker ...`  | Docker Compose stack: `init`, `activate`, `list`, `stop`                                         |
 
 `osh <backend> init` runs the base setup first, then the backend's own
-steps (e.g. `osh docker init` writes `docker.toml` and generates the
-Compose file). `osh <backend> activate` switches the project to an
+steps (e.g. `osh docker init` writes `docker.toml` and honors a project
+compose file or Dockerfile when present, generating the Compose file
+otherwise). `osh <backend> activate` switches the project to an
 already-initialized backend — the active backend is what `osh odoo`,
 `osh shell` and `osh db` run through, and `osh backend deactivate`
 switches back to plain host execution. `osh backend status` shows which

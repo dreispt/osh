@@ -1,6 +1,8 @@
 services:
   __SERVICE__:
-    image: __IMAGE__
+    build:
+      context: ..
+      dockerfile: __DOCKERFILE__
     # The container idles; commands are run via `docker compose exec`
     # (e.g. `osh odoo`, `osh shell`), so the stack is reused across commands.
     command: ["sleep", "infinity"]
@@ -20,7 +22,6 @@ services:
     volumes:
       - odoo-web-data:/var/lib/odoo
       - ..:/mnt/extra-addons
-    user: odoo
   db:
     image: postgres:16
     environment:

@@ -213,7 +213,7 @@ def test_shell_docker_runs_container_with_env_vars(tmp_project, branch_db, monke
         lambda *a, **kw: None,
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        "osh.plugins.osh_backend_docker.backends.port_in_use",
         lambda *a, **kw: False,
     )
 

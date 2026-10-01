@@ -1,5 +1,6 @@
 """Shared fixtures for the Osh test suite."""
 
+import json
 import shutil
 import subprocess
 import uuid
@@ -76,9 +77,44 @@ def osh_source_dirs(tmp_project):
     return osh_dir
 
 
-def unique_db_name():
-    """Return a database name that cannot collide with real development work."""
-    return f"osh-test-{uuid.uuid4().hex[:16]}"
+def _write_docker_config(project, port=None):
+    """Write a minimal docker backend config and generated compose file."""
+    osh_dir = project / ".osh"
+    osh_dir.mkdir(parents=True, exist_ok=True)
+    text = 'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    if port:
+        text += f"port = {port}\n"
+    (osh_dir / "docker.toml").write_text(text)
+    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+
+def _docker_ps_line(name, image, ports, status, labels="", cid=None):
+    """Return a ``docker ps --format '{{json .}}'`` output line."""
+    return json.dumps(
+        {
+            "ID": cid or name,
+            "Names": name,
+            "Image": image,
+            "Ports": ports,
+            "Status": status,
+            "Labels": labels,
+        }
+    )
+
+
+def _patch_docker_ps(monkeypatch, lines):
+    """Patch the ``docker ps`` call behind ``osh docker list``."""
+    calls = []
+
+    def fake_run_subprocess(args, **kwargs):
+        calls.append(list(args))
+        return 0, "\n".join(lines), ""
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.discovery.run_subprocess",
+        fake_run_subprocess,
+    )
+    return calls
 
 
 @pytest.fixture
@@ -106,7 +142,7 @@ def pg_db():
         @staticmethod
         def name():
             """Return a unique database name (not created)."""
-            return unique_db_name()
+            return f"osh-test-{uuid.uuid4().hex[:16]}"
 
         def create(self, name=None):
             """Create a real database and return its name."""
@@ -286,13 +322,6 @@ def real_git_only_subprocess(monkeypatch):
     return calls
 
 
-def _setup_fake_db_config(project, db_name="testdb"):
-    """Write a branch database mapping into the project config."""
-    from osh.db import set_project_config
-
-    set_project_config(project, "db", "default", db_name)
-
-
 @pytest.fixture
 def patched_restore(monkeypatch, in_project, pg_db):
     """Patch external dependencies used by `osh backup restore` for isolated tests.
@@ -301,6 +330,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
     exist, so the real ``db_exists`` check drives the create path.
     """
     from osh.commands.helpers import Diagnostics
+    from osh.db import set_project_config
 
     db_name = pg_db.name()
     state = {
@@ -311,7 +341,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
         "dropped": [],
         "created": [],
     }
-    _setup_fake_db_config(in_project, db_name)
+    set_project_config(in_project, "db", "default", db_name)
 
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_cmd.drop_db",
