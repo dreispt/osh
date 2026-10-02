@@ -59,8 +59,8 @@ def ensure_declared(meta_key, name=None):
 def ensure_handler(name):
     """Import the lazy plugin declaring handler/command *name*.
 
-    Maps qualified handler names to declared metadata: ``db.get`` →
-    ``[group_commands.db] get``, ``scan`` → ``[commands] scan``, and
+    Maps qualified handler names to declared metadata: ``backup.get`` →
+    ``[group_commands.backup] get``, ``scan`` → ``[commands] scan``, and
     ``my_plugin.cmd`` → ``handlers``. Lets ``resolve(name)`` find
     handlers whose plugin has not been imported yet.
     """

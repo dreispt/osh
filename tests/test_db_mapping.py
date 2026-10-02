@@ -1,5 +1,7 @@
 """Tests for branch-to-database mapping resolution."""
 
+import importlib
+
 import click
 import pytest
 from click.testing import CliRunner
@@ -121,11 +123,15 @@ def test_db_group_command_surface():
     assert "create" not in db.commands
 
 
-def test_db_restore_comes_from_plugin():
-    """`osh db restore` is contributed by the osh_db_get plugin."""
-    from osh.cli import main
+def test_backup_commands_come_from_plugin():
+    """`osh backup ...` is contributed by the osh_backup plugin, not `osh db`."""
+    from osh import cli
 
-    assert "restore" in main.commands["db"].commands
+    main = importlib.reload(cli).main
+    backup = main.commands["backup"]
+    assert set(backup.commands) == {"get", "restore", "list", "remote"}
+    db_commands = main.commands["db"].commands
+    assert not {"get", "restore", "remote"} & set(db_commands)
     assert "restore" not in main.commands
 
 

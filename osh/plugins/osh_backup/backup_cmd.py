@@ -1,4 +1,4 @@
-"""`osh db get` command implementation."""
+"""`osh backup get` command implementation."""
 
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from .registry import get_backup_source_help, list_backup_schemes, parse_source
 from .remotes import resolve_remote_source
 
 
-# `osh db get` handler — extensions subclass DbGet and override step
+# `osh backup get` handler — extensions subclass DbGet and override step
 # methods, calling super(). Command state is on ``self``: ``ctx``, the
 # parsed params plus ``base``, ``parsed`` and ``output_path`` as ``run()``
 # fills them in.
@@ -40,12 +40,12 @@ class DbGet(CommandHandler):
     works unchanged.
 
     \b
-      osh db get https://my.odoo.com?db=prod&format=zip
-      osh db get https://my.odoo.com?db=prod&format=sql
-      osh db get https://my.odoo.com?db=prod
+      osh backup get https://my.odoo.com?db=prod&format=zip
+      osh backup get https://my.odoo.com?db=prod&format=sql
+      osh backup get https://my.odoo.com?db=prod
 
     The downloaded backup is not neutralized. Neutralize after restoring with
-    ``osh db restore`` (which neutralizes by default), or on a running database
+    ``osh backup restore`` (which neutralizes by default), or on a running database
     with ``osh odoo neutralize -d DB``.
 
     Odoo.sh quick start:
@@ -54,11 +54,11 @@ class DbGet(CommandHandler):
     2. Copy the domain from the SSH tab of your branch.
     3. Download the latest daily SQL dump:
 
-       osh db get odoosh://PROJECT-BRANCH-BUILD
+       osh backup get odoosh://PROJECT-BRANCH-BUILD
 
     The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
     is optional. Add `--filestore` to also download the filestore over SSH and
-    produce a full `.zip` backup that `osh db restore` can restore directly.
+    produce a full `.zip` backup that `osh backup restore` can restore directly.
 
     Generic SSH (VPS / disabled dbmanager):
 
@@ -66,26 +66,26 @@ class DbGet(CommandHandler):
     an existing backup file from the server:
 
     \b
-      osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
-      osh db get ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
+      osh backup get ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh backup get ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
 
     See docs/odoo-sh-backup-howto.md for the complete guide.
 
     Examples:
 
     \b
-      osh db get db://prod_db
-      osh db get https://my.odoo.com?db=prod&format=zip
-      osh db get https://my.odoo.com?db=prod /path/to/backups/
-      osh db get https://my.odoo.com?db=prod /path/to/prod.zip
-      osh db get odoosh://my-project-master-123456
-      osh db get odoosh://my-project-master-123456 --filestore
-      osh db get odoosh://my-project-master-123456.dev.odoo.com
-      osh db get odoosh://123456@my-project-master-123456.dev.odoo.com
-      osh db get ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh backup get db://prod_db
+      osh backup get https://my.odoo.com?db=prod&format=zip
+      osh backup get https://my.odoo.com?db=prod /path/to/backups/
+      osh backup get https://my.odoo.com?db=prod /path/to/prod.zip
+      osh backup get odoosh://my-project-master-123456
+      osh backup get odoosh://my-project-master-123456 --filestore
+      osh backup get odoosh://my-project-master-123456.dev.odoo.com
+      osh backup get odoosh://123456@my-project-master-123456.dev.odoo.com
+      osh backup get ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
 
-    _cli_name = "db.get"
+    _cli_name = "backup.get"
 
     source = None
     output = None
@@ -179,7 +179,7 @@ class DbGet(CommandHandler):
         """Fetch the source to ``output_path``, cleaning up partial files.
 
         A failed fetch must not leave a partial file in the cache — it
-        would otherwise be picked as the newest backup by `db restore`.
+        would otherwise be picked as the newest backup by `backup restore`.
         """
         if self.dry_run:
             echo.info(f"Would download {self.source} to {self.output_path}", err=True)
@@ -217,7 +217,7 @@ def _record_cache_metadata(output_path, source, parsed):
     """Normalize the cached filename to the detected format and write metadata.
 
     The detected content format is the source of truth, so the extension and
-    metadata never mislead `osh db restore` or directory listings (e.g. a
+    metadata never mislead `osh backup restore` or directory listings (e.g. a
     ``.sql`` file that is actually a compressed pg_dump). Returns the final
     path after any extension fix-up.
     """

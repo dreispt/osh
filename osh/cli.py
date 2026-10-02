@@ -149,12 +149,12 @@ for plugin_source, plugin_cmd in load_plugins():
 main.plugin_commands = _plugin_commands
 
 # Register plugin-provided subcommands on command groups — plugin
-# handlers with dotted names (``db.restore``) declared under
+# handlers with dotted names (``backup.restore``) declared under
 # ``[group_commands.<group>]``. Missing target
 # groups are created on demand: a group named after a declared backend
 # (``osh docker``) renders in the "Backend Commands" help section with
-# the backend's description; any other auto-created group (e.g. a
-# ``backup.dump`` handler creating ``backup``) is a plugin command.
+# the backend's description; any other auto-created group (e.g. the
+# ``backup.get`` handler creating ``backup``) is a plugin command.
 # The built-in ``none`` backend has no group — it is the absence of a
 # managed backend; ``osh init`` is its setup, ``osh backend stop`` its
 # teardown, ``osh backend deactivate`` the way back.
@@ -206,6 +206,7 @@ _COMMAND_ORDER = [
     "shell",
     "test",
     "db",
+    "backup",
     "addon",
     "backend",
     "config",

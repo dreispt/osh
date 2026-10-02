@@ -298,11 +298,11 @@ def test_alias_and_unalias_persist(plugin_home, user_config, tmp_path):
     from osh.config import get_plugin_aliases
 
     runner = CliRunner()
-    result = runner.invoke(plug, ["alias", "plug-a", "db.restore", "load-db"])
+    result = runner.invoke(plug, ["alias", "plug-a", "backup.restore", "load-db"])
     assert result.exit_code == 0, result.output
-    assert get_plugin_aliases("plug-a") == {"db.restore": "load-db"}
+    assert get_plugin_aliases("plug-a") == {"backup.restore": "load-db"}
 
-    result = runner.invoke(plug, ["unalias", "plug-a", "db.restore"])
+    result = runner.invoke(plug, ["unalias", "plug-a", "backup.restore"])
     assert result.exit_code == 0, result.output
     assert get_plugin_aliases("plug-a") == {}
 

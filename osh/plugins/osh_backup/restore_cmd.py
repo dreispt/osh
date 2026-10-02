@@ -1,4 +1,4 @@
-"""`osh db restore` command provided by the osh_db_get plugin."""
+"""`osh backup restore` command provided by the osh_backup plugin."""
 
 import traceback
 
@@ -25,7 +25,7 @@ from . import restore_ops
 from .remotes import newest_cache_for_remote, newest_cache_for_source
 
 
-# `osh db restore` handler — extensions subclass DbRestore and override
+# `osh backup restore` handler — extensions subclass DbRestore and override
 # step methods, calling super(). Command state is on ``self``: ``ctx``,
 # the parsed params plus ``base``, ``backend``, ``dump_path`` and
 # ``db_name`` as ``run()`` fills them in.
@@ -33,8 +33,8 @@ class DbRestore(CommandHandler):
     """Restore a backup into the current branch's database and neutralize it.
 
     With no DUMP argument, the newest backup from the project cache is used.
-    Use `cache:<id>` to pick a specific entry shown by `osh db restore --list`.
-    DUMP may also be a remote name (see `osh db remote`) or a backup source
+    Use `cache:<id>` to pick a specific entry shown by `osh backup list`.
+    DUMP may also be a remote name (see `osh backup remote`) or a backup source
     URL — the newest cached backup fetched from it is restored.
 
     PostgreSQL credentials are read from ``.osh/odoo.conf`` (or ``.odoorc``)
@@ -54,14 +54,14 @@ class DbRestore(CommandHandler):
 
     For `.zip` backups, the filestore directory is copied into the configured
     Odoo `data_dir` under `filestore/<dbname>/`. If `data_dir` cannot be
-    determined, `osh db restore` warns and continues without the filestore.
+    determined, `osh backup restore` warns and continues without the filestore.
 
     After the dump is restored, the database is neutralized. Odoo 16.0+ uses
     `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
     scripts.
 
     Once the restore (and neutralization) completes, plugins extending the
-    ``db.restore`` handler through ``post_restore()`` run — e.g. to record
+    ``backup.restore`` handler through ``post_restore()`` run — e.g. to record
     module fingerprints in the restored database. Failures are reported as
     warnings; they cannot fail an already-completed restore.
 
@@ -76,46 +76,25 @@ class DbRestore(CommandHandler):
     Examples:
 
     \b
-      osh db restore
-      osh db restore cache:1
-      osh db restore prod
-      osh db restore https://my.odoo.com/web?db=prod
-      osh db restore /path/to/backup.zip
-      osh db restore /path/to/backup.zip --db prod_restore
-      osh db restore /path/to/backup.sql.gz --force
-      osh db restore /path/to/backup.sql.gz --db prod_restore --force
-      osh db restore --list
+      osh backup restore
+      osh backup restore cache:1
+      osh backup restore prod
+      osh backup restore https://my.odoo.com/web?db=prod
+      osh backup restore /path/to/backup.zip
+      osh backup restore /path/to/backup.zip --db prod_restore
+      osh backup restore /path/to/backup.sql.gz --force
+      osh backup restore /path/to/backup.sql.gz --db prod_restore --force
     """
 
-    _cli_name = "db.restore"
+    _cli_name = "backup.restore"
 
     dump = None
-    list_backups = False
-    limit = 20
-    reverse = False
     force = False
     no_neutralize = False
     target_db = None
     dry_run = False
 
     @click.argument("dump", required=False)
-    @click.option(
-        "--list",
-        "list_backups",
-        is_flag=True,
-        help="List cached backups instead of restoring.",
-    )
-    @click.option(
-        "--limit",
-        default=20,
-        show_default=True,
-        help="Maximum number of backups to show (with --list).",
-    )
-    @click.option(
-        "--reverse",
-        is_flag=True,
-        help="List oldest backups first (with --list).",
-    )
     @click.option(
         "--force",
         is_flag=True,
@@ -141,11 +120,6 @@ class DbRestore(CommandHandler):
     )
     def run(self):
         self.base = find_project_root(required=True)
-        if self.list_backups:
-            restore_ops.list_cached_backups(
-                self.base, limit=self.limit, reverse=self.reverse
-            )
-            return
         self.dump_path = self.resolve_dump_path()
         self.db_name = self.resolve_target_db()
         self.backend = resolve_backend(self.base)
@@ -304,3 +278,31 @@ class DbRestore(CommandHandler):
                 f"from {self.dump_path}",
                 err=True,
             )
+
+
+class BackupList(CommandHandler):
+    """List cached backups in the project cache, newest first.
+
+    The ids shown can be passed to `osh backup restore cache:<id>`.
+    """
+
+    _cli_name = "backup.list"
+
+    limit = 20
+    reverse = False
+
+    @click.option(
+        "--limit",
+        default=20,
+        show_default=True,
+        help="Maximum number of backups to show.",
+    )
+    @click.option(
+        "--reverse",
+        is_flag=True,
+        help="List oldest backups first.",
+    )
+    def run(self):
+        restore_ops.list_cached_backups(
+            find_project_root(required=True), limit=self.limit, reverse=self.reverse
+        )

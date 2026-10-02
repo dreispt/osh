@@ -287,7 +287,7 @@ def get_user_preference(key, section="user", fallback=None):
 # - ``[plugins.<repo>]`` — per installed plugin directory. ``enabled`` holds a
 #   list of plugin names; when absent every plugin in the repo is enabled.
 # - ``[plugin-aliases.<source>]`` — maps a plugin command name to the name it
-#   should be registered as (e.g. ``"db.restore" = 'myrestore'``).
+#   should be registered as (e.g. ``"backup.restore" = 'myrestore'``).
 
 
 def _plugin_table(source, table="plugins"):

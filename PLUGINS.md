@@ -63,8 +63,8 @@ what plugins install:
 2. **Import on use** — a plugin's module is imported only when needed:
    invoking `osh hello` imports the plugin declaring `hello`, resolving
    the `docker` backend imports only the plugin declaring it, and
-   composing `db.restore` imports only plugins declaring
-   `extends = ["db.restore"]`. Other installed plugins are never
+   composing `backup.restore` imports only plugins declaring
+   `extends = ["backup.restore"]`. Other installed plugins are never
    evaluated.
 
 A plugin that fails to import reports a clean error at invocation time
@@ -93,7 +93,7 @@ min_osh = "1.1"                          # minimum osh version required
 
 # Handlers this plugin extends — the plugin is imported when one of
 # them is composed.
-extends = ["db.restore"]
+extends = ["backup.restore"]
 
 # Named non-CLI handlers this plugin provides — resolvable by name
 # through resolve() without generating a command.
@@ -101,7 +101,7 @@ handlers = ["my_plugin.cmd"]
 
 # Plugin source names imported before this plugin — for couplings
 # extends/resolve() do not cover (direct package imports, side effects).
-depends = ["osh-db-get"]
+depends = ["osh-backup"]
 
 [commands]                 # top-level `osh <name>` commands
 hello = "Say hello."
@@ -117,13 +117,13 @@ init = "Initialise the project for the docker backend."
 [backends]                 # Backend subclasses provided
 docker = "Run Odoo inside a Docker Compose stack."
 
-[sources]                  # `osh db get` backup source schemes provided
+[sources]                  # `osh backup get` backup source schemes provided
 s3 = "Download a backup from an S3 bucket."
 ```
 
 Command declaration values are the short help text shown in `--help`
 listings, or a table with `help` and optional `group = true` when the
-command is itself a group (e.g. `osh db remote` — a handler class with
+command is itself a group (e.g. `osh backup remote` — a handler class with
 `@subcommand` methods), or `hidden =
 true` for internal commands that never appear in listings (e.g. sidecar
 helpers spawned by the plugin itself).
@@ -146,7 +146,7 @@ without importing anything.
 ### Command naming convention
 
 Commands follow a noun/verb rule: anything that operates on a persistent
-resource is `osh <noun> <verb>` (`osh db restore`, `osh plug install`,
+resource is `osh <noun> <verb>` (`osh backup restore`, `osh plug install`,
 `osh addon update`), while bare top-level verbs are reserved for the
 primary day-to-day workflow actions (`osh init`, `osh odoo`, `osh switch`,
 `osh shell`, `osh test`). If your plugin manages a resource,
@@ -251,7 +251,7 @@ name). If the name is taken — by a core command or an earlier plugin —
 `osh plug alias` assigns a permanent name to any plugin command; it is
 stored under `[plugin-aliases.<plugin>]` in `~/.config/osh/config.toml`.
 Group subcommands are referenced as `<group>.<name>` (e.g.
-`osh plug alias my-plugin db.restore other-name`). An alias or fallback
+`osh plug alias my-plugin backup.restore other-name`). An alias or fallback
 that itself collides is an error, and the command is skipped.
 
 Backend and backup source names are functional identifiers (`osh <name>`
@@ -288,7 +288,7 @@ without notice.
   `decode_stderr`.
 - `osh.backends` — `Backend`, `EnvSpec`, `copy_odoo_rc_to_osh_conf`.
 - `osh.backup_sources` — `BackupSource`, `SourceError` — the interface
-  for new `osh db get` schemes.
+  for new `osh backup get` schemes.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
   `friendly`.
 - `osh.handlers` — `CommandHandler`, `Env`, `resolve()`,
@@ -311,7 +311,7 @@ of the backend contract.
 
 A plugin command is a `CommandHandler` subclass declaring `_cli_name` —
 the name doubles as command placement: a dotted name attaches to the
-group named by its first segment (`db.restore` → `osh db restore`), a
+group named by its first segment (`backup.restore` → `osh backup restore`), a
 bare name registers top-level (`scan` → `osh scan`). Declare each
 command in `osh-plugin.toml` under `[commands]` or
 `[group_commands.<group>]` so it can be listed without importing:
@@ -361,7 +361,7 @@ it directly, `osh.handlers.resolve("db.audit")` returns the class.
 
 A plugin-provided command group — one handler class whose
 `@subcommand`-marked methods become the subcommands — declares its
-`_cli_name` as `<group>.<name>`, like `osh db remote`:
+`_cli_name` as `<group>.<name>`, like `osh backup remote`:
 
 ```python
 from osh.handlers import CommandHandler, subcommand
@@ -370,13 +370,13 @@ from osh.handlers import CommandHandler, subcommand
 class DbRemote(CommandHandler):
     """Manage named backup sources."""     # the group's --help body
 
-    _cli_name = "db.remote"
+    _cli_name = "backup.remote"
 
     @subcommand
     @click.argument("name")
     @click.argument("url")
     def add(self):
-        """Add a named backup source."""   # `osh db remote add --help`
+        """Add a named backup source."""   # `osh backup remote add --help`
         ...
 ```
 
@@ -543,7 +543,7 @@ instead, which returns the effective class by name:
 from osh.handlers import CommandHandler, resolve
 
 
-class FingerprintBaseline(resolve("db.restore")):
+class FingerprintBaseline(resolve("backup.restore")):
     def post_restore(self):
         super().post_restore()
         ...
@@ -558,8 +558,8 @@ A subclass that _does_ declare its own `_cli_name` is a new command
 reusing the parent's implementation — it does not affect the parent:
 
 ```python
-class SmartRestore(resolve("db.restore")):
-    _cli_name = "db.smart_restore"
+class SmartRestore(resolve("backup.restore")):
+    _cli_name = "backup.smart_restore"
 ```
 
 Command state lives on `self`: `self.env` is the per-invocation `Env`,
@@ -590,8 +590,8 @@ class, so extending `osh db list` means subclassing `Db` and overriding
 `list()` (or a helper it calls, like `extra_sections()`). Nested groups
 work the same way: `config.user` is itself a handler class whose
 `verbosity` method backs `osh config user verbosity`. Plugin-generated
-groups are limited to one level — a plugin can name `db.remote`, not
-`db.remote.foo`.
+groups are limited to one level — a plugin can name `backup.remote`, not
+`backup.remote.foo`.
 
 `resolve(name)` is the lazy name→class bridge — it imports only the
 plugin declaring the handler, then returns the class. Subcommand names
@@ -642,9 +642,9 @@ without a command.
 
 ### Backup source plugins
 
-`osh db get <scheme>://...` schemes come from `BackupSource` subclasses.
+`osh backup get <scheme>://...` schemes come from `BackupSource` subclasses.
 Declare each scheme in `osh-plugin.toml` so the plugin is imported only
-when the scheme is actually used, and so `osh db get --help` can list it:
+when the scheme is actually used, and so `osh backup get --help` can list it:
 
 ```toml
 [sources]
@@ -663,28 +663,27 @@ A source class must:
 
 - Define a `scheme` class attribute (e.g. `scheme = "s3"`).
 - Optionally set a short `description` attribute; it is shown in
-  `osh db get --help` next to the scheme.
+  `osh backup get --help` next to the scheme.
 - Optionally set a longer `help_text` attribute; users can view it with
-  `osh db get --help-scheme <scheme>`.
+  `osh backup get --help-scheme <scheme>`.
 - Implement `from_source(source, base, *, output_format="dump", **options)`
   returning an instance. `source` is the full URL string and `base` is the
   project root (or `None`).
 - Implement `default_output_name()` returning the default filename.
 - Implement `fetch(output, *, dry_run=False)` to write the backup to `output`.
 - Optionally implement `canonical_source(source)` returning a normalized
-  identity for a source string. `osh db restore <source>` restores the
+  identity for a source string. `osh backup restore <source>` restores the
   newest cached backup whose stored source has the same identity, so
   implement it when one source can be spelled in different ways — e.g. the
   `https` source maps `https://host/web?db=x` and `https://host?db=x` to
   `https://host?db=x`. The default returns the source string unchanged,
   meaning only an exact match restores.
 
-The built-in sources ship in the consolidated `osh/plugins/osh_db_get/`
+The built-in sources ship in the consolidated `osh/plugins/osh_backup/`
 plugin — `db://`, `https://`/`http://`, `odoosh://` and `ssh://` —
-alongside the `osh db get` command and the `osh db restore` group
-subcommand.
+alongside the `osh backup get`/`restore`/`list`/`remote` commands.
 
-`osh db restore` is a regular handler (`db.restore`), so post-restore
+`osh backup restore` is a regular handler (`backup.restore`), so post-restore
 behaviour is an ordinary extension subclass: override `post_restore()`
 and call `super()`. The handler state carries `self.ctx`, `self.base`,
 `self.db_name` and `self.env_spec`; `post_restore` is skipped under
@@ -695,7 +694,7 @@ failing the restore (run `osh --verbose` for the traceback):
 from osh.handlers import resolve
 
 
-class FingerprintBaseline(resolve("db.restore")):
+class FingerprintBaseline(resolve("backup.restore")):
     def post_restore(self):
         super().post_restore()
         # e.g. record module fingerprints in self.db_name
@@ -715,7 +714,7 @@ class S3BackupSource(BackupSource):
 Download a backup from an S3 bucket.
 
 Example:
-  osh db get s3://my-bucket/backups/odoo.sql.gz
+  osh backup get s3://my-bucket/backups/odoo.sql.gz
 """
 
     @classmethod
@@ -736,7 +735,7 @@ Example:
 
 ### EnvSpec
 
-`osh odoo`, `osh run` and `osh db restore` pass an `EnvSpec` dataclass
+`osh odoo`, `osh run` and `osh backup restore` pass an `EnvSpec` dataclass
 (from `osh/backends.py`) to `Backend.env()`. It describes a command to
 execute inside the prepared target environment:
 

@@ -74,7 +74,7 @@ def check_run_diagnostics(base, backend, ctx, *, compose_file=None):
     """Collect run-phase diagnostics; print warnings, raise on errors.
 
     Shared pre-flight for ``osh odoo``/``osh shell`` and plugin commands that
-    need the backend checked before executing (e.g. ``osh db restore``).
+    need the backend checked before executing (e.g. ``osh backup restore``).
     Returns the collected ``Diagnostics``.
     """
     diagnostics = collect_diagnostics(

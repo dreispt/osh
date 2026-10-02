@@ -252,7 +252,7 @@ class Plug(CommandHandler):
         """Register plugin command COMMAND from SOURCE under a custom NAME.
 
         COMMAND is the plugin's declared command name — or ``<group>.<name>`` for
-        plugin-provided group subcommands (e.g. ``db.restore``). The alias is
+        plugin-provided group subcommands (e.g. ``backup.restore``). The alias is
         stored in ``~/.config/osh/config.toml`` and takes effect on the next run.
         """
         if not _NAME_RE.match(self.name):
