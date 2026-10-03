@@ -167,6 +167,18 @@ def _is_git_repo(path):
     return (git / "HEAD").exists()
 
 
+def file_newer_than(path, epoch):
+    """Return True when *path*'s mtime postdates *epoch* seconds.
+
+    Missing or unreadable files answer False — callers probing optional
+    files (a Dockerfile, a requirements.txt) get "not newer" for free.
+    """
+    try:
+        return Path(path).stat().st_mtime > epoch
+    except OSError:
+        return False
+
+
 def find_project_repos(base, *, max_depth=4):
     """Return the git repositories that make up the project rooted at *base*.
 
