@@ -181,7 +181,9 @@ def _setup_environment(
         return False
     # Anchor for the stale-environment check — directory mtimes do not
     # reliably change when pip installs a package.
-    (venv_path / ".osh-installed").touch()
+    marker = venv_path / ".osh-installed"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
     return True
 
 
