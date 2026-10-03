@@ -1,4 +1,4 @@
-"""Tests for ``osh backend stop`` and ``osh <backend> stop`` commands."""
+"""Tests for ``osh runtime stop`` and ``osh <runtime> stop`` commands."""
 
 import os
 import signal
@@ -11,19 +11,19 @@ from .conftest import _docker_ps_line, _patch_docker_ps, _write_docker_config
 
 
 def test_stop_host_without_listener_is_noop(in_project, monkeypatch):
-    """``osh backend stop`` reports nothing when the port is free."""
+    """``osh runtime stop`` reports nothing when the port is free."""
     monkeypatch.setattr(
         "osh.backends._port_listeners",
         lambda port: [],
     )
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert "no process listening on port 8069" in result.output
 
 
 def test_stop_host_kills_odoo_listener(in_project, monkeypatch):
-    """``osh backend stop`` stops an Odoo process holding the project's HTTP port."""
+    """``osh runtime stop`` stops an Odoo process holding the project's HTTP port."""
     killed = []
     monkeypatch.setattr(
         "osh.backends._port_listeners",
@@ -37,7 +37,7 @@ def test_stop_host_kills_odoo_listener(in_project, monkeypatch):
     # SIGTERM releases the port right away — no real waiting in tests.
     monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert killed == [(4321, signal.SIGTERM)]
@@ -45,7 +45,7 @@ def test_stop_host_kills_odoo_listener(in_project, monkeypatch):
 
 
 def test_stop_host_leaves_non_odoo_listener(in_project, monkeypatch):
-    """``osh backend stop`` does not kill a foreign process holding the port."""
+    """``osh runtime stop`` does not kill a foreign process holding the port."""
     killed = []
     monkeypatch.setattr(
         "osh.backends._port_listeners",
@@ -57,7 +57,7 @@ def test_stop_host_leaves_non_odoo_listener(in_project, monkeypatch):
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append(pid))
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert killed == []
@@ -102,7 +102,7 @@ def test_stop_host_escalates_to_sigkill(in_project, monkeypatch):
         "osh.backends._wait_for_port_release", lambda *a, **k: next(releases)
     )
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert killed == [(4321, signal.SIGTERM), (4321, signal.SIGKILL)]
@@ -124,7 +124,7 @@ def test_stop_host_warns_when_process_survives_sigkill(in_project, monkeypatch):
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
     monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: False)
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert killed == [(4321, signal.SIGTERM), (4321, signal.SIGKILL)]
@@ -143,7 +143,7 @@ def test_stop_host_skips_sigkill_when_pid_was_reused(in_project, monkeypatch):
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
     monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: False)
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     # SIGTERM was sent, but the pid no longer looks like Odoo so no SIGKILL.
@@ -165,7 +165,7 @@ def test_stop_host_kills_python_module_odoo(in_project, monkeypatch):
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
     monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert killed == [(77, signal.SIGTERM)]
@@ -300,7 +300,7 @@ def test_stop_docker_missing_compose_file_removes_containers(in_project, monkeyp
 
 
 def test_stop_backend_group_dispatches_to_active_backend(in_project, monkeypatch):
-    """``osh backend stop`` delegates to the active backend's teardown."""
+    """``osh runtime stop`` delegates to the active backend's teardown."""
     from osh.db import set_project_config
 
     _write_docker_config(in_project)
@@ -312,7 +312,7 @@ def test_stop_backend_group_dispatches_to_active_backend(in_project, monkeypatch
         lambda args, **kwargs: calls.append(args),
     )
 
-    result = CliRunner().invoke(main, ["backend", "stop"])
+    result = CliRunner().invoke(main, ["runtime", "stop"])
 
     assert result.exit_code == 0, result.output
     assert len(calls) == 1

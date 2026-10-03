@@ -1,9 +1,9 @@
-description = "Python virtualenv backend."
+description = "Python virtualenv runtime."
 
 [backends]
 venv = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
 
 [group_commands.venv]
-init = "Initialise the project for the venv backend."
-activate = "Make venv the project's active run backend."
-stop = "Stop resources left running by the venv backend."
+init = "Initialise the project for the venv runtime."
+activate = "Make venv the project's active runtime."
+stop = "Stop resources left running by the venv runtime."

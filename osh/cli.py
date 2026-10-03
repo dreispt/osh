@@ -69,7 +69,7 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     Use `osh init` to initialize an Odoo environment in a project.
     Use `osh shell` to enter the runtime environment or run any command inside it.
     Use `osh odoo` to run Odoo in that environment, using an available
-    backend (none, docker, etc.).
+    runtime (host, venv, docker, etc.).
     Add the `--help` option to a command to learn more.
     """
     ctx.ensure_object(dict)
@@ -151,13 +151,13 @@ main.plugin_commands = _plugin_commands
 # Register plugin-provided subcommands on command groups — plugin
 # handlers with dotted names (``backup.restore``) declared under
 # ``[group_commands.<group>]``. Missing target
-# groups are created on demand: a group named after a declared backend
-# (``osh docker``) renders in the "Backend Commands" help section with
-# the backend's description; any other auto-created group (e.g. the
+# groups are created on demand: a group named after a declared runtime
+# (``osh docker``) renders in the "Runtime Commands" help section with
+# the runtime's description; any other auto-created group (e.g. the
 # ``backup.get`` handler creating ``backup``) is a plugin command.
-# The built-in ``none`` backend has no group — it is the absence of a
-# managed backend; ``osh init`` is its setup, ``osh backend stop`` its
-# teardown, ``osh backend deactivate`` the way back.
+# The built-in ``host`` runtime has no group — it is the absence of a
+# managed runtime; ``osh init`` is its setup, ``osh runtime stop`` its
+# teardown, ``osh runtime deactivate`` the way back.
 # Targeting a non-group command is an error.
 main.backend_commands = {}
 for group_name, entries in load_group_commands().items():
@@ -208,7 +208,7 @@ _COMMAND_ORDER = [
     "db",
     "backup",
     "addon",
-    "backend",
+    "runtime",
     "config",
     "plug",
 ]

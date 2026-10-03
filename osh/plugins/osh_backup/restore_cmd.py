@@ -9,6 +9,7 @@ from ...commands.helpers import check_run_diagnostics
 from ...commands.odoo_cmd import odoo
 from ...common import find_project_root
 from ...db import (
+    confirm_prod_db_action,
     create_db,
     db_exists,
     drop_db,
@@ -59,6 +60,9 @@ class DbRestore(CommandHandler):
     After the dump is restored, the database is neutralized. Odoo 16.0+ uses
     `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
     scripts.
+
+    On production projects (``osh init --prod``) the target database name
+    must be typed to confirm before anything is dropped or restored.
 
     Once the restore (and neutralization) completes, plugins extending the
     ``backup.restore`` handler through ``post_restore()`` run — e.g. to record
@@ -124,6 +128,7 @@ class DbRestore(CommandHandler):
         self.db_name = self.resolve_target_db()
         self.backend = resolve_backend(self.base)
         check_run_diagnostics(self.base, self.backend, self.ctx)
+        self.confirm_target()
         self.prepare_target()
         self.restore_dump()
         if not self.no_neutralize:
@@ -151,6 +156,13 @@ class DbRestore(CommandHandler):
         if not db_name:
             raise click.ClickException("Could not resolve a target database name.")
         return db_name
+
+    def confirm_target(self):
+        """On production projects, ask to type the target database name."""
+        if self.dry_run:
+            return
+        action = "restore into" if self.no_neutralize else "restore and neutralize"
+        confirm_prod_db_action(self.base, self.db_name, action)
 
     def prepare_target(self):
         """Drop an existing target database when ``--force`` allows it."""

@@ -1,18 +1,18 @@
-"""Virtualenv-managed init and execution backend for Osh."""
+"""Virtualenv-managed runtime for Osh."""
 
 import re
 from pathlib import Path
 
 import click
 
-from ...backends import NoneBackend
+from ...backends import HostBackend
 from ...common import get_venv_bin, run_subprocess, venv_env
 from .python_versions import get_available_python_versions, get_python_requirements
 from .utils import init_project
 
 
-class VenvBackend(NoneBackend):
-    """Backend that manages a project ``.venv`` and runs inside it."""
+class VenvBackend(HostBackend):
+    """Runtime that manages a project ``.venv`` and runs inside it."""
 
     name = "venv"
     label = "Python virtualenv"
@@ -46,7 +46,7 @@ class VenvBackend(NoneBackend):
             ),
         ]
 
-    _DIAGNOSE_SECTIONS = NoneBackend._DIAGNOSE_SECTIONS + (
+    _DIAGNOSE_SECTIONS = HostBackend._DIAGNOSE_SECTIONS + (
         "python",
         "requirements",
     )

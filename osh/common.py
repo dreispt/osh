@@ -101,9 +101,24 @@ def find_project_root(start=None, *, required=False):
     When not inside a git repository, falls back to walking up from *start*
     looking for a ``.osh`` directory.
 
+    When *start* is not given and the ``OSH_PROJECT_DIR`` environment
+    variable is set, that directory is used as the project root instead of
+    searching from the current directory — so commands can run from
+    anywhere (e.g. cron jobs or sysadmin scripts on a server).
+
     When *required* is True, print an informational message and exit if no
     project is found, instead of returning None.
     """
+    if start is None and os.environ.get("OSH_PROJECT_DIR"):
+        project_dir = Path(os.environ["OSH_PROJECT_DIR"]).expanduser().resolve()
+        if (project_dir / ".osh").exists():
+            return project_dir
+        if required:
+            raise click.ClickException(
+                f"OSH_PROJECT_DIR is set to '{project_dir}', "
+                "which is not an Osh project (no '.osh' directory)."
+            )
+        return None
     start = (start or Path.cwd()).resolve()
     home = Path.home().resolve()
 
@@ -326,9 +341,30 @@ def get_odoo_config_path(base):
     return base / ".odoorc"
 
 
+def get_external_odoo_config_path(base):
+    """Return the external Odoo config recorded as ``init.odoo_rc``, or None.
+
+    ``osh init`` records it when ``ODOO_RC`` points to an existing file
+    (e.g. ``/etc/odoo.conf``); a recorded file that no longer exists is
+    ignored.
+    """
+    value = config.get_project_config(base, "init", "odoo_rc")
+    if value and Path(value).is_file():
+        return Path(value)
+    return None
+
+
 def get_osh_odoo_config_path(base):
-    """Return path to the Osh-managed Odoo configuration file (.osh/odoo.conf)."""
-    return base / ".osh" / "odoo.conf"
+    """Return path to the project's Odoo configuration file.
+
+    This is ``.osh/odoo.conf``, unless it doesn't exist and an external
+    config was recorded from ``ODOO_RC`` (see
+    :func:`get_external_odoo_config_path`).
+    """
+    osh_conf = base / ".osh" / "odoo.conf"
+    if not osh_conf.exists():
+        return get_external_odoo_config_path(base) or osh_conf
+    return osh_conf
 
 
 def get_odoo_port(base):
@@ -660,7 +696,7 @@ def get_odoo_data_dir(base):
     exists, otherwise None).
     """
     if base is not None:
-        odoo_rc = get_odoo_config_path(base)
+        odoo_rc = get_external_odoo_config_path(base) or get_odoo_config_path(base)
         if odoo_rc.exists():
             cfg = configparser.ConfigParser()
             cfg.read(odoo_rc)

@@ -88,7 +88,7 @@ def test_port_collision_identifies_host_process(tmp_project, monkeypatch):
     message = excinfo.value.format_message()
     assert "host Odoo process" in message
     assert "pid 4194304" in message
-    assert "osh backend stop" in message
+    assert "osh runtime stop" in message
 
 
 def test_port_collision_unidentified_holder(tmp_project, monkeypatch):

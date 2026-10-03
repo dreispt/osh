@@ -21,6 +21,7 @@ COMMANDS = [
     shell_cmd.shell,
     db_cmd.db,
     addon_cmd.addon,
+    backend_cmd.runtime,
     backend_cmd.backend,
     config_cmd.config,
     plug_cmd.plug,

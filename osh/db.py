@@ -151,36 +151,79 @@ def get_pg_env(base):
     return env
 
 
+_LEGACY_RUNTIME_NAMES = {"none": "host", "local": "host"}
+
+
 def normalize_backend_name(name):
-    """Return *name*, mapping the legacy ``local`` backend name to ``none``."""
-    return "none" if name == "local" else name
+    """Return *name*, mapping the legacy ``none``/``local`` names to ``host``."""
+    return _LEGACY_RUNTIME_NAMES.get(name, name)
 
 
-def get_active_backend_name(base, default="none"):
-    """Return the project's active backend name (``run.target`` config)."""
-    return normalize_backend_name(
-        get_project_config(base, "run", "target", fallback=default)
+def get_active_backend_name(base, default="host"):
+    """Return the project's active runtime name.
+
+    Reads ``run.runtime``, falling back to the legacy ``run.target`` key.
+    """
+    name = get_project_config(base, "run", "runtime") or get_project_config(
+        base, "run", "target", fallback=default
     )
+    return normalize_backend_name(name)
+
+
+def set_active_backend_name(base, name):
+    """Record *name* as the project's active runtime (``run.runtime``).
+
+    The legacy ``run.target`` key is removed so the two never disagree.
+    """
+    set_project_config(base, "run", "runtime", name)
+    if get_project_config(base, "run", "target") is not None:
+        unset_project_config(base, "run", "target")
+
+
+def is_prod_project(base):
+    """Return True when the project was initialised with ``osh init --prod``."""
+    value = get_project_config(base, "init", "prod")
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
+def confirm_prod_db_action(base, db_name, action):
+    """Ask to type *db_name* before *action* on a production project.
+
+    No-op unless the project config has ``init.prod = true``. The typed
+    confirmation is required even with ``--force``; scripts can pipe the
+    database name on stdin.
+    """
+    if not is_prod_project(base):
+        return
+    echo.warning(
+        f"This is a production project (init.prod = true): about to {action} "
+        f"database '{db_name}'."
+    )
+    typed = click.prompt(
+        "Type the database name to confirm", default="", show_default=False
+    )
+    if typed.strip() != db_name:
+        raise click.ClickException("Database name did not match. Aborted.")
 
 
 def deactivate_backend(base):
-    """Record ``none`` as the active backend; return the previous name.
+    """Record ``host`` as the active runtime; return the previous name.
 
-    Returns ``None`` when no managed backend was active. Backend plugins can
-    call this from their own deactivate command to keep the run.target
+    Returns ``None`` when no managed runtime was active. Runtime plugins can
+    call this from their own deactivate command to keep the ``run.runtime``
     bookkeeping in one place.
     """
     previous = get_active_backend_name(base, default=None)
-    if not previous or previous == "none":
+    if not previous or previous == "host":
         return None
-    set_project_config(base, "run", "target", "none")
+    set_active_backend_name(base, "host")
     return previous
 
 
-def resolve_backend(base, default="none"):
-    """Instantiate the backend configured for *base*.
+def resolve_backend(base, default="host"):
+    """Instantiate the runtime backend configured for *base*.
 
-    The active backend is the ``run.target`` recorded in the project config
+    The active runtime is the ``run.runtime`` (or legacy ``run.target``) recorded in the project config
     by ``osh <backend> init`` or ``osh <backend> activate``, falling back to
     *default*. This is the supported way for commands and plugins to obtain
     the active backend instance.

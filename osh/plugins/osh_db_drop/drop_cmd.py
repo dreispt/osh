@@ -5,9 +5,11 @@ import click
 from ... import echo
 from ...common import find_project_root
 from ...db import (
+    confirm_prod_db_action,
     db_exists,
     drop_db,
     get_last_db,
+    is_prod_project,
     sanitize_db_name,
     unset_project_config,
 )
@@ -20,7 +22,9 @@ class DbDrop(CommandHandler):
 
     Removes the database and the matching ``filestore/<db>`` directory under
     Odoo's ``data_dir`` (inside the container on Docker backends). Asks for
-    confirmation unless ``--force`` is given.
+    confirmation unless ``--force`` is given. On production projects
+    (``osh init --prod``) the database name must be typed to confirm, even
+    with ``--force``.
 
     Examples:
 
@@ -49,7 +53,9 @@ class DbDrop(CommandHandler):
         if not exists and not has_filestore:
             echo.info(f"Database '{name}' does not exist — nothing to drop.")
             return
-        if not self.force:
+        if is_prod_project(base):
+            confirm_prod_db_action(base, name, "drop")
+        elif not self.force:
             if exists:
                 prompt = f"Drop database '{name}' and its filestore?"
             else:

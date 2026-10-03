@@ -249,11 +249,12 @@ def test_user_plugin_backends_and_sources(plugin_dir, capsys):
 
 
 def test_backend_name_collision_is_skipped(plugin_dir, capsys):
-    """A second backend with the same name is skipped with an error."""
+    """A backend named like the built-in host runtime (legacy ``none``) is skipped."""
     _copy_plugin(plugin_dir, "repo_m")
 
     backends = plugin_loader.load_backends()
-    assert backends["none"].__module__ == "osh.backends"
+    assert backends["host"].__module__ == "osh.backends"
+    assert "none" not in backends
     assert "conflicts" in capsys.readouterr().err
 
 
