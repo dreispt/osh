@@ -1,11 +1,15 @@
 # Osh – Odoo Shell
 
-`osh` is a command-line wrapper around `odoo-bin` that makes it easier to run
-Odoo in development and staging environments.
+_An exoskeleton for Odoo development_
 
-Think of it as a virtual environment manager for Odoo projects:
-it discovers your addons, picks a database name for you,
-and runs the right Odoo installation for the project.
+`osh` provides a command-line interface for working with Odoo development
+environments, databases, and project infrastructure. It brings common
+development operations into a consistent interface while keeping the
+underlying Odoo, Docker, PostgreSQL, and other tools accessible.
+
+It is like a virtual environment manager for Odoo projects:
+it discovers your addons, remembers the database to use,
+and runs the right command to start Odoo in your project.
 
 > **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
 
