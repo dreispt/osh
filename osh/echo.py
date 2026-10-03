@@ -85,6 +85,11 @@ def debug(message, err=False):
     _get_cached_echo().debug(message, err=err)
 
 
+def output(message, err=False):
+    """Print command output verbatim — unstyled, shown at info level."""
+    _get_cached_echo().output(message, err=err)
+
+
 _EMOJI_PREFIXES = {
     "error": "❌ ",
     "warning": "⚠️ ",
@@ -215,6 +220,11 @@ class Echo:
     def debug(self, message, err=False):
         """Log diagnostics (shown at debug level only)."""
         self._echo("debug", message, err=err)
+
+    def output(self, message, err=False):
+        """Print command output verbatim — unstyled, shown at info level."""
+        if self.should_show("info"):
+            click.echo(message, err=err)
 
 
 def confirm(message, default=True, abort=False):

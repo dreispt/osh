@@ -397,11 +397,15 @@ def format_cmd(args):
 
 
 def _stream_output(pipe, err=False):
-    """Read *pipe* line-by-line and echo it to the user."""
+    """Read *pipe* line-by-line and echo it to the user.
+
+    Command output is not an Osh message: it prints verbatim, without
+    category styling.
+    """
     for line in iter(pipe.readline, ""):
         if not line:
             break
-        echo.info(line.rstrip("\r\n"), err=err)
+        echo.output(line.rstrip("\r\n"), err=err)
     pipe.close()
 
 

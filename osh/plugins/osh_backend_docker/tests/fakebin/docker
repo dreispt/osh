@@ -71,6 +71,10 @@ case "$verb" in
         fi
         exit 0
         ;;
+    build)
+        cat "$D/build.out" 2>/dev/null
+        exit 0
+        ;;
     exec)
         [ -f "$D/want_stdin" ] && cat > "$D/stdin.bin"
         if [ -f "$D/pg_attempts" ]; then

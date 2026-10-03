@@ -18,7 +18,7 @@ from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.plugins.osh_backend_docker.backends import DockerBackend
 from osh.utils.plugin_loader import load_backends, load_plugins
 
-from .conftest import _write_docker_config
+from .conftest import FAKEBIN, _write_docker_config
 
 
 def test_docker_backends_are_registered():
@@ -27,28 +27,6 @@ def test_docker_backends_are_registered():
     assert "docker" in backends
     assert backends["docker"].name == "docker"
     assert backends["docker"].backend_type == "backend"
-
-
-FAKEBIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fakebin")
-
-
-@pytest.fixture
-def fake_docker(tmp_path, monkeypatch):
-    """Put a canned-answer ``docker`` on PATH; return its response dir.
-
-    For the rare cases real Docker cannot reproduce deterministically —
-    an empty ``docker ps``, or a failing one. Absent response files mean
-    success with empty output; ``docker_ps`` and ``docker_rc`` override
-    plain ``docker`` calls (``osh docker list``).
-    """
-    real = shutil.which("docker")
-    state = tmp_path / "fake-docker"
-    state.mkdir()
-    monkeypatch.setenv("OSH_FAKE_DOCKER", str(state))
-    monkeypatch.setenv("PATH", f"{FAKEBIN}{os.pathsep}{os.environ['PATH']}")
-    if real:
-        monkeypatch.setenv("OSH_REAL_DOCKER", real)
-    return state
 
 
 FIXTURE_PROJECT = os.path.join(FAKEBIN, "..", "fixtures", "odoo-project")
