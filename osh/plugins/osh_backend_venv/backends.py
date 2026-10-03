@@ -1,6 +1,7 @@
 """Virtualenv-managed init and execution backend for Osh."""
 
 import re
+from pathlib import Path
 
 import click
 
@@ -45,7 +46,10 @@ class VenvBackend(NoneBackend):
             ),
         ]
 
-    _DIAGNOSE_SECTIONS = NoneBackend._DIAGNOSE_SECTIONS + ("python",)
+    _DIAGNOSE_SECTIONS = NoneBackend._DIAGNOSE_SECTIONS + (
+        "python",
+        "requirements",
+    )
 
     def _check_python_version(self, base, d, odoo_version):
         """Report whether the venv's Python is recommended/supported for the Odoo version."""
@@ -116,8 +120,17 @@ class VenvBackend(NoneBackend):
                 ", ".join(available) if available else "none",
                 topic="System",
             )
+        if "requirements" in active and options.get("phase") != "init":
+            self._check_stale_environment(base, d)
 
         return d
+
+    def _environment_builds(self, base):
+        """Anchor the venv's install time against init's requirements files."""
+        installed = _venv_install_time(Path(base) / ".venv")
+        if installed is None:
+            return ()
+        return [(installed, _requirement_files(base))]
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
@@ -160,3 +173,36 @@ class VenvBackend(NoneBackend):
             # Captured calls run system tools (psql, pg_dump, ...) that do
             # not need the project virtualenv.
             return {}
+
+
+def _venv_install_time(venv):
+    """Return when packages were last installed into *venv*, or None.
+
+    Init touches ``.osh-installed`` after its installs complete; the older
+    site-packages/pyvenv.cfg mtimes remain as fallbacks for venvs created
+    before the marker existed.
+    """
+    anchors = [venv / ".osh-installed"]
+    anchors.extend(venv.glob("lib/python*/site-packages"))
+    anchors.append(venv / "Lib" / "site-packages")  # Windows layout
+    anchors.append(venv / "pyvenv.cfg")
+    for path in anchors:
+        try:
+            if path.exists():
+                return path.stat().st_mtime
+        except OSError:
+            continue
+    return None
+
+
+def _requirement_files(base):
+    """Return the requirements files ``init`` pip-installs, when present."""
+    base = Path(base)
+    return [
+        path
+        for path in (
+            base / "requirements.txt",
+            base / ".osh" / "odoo" / "requirements.txt",
+        )
+        if path.is_file()
+    ]
