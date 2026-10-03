@@ -85,6 +85,9 @@ def docker_daemon(docker_cli, monkeypatch, tmp_path):
         lambda *a, **kw: False,
     )
     yield name
+    # Down the fixture's own namespace first — generated ``.osh`` stacks may
+    # not be attributed to it by ``docker compose ls``.
+    subprocess.run(["docker", "compose", "-p", name, "down", "-v"], capture_output=True)
     # Tear down every Compose project whose config lives under tmp_path —
     # covers both the test namespace and osh's own ``-p osh-*`` names.
     for project in _compose_projects():
@@ -793,6 +796,59 @@ def test_docker_backend_diagnose_reports_container_state(docker_project):
         "container"
     ]
     assert container == "not running"
+
+
+def test_docker_diagnose_warns_when_context_newer_than_image(
+    docker_shared_project,
+):
+    """A file edited after the image build prompts a stack-restart hint.
+
+    The shared fixture's ``app`` image was just built, so nothing is stale
+    until a file inside its ``odoo/`` build context is touched.
+    """
+    backend = DockerBackend()
+    warnings = backend.diagnose(docker_shared_project, phase="run").warnings
+    assert not any("osh docker stop" in w for w in warnings)
+
+    (docker_shared_project / "odoo" / "Dockerfile").touch()
+
+    warnings = backend.diagnose(docker_shared_project, phase="run").warnings
+    assert any("osh docker stop" in w for w in warnings)
+
+
+def test_docker_init_rebuilds_stale_image(docker_project):
+    """A user who edits the project Dockerfile re-runs init to refresh it.
+
+    Init runs ``compose build`` on stacks that declare ``build:``
+    services, so re-initialising picks up Dockerfile edits without a
+    stack restart.
+    """
+    from osh.commands.init_cmd import TodoPlan
+
+    backend = DockerBackend()
+    backend.init(
+        docker_project,
+        version="19.0",
+        service="app",
+        command="true",
+        todo=TodoPlan(None),
+    )
+
+    dockerfile = docker_project / "odoo" / "Dockerfile"
+    dockerfile.write_text(
+        dockerfile.read_text() + "RUN echo init-built > /init-marker\n"
+    )
+    backend.init(
+        docker_project,
+        version="19.0",
+        service="app",
+        command="true",
+        todo=TodoPlan(None),
+    )
+
+    result = _compose(docker_project, "run", "--rm", "app", "cat", "/init-marker")
+    assert result.returncode == 0
+    assert "init-built" in result.stdout
 
 
 def test_docker_backend_env_dry_run(tmp_project, capsys):

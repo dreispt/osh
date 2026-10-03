@@ -92,6 +92,31 @@ arguments itself:
 Containers are intentionally **left running** after commands exit.
 `osh docker stop` runs `docker compose down` for the project stack.
 
+## Rebuilding images
+
+A running stack never rebuilds its image — `up -d --build` only fires on
+a cold start, so edits to a project Dockerfile or its requirements stay
+invisible until the stack is recreated. `osh odoo` warns when files in
+the build context are newer than the built image.
+
+To refresh the image build, re-run init — it runs `compose build` before
+its smoke test on stacks that declare `build:` services:
+
+```bash
+osh docker init   # rebuild the service images
+```
+
+Init updates the image but does not recreate a running container, so a
+live stack still needs a restart to run on it:
+
+```bash
+osh docker stop   # down the stack
+osh odoo          # cold start rebuilds the image, then runs Odoo
+```
+
+For project-provided compose files, `docker compose build` at the
+project root works too.
+
 ## Addons paths
 
 The generated Odoo config's `addons_path` is translated to container paths

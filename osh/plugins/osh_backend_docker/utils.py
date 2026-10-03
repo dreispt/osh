@@ -246,6 +246,29 @@ def port_in_use(port, host="127.0.0.1"):
         return False
 
 
+def _compose_declares_build(target, compose_file):
+    """Whether *compose_file* declares a ``build:`` service.
+
+    A plain-text check — gating, not parsing — so a build step can be
+    skipped entirely on image-only stacks.
+    """
+    path = Path(compose_file or "")
+    if not path.is_absolute():
+        path = Path(target) / path
+    try:
+        return "build" in path.read_text()
+    except OSError:
+        return False
+
+
+def _build_service_images(target, compose_file=None):
+    """Build the stack's service images — a re-init refreshes stale ones."""
+    compose_cmd = _compose_base_command(target, compose_file=compose_file)
+    docker_args = [*compose_cmd, "build"]
+    echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+    run_command(docker_args, cwd=target, check=True, stream=True)
+
+
 def _run_smoke_test(target, compose_file=None):
     """Run the Odoo smoke test for Docker backend."""
     cfg = _load_docker_config(target)

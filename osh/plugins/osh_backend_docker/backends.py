@@ -15,6 +15,7 @@ from ... import echo
 from ...backends import Backend, copy_odoo_rc_to_osh_conf
 from ...common import odoo_http_port, run_command, run_subprocess
 from ...sources import ensure_osh_sources
+from .diagnostics import _environment_build_groups
 from .diagnostics import diagnose as _diagnose
 from .discovery import (
     _compose_project_names_for,
@@ -28,7 +29,9 @@ from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
     _SOURCES_COMPOSE_FILE,
+    _build_service_images,
     _compose_base_command,
+    _compose_declares_build,
     _detect_compose_file,
     _detect_dockerfile,
     _find_compose_tool,
@@ -126,6 +129,7 @@ class DockerBackend(Backend):
         "service",
         "sources",
         "container",
+        "build",
     )
 
     def detect_odoo_version(self, base):
@@ -158,7 +162,14 @@ class DockerBackend(Backend):
         if phase == "init":
             return ["compose_tool", "config", "compose_file", "service"]
         if phase == "run":
-            return ["compose_tool", "config", "compose_file", "service", "sources"]
+            return [
+                "compose_tool",
+                "config",
+                "compose_file",
+                "service",
+                "sources",
+                "build",
+            ]
         return list(self._DIAGNOSE_SECTIONS)
 
     def diagnose(
@@ -172,10 +183,19 @@ class DockerBackend(Backend):
         """Inspect Docker Compose environment and project configuration."""
         return _diagnose(self, base, sections=sections, **options)
 
+    def _environment_builds(self, base):
+        """Anchor each buildable service's image to its context files."""
+        cfg = _load_docker_config(base)
+        return _environment_build_groups(base, (cfg or {}).get("compose_file"), cfg=cfg)
+
+    def _stale_environment_hint(self):
+        return "Run 'osh docker stop'; " "the next 'osh odoo' rebuilds on a cold start."
+
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
         todo.add_plan("Write .osh/docker.toml with service and compose tool")
         todo.add_plan("Ensure Odoo sources for the selected edition")
+        todo.add_plan("Build service images (Dockerfile-based stacks)")
         todo.add_plan("Run an Odoo --version smoke test")
 
     def odoo_data_dir(self, base):
@@ -463,6 +483,10 @@ class DockerBackend(Backend):
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
         )
+
+        if _compose_declares_build(target, compose_file):
+            todo.start()
+            _build_service_images(target, compose_file=compose_file)
 
         todo.start()
         _run_smoke_test(target, compose_file=compose_file)

@@ -5,10 +5,15 @@ Implements the ``osh doctor``/init/run health-check sections for
 backend module stays focused on the run lifecycle.
 """
 
+import json
+import os
+import re
+from datetime import datetime
 from pathlib import Path
 
 from ...commands.helpers import Diagnostics
-from .discovery import _container_running_status
+from ...common import run_subprocess
+from .discovery import _container_running_status, _docker_executable
 from .utils import (
     _COMPOSE_FILE,
     _compose_base_command,
@@ -51,6 +56,8 @@ def diagnose(backend, base, *, sections=None, **options):
         _diagnose_service(d, phase, service)
     if "container" in sections and cfg:
         _diagnose_container(d, base, service or "odoo", cfg)
+    if "build" in sections and phase in ("run", "doctor"):
+        backend._check_stale_environment(base, d)
     if (
         "sources" in sections
         and phase == "run"
@@ -168,6 +175,177 @@ def _diagnose_container(d, base, service, cfg=None):
         d.add_info("container", detail)
     else:
         d.add_info("container", "not running")
+
+
+def _environment_build_groups(base, compose_file=None, cfg=None):
+    """Return ``(image_built_epoch, context_file_paths)`` per buildable service.
+
+    ``input_paths`` are lazy iterables so the shared staleness check walks
+    each context only while comparing. Services whose image was never
+    built are skipped — a cold ``up`` builds them, nothing is stale.
+    """
+    resolved = _resolve_compose_file(base, compose_file, cfg=cfg)
+    if not resolved:
+        return []
+    compose_path = Path(resolved)
+    if not compose_path.is_absolute():
+        compose_path = base / compose_path
+    try:
+        # Cheap gate — image-only stacks have no ``build:`` to inspect.
+        if "build" not in compose_path.read_text():
+            return []
+    except OSError:
+        return []
+    compose_cmd = _compose_base_command(
+        base, compose_file=compose_file, cfg=cfg, required=False
+    )
+    if compose_cmd is None:
+        return []
+    returncode, out, _ = run_subprocess([*compose_cmd, "config", "--format", "json"])
+    if returncode or not out:
+        return []
+    try:
+        config = json.loads(out)
+    except ValueError:
+        return []
+    project = config.get("name") or ""
+    groups = []
+    for name, svc in (config.get("services") or {}).items():
+        build = svc.get("build")
+        if not build:
+            continue
+        # The default image name for build-only services is
+        # ``<project>-<service>``; the ``_`` form covers older Compose.
+        created = None
+        for image in (
+            svc.get("image"),
+            f"{project}-{name}",
+            f"{project}_{name}",
+        ):
+            if image:
+                created = _image_created(image)
+            if created is not None:
+                break
+        if created is not None:
+            groups.append((created, _build_context_files(build, compose_path.parent)))
+    return groups
+
+
+def _image_created(image):
+    """Return *image*'s build time as epoch seconds, or None when absent."""
+    returncode, out, _ = run_subprocess(
+        [
+            _docker_executable(),
+            "image",
+            "inspect",
+            image,
+            "--format",
+            "{{.Created}}",
+        ]
+    )
+    if returncode or not out:
+        return None
+    text = out.strip().replace("Z", "+00:00")
+    if "." in text:
+        # Python < 3.11 requires exactly 3 or 6 fractional digits in
+        # fromisoformat; Docker emits up to 9 (nanoseconds).
+        head, _, tail = text.partition(".")
+        offset_at = next((i for i, c in enumerate(tail) if not c.isdigit()), len(tail))
+        text = f"{head}.{tail[:offset_at][:6]}{tail[offset_at:]}"
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+def _build_context_files(build, compose_dir):
+    """Yield *build*'s Dockerfile, then every file inside its context.
+
+    Relative ``context``/``dockerfile`` values resolve against the Compose
+    file's directory; ``.dockerignore`` exclusions are honoured.
+    """
+    context = Path(build.get("context") or ".")
+    if not context.is_absolute():
+        context = Path(compose_dir) / context
+    dockerfile = Path(build.get("dockerfile") or "Dockerfile")
+    if not dockerfile.is_absolute():
+        dockerfile = context / dockerfile
+    yield dockerfile
+    rules = _dockerignore_rules(context)
+    # A ``!`` rule may re-include files under an excluded directory, so
+    # directories are pruned only when no negations are in play.
+    can_prune = not any(negated for negated, _, _ in rules)
+    for dirpath, dirnames, filenames in os.walk(context):
+        dirpath = Path(dirpath)
+        if can_prune:
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if not _dockerignored(
+                    (dirpath / name).relative_to(context).as_posix(), rules
+                )
+            ]
+        for name in filenames:
+            path = dirpath / name
+            if _dockerignored(path.relative_to(context).as_posix(), rules):
+                continue
+            yield path
+
+
+def _dockerignore_rules(context):
+    """Return compiled ``.dockerignore`` rules for *context*.
+
+    Each rule is ``(negated, has_slash, regex)`` — patterns without a ``/``
+    match any path segment, like ``.gitignore``.
+    """
+    try:
+        lines = (context / ".dockerignore").read_text().splitlines()
+    except OSError:
+        return ()
+    rules = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        negated = line.startswith("!")
+        pattern = line.lstrip("!").lstrip("/").rstrip("/")
+        if pattern:
+            rules.append((negated, "/" in pattern, _dockerignore_regex(pattern)))
+    return rules
+
+
+def _dockerignore_regex(pattern):
+    """Compile a ``.dockerignore`` pattern to a regex on posix paths."""
+    i, out = 0, ""
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:[^/]*/)*"
+            i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"
+            i += 1
+        elif pattern[i] == "?":
+            out += "[^/]"
+            i += 1
+        else:
+            out += re.escape(pattern[i])
+            i += 1
+    return re.compile(out + r"\Z")
+
+
+def _dockerignored(rel, rules):
+    """Whether relative POSIX path *rel* is excluded by *rules*."""
+    ignored = False
+    parts = rel.split("/")
+    ancestors = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    for negated, has_slash, regex in rules:
+        candidates = ancestors if has_slash else parts
+        if any(regex.fullmatch(c) for c in candidates):
+            ignored = not negated
+    return ignored
 
 
 def _diagnose_sources(d, base, edition):
