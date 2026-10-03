@@ -7,20 +7,8 @@ so they also apply to plugin test directories.
 import json
 import subprocess
 import uuid
-from pathlib import Path
 
 import pytest
-
-
-@pytest.fixture
-def fake_odoo_executable(tmp_project):
-    """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``."""
-    venv_bin = tmp_project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
-    odoo_exe.chmod(0o755)
-    return odoo_exe
 
 
 @pytest.fixture
@@ -208,73 +196,6 @@ def subprocess_check_call_capture(monkeypatch):
         return 0
 
     monkeypatch.setattr(subprocess, "check_call", fake_check_call)
-    return calls
-
-
-@pytest.fixture
-def patch_cache(monkeypatch, tmp_path):
-    """Redirect the central source cache into a temporary directory."""
-    cache = tmp_path / "cache"
-    monkeypatch.setattr("osh.sources.SOURCE_CACHE_DIR", cache)
-    return cache
-
-
-def real_git_only_subprocess(monkeypatch):
-    """Run git commands for real; record/no-op everything else.
-
-    Patches ``run_subprocess`` in the source-acquisition modules so that
-    ``pip`` is no-opped, ``python -m venv`` creates only the ``.venv/bin``
-    skeleton (the real run costs ~1.5s per test), and other commands —
-    ``git`` included — are executed for real. Calls are recorded in the
-    returned list. Also disables ``venv.create``.
-    """
-    calls = []
-
-    def _name(cmd):
-        if isinstance(cmd, list | tuple):
-            return Path(str(cmd[0])).name
-        return Path(str(cmd)).name
-
-    def fake_run_subprocess(args, **kwargs):
-        cmd = args[0] if isinstance(args, list | tuple) else args
-        kwargs.pop("error_msg", None)
-        kwargs.pop("dry_run", None)
-        kwargs.pop("stdout", None)
-        kwargs.pop("stderr", None)
-
-        if isinstance(args, list | tuple):
-            calls.append(list(args))
-        else:
-            calls.append([args])
-
-        if isinstance(cmd, list | tuple) and "git" in cmd:
-            result = subprocess.run(
-                args,
-                capture_output=True,
-                **kwargs,
-            )
-            return result.returncode, result.stdout or "", result.stderr or ""
-
-        if _name(cmd).startswith("pip"):
-            return 0, "", ""
-
-        if isinstance(args, list | tuple) and {"-m", "venv"} <= set(args):
-            (Path(str(args[-1])) / "bin").mkdir(parents=True, exist_ok=True)
-            return 0, "", ""
-
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            **kwargs,
-        )
-        return result.returncode, result.stdout or "", result.stderr or ""
-
-    for target in (
-        "osh.plugins.osh_backend_venv.utils.run_subprocess",
-        "osh.sources.run_subprocess",
-    ):
-        monkeypatch.setattr(target, fake_run_subprocess)
-    monkeypatch.setattr("venv.create", lambda *a, **kw: None)
     return calls
 
 

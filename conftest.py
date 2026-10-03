@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers import write_stub_pip
+
 
 def pytest_addoption(parser):
     """Add ``--no-docker`` to skip the Docker-daemon tests."""
@@ -75,6 +77,30 @@ def in_project(monkeypatch, tmp_project):
     """Switch into the temporary project for project-aware commands."""
     monkeypatch.chdir(tmp_project)
     return tmp_project
+
+
+@pytest.fixture
+def fake_odoo_executable(tmp_project):
+    """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``.
+
+    A stub ``pip`` is included so the pre-existing ``.venv`` looks
+    complete to ``osh venv init``.
+    """
+    venv_bin = tmp_project / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    odoo_exe = venv_bin / "odoo"
+    odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
+    odoo_exe.chmod(0o755)
+    write_stub_pip(tmp_project / ".venv")
+    return odoo_exe
+
+
+@pytest.fixture
+def patch_cache(monkeypatch, tmp_path):
+    """Redirect the central source cache into a temporary directory."""
+    cache = tmp_path / "cache"
+    monkeypatch.setattr("osh.sources.SOURCE_CACHE_DIR", cache)
+    return cache
 
 
 @pytest.fixture(autouse=True, scope="session")
