@@ -8,6 +8,10 @@ This document tracks planned improvements and future development work for the Os
 - Extend `osh-plugin.toml` with optional metadata (e.g. a minimum `osh` version) and surface it in `osh plug list`; `description` and `depends` (plugin load ordering) are already handled.
 - Graduate the built-in `osh_backup` plugin (`osh backup get`, `osh backup restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
 
+## Plugin test discovery
+
+- Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_backend_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.
+
 ## `osh doctor` (removed — to be redesigned)
 
 The `osh doctor` and `osh <backend> doctor` commands were removed; the diagnostics machinery behind them stays and is still used by `osh init`/`osh odoo`/`osh shell` pre-flight (`Backend.diagnose`, `Diagnostics`, `collect_diagnostics`, `check_run_diagnostics` in `osh/commands/helpers.py`). Design notes for bringing it back:

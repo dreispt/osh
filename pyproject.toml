@@ -38,6 +38,11 @@ tests = [
 [project.scripts]
 osh = "osh.cli:main"
 
+[tool.pytest.ini_options]
+markers = [
+    "docker: tests that start real Docker containers (skip with --no-docker)",
+]
+
 [project.urls]
 Homepage = "https://github.com/dreispt/osh"
 Source = "https://github.com/dreispt/osh"
@@ -48,6 +53,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+exclude = ["tests", "tests.*", "*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
 osh = ["plugins/*/osh-plugin.toml", "plugins/osh_backend_docker/data/*.yml", "data/*.sql"]

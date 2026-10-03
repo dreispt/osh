@@ -25,4 +25,22 @@ jobs:
         run: pip install -e ".[tests]"
 
       - name: Run tests
-        run: pytest -q
+        run: pytest -q --no-docker
+
+  docker:
+    # Container lifecycle coverage needs a real Docker daemon, which
+    # ubuntu-latest provides. Docker behavior does not vary with the
+    # Python version, so a single job suffices.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install package and test dependencies
+        run: pip install -e ".[tests]"
+
+      - name: Run Docker tests
+        run: pytest -q -m docker

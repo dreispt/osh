@@ -1,59 +1,15 @@
-"""Shared fixtures for the Osh test suite."""
+"""Shared fixtures for the Osh test suite.
+
+Session-wide hooks and generic fixtures live in the root ``conftest.py``
+so they also apply to plugin test directories.
+"""
 
 import json
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
 
 import pytest
-
-
-@pytest.fixture(autouse=True)
-def _isolated_env(monkeypatch):
-    """Remove Osh-managed variables from the ambient environment.
-
-    A developer's shell may export ``VIRTUAL_ENV`` (running pytest inside a
-    venv), ``ODOO_RC`` or the ``OSH_INIT_*`` init defaults; tests build these
-    values fresh, so ambient values are removed to keep results deterministic.
-    ``PG*`` variables are kept: they may be required to reach the test
-    PostgreSQL server.
-    """
-    for var in ("VIRTUAL_ENV", "ODOO_RC", "OSH_INIT_VERSION", "OSH_INIT_EDITION"):
-        monkeypatch.delenv(var, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def _reset_plugin_registry():
-    """Rebuild the plugin registry for each test.
-
-    The registry caches plugin specs discovered from user dirs and entry
-    points; tests that create plugins monkeypatch ``user_plugin_dir`` and
-    must see a fresh registry, and fake specs must not leak into the next
-    test.
-    """
-    from osh.utils import plugin_loader
-
-    plugin_loader.reset_plugin_registry()
-    yield
-    plugin_loader.reset_plugin_registry()
-
-
-@pytest.fixture
-def tmp_project(tmp_path):
-    """Return a temporary project directory with a .osh marker and .git."""
-    project = tmp_path / "project"
-    project.mkdir(parents=True, exist_ok=True)
-    (project / ".osh").mkdir(parents=True, exist_ok=True)
-    (project / ".git").mkdir(parents=True, exist_ok=True)
-    return project
-
-
-@pytest.fixture
-def in_project(monkeypatch, tmp_project):
-    """Switch into the temporary project for project-aware commands."""
-    monkeypatch.chdir(tmp_project)
-    return tmp_project
 
 
 @pytest.fixture
@@ -385,18 +341,3 @@ def patched_restore(monkeypatch, in_project, pg_db):
     )
 
     return state
-
-
-@pytest.fixture(autouse=True, scope="session")
-def _cleanup_explicit_temp_root():
-    """Remove a leftover ``.pytest_tmp`` tree after the full session.
-
-    When pytest is pointed at an in-repo temporary directory, it no longer
-    applies its default cleanup that keeps only the last few runs.  This
-    fixture ensures the local directory cannot grow unbounded if such an
-    option is set from the environment or a wrapper.
-    """
-    yield
-    tmp_root = Path.cwd() / ".pytest_tmp"
-    if tmp_root.is_dir():
-        shutil.rmtree(tmp_root, ignore_errors=True)

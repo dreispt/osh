@@ -1,0 +1,92 @@
+#!/bin/sh
+# Canned-answer ``docker`` CLI used by the test suite.
+#
+# ``version`` and ``config`` delegate to the real binary named by
+# $OSH_REAL_DOCKER when set, so fixture Compose files get real YAML
+# resolution. Daemon-dependent verbs are answered from files in
+# $OSH_FAKE_DOCKER; every invocation appends its argv to ``calls.log``
+# there.
+D=$OSH_FAKE_DOCKER
+if [ -z "$D" ]; then
+    echo "fake docker: OSH_FAKE_DOCKER is not set" >&2
+    exit 2
+fi
+mkdir -p "$D"
+echo "$*" >> "$D/calls.log"
+
+# The command verb is the first non-flag argument; the flags listed here
+# consume the next token (``compose`` itself is not a verb).
+verb=
+skip=
+compose=0
+for arg in "$@"; do
+    if [ -n "$skip" ]; then
+        skip=
+        continue
+    fi
+    case "$arg" in
+        -f|--file|-p|--project-name|--project-directory|--env-file|--profile|--ansi|--log-level|--parallel)
+            skip=1 ;;
+        compose) compose=1 ;;
+        -*) ;;
+        *) verb=$arg; break ;;
+    esac
+done
+
+case "$verb" in
+    version)
+        [ -n "$OSH_REAL_DOCKER" ] && exec "$OSH_REAL_DOCKER" "$@"
+        exit 0
+        ;;
+    config)
+        [ -n "$OSH_REAL_DOCKER" ] && exec "$OSH_REAL_DOCKER" "$@"
+        # No real Docker: --services lists the service keys found in the
+        # -f files; other output comes from the canned config.json.
+        case " $* " in
+            *" --services "*)
+                files=
+                prev=
+                for arg in "$@"; do
+                    [ "$prev" = "-f" ] && files="$files $arg"
+                    prev=$arg
+                done
+                # shellcheck disable=SC2086
+                awk '/^services:/{s=1;next} /^[A-Za-z]/{s=0}
+                     s && /^  [A-Za-z0-9_.-]+:/{sub(":","",$1);print $1}' \
+                    $files 2>/dev/null
+                ;;
+            *) cat "$D/config.json" 2>/dev/null ;;
+        esac
+        exit 0
+        ;;
+    ps)
+        if [ "$compose" = 1 ]; then
+            case " $* " in
+                *" --format "*) cat "$D/ps.json" 2>/dev/null ;;
+                *) cat "$D/ps" 2>/dev/null ;;
+            esac
+        else
+            [ -f "$D/docker_rc" ] && exit "$(cat "$D/docker_rc")"
+            cat "$D/docker_ps" 2>/dev/null
+        fi
+        exit 0
+        ;;
+    exec)
+        [ -f "$D/want_stdin" ] && cat > "$D/stdin.bin"
+        if [ -f "$D/pg_attempts" ]; then
+            i=0
+            [ -f "$D/pg_i" ] && i=$(cat "$D/pg_i")
+            i=$((i + 1))
+            total=$(wc -l < "$D/pg_attempts")
+            [ "$i" -gt "$total" ] && i=$total
+            [ "$i" -lt "$total" ] && echo "$i" > "$D/pg_i"
+            rc=$(sed -n "${i}p" "$D/pg_attempts")
+            exit "${rc:-0}"
+        fi
+        exit 0
+        ;;
+    *)
+        # up, down, stop, build, pull, ...: accepted silently.
+        exit 0
+        ;;
+esac

@@ -1,9 +1,12 @@
 """Tests for the built-in Docker backend plugin."""
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import types
+import uuid
 
 import click
 import pytest
@@ -11,10 +14,11 @@ from click.testing import CliRunner
 
 from osh.backends import Backend, EnvSpec
 from osh.cli import main
+from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.plugins.osh_backend_docker.backends import DockerBackend
 from osh.utils.plugin_loader import load_backends, load_plugins
 
-from .conftest import _docker_ps_line, _patch_docker_ps, _write_docker_config
+from .conftest import _write_docker_config
 
 
 def test_docker_backends_are_registered():
@@ -25,23 +29,170 @@ def test_docker_backends_are_registered():
     assert backends["docker"].backend_type == "backend"
 
 
-def _patch_docker_tools(monkeypatch):
-    """Make Docker tooling no-ops so tests do not require a Docker daemon."""
+FAKEBIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fakebin")
+
+
+@pytest.fixture
+def fake_docker(tmp_path, monkeypatch):
+    """Put a canned-answer ``docker`` on PATH; return its response dir.
+
+    For the rare cases real Docker cannot reproduce deterministically —
+    an empty ``docker ps``, or a failing one. Absent response files mean
+    success with empty output; ``docker_ps`` and ``docker_rc`` override
+    plain ``docker`` calls (``osh docker list``).
+    """
+    real = shutil.which("docker")
+    state = tmp_path / "fake-docker"
+    state.mkdir()
+    monkeypatch.setenv("OSH_FAKE_DOCKER", str(state))
+    monkeypatch.setenv("PATH", f"{FAKEBIN}{os.pathsep}{os.environ['PATH']}")
+    if real:
+        monkeypatch.setenv("OSH_REAL_DOCKER", real)
+    return state
+
+
+FIXTURE_PROJECT = os.path.join(FAKEBIN, "..", "fixtures", "odoo-project")
+
+
+@pytest.fixture
+def docker_cli():
+    """Require the ``docker compose`` CLI on the test machine.
+
+    ``version`` and ``config`` do not need a daemon, so stateless tests
+    (init, conf generation, diagnose) get real Compose resolution.
+    """
+    docker = shutil.which("docker")
+    if (
+        not docker
+        or subprocess.run(
+            [docker, "compose", "version"], capture_output=True
+        ).returncode
+    ):
+        pytest.skip("docker compose is not available")
+
+
+@pytest.fixture
+def docker_daemon(docker_cli, monkeypatch, tmp_path):
+    """A real Docker daemon scoped to a unique Compose project name."""
+    if subprocess.run(["docker", "info"], capture_output=True).returncode:
+        pytest.skip("a running Docker daemon is required")
+    name = f"osh-test-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", name)
+    # Port probing is a host socket check, not a Docker call — pretend the
+    # Odoo port is free so ensure_service_up never binds anything.
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
+        "osh.plugins.osh_backend_docker.backends.port_in_use",
+        lambda *a, **kw: False,
     )
+    yield name
+    # Tear down every Compose project whose config lives under tmp_path —
+    # covers both the test namespace and osh's own ``-p osh-*`` names.
+    for project in _compose_projects():
+        if str(tmp_path) in project.get("ConfigFiles", ""):
+            subprocess.run(
+                ["docker", "compose", "-p", project["Name"], "down", "-v"],
+                capture_output=True,
+            )
+    stray = subprocess.run(
+        ["docker", "ps", "-aq", "--filter", f"name={name}"],
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    if stray:
+        subprocess.run(["docker", "rm", "-f", *stray], capture_output=True)
 
-    def fake_run(*args, **kwargs):
-        cmd = args[0] if args else kwargs.get("args", [])
-        return subprocess.CompletedProcess(cmd, returncode=0)
 
-    monkeypatch.setattr("osh.plugins.osh_backend_docker.utils.run_command", fake_run)
+@pytest.fixture
+def docker_project(docker_daemon, tmp_path, monkeypatch):
+    """The sample Osh project copied into a fresh, namespaced stack."""
+    project = tmp_path / "project"
+    shutil.copytree(FIXTURE_PROJECT, project)
+    (project / ".osh").mkdir(exist_ok=True)
+    shutil.copy(project / "docker.toml", project / ".osh" / "docker.toml")
+    monkeypatch.chdir(project)
+    return project
 
 
-def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatch):
+@pytest.fixture(scope="module")
+def docker_shared_project(tmp_path_factory):
+    """One real sample-project stack shared by the read-only tests.
+
+    ``ensure_service_up`` runs once — covering the cold ``up`` and the
+    db-readiness wait — and tests then exercise exec/list paths on the
+    running stack. Tests that mutate stack state use ``docker_project``.
+    """
+    docker = shutil.which("docker")
+    if (
+        not docker
+        or subprocess.run(
+            [docker, "compose", "version"], capture_output=True
+        ).returncode
+    ):
+        pytest.skip("docker compose is not available")
+    if subprocess.run(["docker", "info"], capture_output=True).returncode:
+        pytest.skip("a running Docker daemon is required")
+    tmp_path = tmp_path_factory.mktemp("docker-shared")
+    project = tmp_path / "project"
+    shutil.copytree(FIXTURE_PROJECT, project)
+    (project / ".osh").mkdir(exist_ok=True)
+    shutil.copy(project / "docker.toml", project / ".osh" / "docker.toml")
+    name = f"osh-test-{uuid.uuid4().hex[:8]}"
+    previous = os.environ.get("COMPOSE_PROJECT_NAME")
+    os.environ["COMPOSE_PROJECT_NAME"] = name
+    try:
+        DockerBackend().ensure_service_up(project)
+        yield project
+    finally:
+        subprocess.run(
+            ["docker", "compose", "-p", name, "down", "-v"],
+            capture_output=True,
+        )
+        stray = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", f"name={name}"],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        if stray:
+            subprocess.run(["docker", "rm", "-f", *stray], capture_output=True)
+        if previous is None:
+            os.environ.pop("COMPOSE_PROJECT_NAME", None)
+        else:
+            os.environ["COMPOSE_PROJECT_NAME"] = previous
+
+
+def _compose(cwd, *args, file=None):
+    """Run ``docker compose`` from *cwd*; return the completed process."""
+    cmd = ["docker", "compose"]
+    if file:
+        cmd += ["-f", str(file)]
+    cmd += list(args)
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+
+
+def _compose_projects():
+    """Return ``docker compose ls`` entries."""
+    out = subprocess.run(
+        ["docker", "compose", "ls", "--format", "json"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return json.loads(out) if out else []
+
+
+def _started_at(project, service):
+    """Return the started timestamp of a service's container."""
+    cid = _compose(project, "ps", "-q", service).stdout.strip()
+    return subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.StartedAt}}", cid],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def test_init_target_docker_via_main_writes_compose_file(
+    tmp_project, fake_docker, monkeypatch
+):
     """``osh docker init`` writes docker.toml and generates compose."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -69,9 +220,10 @@ def test_init_target_docker_via_main_writes_compose_file(tmp_project, monkeypatc
     assert not (tmp_project / "Dockerfile").exists()
 
 
-def test_init_docker_command_writes_config_and_compose(tmp_project, monkeypatch):
+def test_init_docker_command_writes_config_and_compose(
+    tmp_project, fake_docker, monkeypatch
+):
     """``osh docker init`` generates ``.osh/docker-compose.yml`` and config."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -84,9 +236,10 @@ def test_init_docker_command_writes_config_and_compose(tmp_project, monkeypatch)
     assert (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_init_docker_overwrites_existing_osh_compose(tmp_project, monkeypatch):
+def test_init_docker_overwrites_existing_osh_compose(
+    tmp_project, fake_docker, monkeypatch
+):
     """``.osh/docker-compose.yml`` is Osh-managed and regenerated on init."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     existing = tmp_project / ".osh" / "docker-compose.yml"
@@ -106,9 +259,10 @@ def test_init_docker_overwrites_existing_osh_compose(tmp_project, monkeypatch):
     )
 
 
-def test_init_docker_updates_compose_for_a_different_version(tmp_project, monkeypatch):
+def test_init_docker_updates_compose_for_a_different_version(
+    tmp_project, fake_docker, monkeypatch
+):
     """Re-initialising Docker with a new version updates the generated compose file."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -127,9 +281,8 @@ def test_init_docker_updates_compose_for_a_different_version(tmp_project, monkey
     assert "version = '20.0'" in (tmp_project / ".osh" / "docker.toml").read_text()
 
 
-def test_init_docker_includes_permission_fix(tmp_project, monkeypatch):
+def test_init_docker_includes_permission_fix(tmp_project, fake_docker, monkeypatch):
     """The generated compose file includes the user directive to run as odoo."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -143,9 +296,10 @@ def test_init_docker_includes_permission_fix(tmp_project, monkeypatch):
     assert "user: odoo" in compose_text
 
 
-def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
+def test_init_docker_persists_provided_compose_file(
+    tmp_project, fake_docker, monkeypatch
+):
     """A provided ``--compose-file`` is persisted into docker.toml."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n    image: odoo\n")
@@ -170,9 +324,10 @@ def test_init_docker_persists_provided_compose_file(tmp_project, monkeypatch):
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_init_docker_detects_project_compose_file(tmp_project, monkeypatch):
+def test_init_docker_detects_project_compose_file(
+    tmp_project, fake_docker, monkeypatch
+):
     """A compose file at the project root is used instead of generating one."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "compose.yaml").write_text("services:\n  odoo:\n")
 
@@ -185,9 +340,8 @@ def test_init_docker_detects_project_compose_file(tmp_project, monkeypatch):
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_init_docker_detects_devel_yaml(tmp_project, monkeypatch):
+def test_init_docker_detects_devel_yaml(tmp_project, fake_docker, monkeypatch):
     """A Doodba-style ``devel.yaml`` is detected like canonical names."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
 
@@ -199,9 +353,10 @@ def test_init_docker_detects_devel_yaml(tmp_project, monkeypatch):
     assert "compose_file = 'devel.yaml'" in docker_toml.read_text()
 
 
-def test_init_docker_compose_detection_precedence(tmp_project, monkeypatch):
+def test_init_docker_compose_detection_precedence(
+    tmp_project, fake_docker, monkeypatch
+):
     """Canonical names win over ``devel.yaml``; the choice is reported."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "docker-compose.yml").write_text("services:\n  odoo:\n")
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
@@ -215,9 +370,10 @@ def test_init_docker_compose_detection_precedence(tmp_project, monkeypatch):
     assert "devel.yaml" in result.output
 
 
-def test_init_docker_dockerfile_generates_build_compose(tmp_project, monkeypatch):
+def test_init_docker_dockerfile_generates_build_compose(
+    tmp_project, fake_docker, monkeypatch
+):
     """A project Dockerfile produces a generated compose file that builds it."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "Dockerfile").write_text("FROM odoo:19.0\n")
 
@@ -238,9 +394,8 @@ def test_init_docker_dockerfile_generates_build_compose(tmp_project, monkeypatch
     assert "command:" in compose_text
 
 
-def test_init_docker_dockerfile_option(tmp_project, monkeypatch):
+def test_init_docker_dockerfile_option(tmp_project, fake_docker, monkeypatch):
     """``--dockerfile`` accepts a Dockerfile not at the project root name."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     docker_dir = tmp_project / "docker"
     docker_dir.mkdir()
@@ -260,10 +415,9 @@ def test_init_docker_dockerfile_option(tmp_project, monkeypatch):
 
 
 def test_init_docker_dockerfile_outside_project_errors(
-    tmp_project, tmp_path, monkeypatch
+    tmp_project, tmp_path, fake_docker, monkeypatch
 ):
     """A Dockerfile outside the build context (the project root) is refused."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_path / "Dockerfile").write_text("FROM odoo:19.0\n")
 
@@ -276,9 +430,8 @@ def test_init_docker_dockerfile_outside_project_errors(
     assert "outside the project directory" in result.output
 
 
-def test_reinit_keeps_configured_compose_file(tmp_project, monkeypatch):
+def test_reinit_keeps_configured_compose_file(tmp_project, fake_docker, monkeypatch):
     """Re-running init keeps the project compose file it already uses."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "custom.yaml").write_text("services:\n  odoo:\n")
     (tmp_project / ".osh" / "docker.toml").write_text(
@@ -296,17 +449,10 @@ def test_reinit_keeps_configured_compose_file(tmp_project, monkeypatch):
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_reinit_dockerfile_option_keeps_configured_compose(tmp_project, monkeypatch):
+def test_reinit_dockerfile_option_keeps_configured_compose(
+    tmp_project, fake_docker, monkeypatch
+):
     """``--dockerfile`` does not replace an already-configured compose file."""
-    _patch_docker_tools(monkeypatch)
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._compose_services",
-        lambda *a, **kw: {"odoo"},
-    )
     monkeypatch.chdir(tmp_project)
     (tmp_project / "compose.yaml").write_text("services:\n  odoo:\n")
     (tmp_project / "Dockerfile").write_text("FROM odoo:19.0\n")
@@ -326,9 +472,10 @@ def test_reinit_dockerfile_option_keeps_configured_compose(tmp_project, monkeypa
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_reinit_regenerates_stack_over_detected_compose(tmp_project, monkeypatch):
+def test_reinit_regenerates_stack_over_detected_compose(
+    tmp_project, fake_docker, monkeypatch
+):
     """A compose file appearing later does not replace a generated stack."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
 
@@ -345,9 +492,10 @@ def test_reinit_regenerates_stack_over_detected_compose(tmp_project, monkeypatch
     assert 'image: "odoo:20.0"' in generated
 
 
-def test_reinit_ignores_dockerfile_outside_project(tmp_project, tmp_path, monkeypatch):
+def test_reinit_ignores_dockerfile_outside_project(
+    tmp_project, tmp_path, fake_docker, monkeypatch
+):
     """A configured Dockerfile outside the build context is not reused."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     # A Dockerfile at tmp_path is outside the project's build context.
     (tmp_path / "Dockerfile").write_text("FROM odoo:19.0\n")
@@ -364,9 +512,10 @@ def test_reinit_ignores_dockerfile_outside_project(tmp_project, tmp_path, monkey
     assert "dockerfile" not in (tmp_project / ".osh" / "docker.toml").read_text()
 
 
-def test_reinit_reports_missing_configured_compose_file(tmp_project, monkeypatch):
+def test_reinit_reports_missing_configured_compose_file(
+    tmp_project, fake_docker, monkeypatch
+):
     """A configured compose file that vanished is a clear init error."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / ".osh" / "docker.toml").write_text("compose_file = 'gone.yaml'\n")
 
@@ -376,15 +525,10 @@ def test_reinit_reports_missing_configured_compose_file(tmp_project, monkeypatch
     assert "gone.yaml" in result.output
 
 
-def test_init_docker_missing_service_errors(tmp_project, monkeypatch):
+def test_init_docker_missing_service_errors(tmp_project, fake_docker, monkeypatch):
     """A compose file without the configured service fails at init."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "compose.yaml").write_text("services:\n  web:\n    image: web\n")
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._compose_services",
-        lambda *a, **kw: {"web"},
-    )
 
     result = CliRunner().invoke(main, ["docker", "init", "19.0"])
 
@@ -393,9 +537,8 @@ def test_init_docker_missing_service_errors(tmp_project, monkeypatch):
     assert "web" in result.output
 
 
-def test_init_docker_invalid_service_name_errors(tmp_project, monkeypatch):
+def test_init_docker_invalid_service_name_errors(tmp_project, fake_docker, monkeypatch):
     """A service name that would corrupt generated YAML is refused."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     result = CliRunner().invoke(
@@ -406,16 +549,13 @@ def test_init_docker_invalid_service_name_errors(tmp_project, monkeypatch):
     assert "Invalid Docker service name" in result.output
 
 
-def test_init_docker_custom_service_on_foreign_compose(tmp_project, monkeypatch):
+def test_init_docker_custom_service_on_foreign_compose(
+    tmp_project, fake_docker, monkeypatch
+):
     """A non-default ``--service`` is accepted when the file defines it."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
     (tmp_project / "compose.yaml").write_text(
         "services:\n  app:\n    image: odoo:19.0\n"
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._compose_services",
-        lambda *a, **kw: {"app"},
     )
 
     result = CliRunner().invoke(main, ["docker", "init", "19.0", "--service", "app"])
@@ -426,17 +566,9 @@ def test_init_docker_custom_service_on_foreign_compose(tmp_project, monkeypatch)
     assert "compose_file = 'compose.yaml'" in docker_toml
 
 
-def test_init_docker_dry_run_still_validates_service(tmp_project, monkeypatch):
+def test_init_docker_dry_run_still_validates_service(tmp_project, docker_cli):
     """A dry-run init reports a missing service instead of failing on the real run."""
     (tmp_project / "compose.yaml").write_text("services:\n  web:\n    image: web\n")
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._compose_services",
-        lambda *a, **kw: {"web"},
-    )
     from osh.commands.init_cmd import TodoPlan
 
     backend = DockerBackend()
@@ -451,9 +583,8 @@ def test_init_docker_dry_run_still_validates_service(tmp_project, monkeypatch):
     assert not (tmp_project / ".osh" / "docker.toml").exists()
 
 
-def test_init_docker_dockerfile_missing_errors(tmp_project, monkeypatch):
+def test_init_docker_dockerfile_missing_errors(tmp_project, fake_docker, monkeypatch):
     """A missing explicit ``--dockerfile`` raises an error."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -465,22 +596,16 @@ def test_init_docker_dockerfile_missing_errors(tmp_project, monkeypatch):
     assert "missing.Dockerfile" in result.output
 
 
-def test_compose_base_command_generated_uses_osh_project(tmp_project):
+def test_generated_stack_runs_under_osh_project(tmp_project, capsys):
     """The generated stack runs under the isolated ``osh-*`` project name."""
-    (tmp_project / ".osh" / "docker.toml").write_text(
-        "service = 'odoo'\ncompose_tool = 'docker compose'\n"
-    )
-    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
+    _write_docker_config(tmp_project)
 
-    from osh.plugins.osh_backend_docker.utils import _compose_base_command
+    DockerBackend().env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
-    cmd = _compose_base_command(tmp_project)
-
-    assert "-p" in cmd
-    assert cmd[cmd.index("-p") + 1].startswith("osh-")
+    assert " -p osh-" in capsys.readouterr().err
 
 
-def test_compose_base_command_foreign_shares_project(tmp_project):
+def test_foreign_compose_shares_project_name(tmp_project, capsys):
     """A project compose file runs under its natural Compose project (no -p)."""
     (tmp_project / ".osh" / "docker.toml").write_text(
         "service = 'odoo'\ncompose_tool = 'docker compose'\n"
@@ -488,71 +613,57 @@ def test_compose_base_command_foreign_shares_project(tmp_project):
     )
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
 
-    from osh.plugins.osh_backend_docker.utils import _compose_base_command
+    DockerBackend().env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
-    cmd = _compose_base_command(tmp_project)
+    err = capsys.readouterr().err
+    assert str(tmp_project / "devel.yaml") in err
+    assert " -p " not in err
 
-    assert "-p" not in cmd
-    assert str(tmp_project / "devel.yaml") in cmd
 
-
-def test_write_compose_override_foreign_injects_contract(tmp_project):
+def test_compose_override_foreign_injects_contract(docker_shared_project):
     """Foreign compose files get the idle command and the project mount."""
-    (tmp_project / ".osh" / "docker.toml").write_text(
-        "service = 'odoo'\ncompose_file = 'devel.yaml'\n"
-    )
-    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
-
-    backend = DockerBackend()
-    assert backend._write_compose_override(tmp_project, "odoo")
-
-    override = (tmp_project / ".osh" / "docker-compose.osh.yml").read_text()
+    # The shared stack's ensure_service_up already wrote the override.
+    override = (docker_shared_project / ".osh" / "docker-compose.osh.yml").read_text()
     assert 'command: ["sleep", "infinity"]' in override
-    # Host paths are quoted so spaces do not break the volume spec.
-    assert f'"{tmp_project.resolve().as_posix()}:/mnt/extra-addons"' in override
-
-
-def test_write_compose_override_uses_posix_host_paths(tmp_project):
-    """Volume host paths are POSIX-formatted — valid on Windows too."""
-    (tmp_project / ".osh" / "docker.toml").write_text(
-        "service = 'odoo'\ncompose_file = 'devel.yaml'\n"
+    # Host paths are quoted so spaces do not break the volume spec, and
+    # POSIX-formatted so the mount works on Windows too.
+    assert (
+        f'"{docker_shared_project.resolve().as_posix()}:/mnt/extra-addons"' in override
     )
-    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
-
-    DockerBackend()._write_compose_override(tmp_project, "odoo")
-
-    override = (tmp_project / ".osh" / "docker-compose.osh.yml").read_text()
-    assert f'"{tmp_project.resolve().as_posix()}:/mnt/extra-addons"' in override
     assert "\\" not in override
 
 
-def test_write_compose_override_generated_stays_empty(tmp_project):
-    """The generated stack needs no override contract — it has it built in."""
-    (tmp_project / ".osh" / "docker.toml").write_text(
-        "service = 'odoo'\ncompose_file = '.osh/docker-compose.yml'\n"
+def test_compose_override_generated_stack_needs_none(docker_daemon, tmp_project):
+    """The generated stack carries the contract itself — and no db to wait on."""
+    _write_docker_config(tmp_project)
+    (tmp_project / ".osh" / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    image: busybox\n    command: sleep infinity\n"
     )
-    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
 
-    backend = DockerBackend()
-    assert not backend._write_compose_override(tmp_project, "odoo")
+    DockerBackend().ensure_service_up(tmp_project)
+
     assert not (tmp_project / ".osh" / "docker-compose.osh.yml").exists()
+    # The generated stack runs under osh's own ``-p osh-*`` project name.
+    compose_file = str(tmp_project / ".osh" / "docker-compose.yml")
+    assert any(
+        compose_file in project.get("ConfigFiles", "")
+        for project in _compose_projects()
+    )
 
 
-def test_detect_odoo_version_from_docker_toml(tmp_project):
-    """The recorded version is the fallback when sources and image tags miss."""
+def test_diagnose_reports_odoo_version_from_docker_toml(tmp_project, docker_cli):
+    """The recorded version is reported when sources and image tags miss."""
     (tmp_project / ".osh" / "docker.toml").write_text(
         "service = 'odoo'\nversion = '19.0'\n"
     )
 
-    assert DockerBackend().detect_odoo_version(tmp_project) == "19.0"
+    d = DockerBackend().diagnose(tmp_project)
+
+    assert d.info["docker"]["odoo_version"] == "19.0"
 
 
-def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, monkeypatch):
+def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, docker_cli):
     """DockerBackend.diagnose reports the Odoo version from .osh/odoo sources."""
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
     release = tmp_project / ".osh" / "odoo" / "odoo" / "release.py"
     release.parent.mkdir(parents=True, exist_ok=True)
     release.write_text('version = "21.0"\n')
@@ -562,19 +673,19 @@ def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, monkeypa
     assert d.info["docker"]["odoo_version"] == "21.0"
 
 
-def test_docker_detect_odoo_version_from_compose_image(tmp_project):
-    """DockerBackend.detect_odoo_version reads the image tag from docker-compose.yml."""
+def test_diagnose_reports_odoo_version_from_compose_image(tmp_project, docker_cli):
+    """The Odoo version is read from the generated stack's image tag."""
     compose = tmp_project / ".osh" / "docker-compose.yml"
     compose.parent.mkdir(parents=True, exist_ok=True)
     compose.write_text("services:\n  odoo:\n    image: odoo:17.0\n")
 
-    backend = DockerBackend()
-    assert backend.detect_odoo_version(tmp_project) == "odoo 17.0"
+    d = DockerBackend().diagnose(tmp_project)
+
+    assert d.info["docker"]["odoo_version"] == "odoo 17.0"
 
 
-def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
+def test_init_docker_missing_compose_file_raises(tmp_project, fake_docker, monkeypatch):
     """A missing explicit compose file raises an error."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -595,9 +706,8 @@ def test_init_docker_missing_compose_file_raises(tmp_project, monkeypatch):
     assert "missing.yaml" in result.output or "not found" in result.output
 
 
-def test_init_docker_dry_run_does_not_write(tmp_project, monkeypatch):
+def test_init_docker_dry_run_does_not_write(tmp_project, docker_cli, monkeypatch):
     """A dry-run ``init`` only reports what it would generate."""
-    _patch_docker_tools(monkeypatch)
     backend = DockerBackend()
 
     from osh.commands.init_cmd import TodoPlan
@@ -616,12 +726,8 @@ def test_init_docker_dry_run_does_not_write(tmp_project, monkeypatch):
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_docker_backend_diagnose(tmp_project, monkeypatch):
+def test_docker_backend_diagnose(tmp_project, docker_cli):
     """``diagnose`` returns diagnostics for the configured stack."""
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -636,12 +742,8 @@ def test_docker_backend_diagnose(tmp_project, monkeypatch):
     assert d.info["docker"]["command"] == "odoo"
 
 
-def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, monkeypatch):
+def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, docker_cli):
     """``diagnose`` resolves the effective compose file from config/options."""
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -659,13 +761,9 @@ def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, monkeyp
 
 
 def test_docker_backend_diagnose_ee_sources_missing_with_version(
-    tmp_project, monkeypatch
+    tmp_project, docker_cli
 ):
     """``diagnose`` allows missing source copies when a version is configured."""
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
     docker_toml.write_text(
@@ -680,29 +778,21 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
     assert not d.errors
 
 
-def test_docker_backend_diagnose_reports_container_state(tmp_project, monkeypatch):
+def test_docker_backend_diagnose_reports_container_state(docker_project):
     """``diagnose`` reports leftover container state so users notice it."""
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-        'version = "19.0"\n'
-    )
-    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
-
-    status = {"value": (True, "3 hours")}
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.diagnostics._container_running_status",
-        lambda *a, **kw: status["value"],
-    )
-
     backend = DockerBackend()
-    d = backend.diagnose(tmp_project, phase="run")
-    assert d.info["docker"]["container"] == "running, started 3 hours ago"
 
-    status["value"] = (False, "")
-    d = backend.diagnose(tmp_project, phase="run")
-    assert d.info["docker"]["container"] == "not running"
+    _compose(docker_project, "up", "-d")
+    container = backend.diagnose(docker_project, phase="run").info["docker"][
+        "container"
+    ]
+    assert container.startswith("running, started")
+
+    _compose(docker_project, "stop")
+    container = backend.diagnose(docker_project, phase="run").info["docker"][
+        "container"
+    ]
+    assert container == "not running"
 
 
 def test_docker_backend_env_dry_run(tmp_project, capsys):
@@ -824,15 +914,28 @@ def test_docker_backend_env_parses_quoted_command(tmp_project, capsys):
     assert "python3 -c 'print(1)'" in err
 
 
-def test_pg_env_script_maps_image_vars_to_libpq():
-    """The wrapper exports the libpq variables from the image's DB vars.
+def test_exec_script_maps_image_vars_to_libpq(docker_shared_project, monkeypatch):
+    """Commands in the container get libpq vars mapped from the image's vars.
 
-    Values already present in the environment (e.g. ``-e PGHOST=...``) are
-    kept over the image's ``HOST``/``PORT``/``USER``/``PASSWORD``.
+    ``compose exec`` bypasses the image entrypoint, so the emitted command
+    wraps the user command in a shell preamble exporting ``PG*`` from
+    ``HOST``/``PORT``/``USER``/``PASSWORD`` — preferring values already in
+    the environment (e.g. ``-e PGUSER=...``).
     """
-    from osh.plugins.osh_backend_docker.backends import _PG_ENV_SCRIPT
+    calls = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.os.execvp",
+        lambda exe, args: calls.append(args),
+    )
 
-    script = _PG_ENV_SCRIPT.replace(
+    DockerBackend().env(
+        None, docker_shared_project, EnvSpec(argv=["odoo", "--dev=all"])
+    )
+
+    args = calls[0]
+    i = args.index("-c")
+    script, tail = args[i + 1], args[i + 2 :]
+    script = script.replace(
         'exec "$@"', 'printf "%s\\n" "$PGHOST:$PGPORT:$PGUSER:$PGPASSWORD"'
     )
     env = {
@@ -844,7 +947,7 @@ def test_pg_env_script_maps_image_vars_to_libpq():
         "PGUSER": "preset",
     }
     result = subprocess.run(
-        ["sh", "-c", script, "osh", "odoo", "--stop", "--dev=all"],
+        ["sh", "-c", script, *tail],
         capture_output=True,
         text=True,
         env=env,
@@ -854,8 +957,8 @@ def test_pg_env_script_maps_image_vars_to_libpq():
     assert result.stdout.splitlines() == ["db:5432:preset:secret"]
 
 
-def test_docker_addons_paths_resolve_symlinks_on_host(tmp_project):
-    """Symlinked addon dirs translate to their real path under the mount.
+def test_conf_addons_path_resolves_symlinks_on_host(tmp_project):
+    """A symlinked source checkout maps to its real path in the conf.
 
     ``.osh/odoo`` may be a symlink to a source checkout (e.g. created by
     ``osh init`` linking a project-local clone). Translated literally it
@@ -867,14 +970,17 @@ def test_docker_addons_paths_resolve_symlinks_on_host(tmp_project):
         tmp_project / "odoo" / "odoo", target_is_directory=True
     )
 
-    paths = DockerBackend().build_addons_paths(tmp_project)
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
 
-    assert "/mnt/extra-addons/odoo/odoo/addons" in paths
-    assert not any(".osh" in p for p in paths)
+    addons_path = next(
+        line for line in conf.read_text().splitlines() if line.startswith("addons_path")
+    )
+    assert "/mnt/extra-addons/odoo/odoo/addons" in addons_path
+    assert ".osh" not in addons_path
 
 
 def test_docker_addons_paths_mount_out_of_project_sources(
-    tmp_project, tmp_path, monkeypatch
+    docker_daemon, tmp_project, tmp_path
 ):
     """Sources linked from outside the project get a ``/mnt/osh-src`` mount.
 
@@ -884,19 +990,20 @@ def test_docker_addons_paths_mount_out_of_project_sources(
     external = tmp_path / "shared-odoo"
     (external / "addons").mkdir(parents=True)
     (tmp_project / ".osh" / "odoo").symlink_to(external, target_is_directory=True)
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    _write_docker_config(tmp_project)
+    (tmp_project / ".osh" / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    image: busybox\n    command: sleep infinity\n"
     )
-    (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
 
     backend = DockerBackend()
-    paths = backend.build_addons_paths(tmp_project)
-    (container_path,) = (p for p in paths if p.startswith("/mnt/osh-src/"))
+
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    container_path = (
+        conf.read_text().split("addons_path = ", 1)[1].splitlines()[0].strip()
+    )
     assert container_path.startswith("/mnt/osh-src/addons-")
 
     # The override is generated on ensure_service_up and carries the mount.
-    _patch_compose_calls(monkeypatch)
     backend.ensure_service_up(tmp_project)
 
     override = tmp_project / ".osh" / "docker-compose.osh.yml"
@@ -905,93 +1012,39 @@ def test_docker_addons_paths_mount_out_of_project_sources(
     assert f"{external / 'addons'}:{container_path}:ro" in text
 
 
-def _patch_compose_calls(
-    monkeypatch, *, running="", services="odoo\ndb\n", pg_attempts=()
-):
-    """Fake the Compose calls ``ensure_service_up`` makes; return the calls.
-
-    *running* is the container id ``compose ps`` reports (empty means the
-    service is down and ``up -d`` runs); *services* is the ``config
-    --services`` output; *pg_attempts* is the sequence of ``pg_isready``
-    exit codes to return — once exhausted the last one repeats.
-    """
-    calls = []
-    remaining = list(pg_attempts or [0])
-
-    def fake_run_subprocess(args, **kwargs):
-        calls.append(list(args))
-        if "ps" in args:
-            return 0, running, ""
-        if "config" in args:
-            return 0, services, ""
-        if "exec" in args:
-            if len(remaining) > 1:
-                return remaining.pop(0), "", ""
-            return remaining[0], "", ""
-        return 0, "", ""
-
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
-        fake_run_subprocess,
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
-        lambda *a, **kw: calls.append(list(a[0])),
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.port_in_use",
-        lambda *a, **kw: False,
-    )
-    return calls
-
-
-def test_ensure_service_up_waits_for_db_ready(tmp_project, monkeypatch, capsys):
-    """A cold ``up -d`` is followed by a ``pg_isready`` poll on the db service.
+def test_ensure_service_up_waits_for_db_ready(docker_shared_project):
+    """After a cold ``up -d``, the db service is accepting connections.
 
     ``compose up -d`` returns once containers start, before PostgreSQL
     accepts connections; without the wait, probes racing it report
-    existing databases as missing.
+    existing databases as missing. The shared fixture performed the cold
+    ``ensure_service_up`` — this asserts what it left behind.
     """
-    _write_docker_config(tmp_project)
-    calls = _patch_compose_calls(monkeypatch, pg_attempts=[1, 0])
-
-    DockerBackend().ensure_service_up(tmp_project)
-
-    execs = [c for c in calls if "exec" in c]
-    assert len(execs) == 2
-    assert "db" in execs[0]
-    assert "pg_isready" in execs[0][-1]
-    up_index = next(i for i, c in enumerate(calls) if "up" in c)
-    assert up_index < calls.index(execs[0])
-    assert "accept connections" in capsys.readouterr().err
+    ready = _compose(docker_shared_project, "exec", "-T", "db", "pg_isready")
+    assert ready.returncode == 0
 
 
-def test_ensure_service_up_skips_wait_when_stack_running(tmp_project, monkeypatch):
-    """An already-running stack skips ``up -d`` and the readiness poll."""
-    _write_docker_config(tmp_project)
-    calls = _patch_compose_calls(monkeypatch, running="abc123\n")
+def test_ensure_service_up_skips_wait_when_stack_running(docker_shared_project):
+    """Bringing up an already-running stack leaves its containers alone."""
+    backend = DockerBackend()
+    started = _started_at(docker_shared_project, "app")
 
-    DockerBackend().ensure_service_up(tmp_project)
+    backend.ensure_service_up(docker_shared_project)
 
-    assert not any("up" in c for c in calls)
-    assert not any("exec" in c for c in calls)
-
-
-def test_ensure_service_up_skips_wait_without_db_service(tmp_project, monkeypatch):
-    """Compose files without the db service skip the readiness poll."""
-    _write_docker_config(tmp_project)
-    calls = _patch_compose_calls(monkeypatch, services="odoo\n")
-
-    DockerBackend().ensure_service_up(tmp_project)
-
-    assert any("up" in c for c in calls)
-    assert not any("exec" in c for c in calls)
+    assert _started_at(docker_shared_project, "app") == started
 
 
-def test_ensure_service_up_warns_on_db_timeout(tmp_project, monkeypatch, capsys):
+def test_ensure_service_up_warns_on_db_timeout(
+    docker_daemon, tmp_project, monkeypatch, capsys
+):
     """A db service that never gets ready warns instead of blocking forever."""
     _write_docker_config(tmp_project)
-    _patch_compose_calls(monkeypatch, pg_attempts=[1])
+    # postgres has pg_isready but ``sleep infinity`` never starts a server.
+    (tmp_project / ".osh" / "docker-compose.yml").write_text(
+        "services:\n"
+        "  odoo:\n    image: busybox\n    command: sleep infinity\n"
+        "  db:\n    image: postgres:16-alpine\n    command: sleep infinity\n"
+    )
     monkeypatch.setattr(
         "osh.plugins.osh_backend_docker.backends._DB_READY_TIMEOUT_SECONDS", 0
     )
@@ -1052,102 +1105,76 @@ def test_docker_backend_db_env_targets_db_service(tmp_project, capsys):
     assert " postgres sh -c" in err
 
 
-def test_docker_list_tabulates_containers_and_projects(tmp_project, monkeypatch):
-    """``osh docker list`` shows ports, status and the owning project."""
-    (tmp_project / ".osh" / "docker.toml").write_text('service = "odoo"\n')
-    other = tmp_project.parent / "other"
-    (other / ".osh").mkdir(parents=True)
-    (other / ".osh" / "docker.toml").write_text('service = "odoo"\n')
-    monkeypatch.chdir(tmp_project)
-    calls = _patch_docker_ps(
-        monkeypatch,
-        [
-            _docker_ps_line(
-                "proj-odoo-1",
-                "odoo:19.0",
-                "0.0.0.0:8069->8069/tcp",
-                "Up 2 hours",
-                "com.docker.compose.project.working_dir="
-                f"{tmp_project / '.osh'},com.docker.compose.project=osh-proj",
-            ),
-            _docker_ps_line(
-                "other-odoo-1",
-                "odoo:18.0",
-                "0.0.0.0:8070->8069/tcp",
-                "Up 3 days",
-                f"com.docker.compose.project.working_dir={other},"
-                "com.docker.compose.project=other",
-            ),
-            _docker_ps_line(
-                "stack-db-1",
-                "postgres:16",
-                "5432/tcp",
-                "Up 1 day",
-                "com.docker.compose.project=stack",
-            ),
-            _docker_ps_line(
-                "registry",
-                "registry:2",
-                "0.0.0.0:5000->5000/tcp",
-                "Up 5 days",
-            ),
-        ],
+def test_docker_list_tabulates_containers_and_projects(
+    docker_shared_project, monkeypatch
+):
+    """``osh docker list`` shows containers and resolves their project."""
+    monkeypatch.chdir(docker_shared_project)
+    name = os.environ["COMPOSE_PROJECT_NAME"]
+    # A foreign compose project, a plain container, and an exited one
+    # exercise the project-column fallbacks and the ``--all`` flag.
+    for suffix, args in (
+        ("foreign", ["--label", "com.docker.compose.project=otherstack"]),
+        ("plain", []),
+    ):
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                f"{name}-{suffix}",
+                *args,
+                "busybox",
+                "sleep",
+                "300",
+            ],
+            check=True,
+            capture_output=True,
+        )
+    subprocess.run(
+        ["docker", "run", "--name", f"{name}-stopped", "busybox", "true"],
+        check=True,
+        capture_output=True,
     )
 
     result = CliRunner().invoke(main, ["docker", "list"])
 
     assert result.exit_code == 0, result.output
     out = result.output
-    assert "-a" not in calls[0]
     for column in ("CONTAINER", "PORTS", "STATUS", "PROJECT"):
         assert column in out
-    assert "proj-odoo-1" in out and "0.0.0.0:8069->8069/tcp" in out
-    assert "Up 2 hours" in out
-    # The current project's container is marked; other Osh projects resolve
-    # as ``name (path)``.
-    assert f"{tmp_project.name} ({tmp_project}) *" in out
-    assert f"{other.name} ({other})" in out
-    # Compose projects without an Osh project and plain containers fall back.
-    assert "compose:stack" in out
-    assert "registry" in out and "registry:2" in out
-
-
-def test_docker_list_all_includes_stopped(tmp_project, monkeypatch):
-    """``osh docker list --all`` passes ``-a`` and shows stopped containers."""
-    calls = _patch_docker_ps(
-        monkeypatch,
-        [_docker_ps_line("dead-1", "odoo:19.0", "", "Exited (0) 2 days ago")],
-    )
+    assert f"{name}-app-1" in out and f"{name}-db-1" in out
+    # The current project's stack resolves to the Osh project; containers
+    # without an Osh project fall back to their compose label or nothing.
+    assert f"{docker_shared_project.name} ({docker_shared_project}) *" in out
+    assert "compose:otherstack" in out
+    assert f"{name}-plain" in out
+    # Stopped containers only show with ``--all``.
+    assert f"{name}-stopped" not in out
 
     result = CliRunner().invoke(main, ["docker", "list", "--all"])
 
     assert result.exit_code == 0, result.output
-    assert "-a" in calls[0]
-    assert "Exited (0) 2 days ago" in result.output
+    assert f"{name}-stopped" in result.output
+    assert "Exited" in result.output
 
 
-def test_docker_list_no_containers(tmp_project, monkeypatch):
-    """An empty ``docker ps`` reports there is nothing running."""
-    _patch_docker_ps(monkeypatch, [])
+def test_docker_list_no_containers(tmp_project, fake_docker):
+    """An empty ``docker ps`` reports there is nothing running.
 
+    A real daemon may run unrelated containers, so this stays on the
+    canned-answer ``docker`` to get a deterministic empty list.
+    """
     result = CliRunner().invoke(main, ["docker", "list"])
 
     assert result.exit_code == 0, result.output
     assert "No running Docker containers" in result.output
 
 
-def test_docker_list_docker_unavailable(tmp_project, monkeypatch):
+def test_docker_list_docker_unavailable(tmp_project, fake_docker):
     """A ``docker ps`` failure surfaces as a command error."""
-
-    def fake_run_subprocess(args, **kwargs):
-        raise click.ClickException(
-            "Could not list Docker containers: command not found"
-        )
-
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.discovery.run_subprocess",
-        fake_run_subprocess,
-    )
+    (fake_docker / "docker_rc").write_text("1\n")
 
     result = CliRunner().invoke(main, ["docker", "list"])
 
@@ -1162,54 +1189,84 @@ def test_docker_backend_requires_service(tmp_project):
         backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
 
-def test_docker_backend_env_forwards_stdin(tmp_project, monkeypatch):
-    """``EnvSpec.stdin`` is forwarded to ``compose exec -T`` as process stdin.
+def test_docker_backend_env_forwards_stdin(docker_shared_project):
+    """``EnvSpec.stdin`` reaches the container through ``compose exec -T``.
 
-    This is how ``osh backup restore`` streams dumps into the container without
-    relying on any volume mount.
+    This is how ``osh backup restore`` streams dumps into the container
+    without relying on any volume mount.
     """
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
+    payload = "dump-bytes\n"
+    dump = docker_shared_project / "dump.sql"
+    dump.write_text(payload)
 
+    with dump.open("rb") as stream:
+        rc, out, _err = DockerBackend().env(
+            None,
+            docker_shared_project,
+            EnvSpec(argv=["cat"], stdin=stream),
+            capture=True,
+        )
+
+    assert rc == 0
+    assert payload in out
+
+
+def test_conf_data_dir_only_when_declared(tmp_project):
+    """``data_dir`` is written into the run conf only when declared."""
     backend = DockerBackend()
-    monkeypatch.setattr(backend, "ensure_service_up", lambda *a, **kw: None)
 
-    captured = {}
-
-    def fake_run_subprocess(args, **kwargs):
-        captured["args"] = args
-        captured["stdin"] = kwargs.get("stdin")
-        return 0, "", ""
-
-    monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
-        fake_run_subprocess,
-    )
-
-    marker = object()
-    backend.env(
-        None,
-        tmp_project,
-        EnvSpec(argv=["pg_restore", "--dbname", "db"], stdin=marker),
-        capture=True,
-    )
-
-    assert captured["stdin"] is marker
-    assert "-T" in captured["args"]
-    assert "pg_restore" in captured["args"]
-
-
-def test_docker_odoo_data_dir(tmp_project):
-    """``odoo_data_dir`` defaults to the image's /var/lib/odoo volume."""
-    backend = DockerBackend()
-    assert backend.odoo_data_dir(tmp_project) == "/var/lib/odoo"
+    # Nothing declared: no compose file, no docker.toml key.
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    assert "data_dir" not in conf.read_text()
 
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.write_text('service = "odoo"\ndata_dir = "/opt/odoo/data"\n')
-    assert backend.odoo_data_dir(tmp_project) == "/opt/odoo/data"
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    assert "data_dir = /opt/odoo/data" in conf.read_text()
+
+
+def test_conf_data_dir_from_compose_env(tmp_project, docker_cli):
+    """The service's ``ODOO_DATA_DIR`` lands in the generated config."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text(
+        'service = "odoo"\ncompose_tool = "docker compose"\n'
+        'compose_file = "docker-compose.yml"\n'
+    )
+    (tmp_project / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    image: odoo:19.0\n"
+        "    environment:\n      ODOO_DATA_DIR: /odoo/data\n"
+    )
+
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+
+    assert "data_dir = /odoo/data" in conf.read_text()
+
+
+def test_conf_data_dir_from_volume_mount(tmp_project, docker_cli):
+    """A ``*/data`` or ``/var/lib/odoo`` volume target is honored."""
+    docker_toml = tmp_project / ".osh" / "docker.toml"
+    docker_toml.write_text(
+        'service = "odoo"\ncompose_tool = "docker compose"\n'
+        'compose_file = "docker-compose.yml"\n'
+    )
+    compose = tmp_project / "docker-compose.yml"
+    backend = DockerBackend()
+
+    for target in ("/odoo/data", "/var/lib/odoo"):
+        compose.write_text(
+            "services:\n  odoo:\n    image: odoo:19.0\n"
+            f"    volumes:\n      - data:{target}\nvolumes:\n  data:\n"
+        )
+        conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+        assert f"data_dir = {target}" in conf.read_text()
+
+    # Unrelated mounts leave Odoo's own default untouched.
+    compose.write_text(
+        "services:\n  odoo:\n    image: odoo:19.0\n"
+        "    volumes:\n      - .:/mnt/extra-addons\n"
+    )
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    assert "data_dir" not in conf.read_text()
 
 
 def test_docker_backend_compose_file_from_config(tmp_project, capsys):
@@ -1254,9 +1311,8 @@ def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
     assert "-f" in err and "test.yaml" in err
 
 
-def test_init_docker_writes_version_and_edition(tmp_project, monkeypatch):
+def test_init_docker_writes_version_and_edition(tmp_project, fake_docker, monkeypatch):
     """``osh docker init`` persists the Odoo version and edition."""
-    _patch_docker_tools(monkeypatch)
     monkeypatch.chdir(tmp_project)
 
     ent = tmp_project / "enterprise"
@@ -1305,7 +1361,6 @@ def test_osh_run_docker_uses_branch_database(
     )
     (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
 
-    _patch_docker_tools(monkeypatch)
     # Command assembly only: the generated database name is what is asserted,
     # so the existence probe is stubbed rather than creating a real database.
     monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: True)

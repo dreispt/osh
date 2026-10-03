@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
+    volumes:
+      - "postgres-data:/var/lib/postgresql/data"
+
+  app:
+    build:
+      context: odoo
+    command: sleep infinity
+    depends_on:
+      - db
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+    volumes:
+      - "odoo-data:/odoo/data"
+
+volumes:
+  postgres-data:
+  odoo-data:

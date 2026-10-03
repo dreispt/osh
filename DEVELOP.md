@@ -99,6 +99,16 @@ python -m pytest tests/test_init.py
 python -m pytest tests/test_init.py -k test_sh_includes_themes
 ```
 
+A few tests are marked `docker`: they start real containers on the local
+Docker daemon (Compose projects are namespaced and removed afterwards).
+They are skipped automatically when Docker is unavailable, and can be
+left out while iterating:
+
+```bash
+python -m pytest --no-docker          # fast local run
+python -m pytest -m docker            # only the container tests
+```
+
 The project uses `pre-commit` to keep code formatted and linted. Install and
 run the hooks locally before committing:
 

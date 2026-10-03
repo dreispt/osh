@@ -1,0 +1,4 @@
+service = 'app'
+command = 'odoo'
+compose_file = 'docker-compose.yml'
+compose_tool = 'docker compose'
