@@ -350,9 +350,8 @@ class TodoPlan:
         # Display planned actions
         if self.plan:
             echo.info(f"Planned actions for {backend_name}:")
-            total = len(self.plan)
-            for i, item in enumerate(self.plan, 1):
-                echo.info(f"  [{i}/{total}] {item}")
+            for item in self.plan:
+                echo.info(f"  - {_bold_label(item)}")
 
     def start(self) -> None:
         """Print progress message and advance to next step.
@@ -361,7 +360,19 @@ class TodoPlan:
         """
         if self.index < len(self.plan):
             self.index += 1
-            echo.info(f"[{self.index}/{len(self.plan)}] {self.plan[self.index - 1]}")
+            echo.info(_bold_label(self.plan[self.index - 1]))
+
+
+def _bold_label(item):
+    """Return *item* with its ``Label:`` prefix bolded.
+
+    ``\\x1b[22m`` turns bold off without resetting the colour
+    ``echo.info`` wraps the line in; all codes are stripped off-TTY.
+    """
+    label, sep, rest = item.partition(": ")
+    if not sep:
+        return item
+    return f"\x1b[1m{label}:\x1b[22m {rest}"
 
 
 _EDITION_NAMES = {"ce": "Community", "ee": "Enterprise", "sh": "Odoo.sh"}

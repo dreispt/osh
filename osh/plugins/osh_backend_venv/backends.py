@@ -134,10 +134,10 @@ class VenvBackend(NoneBackend):
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
-        todo.add_plan("Resolve Odoo sources for the selected edition")
-        todo.add_plan("Create a Python virtualenv at .venv")
-        todo.add_plan("Install Odoo and requirements into the virtualenv")
-        todo.add_plan("Run an Odoo --version smoke test")
+        todo.add_plan("Sources: resolve Odoo sources for the selected edition")
+        todo.add_plan("Virtualenv: create a Python virtualenv at .venv")
+        todo.add_plan("Packages: install Odoo and requirements into the virtualenv")
+        todo.add_plan("Smoke test: run an Odoo --version check")
 
     def init(
         self,

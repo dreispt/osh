@@ -193,10 +193,10 @@ class DockerBackend(Backend):
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
-        todo.add_plan("Write .osh/docker.toml with service and compose tool")
-        todo.add_plan("Ensure Odoo sources for the selected edition")
-        todo.add_plan("Build service images (Dockerfile-based stacks)")
-        todo.add_plan("Run an Odoo --version smoke test")
+        todo.add_plan("Config: write .osh/docker.toml with service and compose tool")
+        todo.add_plan("Sources: ensure Odoo sources for the selected edition")
+        todo.add_plan("Images: build service images (Dockerfile-based stacks)")
+        todo.add_plan("Smoke test: run an Odoo --version check")
 
     def odoo_data_dir(self, base):
         """Return the container's Odoo data dir declared by the project.

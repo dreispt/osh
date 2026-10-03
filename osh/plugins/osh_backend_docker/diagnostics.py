@@ -137,7 +137,7 @@ def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=No
     if phase == "init":
         dockerfile = dockerfile or _detect_dockerfile(base)
         suffix = f" building {dockerfile}" if dockerfile else ""
-        d.add_plan(f"Generate {base / _COMPOSE_FILE}{suffix}")
+        d.add_plan(f"Compose file: generate {base / _COMPOSE_FILE}{suffix}")
     elif phase == "run":
         d.add_error(f"Compose file not found: {base / _COMPOSE_FILE}")
     else:
