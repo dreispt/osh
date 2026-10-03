@@ -316,14 +316,16 @@ class DockerBackend(Backend):
         **options,
     ):
         """Set up the project to run Odoo with Docker Compose."""
-        service = options.get("service")
-        command = options.get("command")
+        existing_cfg = _load_docker_config(target) or {}
+        # Re-init keeps the options saved in docker.toml unless flags
+        # override them — the project owns the saved configuration.
+        service = options.get("service") or existing_cfg.get("service")
+        command = options.get("command") or existing_cfg.get("command")
         compose_file = options.get("compose_file")
         dockerfile = options.get("dockerfile")
-        port = options.get("port")
-        db_service = options.get("db_service")
+        port = options.get("port") or existing_cfg.get("port")
+        db_service = options.get("db_service") or existing_cfg.get("db_service")
 
-        existing_cfg = _load_docker_config(target) or {}
         configured = existing_cfg.get("compose_file")
 
         if compose_file:
