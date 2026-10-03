@@ -28,6 +28,7 @@ from ..common import (
 )
 from ..config import get_init_parent, load_user_init_config, save_user_preference
 from ..db import (
+    get_active_backend_name,
     get_project_config,
     is_prod_project,
     set_active_backend_name,
@@ -244,8 +245,10 @@ def base_init(
     resolved ``(edition, version)`` pair for the runtime init to reuse.
 
     *prod* (also implied by a previously recorded ``init.prod``) disables
-    the dev config and the confirmation prompts, and detects the version
-    from the installed Odoo when not given.
+    the dev config and the confirmation prompts, removes zero time limits
+    a previous dev init left in ``.osh/odoo.conf``, switches the project to
+    the ``host`` runtime and detects the version from the installed Odoo
+    when not given.
     """
     if not prod and is_prod_project(target):
         echo.info("Project is marked as production (init.prod); keeping that mode.")
@@ -305,6 +308,8 @@ def base_init(
         )
     elif dev:
         _write_dev_config(osh_conf)
+    elif prod and osh_conf.parent == osh_dir:
+        _remove_dev_limits(osh_conf)
 
     init_values = {"version": version, "edition": edition, "dev": dev}
     if prod:
@@ -315,6 +320,11 @@ def base_init(
         # checkout moves.
         init_values["parent"] = os.path.relpath(enclosing, target)
     set_project_config(target, "init", values=init_values)
+    if prod:
+        previous = get_active_backend_name(target, default=None)
+        if previous and previous != "host":
+            set_active_backend_name(target, "host")
+            echo.info(f"Switched from the '{previous}' runtime to 'host'.")
     if enclosing is None and get_project_config(target, "init", "parent"):
         unset_project_config(target, "init", "parent")
     setup_project_neutralize_scripts(target, version)
@@ -509,6 +519,26 @@ def _write_dev_config(osh_conf):
     odoo_cfg.set("options", "limit_time_real", "0")
     with osh_conf.open("w", encoding="utf-8") as f:
         odoo_cfg.write(f)
+
+
+def _remove_dev_limits(osh_conf):
+    """Remove the unlimited (``0``) timeouts ``_write_dev_config`` sets."""
+    if not osh_conf.exists():
+        return
+    odoo_cfg = configparser.ConfigParser()
+    odoo_cfg.read(osh_conf, encoding="utf-8")
+    removed = [
+        option
+        for option in ("limit_time_cpu", "limit_time_real")
+        if odoo_cfg.get("options", option, fallback=None) == "0"
+    ]
+    if not removed:
+        return
+    for option in removed:
+        odoo_cfg.remove_option("options", option)
+    with osh_conf.open("w", encoding="utf-8") as f:
+        odoo_cfg.write(f)
+    echo.info(f"Removed unlimited {', '.join(removed)} from {osh_conf}.", err=True)
 
 
 def _detect_installed_version(target):

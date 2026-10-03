@@ -28,6 +28,7 @@ from .common import (
     file_newer_than,
     find_shell,
     format_cmd,
+    get_external_odoo_config_path,
     get_odoo_config_path,
     get_odoo_data_dir,
     get_odoo_port,
@@ -55,7 +56,8 @@ def copy_odoo_rc_to_osh_conf(base):
     When ``.osh/odoo.conf`` does not exist and the ``ODOO_RC`` environment
     variable points to an existing file (e.g. ``/etc/odoo.conf`` on a
     server), that file is recorded as ``init.odoo_rc`` and used in place —
-    the production config stays the source of truth. Otherwise ``.odoorc``
+    the production config stays the source of truth; a recorded file keeps
+    being used on later inits without ``ODOO_RC``. Otherwise ``.odoorc``
     is copied to ``.osh/odoo.conf`` if it exists and ``.osh/odoo.conf``
     doesn't, and the path to ``.osh/odoo.conf`` is returned.
     """
@@ -67,6 +69,9 @@ def copy_odoo_rc_to_osh_conf(base):
         if get_project_config(base, "init", "odoo_rc") != str(external):
             set_project_config(base, "init", "odoo_rc", str(external))
             echo.info(f"Using Odoo config from ODOO_RC: {external}", err=True)
+        return external
+    external = None if osh_odoo_conf.exists() else get_external_odoo_config_path(base)
+    if external:
         return external
     if odoo_rc.exists() and not osh_odoo_conf.exists():
         shutil.copy(odoo_rc, osh_odoo_conf)

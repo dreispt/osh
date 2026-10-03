@@ -24,6 +24,7 @@ from ..db import (
     db_exists,
     get_last_db,
     get_project_config,
+    is_prod_project,
     resolve_backend,
     resolve_branch,
     resolve_db_name,
@@ -257,15 +258,15 @@ def _resolve_dev_default(base, *, no_dev):
     """Return the dev-mode value to inject, or None when disabled.
 
     Precedence: ``--no-dev`` flag > ``[odoo] dev`` in ``.osh/config.toml`` >
-    ``[odoo] dev`` in ``~/.config/osh/config.toml`` > ``all``.
+    off on production projects (``init.prod``) > ``[odoo] dev`` in
+    ``~/.config/osh/config.toml`` > ``all``.
     """
     if no_dev:
         return None
-    value = (
-        get_project_config(base, "odoo", "dev")
-        or get_user_preference("dev", section="odoo")
-        or "all"
-    )
+    value = get_project_config(base, "odoo", "dev")
+    if not value and is_prod_project(base):
+        return None
+    value = value or get_user_preference("dev", section="odoo") or "all"
     if str(value).strip().lower() in ("off", "none", "false", "0"):
         return None
     return value

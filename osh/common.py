@@ -696,7 +696,9 @@ def get_odoo_data_dir(base):
     exists, otherwise None).
     """
     if base is not None:
-        odoo_rc = get_external_odoo_config_path(base) or get_odoo_config_path(base)
+        odoo_rc = get_odoo_config_path(base)
+        if not (base / ".osh" / "odoo.conf").exists():
+            odoo_rc = get_external_odoo_config_path(base) or odoo_rc
         if odoo_rc.exists():
             cfg = configparser.ConfigParser()
             cfg.read(odoo_rc)

@@ -90,6 +90,43 @@ class TestInitProd:
             "limit_time_cpu = 0" not in _osh_conf(tmp_project).read_text()
         )
 
+    def test_prod_removes_previous_dev_limits(self, tmp_project, fake_odoo_executable):
+        """Re-initialising a dev project with ``--prod`` drops zero limits."""
+        _osh_conf(tmp_project).write_text(
+            "[options]\nlimit_time_cpu = 0\nlimit_time_real = 0\nworkers = 2\n"
+        )
+
+        result = CliRunner().invoke(
+            main, ["init", "--prod", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        conf = _osh_conf(tmp_project).read_text()
+        assert "limit_time" not in conf
+        assert "workers = 2" in conf
+
+    def test_prod_switches_to_host_runtime(self, tmp_project, fake_odoo_executable):
+        """``--prod`` makes ``host`` the active runtime."""
+        set_project_config(tmp_project, "run", "runtime", "docker")
+
+        result = CliRunner().invoke(
+            main, ["init", "--prod", "--edition", "ce", str(tmp_project)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert get_project_config(tmp_project, "run", "runtime") == "host"
+
+    def test_prod_disables_dev_default(self, tmp_project):
+        """``osh odoo`` injects no ``--dev`` default on production projects."""
+        from osh.commands.odoo_cmd import _resolve_dev_default
+
+        assert _resolve_dev_default(tmp_project, no_dev=False) == "all"
+        set_project_config(tmp_project, "init", "prod", True)
+        assert _resolve_dev_default(tmp_project, no_dev=False) is None
+        # An explicit project setting still wins.
+        set_project_config(tmp_project, "odoo", "dev", "xml")
+        assert _resolve_dev_default(tmp_project, no_dev=False) == "xml"
+
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -141,6 +178,40 @@ class TestExternalOdooRc:
 
         assert result.exit_code == 0, result.output
         assert etc_conf.read_text() == "[options]\n"
+
+    def test_reinit_without_env_keeps_recorded_odoo_rc(
+        self, tmp_project, tmp_path, monkeypatch, fake_odoo_executable
+    ):
+        """A later init without ``ODOO_RC`` keeps using the recorded file."""
+        etc_conf = tmp_path / "odoo.conf"
+        etc_conf.write_text("[options]\n")
+        (tmp_project / ".odoorc").write_text("[options]\ndb_name = dev\n")
+        monkeypatch.setenv("ODOO_RC", str(etc_conf))
+        runner = CliRunner()
+        args = ["init", "--prod", "--edition", "ce", str(tmp_project)]
+        assert runner.invoke(main, args).exit_code == 0
+        monkeypatch.delenv("ODOO_RC")
+
+        result = runner.invoke(main, args)
+
+        assert result.exit_code == 0, result.output
+        assert not _osh_conf(tmp_project).exists()
+        assert get_osh_odoo_config_path(tmp_project) == etc_conf
+
+    def test_data_dir_follows_active_config(self, tmp_project, tmp_path):
+        """``get_odoo_data_dir`` reads the external config only when it is active."""
+        from osh.common import get_odoo_data_dir
+
+        etc_conf = tmp_path / "odoo.conf"
+        etc_conf.write_text(f"[options]\ndata_dir = {tmp_path / 'external'}\n")
+        set_project_config(tmp_project, "init", "odoo_rc", str(etc_conf))
+        assert get_odoo_data_dir(tmp_project) == tmp_path / "external"
+
+        _osh_conf(tmp_project).write_text("[options]\n")
+        (tmp_project / ".odoorc").write_text(
+            f"[options]\ndata_dir = {tmp_path / 'local'}\n"
+        )
+        assert get_odoo_data_dir(tmp_project) == tmp_path / "local"
 
     def test_missing_odoo_rc_falls_back_to_copy(
         self, tmp_project, tmp_path, monkeypatch

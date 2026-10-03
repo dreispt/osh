@@ -196,7 +196,7 @@ those modules are added to the generated Odoo config as `addons_path`.
 
 ### Configuration file
 
-The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init. When `.osh/odoo.conf` doesn't exist and the `ODOO_RC` environment variable points to an existing file (e.g. `/etc/odoo.conf`), init records that file (`init.odoo_rc`) and uses it in place instead — it is never copied or modified.
+The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init. When `.osh/odoo.conf` doesn't exist and the `ODOO_RC` environment variable points to an existing file (e.g. `/etc/odoo.conf`), init records that file (`init.odoo_rc`) and uses it in place instead — it is never copied or modified, and stays in use on later inits without `ODOO_RC`.
 
 ### Production servers
 
@@ -216,6 +216,9 @@ osh init --prod
 - Detects the Odoo version from the installed `odoo --version` when VERSION
   is omitted.
 - Records `init.prod = true`; a later `osh init` keeps production mode.
+- Switches the project to the `host` runtime, removes zero time limits a
+  previous dev init left in `.osh/odoo.conf`, and stops `osh odoo` from
+  adding `--dev=all` (unless `[odoo] dev` is set explicitly).
 - Makes `osh db drop` and `osh backup restore` require typing the database
   name to confirm — even with `--force` (scripts can pipe it on stdin).
 
