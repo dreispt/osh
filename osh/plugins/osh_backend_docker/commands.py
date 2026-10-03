@@ -8,7 +8,7 @@ from ... import echo
 from ...commands.backend_cmd import BackendCommands
 from ...common import find_project_root
 from ...handlers import subcommand
-from .utils import _list_containers
+from .discovery import _list_containers
 
 
 class Docker(BackendCommands):

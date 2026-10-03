@@ -1,69 +1,14 @@
-"""Shared fixtures for the Osh test suite."""
+"""Shared fixtures for the Osh test suite.
 
-import shutil
+Session-wide hooks and generic fixtures live in the root ``conftest.py``
+so they also apply to plugin test directories.
+"""
+
+import json
 import subprocess
 import uuid
-from pathlib import Path
 
 import pytest
-
-
-@pytest.fixture(autouse=True)
-def _isolated_env(monkeypatch):
-    """Remove Osh-managed variables from the ambient environment.
-
-    A developer's shell may export ``VIRTUAL_ENV`` (running pytest inside a
-    venv), ``ODOO_RC`` or the ``OSH_INIT_*`` init defaults; tests build these
-    values fresh, so ambient values are removed to keep results deterministic.
-    ``PG*`` variables are kept: they may be required to reach the test
-    PostgreSQL server.
-    """
-    for var in ("VIRTUAL_ENV", "ODOO_RC", "OSH_INIT_VERSION", "OSH_INIT_EDITION"):
-        monkeypatch.delenv(var, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def _reset_plugin_registry():
-    """Rebuild the plugin registry for each test.
-
-    The registry caches plugin specs discovered from user dirs and entry
-    points; tests that create plugins monkeypatch ``user_plugin_dir`` and
-    must see a fresh registry, and fake specs must not leak into the next
-    test.
-    """
-    from osh.utils import plugin_loader
-
-    plugin_loader.reset_plugin_registry()
-    yield
-    plugin_loader.reset_plugin_registry()
-
-
-@pytest.fixture
-def tmp_project(tmp_path):
-    """Return a temporary project directory with a .osh marker and .git."""
-    project = tmp_path / "project"
-    project.mkdir(parents=True, exist_ok=True)
-    (project / ".osh").mkdir(parents=True, exist_ok=True)
-    (project / ".git").mkdir(parents=True, exist_ok=True)
-    return project
-
-
-@pytest.fixture
-def in_project(monkeypatch, tmp_project):
-    """Switch into the temporary project for project-aware commands."""
-    monkeypatch.chdir(tmp_project)
-    return tmp_project
-
-
-@pytest.fixture
-def fake_odoo_executable(tmp_project):
-    """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``."""
-    venv_bin = tmp_project / ".venv" / "bin"
-    venv_bin.mkdir(parents=True, exist_ok=True)
-    odoo_exe = venv_bin / "odoo"
-    odoo_exe.write_text("#!/bin/sh\necho odoo 19.0")
-    odoo_exe.chmod(0o755)
-    return odoo_exe
 
 
 @pytest.fixture
@@ -76,9 +21,44 @@ def osh_source_dirs(tmp_project):
     return osh_dir
 
 
-def unique_db_name():
-    """Return a database name that cannot collide with real development work."""
-    return f"osh-test-{uuid.uuid4().hex[:16]}"
+def _write_docker_config(project, port=None):
+    """Write a minimal docker backend config and generated compose file."""
+    osh_dir = project / ".osh"
+    osh_dir.mkdir(parents=True, exist_ok=True)
+    text = 'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    if port:
+        text += f"port = {port}\n"
+    (osh_dir / "docker.toml").write_text(text)
+    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+
+def _docker_ps_line(name, image, ports, status, labels="", cid=None):
+    """Return a ``docker ps --format '{{json .}}'`` output line."""
+    return json.dumps(
+        {
+            "ID": cid or name,
+            "Names": name,
+            "Image": image,
+            "Ports": ports,
+            "Status": status,
+            "Labels": labels,
+        }
+    )
+
+
+def _patch_docker_ps(monkeypatch, lines):
+    """Patch the ``docker ps`` call behind ``osh docker list``."""
+    calls = []
+
+    def fake_run_subprocess(args, **kwargs):
+        calls.append(list(args))
+        return 0, "\n".join(lines), ""
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.discovery.run_subprocess",
+        fake_run_subprocess,
+    )
+    return calls
 
 
 @pytest.fixture
@@ -106,7 +86,7 @@ def pg_db():
         @staticmethod
         def name():
             """Return a unique database name (not created)."""
-            return unique_db_name()
+            return f"osh-test-{uuid.uuid4().hex[:16]}"
 
         def create(self, name=None):
             """Create a real database and return its name."""
@@ -220,80 +200,6 @@ def subprocess_check_call_capture(monkeypatch):
 
 
 @pytest.fixture
-def patch_cache(monkeypatch, tmp_path):
-    """Redirect the central source cache into a temporary directory."""
-    cache = tmp_path / "cache"
-    monkeypatch.setattr("osh.sources.SOURCE_CACHE_DIR", cache)
-    return cache
-
-
-def real_git_only_subprocess(monkeypatch):
-    """Run git commands for real; record/no-op everything else.
-
-    Patches ``run_subprocess`` in the source-acquisition modules so that
-    ``pip`` is no-opped, ``python -m venv`` creates only the ``.venv/bin``
-    skeleton (the real run costs ~1.5s per test), and other commands —
-    ``git`` included — are executed for real. Calls are recorded in the
-    returned list. Also disables ``venv.create``.
-    """
-    calls = []
-
-    def _name(cmd):
-        if isinstance(cmd, list | tuple):
-            return Path(str(cmd[0])).name
-        return Path(str(cmd)).name
-
-    def fake_run_subprocess(args, **kwargs):
-        cmd = args[0] if isinstance(args, list | tuple) else args
-        kwargs.pop("error_msg", None)
-        kwargs.pop("dry_run", None)
-        kwargs.pop("stdout", None)
-        kwargs.pop("stderr", None)
-
-        if isinstance(args, list | tuple):
-            calls.append(list(args))
-        else:
-            calls.append([args])
-
-        if isinstance(cmd, list | tuple) and "git" in cmd:
-            result = subprocess.run(
-                args,
-                capture_output=True,
-                **kwargs,
-            )
-            return result.returncode, result.stdout or "", result.stderr or ""
-
-        if _name(cmd).startswith("pip"):
-            return 0, "", ""
-
-        if isinstance(args, list | tuple) and {"-m", "venv"} <= set(args):
-            (Path(str(args[-1])) / "bin").mkdir(parents=True, exist_ok=True)
-            return 0, "", ""
-
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            **kwargs,
-        )
-        return result.returncode, result.stdout or "", result.stderr or ""
-
-    for target in (
-        "osh.plugins.osh_backend_venv.utils.run_subprocess",
-        "osh.sources.run_subprocess",
-    ):
-        monkeypatch.setattr(target, fake_run_subprocess)
-    monkeypatch.setattr("venv.create", lambda *a, **kw: None)
-    return calls
-
-
-def _setup_fake_db_config(project, db_name="testdb"):
-    """Write a branch database mapping into the project config."""
-    from osh.db import set_project_config
-
-    set_project_config(project, "db", "default", db_name)
-
-
-@pytest.fixture
 def patched_restore(monkeypatch, in_project, pg_db):
     """Patch external dependencies used by `osh backup restore` for isolated tests.
 
@@ -301,6 +207,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
     exist, so the real ``db_exists`` check drives the create path.
     """
     from osh.commands.helpers import Diagnostics
+    from osh.db import set_project_config
 
     db_name = pg_db.name()
     state = {
@@ -311,7 +218,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
         "dropped": [],
         "created": [],
     }
-    _setup_fake_db_config(in_project, db_name)
+    set_project_config(in_project, "db", "default", db_name)
 
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_cmd.drop_db",
@@ -355,18 +262,3 @@ def patched_restore(monkeypatch, in_project, pg_db):
     )
 
     return state
-
-
-@pytest.fixture(autouse=True, scope="session")
-def _cleanup_explicit_temp_root():
-    """Remove a leftover ``.pytest_tmp`` tree after the full session.
-
-    When pytest is pointed at an in-repo temporary directory, it no longer
-    applies its default cleanup that keeps only the last few runs.  This
-    fixture ensures the local directory cannot grow unbounded if such an
-    option is set from the environment or a wrapper.
-    """
-    yield
-    tmp_root = Path.cwd() / ".pytest_tmp"
-    if tmp_root.is_dir():
-        shutil.rmtree(tmp_root, ignore_errors=True)

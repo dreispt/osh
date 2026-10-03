@@ -8,15 +8,7 @@ import pytest
 from osh.backends import EnvSpec
 from osh.plugins.osh_backend_docker.backends import DockerBackend
 
-
-def _write_docker_config(project, port=None):
-    osh_dir = project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    text = 'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    if port:
-        text += f"port = {port}\n"
-    (osh_dir / "docker.toml").write_text(text)
-    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+from .conftest import _write_docker_config
 
 
 def _patch_docker(monkeypatch, *, running_ids="", docker_ps_lines=()):
@@ -44,14 +36,14 @@ def _patch_docker(monkeypatch, *, running_ids="", docker_ps_lines=()):
         fake_run_subprocess,
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils.run_subprocess",
+        "osh.plugins.osh_backend_docker.discovery.run_subprocess",
         fake_run_subprocess,
     )
     monkeypatch.setattr(
         "osh.plugins.osh_backend_docker.backends.run_command", fake_run_command
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._port_in_use", lambda *a, **kw: True
+        "osh.plugins.osh_backend_docker.backends.port_in_use", lambda *a, **kw: True
     )
     # No host processes holding the port — the real /proc scan would make
     # the outcome depend on whatever the developer's machine is running.
@@ -126,7 +118,7 @@ def test_port_collision_uses_configured_port(tmp_project, monkeypatch):
         "osh.plugins.osh_backend_docker.backends.run_command", lambda *a, **kw: None
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._port_in_use", lambda *a, **kw: True
+        "osh.plugins.osh_backend_docker.backends.port_in_use", lambda *a, **kw: True
     )
 
     backend = DockerBackend()
@@ -152,7 +144,7 @@ def test_ensure_service_up_brings_stack_up(tmp_project, monkeypatch):
     _write_docker_config(tmp_project)
     calls = _patch_docker(monkeypatch)
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        "osh.plugins.osh_backend_docker.backends.port_in_use",
         lambda *a, **kw: False,
     )
 
@@ -160,7 +152,9 @@ def test_ensure_service_up_brings_stack_up(tmp_project, monkeypatch):
     backend.ensure_service_up(tmp_project)
 
     assert len(calls) == 1
-    assert calls[0][-2:] == ["up", "-d"]
+    # --build is a no-op for image-only stacks but rebuilds Dockerfile-based
+    # ones, so the service picks up changes without a separate build step.
+    assert calls[0][-3:] == ["up", "-d", "--build"]
 
 
 def test_ensure_service_up_publishes_requested_port(tmp_project, monkeypatch):
@@ -169,7 +163,7 @@ def test_ensure_service_up_publishes_requested_port(tmp_project, monkeypatch):
     calls = _patch_docker(monkeypatch)
     ports_checked = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._port_in_use",
+        "osh.plugins.osh_backend_docker.backends.port_in_use",
         lambda port, **kw: ports_checked.append(port) or False,
     )
 
@@ -180,7 +174,7 @@ def test_ensure_service_up_publishes_requested_port(tmp_project, monkeypatch):
     override = (tmp_project / ".osh" / "docker-compose.osh.yml").read_text()
     assert "ports: !override" in override
     assert '"8080:8080"' in override
-    assert calls[0][-2:] == ["up", "-d"]
+    assert calls[0][-3:] == ["up", "-d", "--build"]
 
 
 def test_odoo_http_port_parsing():
@@ -227,6 +221,55 @@ def test_probe_reuses_override_port(tmp_project):
 
     assert _requested_port(ctx, tmp_project) == 8080
     assert _requested_port(ctx, tmp_project / "nope") is None
+
+
+def _write_foreign_docker_config(project):
+    """Write a docker backend config pointing at a project compose file."""
+    osh_dir = project / ".osh"
+    osh_dir.mkdir(parents=True, exist_ok=True)
+    (osh_dir / "docker.toml").write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+        'compose_file = "devel.yaml"\n'
+    )
+    (project / "devel.yaml").write_text("services:\n  odoo:\n")
+
+
+def test_ensure_service_up_foreign_skips_port_check(tmp_project, monkeypatch):
+    """A project compose file's own port mapping is authoritative.
+
+    Without an explicit ``osh odoo -p``, checking the configured 8069 would
+    flag a port the project's own compose file may not even publish —
+    ``port_in_use`` is patched to report a collision, so reaching ``up``
+    at all proves the check was skipped.
+    """
+    _write_foreign_docker_config(tmp_project)
+    calls = _patch_docker(monkeypatch)
+
+    backend = DockerBackend()
+    backend.ensure_service_up(tmp_project)
+
+    assert len(calls) == 1
+    assert calls[0][-3:] == ["up", "-d", "--build"]
+    # Foreign stacks share the project's natural Compose project name.
+    assert "-p" not in calls[0]
+
+
+def test_ensure_service_up_foreign_checks_requested_port(tmp_project, monkeypatch):
+    """``osh odoo -p`` on a foreign stack still gets the collision check."""
+    _write_foreign_docker_config(tmp_project)
+    _patch_docker(monkeypatch)
+    ports_checked = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.port_in_use",
+        lambda port, **kw: ports_checked.append(port) or False,
+    )
+
+    backend = DockerBackend()
+    backend.ensure_service_up(tmp_project, port=8080)
+
+    assert ports_checked == [8080]
+    override = (tmp_project / ".osh" / "docker-compose.osh.yml").read_text()
+    assert '"8080:8080"' in override
 
 
 def test_env_port_semantics(tmp_project, monkeypatch):
