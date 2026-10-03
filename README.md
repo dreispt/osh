@@ -1,11 +1,15 @@
 # Osh – Odoo Shell
 
-`osh` is a command-line wrapper around `odoo-bin` that makes it easier to run
-Odoo in development and staging environments.
+_An exoskeleton for Odoo development_
 
-Think of it as a virtual environment manager for Odoo projects:
-it discovers your addons, picks a database name for you,
-and runs the right Odoo installation for the project.
+`osh` provides a command-line interface for working with Odoo development
+environments, databases, and project infrastructure. It brings common
+development operations into a consistent interface while keeping the
+underlying Odoo, Docker, PostgreSQL, and other tools accessible.
+
+It is like a virtual environment manager for Odoo projects:
+it discovers your addons, remembers the database to use,
+and runs the right command to start Odoo in your project.
 
 > **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
 
@@ -94,8 +98,9 @@ and lifecycle:
 | `osh docker ...`  | Docker Compose stack: `init`, `activate`, `list`, `stop`                                         |
 
 `osh <backend> init` runs the base setup first, then the backend's own
-steps (e.g. `osh docker init` writes `docker.toml` and generates the
-Compose file). `osh <backend> activate` switches the project to an
+steps (e.g. `osh docker init` writes `docker.toml` and honors a project
+compose file or Dockerfile when present, generating the Compose file
+otherwise). `osh <backend> activate` switches the project to an
 already-initialized backend — the active backend is what `osh odoo`,
 `osh shell` and `osh db` run through, and `osh backend deactivate`
 switches back to plain host execution. `osh backend status` shows which

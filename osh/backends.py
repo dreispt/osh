@@ -24,6 +24,7 @@ import click
 
 from . import echo
 from .common import (
+    file_newer_than,
     find_shell,
     format_cmd,
     get_odoo_config_path,
@@ -146,6 +147,33 @@ class Backend(ABC):
         from .utils.odoo_layout import build_addons_paths as _build_addons_paths
 
         return _build_addons_paths(base, include_themes=include_themes)
+
+    def _environment_builds(self, base):
+        """Return ``(built_epoch, input_paths)`` pairs for the staleness check.
+
+        Each pair gives a built environment artifact's timestamp and the
+        files it was built from. The default returns ``()``: backends that
+        manage no built environment (e.g. ``none``) never report staleness.
+        """
+        return ()
+
+    def _stale_environment_hint(self):
+        """Remediation text appended to the stale-environment warning."""
+        return f"Run 'osh {self.name} init' to refresh the environment."
+
+    def _check_stale_environment(self, base, d):
+        """Warn when files the environment was built from postdate the build."""
+        changed = dict.fromkeys(
+            str(path)
+            for built_epoch, paths in self._environment_builds(base)
+            for path in paths
+            if file_newer_than(path, built_epoch)
+        )
+        if changed:
+            d.add_warning(
+                "Files the environment was built from changed after the "
+                "build: " + ", ".join(changed) + ". " + self._stale_environment_hint()
+            )
 
     def diagnose(
         self,

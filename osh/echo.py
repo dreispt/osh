@@ -85,6 +85,11 @@ def debug(message, err=False):
     _get_cached_echo().debug(message, err=err)
 
 
+def output(message, err=False):
+    """Print command output verbatim — unstyled, shown at info level."""
+    _get_cached_echo().output(message, err=err)
+
+
 _EMOJI_PREFIXES = {
     "error": "❌ ",
     "warning": "⚠️ ",
@@ -92,6 +97,17 @@ _EMOJI_PREFIXES = {
     "success": "✅ ",
     "friendly": "🧭 ",
     "internal": "",
+    "debug": "",
+}
+
+_CATEGORY_COLORS = {
+    "error": "red",
+    "warning": "yellow",
+    "info": "cyan",
+    "success": "green",
+    "friendly": "magenta",
+    "internal": "bright_black",
+    "debug": "bright_black",
 }
 
 
@@ -151,13 +167,16 @@ class Echo:
         """Format message based on category and current level.
 
         Args:
-            category: Message category for appropriate prefix
+            category: Message category for appropriate prefix and color
             message: The message content
 
         Returns:
-            Formatted message with prefix
+            Formatted message with prefix; ANSI-colored for the category.
+            ``click.echo`` strips the codes when the output is not a TTY.
         """
-        return f"{_EMOJI_PREFIXES.get(category, '')}{message}"
+        formatted = f"{_EMOJI_PREFIXES.get(category, '')}{message}"
+        fg = _CATEGORY_COLORS.get(category)
+        return click.style(formatted, fg=fg) if fg else formatted
 
     def _echo(self, category, message, err=False):
         """Internal echo method that handles category checking and formatting.
@@ -201,6 +220,11 @@ class Echo:
     def debug(self, message, err=False):
         """Log diagnostics (shown at debug level only)."""
         self._echo("debug", message, err=err)
+
+    def output(self, message, err=False):
+        """Print command output verbatim — unstyled, shown at info level."""
+        if self.should_show("info"):
+            click.echo(message, err=err)
 
 
 def confirm(message, default=True, abort=False):

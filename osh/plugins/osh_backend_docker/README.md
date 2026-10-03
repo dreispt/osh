@@ -7,18 +7,19 @@ Provides the `docker` run backend: Odoo and its tools (`psql`, `pg_dump`,
 
 ```bash
 osh docker init 19.0 [--service odoo] [--command odoo] \
-    [--compose-file devel.yaml] [--port 8069]
+    [--compose-file devel.yaml] [--dockerfile Dockerfile] [--port 8069]
 ```
 
 Init writes `.osh/docker.toml` recording the service name, container command,
-compose file, compose tool, port, version and edition, ensures the Odoo
-sources for the selected edition exist under `.osh/`, and runs an
+compose file, compose tool, port, version, edition and Dockerfile, ensures
+the Odoo sources for the selected edition exist under `.osh/`, and runs an
 `odoo --version` smoke test.
 
-An optional `data_dir` key in `.osh/docker.toml` tells `osh db` where the
-container's Odoo data directory is (used for `.zip` filestore operations).
-It defaults to `/var/lib/odoo`, the named volume declared by the official
-Odoo image; set it when your compose file configures a different `data_dir`.
+The container's Odoo data directory comes from `data_dir` in
+`.osh/docker.toml`, the service's `ODOO_DATA_DIR`, or a `/var/lib/odoo` /
+`*/data` volume mount — in that order. It is written into the generated
+run config and used by `osh db` filestore operations. When the stack
+declares none, Odoo's own default applies.
 
 An optional `db_service` key names the Compose service running PostgreSQL
 (`--db-service` on init); it defaults to `db`, matching the generated stack
@@ -26,33 +27,59 @@ and Doodba. `osh db shell` opens a shell or runs commands in that service
 instead of the Odoo one — inside it, the postgres image's `POSTGRES_*`
 variables are mapped to the usual `PG*` ones.
 
-## Behaviour with existing Docker / Compose files
+## Compose file and image resolution
+
+`osh docker init` picks the Odoo container in this order:
 
 - **`--compose-file <path>`** (or `$OSH_COMPOSE_FILE`, or `compose_file` in
   `.osh/docker.toml`): the file is used as-is — for example a Doodba
   `devel.yaml`. Osh never edits it; it is only referenced via
   `docker compose -f <file>` and must already define the service named by
-  `--service`/`service` in `docker.toml`. The file's own port mapping is
-  what counts for collision checks — tell Osh about it with `--port`.
-- **No compose file given**: Osh generates `.osh/docker-compose.yml` — a
-  standard `odoo:<version>` + `postgres:16` stack that mounts the project at
-  `/mnt/extra-addons` and publishes `8069` (or `--port <n>`). It lives under
-  `.osh/` so it never clashes with a compose file at the project root.
-- A compose file at the project root (`docker-compose.yml`, `compose.yaml`,
-  ...) is left untouched. If `docker.toml` names no `compose_file` and the
-  generated `.osh/docker-compose.yml` exists, that one is used.
-- Osh runs its stack under an isolated Compose project name,
-  `osh-<dirname>-<hash>` (via `-p`), so `docker compose` invocations never
-  collide with the project's own Compose project — two Osh projects get
-  separate containers and volumes.
+  `--service`/`service` in `docker.toml`.
+- **A compose file at the project root** — `compose.yaml`, `compose.yml`,
+  `docker-compose.yaml`, `docker-compose.yml` or `devel.yaml`, in that
+  order — is auto-detected and used the same way. When several exist the
+  first match wins; pass `--compose-file` to pick another.
+- **`--dockerfile <path>`** or a `Dockerfile` at the project root: Osh
+  generates `.osh/docker-compose.yml` with a `build:` stanza (context is
+  the project root) plus the usual `postgres` service, and `docker compose
+up --build` keeps the image current on each cold start.
+- **Neither**: Osh generates `.osh/docker-compose.yml` — a standard
+  `odoo:<version>` + `postgres:16` stack that mounts the project at
+  `/mnt/extra-addons` and publishes `8069` (or `--port <n>`). It lives
+  under `.osh/` so it never clashes with a compose file at the project
+  root.
+
+## Stack model
+
+- A project-provided compose file runs under its **natural Compose project
+  name** — the same containers `docker compose up` at the project root
+  creates. `docker compose ps` shows what Osh manages, and `osh docker
+stop` downs the project's real stack.
+- The generated `.osh/docker-compose.yml` runs under an isolated
+  `osh-<dirname>-<hash>` project name instead — its `.osh` directory would
+  otherwise give every Osh project the same default name.
+- Since Osh runs Odoo via `docker compose exec` (see below), the generated
+  override `.osh/docker-compose.osh.yml` adapts foreign stacks to that
+  model: it sets the Odoo service command to `sleep infinity` (the file's
+  own command is often a running Odoo that would collide on the
+  container's HTTP port) and mounts the project root at
+  `/mnt/extra-addons`. Database connectivity — the `PG*`/`HOST`/`USER`/
+  `PASSWORD` variables — stays the compose file's own responsibility, and
+  its own port mapping is what counts for `osh odoo` (an explicit
+  `osh odoo -p <n>` republishes the service through the override).
+  Running `docker compose up` without the override restores the file's own
+  behaviour.
 
 ## Execution model
 
 The stack is kept running and reused: every `osh odoo` / `osh shell` /
 `osh db` command first runs `docker compose ps --status running <service>`;
-when the service is down, `docker compose up -d` brings it (and its
-dependencies) up once. Commands then run via `docker compose exec`, not
-one-shot `compose run`, so back-to-back commands pay the startup cost once.
+when the service is down, `docker compose up -d --build` brings it (and its
+dependencies) up once — `--build` is a no-op for image-based stacks and
+rebuilds `Dockerfile`-based ones. Commands then run via
+`docker compose exec`, not one-shot `compose run`, so back-to-back commands
+pay the startup cost once.
 
 `exec` bypasses the image entrypoint, so Osh supplies the connection
 arguments itself:
@@ -64,6 +91,31 @@ arguments itself:
 
 Containers are intentionally **left running** after commands exit.
 `osh docker stop` runs `docker compose down` for the project stack.
+
+## Rebuilding images
+
+A running stack never rebuilds its image — `up -d --build` only fires on
+a cold start, so edits to a project Dockerfile or its requirements stay
+invisible until the stack is recreated. `osh odoo` warns when files in
+the build context are newer than the built image.
+
+To refresh the image build, re-run init — it runs `compose build` before
+its smoke test on stacks that declare `build:` services:
+
+```bash
+osh docker init   # rebuild the service images
+```
+
+Init updates the image but does not recreate a running container, so a
+live stack still needs a restart to run on it:
+
+```bash
+osh docker stop   # down the stack
+osh odoo          # cold start rebuilds the image, then runs Odoo
+```
+
+For project-provided compose files, `docker compose build` at the
+project root works too.
 
 ## Addons paths
 
@@ -80,10 +132,13 @@ the project mount. For those, Osh generates
 read-only volume under `/mnt/osh-src/<name>-<hash>`, and includes it in
 every `docker compose` invocation. It is regenerated on each run, so
 changing a link takes effect on the next `osh odoo`/`osh shell` (the stack
-is recreated to pick up new mounts). The file is removed when no external
-sources are configured.
+is recreated to pick up new mounts). The same override carries the
+`sleep infinity` command and `/mnt/extra-addons` mount on foreign stacks
+(see "Stack model"); the file is removed when nothing needs overriding.
 
-Before `up -d`, Osh checks whether the configured port is already bound. If
+Before `up -d`, Osh checks whether the published port is already bound —
+the configured/`--port` one on the generated stack, or the `osh odoo -p`
+override elsewhere; a foreign compose file's own mapping is left to it. If
 the holder is another Osh-managed project (identified via Compose labels),
 the error names that project and suggests `osh docker stop` there or
 `osh docker init --port <n>` here; otherwise it prints a generic

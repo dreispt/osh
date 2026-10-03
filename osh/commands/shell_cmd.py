@@ -61,6 +61,11 @@ def build_dynamic_odoo_config(
         if addons_paths:
             cfg.set("options", "addons_path", ",".join(str(p) for p in addons_paths))
 
+    if not cfg.has_option("options", "data_dir"):
+        data_dir = backend.odoo_data_dir(base)
+        if data_dir:
+            cfg.set("options", "data_dir", str(data_dir))
+
     if db_name:
         cfg.set("options", "db_name", db_name)
         if not no_db_filter:

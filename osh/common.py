@@ -167,6 +167,18 @@ def _is_git_repo(path):
     return (git / "HEAD").exists()
 
 
+def file_newer_than(path, epoch):
+    """Return True when *path*'s mtime postdates *epoch* seconds.
+
+    Missing or unreadable files answer False — callers probing optional
+    files (a Dockerfile, a requirements.txt) get "not newer" for free.
+    """
+    try:
+        return Path(path).stat().st_mtime > epoch
+    except OSError:
+        return False
+
+
 def find_project_repos(base, *, max_depth=4):
     """Return the git repositories that make up the project rooted at *base*.
 
@@ -385,11 +397,15 @@ def format_cmd(args):
 
 
 def _stream_output(pipe, err=False):
-    """Read *pipe* line-by-line and echo it to the user."""
+    """Read *pipe* line-by-line and echo it to the user.
+
+    Command output is not an Osh message: it prints verbatim, without
+    category styling.
+    """
     for line in iter(pipe.readline, ""):
         if not line:
             break
-        echo.info(line.rstrip("\r\n"), err=err)
+        echo.output(line.rstrip("\r\n"), err=err)
     pipe.close()
 
 

@@ -1,21 +1,13 @@
 """Tests for ``osh backend stop`` and ``osh <backend> stop`` commands."""
 
+import os
 import signal
 
 from click.testing import CliRunner
 
 from osh.cli import main
 
-from .test_docker_plugin import _docker_ps_line, _patch_docker_ps
-
-
-def _write_docker_config(project):
-    osh_dir = project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    (osh_dir / "docker.toml").write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
-    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+from .conftest import _docker_ps_line, _patch_docker_ps, _write_docker_config
 
 
 def test_stop_host_without_listener_is_noop(in_project, monkeypatch):
@@ -255,6 +247,58 @@ def test_stop_docker_without_config_is_noop(in_project, capsys):
     assert "nothing to stop" in result.output
 
 
+def test_stop_docker_missing_compose_file_is_noop(in_project, monkeypatch):
+    """A deleted compose file with no containers left is a clean no-op."""
+    (in_project / ".osh" / "docker.toml").write_text(
+        'service = "odoo"\ncompose_file = "gone.yaml"\n'
+    )
+    _patch_docker_ps(monkeypatch, [])
+
+    result = CliRunner().invoke(main, ["docker", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert "compose file gone.yaml does not exist" in result.output
+
+
+def test_stop_docker_missing_compose_file_removes_containers(in_project, monkeypatch):
+    """A deleted compose file does not leave its running stack behind.
+
+    The compose file is required for ``down``; when it is gone, ``stop``
+    falls back to removing the project's containers by id, like
+    ``stop_by_name`` does for deleted project directories.
+    """
+    (in_project / ".osh" / "docker.toml").write_text(
+        'service = "odoo"\ncompose_file = "gone.yaml"\n'
+    )
+    _patch_docker_ps(
+        monkeypatch,
+        [
+            _docker_ps_line(
+                "proj-odoo-1",
+                "odoo:19.0",
+                "0.0.0.0:8069->8069/tcp",
+                "Up 1 hour",
+                f"com.docker.compose.project.working_dir={in_project / '.osh'},"
+                "com.docker.compose.project=osh-proj-abc123",
+                cid="abc123",
+            )
+        ],
+    )
+    calls = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_command",
+        lambda args, **kw: calls.append(args),
+    )
+
+    result = CliRunner().invoke(main, ["docker", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert "leftover" in result.output
+    assert [[os.path.basename(c[0]), *c[1:]] for c in calls] == [
+        ["docker", "rm", "-f", "abc123"]
+    ]
+
+
 def test_stop_backend_group_dispatches_to_active_backend(in_project, monkeypatch):
     """``osh backend stop`` delegates to the active backend's teardown."""
     from osh.db import set_project_config
@@ -473,4 +517,6 @@ def test_stop_docker_by_name_removed_project(tmp_path, monkeypatch):
     result = CliRunner().invoke(main, ["docker", "stop", "gone"])
 
     assert result.exit_code == 0, result.output
-    assert calls == [["docker", "rm", "-f", "gone-odoo-1"]]
+    assert [[os.path.basename(c[0]), *c[1:]] for c in calls] == [
+        ["docker", "rm", "-f", "gone-odoo-1"]
+    ]

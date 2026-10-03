@@ -177,7 +177,14 @@ def _setup_environment(
 
     todo.start()
     echo.info(f"Installing Odoo from {odoo_link} into virtualenv\u2026", err=True)
-    return _pip_install(pip_exe, "install", "-e", str(odoo_link))
+    if not _pip_install(pip_exe, "install", "-e", str(odoo_link)):
+        return False
+    # Anchor for the stale-environment check — directory mtimes do not
+    # reliably change when pip installs a package.
+    marker = venv_path / ".osh-installed"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    return True
 
 
 def _pip_install(pip_exe, *args):

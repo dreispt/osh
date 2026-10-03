@@ -1,6 +1,7 @@
 """Docker Compose backend implementation for ``osh init`` and ``osh odoo``."""
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -12,25 +13,37 @@ import click
 
 from ... import echo
 from ...backends import Backend, copy_odoo_rc_to_osh_conf
-from ...commands.helpers import Diagnostics
 from ...common import odoo_http_port, run_command, run_subprocess
 from ...sources import ensure_osh_sources
+from .diagnostics import _environment_build_groups
+from .diagnostics import diagnose as _diagnose
+from .discovery import (
+    _compose_project_names_for,
+    _docker_executable,
+    _find_port_holder,
+    _find_project_stack,
+    _list_containers,
+    _port_process_hint,
+)
 from .utils import (
     _COMPOSE_FILE,
     _DOCKER_TOML,
     _SOURCES_COMPOSE_FILE,
+    _build_service_images,
     _compose_base_command,
-    _compose_project_names_for,
-    _container_running_status,
+    _compose_declares_build,
+    _detect_compose_file,
+    _detect_dockerfile,
     _find_compose_tool,
-    _find_port_holder,
-    _find_project_stack,
     _generate_compose_file,
+    _is_generated_compose,
     _load_docker_config,
-    _port_in_use,
-    _port_process_hint,
+    _resolve_compose_file,
+    _resolve_dockerfile,
     _run_smoke_test,
     _save_docker_config,
+    _validate_service_name,
+    port_in_use,
 )
 
 # Sentinel for ``_exec_env``'s *port*: keep the port the running stack or a
@@ -52,13 +65,16 @@ class DockerBackend(Backend):
     label = "Docker Compose"
     backend_type = "backend"
     description = (
-        "Run Odoo inside a Docker Compose stack; generates a compose file if missing."
+        "Run Odoo inside a Docker Compose stack; uses the project's compose "
+        "file or Dockerfile when present, generates one otherwise."
     )
     help_text = (
-        "Writes ``.osh/docker.toml`` with the service name, command, and optional "
-        "compose file path. If no compose file exists, generates ``.osh/docker-compose.yml`` "
-        "with a standard Odoo + PostgreSQL stack using the requested version as the "
-        "image tag.\n\n"
+        "Writes ``.osh/docker.toml`` with the service name, command, and compose "
+        "file path. An existing project compose file (``compose.yaml``, "
+        "``docker-compose.yml``, ``devel.yaml``, ...) is used as-is; a "
+        "``Dockerfile`` produces a generated stack that builds it; otherwise "
+        "``.osh/docker-compose.yml`` is generated with a standard Odoo + "
+        "PostgreSQL stack using the requested version as the image tag.\n\n"
         "Requires Docker and the Docker Compose plugin on PATH."
     )
 
@@ -77,6 +93,11 @@ class DockerBackend(Backend):
             click.Option(
                 ["--compose-file"],
                 help="Docker Compose file to use (e.g. devel.yaml for Doodba).",
+            ),
+            click.Option(
+                ["--dockerfile"],
+                help="Dockerfile to build the Odoo image from, when the "
+                "project has no compose file (defaults to ./Dockerfile).",
             ),
             click.Option(
                 ["--db-service"],
@@ -108,15 +129,19 @@ class DockerBackend(Backend):
         "service",
         "sources",
         "container",
+        "build",
     )
 
     def detect_odoo_version(self, base):
-        """Return the Odoo version from sources or the compose image tag."""
+        """Return the Odoo version from sources, docker.toml or the image tag."""
         version = super().detect_odoo_version(base)
         if version:
             return version
 
         cfg = _load_docker_config(base)
+        if cfg and cfg.get("version"):
+            return cfg["version"]
+
         compose_file = (cfg or {}).get("compose_file") or str(_COMPOSE_FILE)
         compose_path = base / Path(compose_file)
         if not compose_path.is_file():
@@ -137,7 +162,14 @@ class DockerBackend(Backend):
         if phase == "init":
             return ["compose_tool", "config", "compose_file", "service"]
         if phase == "run":
-            return ["compose_tool", "config", "compose_file", "service", "sources"]
+            return [
+                "compose_tool",
+                "config",
+                "compose_file",
+                "service",
+                "sources",
+                "build",
+            ]
         return list(self._DIAGNOSE_SECTIONS)
 
     def diagnose(
@@ -149,154 +181,43 @@ class DockerBackend(Backend):
         **options,
     ):
         """Inspect Docker Compose environment and project configuration."""
-        phase = options.get("phase", "doctor")
-        d = Diagnostics(self.name, project=base)
+        return _diagnose(self, base, sections=sections, **options)
 
-        if sections is None:
-            sections = self._DIAGNOSE_SECTIONS
-        sections = set(sections)
-
+    def _environment_builds(self, base):
+        """Anchor each buildable service's image to its context files."""
         cfg = _load_docker_config(base)
-        service = options.get("service") or _cfg_value(cfg, "service")
-        command = options.get("command") or _cfg_value(cfg, "command")
-        compose_file = options.get("compose_file") or _cfg_value(cfg, "compose_file")
-        edition = (options.get("edition") or _cfg_value(cfg, "edition") or "ce").lower()
-        version = options.get("version") or _cfg_value(cfg, "version") or ""
+        return _environment_build_groups(base, (cfg or {}).get("compose_file"), cfg=cfg)
 
-        if "compose_tool" in sections:
-            self._diagnose_compose_tool(d, phase, cfg)
-        if "config" in sections:
-            self._diagnose_config(
-                d, phase, cfg, service, command, compose_file, edition
-            )
-        if "compose_file" in sections:
-            self._diagnose_compose_file(d, phase, base, compose_file)
-        if "odoo_version" in sections:
-            self._diagnose_odoo_version(d, phase, base)
-        if "service" in sections:
-            self._diagnose_service(d, phase, service)
-        if "container" in sections and cfg:
-            self._diagnose_container(d, base, service or "odoo")
-        if (
-            "sources" in sections
-            and phase == "run"
-            and edition in ("ee", "sh")
-            and not version
-        ):
-            self._diagnose_sources(d, base, edition)
-
-        return d
-
-    def _diagnose_compose_tool(self, d, phase, cfg):
-        """Detect and record the available Docker Compose tool."""
-        cached_tool = _cfg_value(cfg, "compose_tool")
-        # Use the cached tool during ``run`` for efficiency; init/doctor detect.
-        if phase == "run" and cached_tool:
-            compose_tool = cached_tool.split()
-        else:
-            compose_tool = _find_compose_tool()
-        if compose_tool:
-            d.add_info("compose_tool", " ".join(compose_tool), topic="System")
-        else:
-            d.add_error(
-                "No Docker Compose tool found. "
-                "Install 'docker compose' or 'docker-compose'."
-            )
-
-    def _diagnose_config(self, d, phase, cfg, service, command, compose_file, edition):
-        """Report the saved Docker backend configuration."""
-        if cfg:
-            d.add_info("service", service or "odoo")
-            d.add_info("command", command or "odoo-bin")
-            d.add_info("compose_file", compose_file or "<none>")
-            d.add_info("edition", edition)
-            if cfg.get("db_service"):
-                d.add_info("db_service", cfg["db_service"])
-            if cfg.get("compose_tool"):
-                d.add_info("configured_compose_tool", cfg["compose_tool"])
-        elif phase == "init":
-            d.add_warning(
-                "Docker backend config not found; it will be created during init."
-            )
-        elif phase == "run":
-            d.add_error("Docker backend config not found. Run 'osh docker init' first.")
-        else:
-            d.add_warning("Docker backend config not found. Run 'osh docker init'.")
-
-    def _diagnose_compose_file(self, d, phase, base, compose_file):
-        """Check the resolved Docker Compose file."""
-        compose_path = (
-            base / Path(compose_file) if compose_file else base / _COMPOSE_FILE
-        )
-        if compose_path.exists():
-            d.add_info("generated_compose_file", str(compose_path))
-        elif phase == "init":
-            if compose_file:
-                d.add_error(f"Compose file not found: {compose_path}")
-            else:
-                d.add_plan(f"Generate {compose_path}")
-        elif phase == "run":
-            d.add_error(f"Compose file not found: {compose_path}")
-        else:
-            d.add_warning(f"Compose file not found: {compose_path}")
-
-    def _diagnose_odoo_version(self, d, phase, base):
-        """Detect and record the installed Odoo version."""
-        odoo_version = self.detect_odoo_version(base)
-        if odoo_version:
-            d.add_info("odoo_version", odoo_version)
-        elif phase == "doctor":
-            d.add_warning("Could not determine installed Odoo version.")
-
-    def _diagnose_service(self, d, phase, service):
-        """Validate the configured Docker Compose service."""
-        if not service:
-            if phase == "init":
-                d.add_warning("No --service provided; defaulting to 'odoo'.")
-            elif phase == "run":
-                d.add_error("No Docker service configured.")
-
-    def _diagnose_container(self, d, base, service):
-        """Report whether the project's service container is running."""
-        try:
-            compose_cmd = _compose_base_command(base)
-        except click.ClickException:
-            return
-        running, uptime = _container_running_status(base, compose_cmd, service)
-        if running is None:
-            return
-        if running:
-            detail = f"running, started {uptime} ago" if uptime else "running"
-            d.add_info("container", detail)
-        else:
-            d.add_info("container", "not running")
-
-    def _diagnose_sources(self, d, base, edition):
-        """Check that required source copies are present for EE/SH editions."""
-        required = ["enterprise"]
-        if edition == "sh":
-            required.append("design-themes")
-        missing = [name for name in required if not (base / ".osh" / name).exists()]
-        if missing:
-            d.add_error(
-                f"Project is missing required source copies: {', '.join(missing)}. "
-                "Run 'osh init' first."
-            )
+    def _stale_environment_hint(self):
+        return "Run 'osh docker stop'; " "the next 'osh odoo' rebuilds on a cold start."
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
-        todo.add_plan("Write .osh/docker.toml with service and compose tool")
-        todo.add_plan("Ensure Odoo sources for the selected edition")
-        todo.add_plan("Run an Odoo --version smoke test")
+        todo.add_plan("Config: write .osh/docker.toml with service and compose tool")
+        todo.add_plan("Sources: ensure Odoo sources for the selected edition")
+        todo.add_plan("Images: build service images (Dockerfile-based stacks)")
+        todo.add_plan("Smoke test: run an Odoo --version check")
 
     def odoo_data_dir(self, base):
-        """Return the container's Odoo data dir (``data_dir`` in docker.toml).
+        """Return the container's Odoo data dir declared by the project.
 
-        Defaults to ``/var/lib/odoo``, the volume the official Odoo image
-        declares; it is usually a named volume, so it has no host path.
+        ``data_dir`` in ``.osh/docker.toml`` wins, then the service's
+        ``ODOO_DATA_DIR`` environment, then a ``/var/lib/odoo`` or
+        ``*/data`` volume mount target. ``None`` when the stack declares
+        none: Osh does not invent a location.
         """
         cfg = _load_docker_config(base) or {}
-        return cfg.get("data_dir") or "/var/lib/odoo"
+        if cfg.get("data_dir"):
+            return cfg["data_dir"]
+        svc = _compose_service_config(base, cfg)
+        data_dir = (svc.get("environment") or {}).get("ODOO_DATA_DIR")
+        if data_dir:
+            return str(data_dir)
+        for volume in svc.get("volumes") or []:
+            target = str(volume.get("target") or "").rstrip("/")
+            if target == "/var/lib/odoo" or target.endswith("/data"):
+                return target
+        return None
 
     def build_addons_paths(self, base, *, include_themes=False):
         """Return a list of addon paths for *base* translated to container paths.
@@ -324,30 +245,45 @@ class DockerBackend(Backend):
             resolved = path.resolve()
             try:
                 rel = resolved.relative_to(resolved_base)
-                container = f"/mnt/extra-addons/{rel}"
+                container = f"/mnt/extra-addons/{rel.as_posix()}"
             except (ValueError, OSError):
                 digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:6]
                 container = f"/mnt/osh-src/{resolved.name}-{digest}"
             mounts.setdefault(resolved, container)
         return list(mounts.items())
 
-    def _write_compose_override(self, base, service, port=None):
+    def _write_compose_override(self, base, service, port=None, compose_file=None):
         """Write the Compose override for extra mounts and a ``-p`` port.
 
         Returns True when the file was created, changed or removed. Sources
         resolving outside the project root are mounted read-only under
         ``/mnt/osh-src``; an explicit Odoo ``-p``/``--http-port`` republishes
         the service on that host port — ``!override`` replaces the base
-        mapping, which would otherwise also bind the configured port. The
-        file is removed when nothing needs overriding.
+        mapping, which would otherwise also bind the configured port.
+
+        Project-provided compose files are honoured as-is, so the override
+        additionally supplies what the exec model needs: an idle service
+        (their own command may be a running Odoo that would collide on the
+        HTTP port) and the project mount the translated addons paths
+        assume. The file is removed when nothing needs overriding.
         """
+        _validate_service_name(service)
         override = Path(base) / _SOURCES_COMPOSE_FILE
+        foreign = not _is_generated_compose(
+            base, _resolve_compose_file(base, compose_file)
+        )
         mounts = [
-            f"      - {host}:{container}:ro"
+            f'      - "{host.as_posix()}:{container}:ro"'
             for host, container in self._source_mounts(base, include_themes=True)
             if not container.startswith("/mnt/extra-addons/")
         ]
         sections = []
+        if foreign:
+            sections.append('    command: ["sleep", "infinity"]')
+            mounts.insert(
+                0,
+                f'      - "{Path(base).resolve().as_posix()}:/mnt/extra-addons"',
+            )
         if port:
             sections.append(f'    ports: !override\n      - "{port}:{port}"')
         if mounts:
@@ -380,22 +316,120 @@ class DockerBackend(Backend):
         **options,
     ):
         """Set up the project to run Odoo with Docker Compose."""
-        service = options.get("service")
-        command = options.get("command")
+        existing_cfg = _load_docker_config(target) or {}
+        # Re-init keeps the options saved in docker.toml unless flags
+        # override them — the project owns the saved configuration.
+        service = options.get("service") or existing_cfg.get("service")
+        command = options.get("command") or existing_cfg.get("command")
         compose_file = options.get("compose_file")
-        port = options.get("port")
-        db_service = options.get("db_service")
+        dockerfile = options.get("dockerfile")
+        port = options.get("port") or existing_cfg.get("port")
+        db_service = options.get("db_service") or existing_cfg.get("db_service")
 
-        if compose_file and not (target / compose_file).is_file():
-            raise click.ClickException(
-                f"Compose file '{compose_file}' not found in {target}."
+        configured = existing_cfg.get("compose_file")
+
+        if compose_file:
+            if not (target / compose_file).is_file():
+                raise click.ClickException(
+                    f"Compose file '{compose_file}' not found in {target}."
+                )
+            if dockerfile:
+                echo.info(
+                    "Ignoring --dockerfile: --compose-file takes precedence.",
+                    err=True,
+                )
+                dockerfile = None
+        elif dockerfile and configured and configured != str(_COMPOSE_FILE):
+            if not (target / configured).is_file():
+                raise click.ClickException(
+                    f"Configured compose file '{configured}' not found " f"in {target}."
+                )
+            echo.info(
+                f"Ignoring --dockerfile: using the configured {configured}.",
+                err=True,
             )
+            dockerfile = None
+            compose_file = configured
+        elif dockerfile:
+            dockerfile = _resolve_dockerfile(target, dockerfile)
+        else:
+            generated = target / _COMPOSE_FILE
+            if configured and configured != str(_COMPOSE_FILE):
+                if (target / configured).is_file():
+                    # Re-init keeps the project compose file it already uses;
+                    # the generated file is rebuilt instead.
+                    compose_file = configured
+                else:
+                    raise click.ClickException(
+                        f"Configured compose file '{configured}' not found "
+                        f"in {target}."
+                    )
+            elif configured == str(_COMPOSE_FILE) or generated.is_file():
+                # An Osh-generated stack is rebuilt below — detection of
+                # project-root compose files does not replace it on re-init.
+                pass
+            else:
+                detected = _detect_compose_file(target)
+                if detected:
+                    compose_file = detected[0]
+                    if len(detected) > 1:
+                        echo.info(
+                            f"Found compose files: {', '.join(detected)}; "
+                            f"using {compose_file}. "
+                            "Pass --compose-file to use another one.",
+                            err=True,
+                        )
+                    else:
+                        echo.info(f"Using the project's {compose_file}.", err=True)
+            if not compose_file:
+                dockerfile = existing_cfg.get("dockerfile")
+                if dockerfile:
+                    try:
+                        dockerfile = _resolve_dockerfile(target, dockerfile)
+                    except click.ClickException:
+                        # A stale or outside-project Dockerfile is dropped;
+                        # fall through to fresh detection.
+                        dockerfile = None
+                dockerfile = dockerfile or _detect_dockerfile(target)
 
         if not compose_file:
             if not dry_run:
                 todo.start()
-            _generate_compose_file(target, version, port=port or 8069, dry_run=dry_run)
+            _generate_compose_file(
+                target,
+                version,
+                port=port or 8069,
+                dockerfile=dockerfile,
+                service=service or "odoo",
+                dry_run=dry_run,
+            )
             compose_file = str(_COMPOSE_FILE)
+
+        compose_tool = _find_compose_tool()
+        if compose_tool is None:
+            if not dry_run:
+                raise click.ClickException(
+                    "No Docker Compose tool found. "
+                    "Install 'docker compose' or 'docker-compose'."
+                )
+            echo.info(
+                "No Docker Compose tool found; skipping the service check.",
+                err=True,
+            )
+        # Fail early when a project-provided compose file does not define
+        # the service ``osh odoo`` would exec into. The generated stack is
+        # built from the requested service name, so it always matches.
+        elif not _is_generated_compose(target, compose_file):
+            service_name = service or "odoo"
+            services = _compose_services(
+                [*compose_tool, "-f", str(target / compose_file)], target
+            )
+            if services is not None and service_name not in services:
+                raise click.ClickException(
+                    f"Service '{service_name}' not found in {compose_file}. "
+                    f"Available: {', '.join(sorted(services))}. "
+                    "Pass --service to name the Odoo service."
+                )
 
         if dry_run:
             _save_docker_config(
@@ -403,6 +437,7 @@ class DockerBackend(Backend):
                 service,
                 command,
                 compose_file,
+                dockerfile=dockerfile,
                 version=version,
                 edition=edition,
                 port=port,
@@ -424,19 +459,13 @@ class DockerBackend(Backend):
 
         copy_odoo_rc_to_osh_conf(target)
 
-        compose_tool = _find_compose_tool()
-        if compose_tool is None:
-            raise click.ClickException(
-                "No Docker Compose tool found. "
-                "Install 'docker compose' or 'docker-compose'."
-            )
-
         todo.start()
         _save_docker_config(
             target,
             service,
             command,
             compose_file,
+            dockerfile=dockerfile,
             version=version,
             edition=edition,
             compose_tool=" ".join(compose_tool),
@@ -457,6 +486,10 @@ class DockerBackend(Backend):
             themes_source=options.get("themes_source"),
         )
 
+        if _compose_declares_build(target, compose_file):
+            todo.start()
+            _build_service_images(target, compose_file=compose_file)
+
         todo.start()
         _run_smoke_test(target, compose_file=compose_file)
 
@@ -466,13 +499,15 @@ class DockerBackend(Backend):
         """Start the project's Compose stack unless it is already running.
 
         Idempotent and cheap once the stack is up: a ``compose ps`` probe
-        short-circuits before ``compose up -d``. The published host port —
-        *port* when ``osh odoo -p`` overrode it, else the configured one —
-        is checked first so a collision produces an actionable error
-        instead of a raw Compose failure.
+        short-circuits before ``compose up -d --build``. When Osh owns the
+        published host port — the generated stack or an ``osh odoo -p``
+        override — it is checked first so a collision produces an
+        actionable error instead of a raw Compose failure; a project
+        compose file's own port mapping is left to it.
         """
         cfg = _load_docker_config(base) or {}
         service = cfg.get("service") or "odoo"
+        compose_file = _resolve_compose_file(base, compose_file, cfg=cfg)
         if port is not None:
             try:
                 if port == int(cfg.get("port") or 8069):
@@ -482,14 +517,19 @@ class DockerBackend(Backend):
         # Regenerate the override (external-source mounts, -p port) before
         # building the Compose command so its -f is picked up; a changed
         # override forces `up -d` so a running stack picks up the changes.
-        override_changed = self._write_compose_override(base, service, port=port)
-        compose_cmd = _compose_base_command(base, compose_file=compose_file)
+        override_changed = self._write_compose_override(
+            base, service, port=port, compose_file=compose_file
+        )
+        compose_cmd = _compose_base_command(base, compose_file=compose_file, cfg=cfg)
 
         if _service_running(compose_cmd, service, base) and not override_changed:
             return
 
-        self._check_port_available(base, cfg, port=port)
-        docker_args = [*compose_cmd, "up", "-d"]
+        # Osh owns the port on the generated stack or on an explicit
+        # ``-p``; a project compose file's own mapping is what counts.
+        if port is not None or _is_generated_compose(base, compose_file):
+            self._check_port_available(base, cfg, port=port)
+        docker_args = [*compose_cmd, "up", "-d", "--build"]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
         run_command(docker_args, cwd=base, check=True, stream=True)
         _wait_for_db_ready(compose_cmd, cfg.get("db_service") or "db", base)
@@ -500,7 +540,7 @@ class DockerBackend(Backend):
             port = int(port or cfg.get("port") or 8069)
         except (TypeError, ValueError):
             port = 8069
-        if not _port_in_use(port):
+        if not port_in_use(port):
             return
         holder = _find_port_holder(port)
         if holder and Path(holder[0]) != Path(base):
@@ -542,33 +582,58 @@ class DockerBackend(Backend):
         if not cfg:
             echo.info("No Docker backend configured; nothing to stop.", err=True)
             return
-        compose_file = (
-            options.get("compose_file") or cfg.get("compose_file") or _COMPOSE_FILE
-        )
-        compose_path = Path(compose_file)
-        if not compose_path.is_absolute():
+        compose_file = _resolve_compose_file(base, options.get("compose_file"), cfg=cfg)
+        compose_path = Path(compose_file) if compose_file else None
+        if compose_path is not None and not compose_path.is_absolute():
             compose_path = Path(base) / compose_path
-        if not compose_path.exists():
+        if compose_path is None or not compose_path.exists():
+            detail = (
+                f"compose file {compose_file} does not exist"
+                if compose_file
+                else "no compose file found"
+            )
+            # A compose file can be deleted while its containers are still
+            # running — remove them by id, like ``stop_by_name`` does for
+            # stacks whose project directory was deleted.
+            resolved = Path(base).resolve()
+            try:
+                ids = [
+                    c["id"]
+                    for c in _list_containers(show_all=True)
+                    if c["project"] is not None and c["project"].resolve() == resolved
+                ]
+            except click.ClickException:
+                ids = []
+            if not ids:
+                echo.info(f"Nothing to stop: {detail}.", err=True)
+                return
             echo.info(
-                f"Nothing to stop: compose file {compose_file} does not exist.",
+                f"{detail}; removing {len(ids)} leftover container(s).",
                 err=True,
             )
+            docker_args = [_docker_executable(), "rm", "-f", *ids]
+            echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+            run_command(docker_args, cwd=base, check=True, stream=True)
             return
         # Down every Compose project this project's containers run under —
-        # a stack started outside ``osh odoo`` may carry a different project
-        # name than the derived one, and the two can coexist.
+        # stacks started by older Osh versions or outside ``osh odoo`` may
+        # carry a different project name than the current one.
         try:
             names = _compose_project_names_for(base)
         except click.ClickException:
             names = set()
         for project_name in sorted(names) or [None]:
-            try:
-                compose_cmd = _compose_base_command(
-                    base, compose_file=compose_file, project_name=project_name
-                )
-            except click.ClickException as exc:
-                echo.warning(exc.format_message())
-                continue
+            compose_cmd = _compose_base_command(
+                base,
+                compose_file=compose_file,
+                project_name=project_name,
+                cfg=cfg,
+                required=False,
+            )
+            if compose_cmd is None:
+                # Loop-invariant: no Compose tool on PATH.
+                echo.warning("No Docker Compose tool found; nothing to stop.")
+                break
             docker_args = [*compose_cmd, "down"]
             echo.info(f"Running: {shlex.join(docker_args)}", err=True)
             run_command(docker_args, cwd=base, check=True, stream=True)
@@ -605,7 +670,7 @@ class DockerBackend(Backend):
         else:
             # The project directory is gone along with its compose file —
             # remove the leftover containers directly.
-            docker_args = ["docker", "rm", "-f", *stack["ids"]]
+            docker_args = [_docker_executable(), "rm", "-f", *stack["ids"]]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
         run_command(docker_args, check=True, stream=True)
 
@@ -705,7 +770,7 @@ class DockerBackend(Backend):
 
         cli_params = getattr(ctx, "params", {}) or {}
         compose_file = cli_params.get("compose_file")
-        compose_cmd = _compose_base_command(base, compose_file=compose_file)
+        compose_cmd = _compose_base_command(base, compose_file=compose_file, cfg=cfg)
 
         docker_args = exec_args(base, compose_cmd, service, cfg, env_spec, capture)
 
@@ -788,13 +853,13 @@ class DockerBackend(Backend):
     def _exec_args(self, base, compose_cmd, service, cfg, env_spec, capture):
         """Assemble the ``compose exec`` argument vector for *env_spec*."""
         args = list(env_spec.argv)
-        command = _cfg_value(cfg, "command") or "odoo"
+        command = cfg.get("command") or "odoo"
         if args and args[0] == "odoo":
-            args = command.split() + args[1:]
+            args = shlex.split(command) + args[1:]
         elif args and args[0].startswith("-"):
             # Entrypoint-style odoo flags get the configured command prepended,
             # since ``compose exec`` bypasses the image entrypoint.
-            args = command.split() + args
+            args = shlex.split(command) + args
 
         if not args:
             container_argv = ["sh", "-c", _PG_ENV_SHELL_SCRIPT]
@@ -892,6 +957,29 @@ def _compose_services(compose_cmd, base):
     return set(out.split())
 
 
+def _compose_service_config(base, cfg):
+    """Return the Odoo service's resolved ``compose config`` entry, or {}.
+
+    *base* is the project root; *cfg* is the parsed ``.osh/docker.toml``
+    (``{}`` when absent), supplying the service name and the Compose
+    tool/file the project is configured with.
+    """
+    compose_cmd = _compose_base_command(base, cfg=cfg, required=False)
+    if compose_cmd is None:
+        return {}
+    returncode, out, _ = run_subprocess(
+        [*compose_cmd, "config", "--format", "json"], cwd=base
+    )
+    if returncode != 0:
+        return {}
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return {}
+    services = (data or {}).get("services") or {}
+    return services.get(cfg.get("service") or "odoo") or {}
+
+
 def _db_ready(compose_cmd, db_service, base):
     """Return True once *db_service* answers ``pg_isready``.
 
@@ -927,12 +1015,14 @@ _CONTAINER_ENV_DEFAULTS = {"LC_ALL": "C.UTF-8"}
 # ``USER`` is the image's database user variable, as used by its entrypoint.
 # ``compose exec`` bypasses that entrypoint, which would map them to ``--db_*``
 # arguments; libpq environment variables reach both psycopg2 (Odoo itself)
-# and tools like ``psql`` without argument rewriting.
+# and tools like ``psql`` without argument rewriting. Each export is guarded:
+# a foreign compose file may define neither variable, and exporting an empty
+# PGPORT crashes Odoo's env-options parser (``int('')``).
 _PG_ENV_EXPORTS = (
-    'export PGHOST="${PGHOST:-$HOST}"'
-    ' PGPORT="${PGPORT:-$PORT}"'
-    ' PGUSER="${PGUSER:-$USER}"'
-    ' PGPASSWORD="${PGPASSWORD:-$PASSWORD}";'
+    '[ -n "${PGHOST:-$HOST}" ] && export PGHOST="${PGHOST:-$HOST}";'
+    ' [ -n "${PGPORT:-$PORT}" ] && export PGPORT="${PGPORT:-$PORT}";'
+    ' [ -n "${PGUSER:-$USER}" ] && export PGUSER="${PGUSER:-$USER}";'
+    ' [ -n "${PGPASSWORD:-$PASSWORD}" ] && export PGPASSWORD="${PGPASSWORD:-$PASSWORD}";'
 )
 
 # Runs a command with the libpq variables exported.
@@ -948,10 +1038,13 @@ _PG_ENV_SHELL_SCRIPT = (
 # run inside the ``db`` service by ``osh db shell``. Values already provided
 # (``-e PGUSER=...``, from the project config) take precedence. ``PGHOST``
 # is deliberately left unset so libpq uses the container's local socket.
+# Like ``_PG_ENV_EXPORTS``, each export is guarded — a non-postgres db
+# service may not define the ``POSTGRES_*`` variables at all.
 _DB_PG_ENV_EXPORTS = (
-    'export PGUSER="${PGUSER:-$POSTGRES_USER}"'
-    ' PGPASSWORD="${PGPASSWORD:-$POSTGRES_PASSWORD}"'
-    ' PGDATABASE="${PGDATABASE:-$POSTGRES_DB}";'
+    '[ -n "${PGUSER:-$POSTGRES_USER}" ] && export PGUSER="${PGUSER:-$POSTGRES_USER}";'
+    ' [ -n "${PGPASSWORD:-$POSTGRES_PASSWORD}" ]'
+    ' && export PGPASSWORD="${PGPASSWORD:-$POSTGRES_PASSWORD}";'
+    ' [ -n "${PGDATABASE:-$POSTGRES_DB}" ] && export PGDATABASE="${PGDATABASE:-$POSTGRES_DB}";'
 )
 
 # Runs a command with the libpq variables exported.
@@ -981,8 +1074,3 @@ def _containerize_arg(arg, base):
     except (ValueError, OSError):
         return value
     return f"/mnt/extra-addons/{rel.as_posix()}"
-
-
-def _cfg_value(cfg, key, default=None):
-    """Return *key* from *cfg* when available, otherwise *default*."""
-    return cfg.get(key, default) if cfg else default

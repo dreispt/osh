@@ -5,14 +5,7 @@ from click.testing import CliRunner
 from osh.cli import main
 from osh.db import get_project_config
 
-
-def _write_docker_config(project):
-    osh_dir = project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    (osh_dir / "docker.toml").write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
-    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+from .conftest import _write_docker_config
 
 
 def _active_target(project):
