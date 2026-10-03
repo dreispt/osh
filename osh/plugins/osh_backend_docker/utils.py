@@ -122,15 +122,18 @@ def _compose_base_command(
     compose_file=None,
     project_name=None,
     cfg=None,
+    *,
+    required=True,
 ):
-    """Return the available Compose invocation, including ``-p``/``-f`` options.
+    """Return the Compose invocation, including ``-p``/``-f`` options.
 
     ``-p`` is emitted for the Osh-generated stack file (its ``.osh``
     directory would otherwise give every project the same default name),
     while project-provided compose files run under their natural Compose
     project — the same containers ``docker compose up`` at the project root
     creates. An explicit *project_name* (e.g. ``stop`` targeting a
-    discovered stack) always wins.
+    discovered stack) always wins. When *required* is False and no Compose
+    tool is on PATH, returns ``None`` instead of raising.
     """
     cfg = cfg if cfg is not None else _load_docker_config(base)
     compose_file = _resolve_compose_file(base, compose_file, cfg=cfg)
@@ -141,10 +144,12 @@ def _compose_base_command(
     else:
         tool = _find_compose_tool()
         if tool is None:
-            raise click.ClickException(
-                "No Docker Compose tool found. "
-                "Install 'docker compose' or 'docker-compose'."
-            )
+            if required:
+                raise click.ClickException(
+                    "No Docker Compose tool found. "
+                    "Install 'docker compose' or 'docker-compose'."
+                )
+            return None
         cmd = tool
 
     if project_name is None and _is_generated_compose(base, compose_file):

@@ -248,6 +248,34 @@ def test_build_dynamic_odoo_config_uses_container_paths_for_docker(
     assert "dbfilter = ^mydb$" in text
 
 
+def test_build_dynamic_odoo_config_data_dir(tmp_project, monkeypatch):
+    """The generated config carries the data dir the project declares."""
+    (tmp_project / ".osh" / "docker.toml").write_text(
+        "service = 'odoo'\ncompose_tool = 'docker compose'\n"
+        "compose_file = 'docker-compose.yml'\n"
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        lambda *a, **kw: (
+            0,
+            '{"services": {"odoo": {"volumes": '
+            '[{"type": "volume", "source": "data", "target": "/odoo/data"}]}}}',
+            "",
+        ),
+    )
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+    assert "data_dir = /odoo/data" in conf.read_text()
+
+    # A data_dir in the project's seed config always wins.
+    (tmp_project / ".osh" / "odoo.conf").write_text(
+        "[options]\ndata_dir = /custom/data\n"
+    )
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+    text = conf.read_text()
+    assert "data_dir = /custom/data" in text
+    assert "/odoo/data" not in text
+
+
 def test_build_dynamic_odoo_config_escapes_dbfilter(tmp_project):
     """Dots in database names do not become ``dbfilter`` regex wildcards."""
     backend = NoneBackend()

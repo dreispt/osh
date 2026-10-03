@@ -7,8 +7,6 @@ backend module stays focused on the run lifecycle.
 
 from pathlib import Path
 
-import click
-
 from ...commands.helpers import Diagnostics
 from .discovery import _container_running_status
 from .utils import (
@@ -159,9 +157,8 @@ def _diagnose_service(d, phase, service):
 
 def _diagnose_container(d, base, service, cfg=None):
     """Report whether the project's service container is running."""
-    try:
-        compose_cmd = _compose_base_command(base, cfg=cfg)
-    except click.ClickException:
+    compose_cmd = _compose_base_command(base, cfg=cfg, required=False)
+    if compose_cmd is None:
         return
     running, uptime = _container_running_status(base, compose_cmd, service)
     if running is None:

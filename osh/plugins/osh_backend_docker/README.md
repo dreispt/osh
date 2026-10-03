@@ -15,10 +15,11 @@ compose file, compose tool, port, version, edition and Dockerfile, ensures
 the Odoo sources for the selected edition exist under `.osh/`, and runs an
 `odoo --version` smoke test.
 
-An optional `data_dir` key in `.osh/docker.toml` tells `osh db` where the
-container's Odoo data directory is (used for `.zip` filestore operations).
-It defaults to `/var/lib/odoo`, the named volume declared by the official
-Odoo image; set it when your compose file configures a different `data_dir`.
+The container's Odoo data directory comes from `data_dir` in
+`.osh/docker.toml`, the service's `ODOO_DATA_DIR`, or a `/var/lib/odoo` /
+`*/data` volume mount — in that order. It is written into the generated
+run config and used by `osh db` filestore operations. When the stack
+declares none, Odoo's own default applies.
 
 An optional `db_service` key names the Compose service running PostgreSQL
 (`--db-service` on init); it defaults to `db`, matching the generated stack

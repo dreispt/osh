@@ -1,6 +1,7 @@
 """Docker Compose backend implementation for ``osh init`` and ``osh odoo``."""
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -178,13 +179,25 @@ class DockerBackend(Backend):
         todo.add_plan("Run an Odoo --version smoke test")
 
     def odoo_data_dir(self, base):
-        """Return the container's Odoo data dir (``data_dir`` in docker.toml).
+        """Return the container's Odoo data dir declared by the project.
 
-        Defaults to ``/var/lib/odoo``, the volume the official Odoo image
-        declares; it is usually a named volume, so it has no host path.
+        ``data_dir`` in ``.osh/docker.toml`` wins, then the service's
+        ``ODOO_DATA_DIR`` environment, then a ``/var/lib/odoo`` or
+        ``*/data`` volume mount target. ``None`` when the stack declares
+        none: Osh does not invent a location.
         """
         cfg = _load_docker_config(base) or {}
-        return cfg.get("data_dir") or "/var/lib/odoo"
+        if cfg.get("data_dir"):
+            return cfg["data_dir"]
+        svc = _compose_service_config(base, cfg)
+        data_dir = (svc.get("environment") or {}).get("ODOO_DATA_DIR")
+        if data_dir:
+            return str(data_dir)
+        for volume in svc.get("volumes") or []:
+            target = str(volume.get("target") or "").rstrip("/")
+            if target == "/var/lib/odoo" or target.endswith("/data"):
+                return target
+        return None
 
     def build_addons_paths(self, base, *, include_themes=False):
         """Return a list of addon paths for *base* translated to container paths.
@@ -584,16 +597,17 @@ class DockerBackend(Backend):
         except click.ClickException:
             names = set()
         for project_name in sorted(names) or [None]:
-            try:
-                compose_cmd = _compose_base_command(
-                    base,
-                    compose_file=compose_file,
-                    project_name=project_name,
-                    cfg=cfg,
-                )
-            except click.ClickException as exc:
-                echo.warning(exc.format_message())
-                continue
+            compose_cmd = _compose_base_command(
+                base,
+                compose_file=compose_file,
+                project_name=project_name,
+                cfg=cfg,
+                required=False,
+            )
+            if compose_cmd is None:
+                # Loop-invariant: no Compose tool on PATH.
+                echo.warning("No Docker Compose tool found; nothing to stop.")
+                break
             docker_args = [*compose_cmd, "down"]
             echo.info(f"Running: {shlex.join(docker_args)}", err=True)
             run_command(docker_args, cwd=base, check=True, stream=True)
@@ -915,6 +929,29 @@ def _compose_services(compose_cmd, base):
     if returncode != 0:
         return None
     return set(out.split())
+
+
+def _compose_service_config(base, cfg):
+    """Return the Odoo service's resolved ``compose config`` entry, or {}.
+
+    *base* is the project root; *cfg* is the parsed ``.osh/docker.toml``
+    (``{}`` when absent), supplying the service name and the Compose
+    tool/file the project is configured with.
+    """
+    compose_cmd = _compose_base_command(base, cfg=cfg, required=False)
+    if compose_cmd is None:
+        return {}
+    returncode, out, _ = run_subprocess(
+        [*compose_cmd, "config", "--format", "json"], cwd=base
+    )
+    if returncode != 0:
+        return {}
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return {}
+    services = (data or {}).get("services") or {}
+    return services.get(cfg.get("service") or "odoo") or {}
 
 
 def _db_ready(compose_cmd, db_service, base):
