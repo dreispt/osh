@@ -681,7 +681,7 @@ def setup_project_neutralize_scripts(target, version):
     always wins. ``900_clear_assets`` drops the generated asset bundles a
     restored dump carries, whose filestore files are usually missing locally.
     For Odoo versions older than 16.0, the bundled fallback SQL script is also
-    copied so ``osh db restore`` can neutralize the database without the
+    copied so ``osh backup restore`` can neutralize the database without the
     ``odoo-bin neutralize`` subcommand.
     """
     neutralize_dir = Path(target) / ".osh" / "neutralize"

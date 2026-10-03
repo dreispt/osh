@@ -1,8 +1,8 @@
-"""Backup source registry for `osh db get`.
+"""Backup source registry for `osh backup get`.
 
 Sources are discovered by subclassing: any ``BackupSource`` subclass
 importable from a plugin registers automatically — including
-``osh_db_get`` itself, which registers the bundled schemes the same way.
+``osh_backup`` itself, which registers the bundled schemes the same way.
 Plugins declare their schemes under ``[sources]`` in ``osh-plugin.toml``,
 so a source's plugin is only imported when the scheme is actually used
 (see ``utils.plugin_loader.get_source_class``).

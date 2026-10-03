@@ -55,7 +55,7 @@ def test_builtin_plugins_inherit_osh_version(plugin_dir):
     """Builtin specs inherit the osh package version — no toml needed."""
     import osh
 
-    spec = plugin_registry.plugin_registry().specs["osh-db-get"]
+    spec = plugin_registry.plugin_registry().specs["osh-backup"]
     assert spec.kind == "builtin"
     assert spec.version == osh.__version__
 
@@ -261,7 +261,7 @@ def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
     """A second backup source with the same scheme is skipped with an error."""
     _copy_plugin(plugin_dir, "repo_n")
 
-    from osh.plugins.osh_db_get import registry
+    from osh.plugins.osh_backup import registry
 
     registry._SOURCE_REGISTRY = None
     try:
@@ -269,7 +269,7 @@ def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
     finally:
         registry._SOURCE_REGISTRY = None
 
-    assert sources["db"].__module__.startswith("osh.plugins.osh_db_get.")
+    assert sources["db"].__module__.startswith("osh.plugins.osh_backup.")
     assert "conflicts" in capsys.readouterr().err
 
 

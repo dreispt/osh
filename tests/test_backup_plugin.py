@@ -1,4 +1,4 @@
-"""Tests for the `osh db get` command."""
+"""Tests for the `osh backup get` command."""
 
 import json
 import subprocess
@@ -9,10 +9,10 @@ from click.testing import CliRunner
 
 from osh.backup_sources import BackupSource, SourceError
 from osh.cli_utils import handler_command
-from osh.plugins.osh_db_get.backup_cmd import DbGet
-from osh.plugins.osh_db_get.sources.https import HttpsSource
-from osh.plugins.osh_db_get.sources.odoosh import OdooshSource
-from osh.plugins.osh_db_get.sources.ssh import SshSource
+from osh.plugins.osh_backup.backup_cmd import DbGet
+from osh.plugins.osh_backup.sources.https import HttpsSource
+from osh.plugins.osh_backup.sources.odoosh import OdooshSource
+from osh.plugins.osh_backup.sources.ssh import SshSource
 
 get = handler_command("get", DbGet)
 
@@ -43,7 +43,7 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
 def test_download_uses_cwd_outside_project(
     monkeypatch, tmp_path, subprocess_run_capture
 ):
-    """Outside a project, `osh db get` writes to the current directory."""
+    """Outside a project, `osh backup get` writes to the current directory."""
     subprocess_run_capture.stdout = b"dump"
     monkeypatch.chdir(tmp_path)
 
@@ -59,7 +59,7 @@ def test_download_uses_cwd_outside_project(
 def test_download_with_output_outside_project(
     monkeypatch, tmp_path, subprocess_run_capture
 ):
-    """With --output, `osh db get` works outside a project."""
+    """With --output, `osh backup get` works outside a project."""
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "sourcedb.dump"
 
@@ -98,7 +98,7 @@ def test_download_https_posts_payload(in_project, monkeypatch):
         requests.append(req)
         return FakeResponse()
 
-    monkeypatch.setattr("osh.plugins.osh_db_get.sources.https.urlopen", fake_urlopen)
+    monkeypatch.setattr("osh.plugins.osh_backup.sources.https.urlopen", fake_urlopen)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -176,7 +176,7 @@ def test_download_https_html_error_shows_page(in_project, monkeypatch):
             pass
 
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.sources.https.urlopen",
+        "osh.plugins.osh_backup.sources.https.urlopen",
         lambda req, **kwargs: FakeResponse(),
     )
 
@@ -340,7 +340,7 @@ def test_download_odoosh_with_filestore_creates_zip(
         return 0, b"", ""
 
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.sources.odoosh.run_shell_pipeline", fake_pipeline
+        "osh.plugins.osh_backup.sources.odoosh.run_shell_pipeline", fake_pipeline
     )
 
     output = tmp_path / "backup.zip"
@@ -437,7 +437,7 @@ def test_ssh_source_missing_host_or_path_raises():
 def test_download_ssh_source_invokes_fetch(
     monkeypatch, tmp_project, subprocess_run_capture
 ):
-    """`osh db get ssh://...` copies the remote file into the cache."""
+    """`osh backup get ssh://...` copies the remote file into the cache."""
     monkeypatch.chdir(tmp_project)
 
     def _scp_write(args, **kwargs):
@@ -459,7 +459,7 @@ def test_download_ssh_source_invokes_fetch(
 
 def test_plugin_backup_source_registry(monkeypatch):
     """Plugins register backup sources by subclassing ``BackupSource``."""
-    from osh.plugins.osh_db_get import registry as sources
+    from osh.plugins.osh_backup import registry as sources
 
     class S3Source(BackupSource):
         scheme = "s3"
@@ -491,7 +491,7 @@ def test_download_help_scheme_prints_source_help():
 
     assert result.exit_code == 0, result.output
     assert "Dump a local PostgreSQL database" in result.output
-    assert "osh db get db://mydb" in result.output
+    assert "osh backup get db://mydb" in result.output
 
 
 def test_download_help_scheme_unknown_reports_error():
@@ -504,9 +504,9 @@ def test_download_help_scheme_unknown_reports_error():
 
 
 def test_backup_detects_format_mismatch(monkeypatch, in_project):
-    """`osh db get` detects format mismatch and corrects metadata."""
-    from osh.plugins.osh_db_get.cache import read_metadata, write_metadata
-    from osh.plugins.osh_db_get.format_detect import detect_backup_format_by_content
+    """`osh backup get` detects format mismatch and corrects metadata."""
+    from osh.plugins.osh_backup.cache import read_metadata, write_metadata
+    from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
     # Create a file with PostgreSQL custom format but .sql extension
     cache_dir = in_project / ".osh" / "backups"

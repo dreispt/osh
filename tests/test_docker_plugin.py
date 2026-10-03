@@ -802,7 +802,7 @@ def test_docker_backend_requires_service(tmp_project):
 def test_docker_backend_env_forwards_stdin(tmp_project, monkeypatch):
     """``EnvSpec.stdin`` is forwarded to ``compose exec -T`` as process stdin.
 
-    This is how ``osh db restore`` streams dumps into the container without
+    This is how ``osh backup restore`` streams dumps into the container without
     relying on any volume mount.
     """
     docker_toml = tmp_project / ".osh" / "docker.toml"

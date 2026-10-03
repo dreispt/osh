@@ -15,9 +15,9 @@ its backup source scheme used.
 ``osh-plugin.toml`` declares a plugin's surface for stage 1::
 
     description = "Short plugin description."
-    extends = ["db.restore"]              # handlers the plugin extends
+    extends = ["backup.restore"]          # handlers the plugin extends
     handlers = ["my_plugin.cmd"]          # named non-CLI handlers provided
-    depends = ["osh-db-get"]              # plugins imported before this one
+    depends = ["osh-backup"]              # plugins imported before this one
 
     [commands]                            # top-level commands
     scan = "Scan things."
@@ -79,7 +79,7 @@ class PluginSpec:
     (the ``osh-plugin.toml`` contents) and the spec fields; the plugin's
     module is only touched by ``load()``.
 
-    *target_ref* is an importable module path (``"osh.plugins.osh_db_get"``,
+    *target_ref* is an importable module path (``"osh.plugins.osh_backup"``,
     ``"osh_aws.cli"``), optionally ``"module:attr"`` for entry-point
     plugins, or a filesystem path for directory plugins. *lazy* is False
     for unmarked plugins, which must import eagerly because nothing

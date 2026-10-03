@@ -6,7 +6,7 @@ This document tracks planned improvements and future development work for the Os
 
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
 - Extend `osh-plugin.toml` with optional metadata (e.g. a minimum `osh` version) and surface it in `osh plug list`; `description` and `depends` (plugin load ordering) are already handled.
-- Graduate the built-in `osh_db_get` plugin (`osh db get`, `osh db restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
+- Graduate the built-in `osh_backup` plugin (`osh backup get`, `osh backup restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
 
 ## `osh doctor` (removed — to be redesigned)
 

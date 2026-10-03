@@ -295,7 +295,7 @@ def _setup_fake_db_config(project, db_name="testdb"):
 
 @pytest.fixture
 def patched_restore(monkeypatch, in_project, pg_db):
-    """Patch external dependencies used by `osh db restore` for isolated tests.
+    """Patch external dependencies used by `osh backup restore` for isolated tests.
 
     The branch database is mapped to a unique name that is guaranteed not to
     exist, so the real ``db_exists`` check drives the create path.
@@ -314,41 +314,41 @@ def patched_restore(monkeypatch, in_project, pg_db):
     _setup_fake_db_config(in_project, db_name)
 
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.drop_db",
+        "osh.plugins.osh_backup.restore_cmd.drop_db",
         lambda base, db, **kw: state["dropped"].append(db),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.create_db",
+        "osh.plugins.osh_backup.restore_cmd.create_db",
         lambda base, db, **kw: state["created"].append(db),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_ops.restore_dump",
+        "osh.plugins.osh_backup.restore_ops.restore_dump",
         lambda base, dump_path, db_name, *, dry_run=False, **kw: state[
             "restore"
         ].append((dump_path, db_name, dry_run)),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.get_database_version",
+        "osh.plugins.osh_backup.restore_cmd.get_database_version",
         lambda base, db, **kw: (19, 0),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.find_odoo_executable",
+        "osh.plugins.osh_backup.restore_cmd.find_odoo_executable",
         lambda base: str(in_project / ".venv" / "bin" / "odoo"),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.get_version_tuple",
+        "osh.plugins.osh_backup.restore_cmd.get_version_tuple",
         lambda exe: (19, 0),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_ops.neutralize_with_sql",
+        "osh.plugins.osh_backup.restore_ops.neutralize_with_sql",
         lambda base, db, **kw: state["sql_neutralize"].append(db),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.odoo",
+        "osh.plugins.osh_backup.restore_cmd.odoo",
         lambda **kwargs: state["neutralize"].append(kwargs),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_db_get.restore_cmd.check_run_diagnostics",
+        "osh.plugins.osh_backup.restore_cmd.check_run_diagnostics",
         lambda *args, **kwargs: Diagnostics(
             backend="none", info={}, warnings=[], errors=[]
         ),

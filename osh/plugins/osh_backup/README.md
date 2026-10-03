@@ -1,6 +1,7 @@
-# osh_db_get — database backup fetch & restore
+# osh_backup — database backup fetch & restore
 
-Provides the `osh db get`, `osh db restore` and `osh db remote` commands.
+Provides the `osh backup` command group: `get`, `restore`, `list` and
+`remote`.
 
 All database work is backend-agnostic: `pg_dump`/`pg_restore`/`psql` run
 through the active backend's execution context (the same one `osh shell`
@@ -11,7 +12,7 @@ for filestores), so no host file path needs to be reachable inside the
 backend environment — this also works when the project root is not mounted
 in the container at all.
 
-## `osh db get <source>`
+## `osh backup get <source>`
 
 Fetches a backup into the project cache (`.osh/backups/`) and records it in
 the backup metadata. Supported source schemes:
@@ -23,7 +24,7 @@ the backup metadata. Supported source schemes:
 - `cache:<n>` — reuse the n-th cached backup without re-fetching.
 - A remote name (see below) resolves to the source configured for it.
 
-## `osh db restore [<source|cache:n>]`
+## `osh backup restore [<source|cache:n>]`
 
 Restores a backup into the project database. Detects the dump format
 (custom/tar/plain SQL/directory), restores with `pg_restore` or `psql`
@@ -40,15 +41,21 @@ the CSS/JS on the next page load. Bundled defaults are refreshed on re-init so
 fixes reach existing projects; to override one, place a same-named script in
 `~/.config/osh/neutralize/` or use a different file name.
 
-## `osh db remote`
+## `osh backup list`
 
-- `osh db remote add <name> <source>` — store a named source in the
+Lists the backups in the project cache, newest first. `--limit N` caps the
+number of entries shown (default 20) and `--reverse` lists oldest first. The
+`#` column is the id accepted by `osh backup restore cache:<n>`.
+
+## `osh backup remote`
+
+- `osh backup remote add <name> <source>` — store a named source in the
   project's `.osh/config.toml` under the `[remote]` section
   (`<name> = <source>`), next to the `[db]` database mapping.
-- `osh db remote list` — list configured remotes.
+- `osh backup remote list` — list configured remotes.
 
-Once a remote exists, `osh db get <name>` fetches from it and
-`osh db restore <name>` restores the newest cached entry fetched from that
+Once a remote exists, `osh backup get <name>` fetches from it and
+`osh backup restore <name>` restores the newest cached entry fetched from that
 remote.
 
 ## Extending sources
@@ -60,7 +67,7 @@ source contract.
 
 ## Extending restore
 
-`osh db restore` is a regular handler (`db.restore`), so plugins extend
+`osh backup restore` is a regular handler (`backup.restore`), so plugins extend
 it by subclassing — override `post_restore()` and call `super()` to act
 on the freshly restored database, e.g. to record module fingerprints.
 The handler state carries `self.ctx`, `self.base` and `self.db_name`:
@@ -69,7 +76,7 @@ The handler state carries `self.ctx`, `self.base` and `self.db_name`:
 from osh.handlers import resolve
 
 
-class MyRestoreStep(resolve("db.restore")):
+class MyRestoreStep(resolve("backup.restore")):
     def post_restore(self):
         super().post_restore()
         # act on self.db_name
@@ -77,4 +84,4 @@ class MyRestoreStep(resolve("db.restore")):
 
 `post_restore` is skipped under `--dry-run` (no database exists to
 touch), and a failing extension is reported as a warning without failing
-the restore — run `osh --verbose db restore` for its traceback.
+the restore — run `osh --verbose backup restore` for its traceback.

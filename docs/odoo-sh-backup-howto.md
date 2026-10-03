@@ -2,8 +2,8 @@
 
 The feature is split into two commands:
 
-- `osh db get <source>` — fetches or dumps a backup and stores it in the project cache (`.osh/backups/`).
-- `osh db restore [<dump>]` — restores a local backup file into the current branch's database and neutralizes it. With no argument it picks the newest cached backup.
+- `osh backup get <source>` — fetches or dumps a backup and stores it in the project cache (`.osh/backups/`).
+- `osh backup restore [<dump>]` — restores a local backup file into the current branch's database and neutralizes it. With no argument it picks the newest cached backup.
 
 This guide covers the two ways to get a backup out of an Odoo.sh project.
 
@@ -43,23 +43,23 @@ Alternative route from the Builds view: click **Download DB dump**. [^3]
 - Staging builds have no automatic backups, but you can create manual ones.
 - Development builds have no backups at all. [^2]
 
-### Use with `osh db restore`
+### Use with `osh backup restore`
 
 Move or copy the downloaded file into the project cache and restore it:
 
 ```bash
 mkdir -p .osh/backups
 cp /path/to/backup.zip .osh/backups/backup.zip
-osh db restore .osh/backups/backup.zip
+osh backup restore .osh/backups/backup.zip
 ```
 
 Or pass any absolute path:
 
 ```bash
-osh db restore /path/to/backup.zip
+osh backup restore /path/to/backup.zip
 ```
 
-`osh db restore` will restore `dump.sql`, extract the filestore, and neutralize the database.
+`osh backup restore` will restore `dump.sql`, extract the filestore, and neutralize the database.
 
 ---
 
@@ -128,52 +128,52 @@ The exact build ID and domain for your branch are shown on the **SSH** button/ta
    # Then scp filestore.zip back
    ```
 
-### Automated download with `osh db get`
+### Automated download with `osh backup get`
 
 Instead of copying the file manually, you can use the backup plugin to fetch the latest daily dump into the project cache:
 
 ```bash
-osh db get odoosh://my-user-my-repository-staging-25004381
+osh backup get odoosh://my-user-my-repository-staging-25004381
 ```
 
 `osh` expands the shorthand to `my-user-my-repository-staging-25004381.dev.odoo.com` and uses the numeric suffix as the SSH user. The longer forms are still accepted:
 
 ```bash
-osh db get odoosh://my-user-my-repository-staging-25004381.dev.odoo.com
-osh db get odoosh://25004381@my-user-my-repository-staging-25004381.dev.odoo.com
+osh backup get odoosh://my-user-my-repository-staging-25004381.dev.odoo.com
+osh backup get odoosh://25004381@my-user-my-repository-staging-25004381.dev.odoo.com
 ```
 
 To also download the filestore and create a full `.zip` backup, add `--filestore`:
 
 ```bash
-osh db get odoosh://my-user-my-repository-staging-25004381 --filestore
+osh backup get odoosh://my-user-my-repository-staging-25004381 --filestore
 ```
 
-The database name is read from the daily backup filename, and `osh` streams the filestore from `/home/odoo/data/filestore/<db_name>` over SSH into a zip that `osh db restore` can restore directly.
+The database name is read from the daily backup filename, and `osh` streams the filestore from `/home/odoo/data/filestore/<db_name>` over SSH into a zip that `osh backup restore` can restore directly.
 
 This stores the `.sql.gz` file in `.osh/backups/`. To restore the newest cached backup:
 
 ```bash
-osh db restore
+osh backup restore
 ```
 
 To see all cached backups and pick a specific one:
 
 ```bash
-osh db restore --list
-osh db restore cache:1
+osh backup list
+osh backup restore cache:1
 ```
 
-`osh db restore` will create the target database, restore the dump, and neutralize it. The filestore is not restored from a plain daily dump; use `--filestore` when downloading via `odoosh://` or download the full `.zip` via the web UI if you need attachments.
+`osh backup restore` will create the target database, restore the dump, and neutralize it. The filestore is not restored from a plain daily dump; use `--filestore` when downloading via `odoosh://` or download the full `.zip` via the web UI if you need attachments.
 
 ---
 
 ## Summary
 
-| Method          | Command path                                                     | Full backup?                                          | Automation? | Authentication                        |
-| --------------- | ---------------------------------------------------------------- | ----------------------------------------------------- | ----------- | ------------------------------------- |
-| Web UI download | copy `.zip` into `.osh/backups/`, then `osh db restore`          | Yes (zip with dump + filestore)                       | Manual only | odoo.sh/GitHub login                  |
-| SSH daily dump  | `osh db get odoosh://PROJECT-BRANCH-BUILD` then `osh db restore` | Partial by default (add `--filestore` for a full zip) | Scriptable  | SSH key configured in odoo.sh profile |
+| Method          | Command path                                                             | Full backup?                                          | Automation? | Authentication                        |
+| --------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- | ----------- | ------------------------------------- |
+| Web UI download | copy `.zip` into `.osh/backups/`, then `osh backup restore`              | Yes (zip with dump + filestore)                       | Manual only | odoo.sh/GitHub login                  |
+| SSH daily dump  | `osh backup get odoosh://PROJECT-BRANCH-BUILD` then `osh backup restore` | Partial by default (add `--filestore` for a full zip) | Scriptable  | SSH key configured in odoo.sh profile |
 
 ---
 

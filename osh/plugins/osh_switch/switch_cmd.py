@@ -77,7 +77,7 @@ class Switch(CommandHandler):
         help="Restore the newest cached backup into the branch "
         "database. With a remote name, restore that remote's newest "
         "cached backup; with a raw source URL, fetch it first with "
-        "'osh db get'.",
+        "'osh backup get'.",
     )
     @click.option(
         "--dry-run",
@@ -241,16 +241,16 @@ def _git_checkout(repo, name, *, create):
 
 def _refresh(ctx, name, refresh):
     """Restore a backup into *name*'s database, fetching a raw source first."""
-    # Resolved lazily: osh_db_get already imports osh.commands, so a
+    # Resolved lazily: osh_backup already imports osh.commands, so a
     # top-level import here would be circular — and the handlers live in a
     # plugin that must not load until invoked.
     from ...handlers import resolve
 
     dump = refresh or None
     if refresh and "://" in refresh:
-        resolve("db.get")(ctx, source=refresh).run()
+        resolve("backup.get")(ctx, source=refresh).run()
         dump = None  # the freshly fetched backup is now the newest cached one
-    resolve("db.restore")(ctx, dump=dump).run()
+    resolve("backup.restore")(ctx, dump=dump).run()
 
 
 def _repo_label(base, repo):

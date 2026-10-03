@@ -62,9 +62,9 @@ When running Odoo there is no need to remember the target database or config fil
 
 When initializing an Odoo project you usually want to restore a database copy:
 
-- `osh db get <source>` downloads a database backup from a source,
+- `osh backup get <source>` downloads a database backup from a source,
   such as a file or an Odoo database manager URL.
-- `osh db restore <source>` restores a database iform a backup file,
+- `osh backup restore <source>` restores a database from a backup file,
   detecting the backup format and using the appropriate tools accordingly.
 
 ## Commands
@@ -78,7 +78,8 @@ Run `osh <command> --help` for full usage details.
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
-| `osh db`                   | List, show, set, copy, drop, shell, unset, get, restore, or register named remote sources for project databases      |
+| `osh db`                   | List, show, set, copy, drop, shell, or unset project databases                                                       |
+| `osh backup`               | Get, list, or restore database backups, and register named remote backup sources                                     |
 | `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
 | `osh plug`                 | Install, list, enable, disable, alias, or uninstall osh plugins                                                      |
 
@@ -110,11 +111,11 @@ for the run (equivalent to `osh docker init --port <n>` without re-init).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 
-`osh db get` fetches a database copy from anywhere (odoo.sh, a live server,
-an Odoo database manager) into the local cache; `osh db restore` applies a
-cached backup to your current branch's database — it never fetches.
-`osh db remote add <name> <source>` gives a source a short, stable name
-(git-remote style) so you can `osh db get prod` / `osh db restore prod`
+`osh backup get` fetches a database copy from anywhere (odoo.sh, a live server,
+an Odoo database manager) into the local cache; `osh backup restore` applies a
+cached backup (`osh backup list` shows them) to your current branch's database — it never fetches.
+`osh backup remote add <name> <source>` gives a source a short, stable name
+(git-remote style) so you can `osh backup get prod` / `osh backup restore prod`
 instead of retyping the full URL. `osh db` owns everything about _which_
 database a branch uses and what's in it.
 
@@ -207,8 +208,8 @@ Your project files, virtual environment (`.venv/`), and any existing Odoo source
 ## Plugins
 
 `osh` is extensible: plugins can add commands, backends, backup
-source schemes and extend core commands in place. The bundled plugins provide `osh db get`,
-`osh db restore`, `osh db remote` and `osh test`, plus the `none` (plain
+source schemes and extend core commands in place. The bundled plugins provide `osh backup`
+(`get`, `restore`, `list`, `remote`) and `osh test`, plus the `none` (plain
 host), `venv` and `docker` backends.
 
 Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib):
