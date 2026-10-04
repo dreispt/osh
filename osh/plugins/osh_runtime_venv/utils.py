@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import format_cmd, run_subprocess
+from ...common import format_cmd, run_command, run_subprocess
 from ...runtimes import copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 from .python_versions import resolve_python_for_odoo
@@ -205,33 +205,25 @@ def _setup_environment(
         return False
     # Anchor for the stale-environment check — directory mtimes do not
     # reliably change when pip installs a package.
-    marker = venv_path / ".osh-installed"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
     return True
 
 
 def _pip_install(pip_exe, *args):
-    """Run pip with *args* and report failures; return True on success."""
+    """Run pip with *args*, streaming output; return True on success."""
     command = [str(pip_exe), *args]
-    returncode, stdout, stderr = run_subprocess(command)
-    if returncode is None or returncode != 0:
+    try:
+        result = run_command(command, stream=True)
+    except click.ClickException:
+        result = None  # executable not found
+    if result is None or result.returncode != 0:
         command_str = format_cmd(command)
-        status = "not found" if returncode is None else returncode
-        output = "\n".join(
-            part for part in [stdout or "", stderr or ""] if part
-        ).strip()
-        tail = ""
-        if output:
-            lines = output.splitlines()
-            tail = "\n".join(lines[-40:]) if len(lines) > 40 else output
-        message = (
+        status = "not found" if result is None else result.returncode
+        echo.warning(
             f"pip install failed (exit status {status}).\n\n"
             f"You can retry the command manually:\n\n  {command_str}\n"
         )
-        if tail:
-            message += f"\nOutput (last 40 lines):\n{tail}\n"
-        echo.warning(message)
         return False
     return True
 
