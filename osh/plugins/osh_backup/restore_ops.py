@@ -9,9 +9,12 @@ commands work identically on host and container backends — no host file
 path ever reaches the execution environment.
 """
 
+import contextlib
 import importlib.resources
 import shlex
+import sys
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 
@@ -188,12 +191,59 @@ def _run_db_tool(ctx, base, argv, error_msg, *, stdin_path=None):
     if stdin_path is None:
         returncode, _, stderr = run_in_backend(ctx, base, argv)
     else:
-        with open(stdin_path, "rb") as stdin:
+        with open(stdin_path, "rb") as stdin, _stdin_progress(stdin, stdin_path):
             returncode, _, stderr = run_in_backend(ctx, base, argv, stdin=stdin)
     if returncode is None:
         raise click.ClickException(f"{error_msg}: command not found")
     if returncode != 0:
         raise click.ClickException(f"{error_msg}: {stderr}")
+
+
+@contextlib.contextmanager
+def _stdin_progress(stream, path):
+    """Show a progress bar while a child process consumes *stream* on stdin.
+
+    The child's stdin shares *stream*'s file offset, so polling ``tell()``
+    reports how much of the dump the restore tool has read — no data is
+    copied through Python. ``click.progressbar`` stays hidden when stderr
+    is not a TTY.
+    """
+    try:
+        total = path.stat().st_size
+    except OSError:
+        total = 0
+    if not total:
+        yield
+        return
+
+    done = threading.Event()
+
+    def _poll():
+        last = 0
+        while not done.wait(0.2):
+            pos = stream.tell()
+            if pos > last:
+                bar.update(pos - last)
+                last = pos
+        pos = stream.tell()
+        if pos > last:
+            bar.update(pos - last)
+
+    with click.progressbar(
+        length=total,
+        label=f"Restoring {path.name}",
+        fill_char="=",
+        empty_char=" ",
+        bar_template="%(label)s  [%(bar)s]  %(info)s",
+        file=sys.stderr,
+    ) as bar:
+        poller = threading.Thread(target=_poll, daemon=True)
+        poller.start()
+        try:
+            yield
+        finally:
+            done.set()
+            poller.join(timeout=1)
 
 
 def _dump_suffix(path):
