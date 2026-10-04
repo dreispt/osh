@@ -7,15 +7,15 @@ For general `osh` development, see `DEVELOP.md`. For using `osh`, see `README.md
 
 ## Quick start
 
-A plugin is a Python package marked by an `osh-plugin.toml` file. The
-marker declares what the plugin provides; the code self-describes on
-import:
+A plugin is a Python package whose `pyproject.toml` declares its surface
+under `[tool.osh]`; the code self-describes on import:
 
 ```toml
-# my_plugin/osh-plugin.toml
+# my_plugin/pyproject.toml (or the project's own, co-located package)
+[tool.osh]
 description = "My hello plugin."
 
-[commands]
+[tool.osh.commands]
 hello = "Say hello."
 ```
 
@@ -38,11 +38,24 @@ class Hello(CommandHandler):
         click.echo(f"Hello, {self.name}!")
 ```
 
-Install it in editable mode — the directory is symlinked into the plugin
-dir, so edits apply on the next `osh` run (like `pip install -e`):
+Ship it as a Python distribution declaring an `osh.plugins` entry point,
+in the same `pyproject.toml`:
+
+```toml
+[project]
+name = "my-osh-plugin"
+version = "1.0.0"
+
+[project.entry-points."osh.plugins"]
+my-plugin = "my_plugin"
+```
+
+Install it into the `osh` environment — editable, so code edits apply on
+the next `osh` run:
 
 ```bash
-osh plug install -e /path/to/my_plugin
+pipx inject -e osh /path/to/my_plugin   # osh installed with pipx
+pip install -e /path/to/my_plugin       # osh installed with pip
 python -m osh hello --name developer
 ```
 
@@ -57,7 +70,8 @@ its attributes, so re-export implementations living in submodules.
 what plugins install:
 
 1. **Metadata inspection** — at startup, `osh` scans plugin sources and
-   reads only `osh-plugin.toml` files and entry-point declarations.
+   reads only plugin declarations (`[tool.osh]`/`osh-plugin.toml`) and
+   entry-point metadata.
    Command, runtime and source names register as lightweight stubs; **no
    plugin module is imported**.
 2. **Import on use** — a plugin's module is imported only when needed:
@@ -71,24 +85,30 @@ A plugin that fails to import reports a clean error at invocation time
 (`Could not load plugin 'x' command 'y': ...`) — typically a missing
 dependency — without affecting other commands.
 
-Plugins are discovered from three sources, in order:
+Plugins are discovered from two sources, in order:
 
 - built-in packages under `osh/plugins/`;
 - the `osh.plugins` entry-point group of installed distributions
   (`[project.entry-points."osh.plugins"]` in `pyproject.toml` — the value
   is a module path, optionally `module:callable` for a plain handler that
-  receives the remaining argv);
-- user plugins in `~/.config/osh/plugins/`.
+  receives the remaining argv).
 
-## `osh-plugin.toml`
+Everything `pip install` can reach — PyPI, a git URL, a local directory
+— works, and `pip uninstall` removes a plugin.
 
-The marker file declares the plugin's command surface — the metadata
-needed to list and place commands without importing the plugin. All keys
-are optional:
+## Plugin declarations
+
+The `[tool.osh]` table declares the plugin's command surface — the
+metadata needed to list and place commands without importing the plugin.
+For installed plugins it lives in the `pyproject.toml` co-located with
+the plugin package (or one of its parents in a source checkout); the
+deprecated `osh-plugin.toml` marker inside the package holds the same
+keys and is still read as a fallback — built-in plugins use it since
+they have no `pyproject.toml` of their own. All keys are optional:
 
 ```toml
-description = "What this plugin does."   # shown by `osh plug list`
-version = "1.0.0"                        # shown by `osh plug list`
+[tool.osh]
+description = "What this plugin does."   # fallback help text
 min_osh = "1.1"                          # minimum osh version required
 
 # Handlers this plugin extends — the plugin is imported when one of
@@ -103,21 +123,21 @@ handlers = ["my_plugin.cmd"]
 # extends/resolve() do not cover (direct package imports, side effects).
 depends = ["osh-backup"]
 
-[commands]                 # top-level `osh <name>` commands
+[tool.osh.commands]            # top-level `osh <name>` commands
 hello = "Say hello."
 remote = { group = true, help = "Manage remotes." }   # a command group
 _sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 
-[group_commands.db]        # subcommands of an existing group
+[tool.osh.group_commands.db]   # subcommands of an existing group
 restore = "Restore a backup."
 
-[group_commands.docker]    # `osh docker` subcommands (runtime lifecycle)
+[tool.osh.group_commands.docker]  # `osh docker` subcommands (runtime lifecycle)
 init = "Initialise the project for the docker runtime."
 
-[runtimes]                 # Runtime subclasses provided
+[tool.osh.runtimes]            # Runtime subclasses provided
 docker = "Run Odoo inside a Docker Compose stack."
 
-[sources]                  # `osh backup get` backup source schemes provided
+[tool.osh.sources]             # `osh backup get` backup source schemes provided
 s3 = "Download a backup from an S3 bucket."
 ```
 
@@ -132,8 +152,9 @@ The declared names must match what the code provides on import — a
 command listed in `[commands]` resolves to a `CommandHandler` subclass
 named after it in the plugin package.
 
-`depends` names other plugin _sources_ (the names shown by
-`osh plug list`) that must be imported before this plugin's module.
+`depends` names other plugin _sources_ (the `osh.plugins` entry-point
+names other distributions declare) that must be imported before this
+plugin's module.
 Dependencies are imported recursively first; an unknown, disabled or
 failing dependency fails the plugin's load with a clear error, and
 circular dependencies are reported. Handler extension doesn't need it —
@@ -146,51 +167,50 @@ without importing anything.
 ### Command naming convention
 
 Commands follow a noun/verb rule: anything that operates on a persistent
-resource is `osh <noun> <verb>` (`osh backup restore`, `osh plug install`,
+resource is `osh <noun> <verb>` (`osh backup restore`,
 `osh addon update`), while bare top-level verbs are reserved for the
 primary day-to-day workflow actions (`osh init`, `osh odoo`, `osh switch`,
 `osh shell`, `osh test`). If your plugin manages a resource,
 attach its commands to the matching group via `group_commands` instead of
 claiming a bare top-level verb. Verbs may deliberately diverge between
-groups when the underlying concepts differ — `osh plug uninstall` deletes
-an osh plugin while `osh addon uninstall` removes an Odoo module, and
+groups when the underlying concepts differ — `osh addon uninstall` removes
+an Odoo module while `pip uninstall` removes an osh plugin, and
 `osh db set`/`unset` moves a mutable pointer rather than acquiring or
 removing anything.
 
 ## Installing and managing plugins
 
-```bash
-osh plug install https://github.com/USER/REPO   # git repository
-osh plug install file:///absolute/path/to/repo  # local repository
-osh plug install -e /absolute/path/to/repo      # editable (symlink)
-```
-
-User plugins live in `~/.config/osh/plugins/` (or
-`$XDG_CONFIG_HOME/osh/plugins/`); `-e` places a symlink to the checkout
-there. A manual symlink works too:
+Plugins are ordinary Python distributions — `pip` is the installer. When
+`osh` itself is installed with `pipx`, `pipx inject osh` is the same
+thing into the `osh` environment:
 
 ```bash
-ln -s /path/to/my_plugin ~/.config/osh/plugins/my_plugin
+pipx inject osh git+https://github.com/USER/REPO  # pipx-installed osh
+pip install osh-contrib                           # from PyPI
+pip install git+https://github.com/USER/REPO      # a git repository
+pip install /absolute/path/to/repo                # a local checkout
+pip install -e /absolute/path/to/repo             # editable install
+pip uninstall osh-contrib                         # remove
 ```
 
-Manage installed plugins with:
+The distribution declares its plugins as `osh.plugins` entry points in
+`pyproject.toml` — one plugin per entry point:
 
-```bash
-osh plug list
-osh plug enable REPO [PLUGIN ...]
-osh plug disable REPO [PLUGIN ...]
-osh plug uninstall REPO
-osh plug alias PLUGIN COMMAND NAME
-osh plug unalias PLUGIN COMMAND
+```toml
+[project.entry-points."osh.plugins"]
+osh-scan = "osh_scan"
+osh-audit = "osh_audit"
 ```
 
-`osh plug list` shows each plugin's `version` and `description` from
-`osh-plugin.toml` — read from the file, never by importing the plugin.
-For pip-installed plugins the package's own dist version is used instead
-(`osh-plugin.toml` `version` is the fallback and the only channel for
-git-cloned plugins, which have no package metadata). Built-in plugins
-ship inside the `osh` distribution and inherit `osh.__version__` — they
-need no `version` key.
+Make sure the `pyproject.toml` carrying `[tool.osh]` is reachable
+from the installed package — co-located with it (contributed to the
+wheel via setuptools `[tool.setuptools.package-data]` or
+`include-package-data`) or inside it. A plugin without declarations
+installs fine but loads eagerly, losing the lazy-loading benefits.
+
+A plugin's version is the installed distribution's version.
+Built-in plugins ship inside the `osh` distribution and inherit
+`osh.__version__`.
 
 `min_osh` declares the minimum osh version the plugin needs — compared
 numerically (`1.1` matches `1.1.0`; a `+commit` local suffix is ignored).
@@ -199,42 +219,37 @@ any attempt to import it — invoking a command, composing an `extends`
 target, loading a dependent — fails with a `requires osh >= X` error,
 and startup warns once. An unparsable value warns but never blocks.
 
-### Multi-plugin repositories
+### Multi-plugin distributions
 
-A repository can ship several plugins — like an Odoo addons repo. Every
-direct subpackage containing an `osh-plugin.toml` marker is a plugin of
-its own — the repo root doesn't even need an `__init__.py`, and a
-marked root package loads alongside the subplugins:
+One distribution can ship several plugins — like an Odoo addons repo —
+by declaring an `osh.plugins` entry point per plugin package:
 
 ```
 osh-contrib/
+├── pyproject.toml
 ├── osh_scan/
-│   ├── osh-plugin.toml  # [commands] scan = "..."
+│   ├── pyproject.toml   # [tool.osh.commands] scan = "..."
 │   └── __init__.py
 ├── osh_audit/
-│   ├── osh-plugin.toml
+│   ├── pyproject.toml
 │   └── __init__.py
 └── osh_misc/
-    └── osh_plugin.py    # single-file plugin works too
+    ├── pyproject.toml
+    └── __init__.py
 ```
 
-(Only _direct_ subdirectories are scanned — put `osh_plugin.py` plugins
-at the top level.) Each subplugin is a real package, so relative imports
-inside it work, and gets its own source name (`osh-scan`) used for
-`osh plug list`, `osh plug alias` and collision-fallback prefixes.
-
-Choose which plugins to enable at install time:
-
-```bash
-osh plug install -e osh-contrib --all                # everything
-osh plug install -e osh-contrib --plugin osh-scan    # just one (repeatable)
+```toml
+[project.entry-points."osh.plugins"]
+osh-scan = "osh_scan"
+osh-audit = "osh_audit"
+osh-misc = "osh_misc"
 ```
 
-Without flags, a multi-plugin repo prompts per plugin when interactive,
-or fails with a hint in scripts. Selections are stored in
-`~/.config/osh/config.toml` under `[plugins.<repo>] enabled = [...]`, and
-disabled plugins are never imported — their code does not run. Toggle
-later with `osh plug enable`/`disable`.
+Each plugin is a real package (relative imports inside it work) and gets
+its own source name — the entry-point name — used in help listings,
+`depends` references and collision-fallback prefixes. Declarations are
+per plugin: each package's own `pyproject.toml` holds its `[tool.osh]`
+table, co-located with the package.
 
 ### Command name collisions
 
@@ -244,15 +259,12 @@ name). If the name is taken — by a core command or an earlier plugin —
 
 ```
 ⚠️ plugin 'osh-scan' command 'init' conflicts with the existing 'init'
-  command; registered as 'osh-scan-init'. Choose a permanent name with:
-  osh plug alias osh-scan init <name>
+  command; registered as 'osh-scan-init'.
 ```
 
-`osh plug alias` assigns a permanent name to any plugin command; it is
-stored under `[plugin-aliases.<plugin>]` in `~/.config/osh/config.toml`.
-Group subcommands are referenced as `<group>.<name>` (e.g.
-`osh plug alias my-plugin backup.restore other-name`). An alias or fallback
-that itself collides is an error, and the command is skipped.
+A fallback name that itself collides is an error, and the command is
+skipped — the fix is to rename the command in the plugin's
+`[tool.osh]` declarations.
 
 Runtime and backup source names are functional identifiers (`osh <name>`
 command groups and `<scheme>://` prefixes), so they cannot be renamed —
@@ -313,8 +325,8 @@ A plugin command is a `CommandHandler` subclass declaring `_cli_name` —
 the name doubles as command placement: a dotted name attaches to the
 group named by its first segment (`backup.restore` → `osh backup restore`), a
 bare name registers top-level (`scan` → `osh scan`). Declare each
-command in `osh-plugin.toml` under `[commands]` or
-`[group_commands.<group>]` so it can be listed without importing:
+command in `[tool.osh]` under `commands` or
+`group_commands.<group>` so it can be listed without importing:
 
 ```python
 from osh.handlers import CommandHandler
@@ -340,19 +352,19 @@ override. For parameters computed at runtime, override the
 Parsed values become instance attributes.
 `format_cli_help(formatter)` writes extra sections after the `--help`
 body. Help text has two homes
-with distinct roles: the `osh-plugin.toml` declaration is the short
+with distinct roles: the `[tool.osh]` declaration is the short
 description shown in command listings (it stays authoritative after
 import, so listings never drift), and the class docstring is the
 `--help` body. The `_cli_*` class attributes customize the wiring:
 
 - A `_`-prefixed name segment (`_util.fmt`, `db._fmt`) marks a
   programmatic-only handler — no command generated. Declare such
-  handlers under the `handlers` key in `osh-plugin.toml`.
+  handlers under the `handlers` key in `[tool.osh]`.
 - `_cli_group`: target group override for bare names.
 - `_cli_context_settings`: dict passed to the `click.Command`.
 - `_cli_hidden`: truthy hides the command from `--help` listings — the
-  command stays invocable. Pair it with `hidden = true` in the marker so
-  the lazy stub is hidden before the plugin loads.
+  command stays invocable. Pair it with `hidden = true` in `[tool.osh]`
+  so the lazy stub is hidden before the plugin loads.
 
 The handler class is the command's public API — `DbAudit(ctx,
 verbose=True).run()` runs it, resolving any registered extensions
@@ -516,12 +528,12 @@ subclasses declared under a stable `_cli_name`. A plugin extends a
 command's behaviour in place (Odoo `_inherit`-style) by subclassing the
 handler it extends — a plain subclass with no `_cli_name` of its own is
 an extension of its nearest named ancestor. Declare the extended
-handlers in the marker so the plugin is imported when that handler is
+handlers in `[tool.osh]` so the plugin is imported when that handler is
 composed — **the declaration is required**: nothing else ever triggers
 the plugin's import, so without it the extension silently never applies:
 
 ```toml
-# osh-plugin.toml
+[tool.osh]
 extends = ["db.list"]
 ```
 
@@ -576,18 +588,17 @@ decompose their work into methods so any step is an extension point.
 Every built-in command is a named handler — the `_cli_name` is the
 extension target to declare under `extends`:
 
-| `_cli_name`              | Commands                                                                   | Handler                      |
-| ------------------------ | -------------------------------------------------------------------------- | ---------------------------- |
-| `init`                   | `osh init`                                                                 | `Init` (`init_cmd`)          |
-| `odoo`                   | `osh odoo`                                                                 | `OdooRun` (`odoo_cmd`)       |
-| `switch`                 | `osh switch`                                                               | `Switch` (`switch_cmd`)      |
-| `shell`                  | `osh shell`                                                                | `ShellRun` (`shell_cmd`)     |
-| `db`, `db.<sub>`         | `osh db show`/`list`/`set`/`copy`/`shell`/`unset`                          | `Db` (`db_cmd`)              |
-| `runtime`, `runtime.<s>` | `osh runtime status`/`list`/`activate`/`deactivate`/`stop`                 | `RuntimeCtl` (`runtime_cmd`) |
-| `config`, `config.show`  | `osh config show`                                                          | `Config` (`config_cmd`)      |
-| `config.user.<sub>`      | `osh config user verbosity`                                                | `ConfigUser` (`config_cmd`)  |
-| `config.odoo.<sub>`      | `osh config odoo dev`                                                      | `ConfigOdoo` (`config_cmd`)  |
-| `plug`, `plug.<sub>`     | `osh plug install`/`list`/`uninstall`/`enable`/`disable`/`alias`/`unalias` | `Plug` (`plug_cmd`)          |
+| `_cli_name`              | Commands                                                   | Handler                      |
+| ------------------------ | ---------------------------------------------------------- | ---------------------------- |
+| `init`                   | `osh init`                                                 | `Init` (`init_cmd`)          |
+| `odoo`                   | `osh odoo`                                                 | `OdooRun` (`odoo_cmd`)       |
+| `switch`                 | `osh switch`                                               | `Switch` (`switch_cmd`)      |
+| `shell`                  | `osh shell`                                                | `ShellRun` (`shell_cmd`)     |
+| `db`, `db.<sub>`         | `osh db show`/`list`/`set`/`copy`/`shell`/`unset`          | `Db` (`db_cmd`)              |
+| `runtime`, `runtime.<s>` | `osh runtime status`/`list`/`activate`/`deactivate`/`stop` | `RuntimeCtl` (`runtime_cmd`) |
+| `config`, `config.show`  | `osh config show`                                          | `Config` (`config_cmd`)      |
+| `config.user.<sub>`      | `osh config user verbosity`                                | `ConfigUser` (`config_cmd`)  |
+| `config.odoo.<sub>`      | `osh config odoo dev`                                      | `ConfigOdoo` (`config_cmd`)  |
 
 All modules live in `osh/commands/`. A _group_ handler like `Db` owns
 each `db.<sub>` name — subcommands are `@subcommand` methods on the
@@ -640,7 +651,7 @@ parsed from `psql -l`), `self.prefix` and `self.show_all`.
 
 Any named handler can be extended — including plugin-provided ones:
 other plugins subclass `resolve("my_plugin.cmd")` (or the class
-directly) and declare `extends = ["my_plugin.cmd"]` in their marker the
+directly) and declare `extends = ["my_plugin.cmd"]` in their `[tool.osh]` the
 same way. Non-CLI handlers use a `_`-prefixed name (e.g. `_util.fmt`)
 and are listed under the `handlers` key so `resolve()` can find them
 without a command.
@@ -648,7 +659,7 @@ without a command.
 ### Backup source plugins
 
 `osh backup get <scheme>://...` schemes come from `BackupSource` subclasses.
-Declare each scheme in `osh-plugin.toml` so the plugin is imported only
+Declare each scheme in `[tool.osh.sources]` so the plugin is imported only
 when the scheme is actually used, and so `osh backup get --help` can list it:
 
 ```toml
@@ -708,7 +719,7 @@ class FingerprintBaseline(resolve("backup.restore")):
 Example plugin source:
 
 ```python
-# ~/.config/osh/plugins/my_backup/__init__.py
+# my_backup/__init__.py
 from osh.backup_sources import BackupSource
 
 
@@ -768,20 +779,21 @@ user what will happen.
 ### Minimal runtime plugin example
 
 ```toml
-# ~/.config/osh/plugins/my_runtime/osh-plugin.toml
+# my_runtime/pyproject.toml (or the project's own, co-located package)
+[tool.osh]
 description = "Echo runtime plugin."
 
-[runtimes]
+[tool.osh.runtimes]
 echo = "Print the Odoo command instead of running it."
 
-[group_commands.echo]
+[tool.osh.group_commands.echo]
 init = "Initialise the project for the echo runtime."
 activate = "Make echo the project's active run runtime."
 stop = "Stop resources left running by the echo runtime."
 ```
 
 ```python
-# ~/.config/osh/plugins/my_runtime/__init__.py
+# my_runtime/__init__.py
 import click
 from osh.runtimes import Runtime, EnvSpec
 from osh.commands.runtime_cmd import RuntimeCommands

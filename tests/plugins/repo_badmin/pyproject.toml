@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-badmin"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-badmin = "osh_badmin"
+
+[tool.setuptools]
+package-dir = { "osh_badmin" = "." }
+packages = ["osh_badmin"]
+
+[tool.setuptools.package-data]
+osh_badmin = ["pyproject.toml"]
+[tool.osh]
+min_osh = "banana"
+
+[tool.osh.commands]
+bad_cmd = "Bad."

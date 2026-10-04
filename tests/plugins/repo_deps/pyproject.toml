@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-deps"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-base = "osh_base"
+osh-needy = "osh_needy"
+
+[tool.setuptools]
+packages = ["osh_base", "osh_needy"]
+
+[tool.setuptools.package-data]
+"*" = ["pyproject.toml"]

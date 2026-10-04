@@ -9,7 +9,6 @@ import click
 from . import __version__, echo
 from .cli_utils import NaturalOrderGroup
 from .commands import COMMANDS
-from .config import get_plugin_aliases
 from .utils.plugin_loader import (
     declared_meta,
     load_group_commands,
@@ -71,6 +70,11 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     Use `osh odoo` to run Odoo in that environment, using an available
     runtime (host, venv, docker, etc.).
     Add the `--help` option to a command to learn more.
+
+    Plugins add commands and runtimes; they are Python packages installed
+    into the osh environment (e.g. `pipx inject osh osh-contrib`, or
+    `pip install` when osh was installed with pip). See PLUGINS.md for
+    the plugin system documentation.
     """
     ctx.ensure_object(dict)
     selected = [
@@ -100,23 +104,13 @@ for _cmd in COMMANDS:
 
 
 def _register_plugin_command(group, cmd, source, qualified):
-    """Register plugin command *cmd* on *group*, honoring aliases/collisions.
+    """Register plugin command *cmd* on *group*, handling collisions.
 
-    *qualified* is the alias key stored in the user config — the command name
-    for top-level commands, or ``<group>.<name>`` for group subcommands.
-    Returns the name the command was registered under, or None if skipped.
+    *qualified* is the command name for top-level commands, or
+    ``<group>.<name>`` for group subcommands. Returns the name the command
+    was registered under, or None if skipped.
     """
     name = cmd.name
-    alias = get_plugin_aliases(source).get(qualified)
-    if alias is not None:
-        if alias in group.commands:
-            echo.error(
-                f"plugin '{source}' command alias '{alias}' for '{qualified}' "
-                "conflicts with an existing command and is ignored."
-            )
-            return None
-        group.add_command(cmd, name=alias)
-        return alias
     if name in group.commands:
         fallback = f"{source}-{name}"
         if fallback in group.commands:
@@ -127,9 +121,7 @@ def _register_plugin_command(group, cmd, source, qualified):
             return None
         echo.warning(
             f"plugin '{source}' command '{qualified}' conflicts with the "
-            f"existing '{name}' command; registered as '{fallback}'. "
-            f"Choose a permanent name with: osh plug alias {source} "
-            f"{qualified} <name>",
+            f"existing '{name}' command; registered as '{fallback}'.",
             err=True,
         )
         name = fallback
@@ -210,7 +202,6 @@ _COMMAND_ORDER = [
     "addon",
     "runtime",
     "config",
-    "plug",
 ]
 
 _ordered = {

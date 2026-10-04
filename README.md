@@ -31,10 +31,17 @@ and runs the right command to start Odoo in your project.
   prints the assembled command instead of executing it, on every command
   that runs one. Defaults you didn't ask for (like Odoo dev mode) always
   show up in that output.
-- **Pluggable** – grow the toolbelt with plugins; `osh plug install <repo>`
+- **Pluggable** – grow the toolbelt with plugins; `pipx inject osh <dist>`
   and new commands show up alongside the built-ins.
 
 ## Quick start
+
+Install `osh` with [pipx](https://pipx.pypa.io/) (it keeps the tool in an
+isolated environment; `osh` is not on PyPI, so install from the repo):
+
+```bash
+pipx install git+https://github.com/dreispt/osh
+```
 
 On an existing project directory initialize the osh run environment
 and then start Odoo:
@@ -85,7 +92,6 @@ Run `osh <command> --help` for full usage details.
 | `osh db`                   | List, show, set, copy, drop, shell, or unset project databases                                                       |
 | `osh backup`               | Get, list, or restore database backups, and register named remote backup sources                                     |
 | `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
-| `osh plug`                 | Install, list, enable, disable, alias, or uninstall osh plugins                                                      |
 
 A _runtime_ is where Osh runs Odoo and its tools: `host` (the default —
 Odoo and its dependencies already installed on the machine), `venv` or
@@ -220,11 +226,15 @@ source schemes and extend core commands in place. The bundled plugins provide `o
 (`get`, `restore`, `list`, `remote`) and `osh test`, plus the `venv` and
 `docker` runtimes (the `host` runtime is built in).
 
-Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib):
+Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib).
+Plugins are Python packages installed into the `osh` environment —
+with `pipx` that is `pipx inject`:
 
 ```bash
-osh plug install https://github.com/dreispt/osh-contrib
+pipx inject osh git+https://github.com/dreispt/osh-contrib
 ```
+
+(If `osh` was installed with plain `pip`, use `pip install` instead.)
 
 Highlights include:
 

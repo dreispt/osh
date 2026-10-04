@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-dbshow"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-dbshow = "osh_dbshow"
+
+[tool.setuptools]
+package-dir = { "osh_dbshow" = "." }
+packages = ["osh_dbshow"]
+
+[tool.setuptools.package-data]
+osh_dbshow = ["pyproject.toml"]
+
+[tool.osh.group_commands.db]
+show = "Plugin show."

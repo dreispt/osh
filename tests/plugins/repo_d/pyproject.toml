@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-d"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-broken = "osh_broken"
+osh-fine = "osh_fine"
+
+[tool.setuptools]
+packages = ["osh_broken", "osh_fine"]
+
+[tool.setuptools.package-data]
+"*" = ["pyproject.toml"]

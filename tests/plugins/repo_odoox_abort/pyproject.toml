@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-odoox-abort"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-odoox-abort = "osh_odoox_abort"
+
+[tool.setuptools]
+package-dir = { "osh_odoox_abort" = "." }
+packages = ["osh_odoox_abort"]
+
+[tool.setuptools.package-data]
+osh_odoox_abort = ["pyproject.toml"]
+
+[tool.osh]
+extends = ["odoo"]

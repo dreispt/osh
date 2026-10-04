@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-helped"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-helped = "osh_helped"
+
+[tool.setuptools]
+package-dir = { "osh_helped" = "." }
+packages = ["osh_helped"]
+
+[tool.setuptools.package-data]
+osh_helped = ["pyproject.toml"]
+
+[tool.osh]
+
+[tool.osh.commands]
+helped = "Helpy command."
+secret = { hidden = true, help = "Not listed." }

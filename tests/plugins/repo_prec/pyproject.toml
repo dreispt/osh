@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-prec"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-prec = "osh_prec"
+
+[tool.setuptools]
+package-dir = { "osh_prec" = "." }
+packages = ["osh_prec"]
+
+[tool.setuptools.package-data]
+osh_prec = ["pyproject.toml", "osh-plugin.toml"]
+[tool.osh.commands]
+helped = "From pyproject."

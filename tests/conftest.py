@@ -4,11 +4,161 @@ Session-wide hooks and generic fixtures live in the root ``conftest.py``
 so they also apply to plugin test directories.
 """
 
+import importlib
 import json
+import os
+import shutil
 import subprocess
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
+
+from .helpers import PLUGINS_DATA
+
+
+@pytest.fixture(scope="session")
+def build_env(tmp_path_factory):
+    """setuptools for ``pip wheel --no-build-isolation``.
+
+    The project venv has no setuptools, so it is installed once into a
+    scratch dir and passed to each build via ``PYTHONPATH`` — skipping
+    the per-project isolated build env pip would otherwise create.
+    """
+    tools = tmp_path_factory.mktemp("wheel-tools")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--target",
+            str(tools),
+            "setuptools>=61",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    return str(tools)
+
+
+@pytest.fixture(scope="session")
+def plugin_wheels(tmp_path_factory, build_env):
+    """Wheel cache: builds each plugin project once per session.
+
+    Projects are staged into a temp copy first so ``pip wheel``'s
+    ``build/`` and ``*.egg-info/`` output never lands in the fixture tree.
+    Fixture wheels build in parallel: the first lookup submits every
+    ``tests/plugins/`` project to a worker pool and waits only for the
+    requested one.
+    """
+    import concurrent.futures
+
+    env = {
+        **os.environ,
+        "PYTHONPATH": build_env + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    }
+    work = tmp_path_factory.mktemp("plugin-wheels")
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    futures = {}
+    submitted = False
+
+    def build_one(src):
+        stage = work / f"stage-{src.name}"
+        if not stage.exists():
+            shutil.copytree(src, stage)
+        out = work / f"wheels-{src.name}"
+        out.mkdir(exist_ok=True)
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "--quiet",
+                "--no-deps",
+                "--no-build-isolation",
+                "--wheel-dir",
+                str(out),
+                str(stage),
+            ],
+            check=True,
+            capture_output=True,
+            env=env,
+            timeout=10,
+        )
+        return next(out.glob("*.whl"))
+
+    def build(project):
+        nonlocal submitted
+        src = Path(project)
+        if not src.is_absolute():
+            src = PLUGINS_DATA / src
+        if not submitted:
+            submitted = True
+            for d in PLUGINS_DATA.iterdir():
+                if d.is_dir():
+                    futures.setdefault(d, pool.submit(build_one, d))
+        if src not in futures:
+            futures[src] = pool.submit(build_one, src)
+        return futures[src].result()
+
+    yield build
+    pool.shutdown(wait=True)
+
+
+@pytest.fixture
+def site_dir(tmp_path, monkeypatch):
+    """A real ``site-packages`` dir on ``sys.path`` for installed plugins.
+
+    ``pip install --target`` unpacks real wheels into it, so packages are
+    importable for the duration of the test and their ``.dist-info`` is
+    discovered by the real ``importlib.metadata``.
+    """
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    monkeypatch.syspath_prepend(str(site))
+    importlib.invalidate_caches()
+    yield site
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None)
+        if path and str(path).startswith(str(site)):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+
+
+@pytest.fixture
+def pip_install(site_dir, plugin_wheels):
+    """``pip install`` a plugin project into *site_dir*.
+
+    *project* is a ``tests/plugins/`` fixture name or a project path.
+    The wheel is built once per session and cached; each test gets its
+    own install.
+    """
+
+    def install(project):
+        wheel = plugin_wheels(project)
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-deps",
+                "--target",
+                str(site_dir),
+                str(wheel),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+
+    return install
 
 
 @pytest.fixture

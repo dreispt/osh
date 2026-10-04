@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+PLUGINS_DATA = Path(__file__).parent / "plugins"
+
 
 def write_stub_pip(venv_path):
     """Drop a no-op ``pip`` executable into *venv_path*.

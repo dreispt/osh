@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-dup"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+fake = "osh_dup"
+
+[tool.setuptools]
+package-dir = { "osh_dup" = "." }
+packages = ["osh_dup"]
+
+[tool.setuptools.package-data]
+osh_dup = ["pyproject.toml"]
+
+[tool.osh.commands]
+fake-init = "Fallback first."
+init = "Init collider."

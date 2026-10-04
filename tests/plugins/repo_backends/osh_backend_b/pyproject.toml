@@ -1,0 +1,4 @@
+[tool.osh]
+
+[tool.osh.backends]
+b-backend = "B backend."

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-old"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-old = "osh_old"
+
+[tool.setuptools]
+package-dir = { "osh_old" = "." }
+packages = ["osh_old"]
+
+[tool.setuptools.package-data]
+osh_old = ["pyproject.toml", "osh-plugin.toml"]

@@ -268,6 +268,13 @@ def warn_unresolved_meta():
             provided.add(name)
             provided.update(f"{name}.{method}" for method in _subcommand_methods(cls))
     for spec in registry.specs.values():
+        if spec.legacy_marker:
+            echo.warning(
+                f"plugin '{spec.name}' declares its surface in "
+                "osh-plugin.toml — move it to [tool.osh] in "
+                "pyproject.toml; the marker is deprecated.",
+                err=True,
+            )
         min_osh = spec.meta.get("min_osh")
         if min_osh:
             if _version_tuple(str(min_osh)) == (0, 0, 0):
@@ -295,7 +302,7 @@ def warn_unresolved_meta():
             if dep not in registry.specs:
                 echo.warning(
                     f"plugin '{spec.name}' depends on '{dep}', which is "
-                    "not installed or enabled.",
+                    "not installed.",
                     err=True,
                 )
 

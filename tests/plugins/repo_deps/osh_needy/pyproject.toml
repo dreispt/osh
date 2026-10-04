@@ -1,0 +1,2 @@
+[tool.osh]
+depends = ["osh-base"]

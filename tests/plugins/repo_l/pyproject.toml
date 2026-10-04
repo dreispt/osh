@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-l"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+repo-l = "repo_l"
+
+[tool.setuptools]
+package-dir = { "repo_l" = "." }
+packages = ["repo_l"]
+
+[tool.setuptools.package-data]
+repo_l = ["pyproject.toml"]
+
+[tool.osh]
+description = "Test plugin."
+
+[tool.osh.backends]
+mybackend = "My backend."
+
+[tool.osh.sources]
+myscheme = "My source."
+
+[tool.osh.group_commands.db]
+mysub = "My sub."
+
+[tool.osh.group_commands.mybackend]
+stop = "Stop my backend."
