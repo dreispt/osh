@@ -27,7 +27,7 @@ Docker) so `osh odoo` just works.
 - **Pluggable** — pip-installed plugins add commands, runtimes, and backup
   source schemes
 
-> **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
+> **Note:** `osh` is not related to or affiliated with Odoo S.A. or its `odoo.sh` service.
 
 **Contents:** [Why osh?](#why-osh) · [Quick start](#quick-start) ·
 [Commands](#commands) · [Design principles](#design-principles) ·

@@ -4,11 +4,13 @@
 # Then post-process to stay under the file-size hook limit
 # (needs gifsicle — `sudo apt install gifsicle`):
 #
-#   gifsicle -O3 --lossy=150 --colors=40 --scale=0.55 \
+#   gifsicle -O3 --lossy=120 --colors=64 --scale=0.4 \
 #     docs/demo.gif -o docs/demo.gif
 #
-# The raw VHS render is ~6MB; the install log scroll is what costs —
-# tweak sleeps, not content, if it regresses over the limit.
+# The raw VHS render is ~6MB — the live `-i` install scroll is what
+# costs. If it regresses over the 1MB hook limit, piping the install
+# through `tail -20` cuts the size dramatically; otherwise tweak
+# sleeps, not content.
 #
 # The tape cds into ~/work/my-project, a scratch project holding a
 # clone of the OCA `web` addons repo on the 19.0 branch. To recreate it:
@@ -18,28 +20,26 @@
 #   git commit --allow-empty -m "Initial commit"
 #   git clone --depth 1 -b 19.0 https://github.com/OCA/web web
 #
-# Prerequisites for recording: `osh` on PATH, a running Docker daemon,
-# `odoo:19.0` and `postgres:16` images already pulled (otherwise the
-# first init spends minutes pulling), port 8069 free (otherwise add
-# `-p <port>` to the `osh odoo` command), and the project ALREADY
-# docker-initialized with a `my-project-19.0` database that does NOT
-# have `web_responsive` installed — so `osh odoo -i` installs just that
-# module without asking to create the db. To set that up:
+# Prerequisites for recording: `osh` on PATH, a local PostgreSQL server,
+# and the project ALREADY venv-initialized with a `my-project-19.0`
+# database that does NOT have `web_responsive` installed — so
+# `osh odoo -i` installs just that module without asking to create the
+# db. To set that up:
 #
 #   cd ~/work/my-project
-#   osh docker init 19.0            # prompts: edition, proceed
-#   osh odoo --stop-after-init      # prompts: create db? — answer c
+#   osh venv init 19.0              # prompts: edition, proceed
+#   osh odoo --stop-after-init      # creates my-project-19.0 (prompt: c)
 #   osh addon uninstall web_responsive --yes   # needs osh-contrib
-#   osh docker stop                 # tape shows init bringing the stack up
 #
-# The tape then re-runs `osh docker init` (idempotent, no prompts on an
-# initialized project) and installs the module on the existing db.
+# The tape then re-runs `osh venv init` (idempotent — re-init skips the
+# pip reinstall when requirements are unchanged) and installs the module
+# on the existing database.
 
 Output docs/demo.gif
 
-Set FontSize 11
-Set Width 880
-Set Height 520
+Set FontSize 20
+Set Width 1600
+Set Height 900
 Set Padding 8
 Set Margin 0
 Set Framerate 20
@@ -48,19 +48,19 @@ Set TypingSpeed 40ms
 Set Shell "bash"
 
 Hide
-Type "cd /home/dreis/work/my-project && export PS1='$ ' && clear"
+Type "cd /home/dreis/work/my-project && export PS1='\[\e[38;5;220m\]$\[\e[0m\] ' OSH_URL_WATCH=0 && clear"
 Enter
 Sleep 800ms
 Show
 
-Type "# Initialize the Docker runtime"
+Type "# Initialize the venv runtime"
 Enter
 Sleep 600ms
-Type "osh docker init 19.0"
+Type "osh venv init"
 Enter
 Sleep 1500ms
 Enter
-Sleep 4500ms
+Sleep 3000ms
 
 Type "# See the command it would run"
 Enter
