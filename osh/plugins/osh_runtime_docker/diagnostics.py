@@ -1,8 +1,8 @@
-"""Diagnostics for the Docker Compose backend.
+"""Diagnostics for the Docker Compose runtime.
 
 Implements the ``osh doctor``/init/run health-check sections for
-``DockerBackend``; the backend's ``diagnose`` method delegates here so the
-backend module stays focused on the run lifecycle.
+``DockerRuntime``; the runtime's ``diagnose`` method delegates here so the
+runtime module stays focused on the run lifecycle.
 """
 
 import json
@@ -25,13 +25,13 @@ from .utils import (
 )
 
 
-def diagnose(backend, base, *, sections=None, **options):
+def diagnose(runtime, base, *, sections=None, **options):
     """Inspect Docker Compose environment and project configuration."""
     phase = options.get("phase", "doctor")
-    d = Diagnostics(backend.name, project=base)
+    d = Diagnostics(runtime.name, project=base)
 
     if sections is None:
-        sections = backend._DIAGNOSE_SECTIONS
+        sections = runtime._DIAGNOSE_SECTIONS
     sections = set(sections)
 
     cfg = _load_docker_config(base)
@@ -51,13 +51,13 @@ def diagnose(backend, base, *, sections=None, **options):
     if "compose_file" in sections:
         _diagnose_compose_file(d, phase, base, compose_file, dockerfile, cfg)
     if "odoo_version" in sections:
-        _diagnose_odoo_version(backend, d, phase, base)
+        _diagnose_odoo_version(runtime, d, phase, base)
     if "service" in sections:
         _diagnose_service(d, phase, service)
     if "container" in sections and cfg:
         _diagnose_container(d, base, service or "odoo", cfg)
     if "build" in sections and phase in ("run", "doctor"):
-        backend._check_stale_environment(base, d)
+        runtime._check_stale_environment(base, d)
     if (
         "sources" in sections
         and phase == "run"
@@ -89,7 +89,7 @@ def _diagnose_compose_tool(d, phase, cfg):
 def _diagnose_config(
     d, phase, cfg, service, command, compose_file, dockerfile, edition
 ):
-    """Report the saved Docker backend configuration."""
+    """Report the saved Docker runtime configuration."""
     if cfg:
         d.add_info("service", service or "odoo")
         d.add_info("command", command or "odoo-bin")
@@ -103,12 +103,12 @@ def _diagnose_config(
             d.add_info("configured_compose_tool", cfg["compose_tool"])
     elif phase == "init":
         d.add_warning(
-            "Docker backend config not found; it will be created during init."
+            "Docker runtime config not found; it will be created during init."
         )
     elif phase == "run":
-        d.add_error("Docker backend config not found. Run 'osh docker init' first.")
+        d.add_error("Docker runtime config not found. Run 'osh docker init' first.")
     else:
-        d.add_warning("Docker backend config not found. Run 'osh docker init'.")
+        d.add_warning("Docker runtime config not found. Run 'osh docker init'.")
 
 
 def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=None):
@@ -144,9 +144,9 @@ def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=No
         d.add_warning(f"Compose file not found: {base / _COMPOSE_FILE}")
 
 
-def _diagnose_odoo_version(backend, d, phase, base):
+def _diagnose_odoo_version(runtime, d, phase, base):
     """Detect and record the installed Odoo version."""
-    odoo_version = backend.detect_odoo_version(base)
+    odoo_version = runtime.detect_odoo_version(base)
     if odoo_version:
         d.add_info("odoo_version", odoo_version)
     elif phase == "doctor":

@@ -13,7 +13,7 @@ from .conftest import _docker_ps_line, _patch_docker_ps, _write_docker_config
 def test_stop_host_without_listener_is_noop(in_project, monkeypatch):
     """``osh runtime stop`` reports nothing when the port is free."""
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [],
     )
     result = CliRunner().invoke(main, ["runtime", "stop"])
@@ -26,16 +26,16 @@ def test_stop_host_kills_odoo_listener(in_project, monkeypatch):
     """``osh runtime stop`` stops an Odoo process holding the project's HTTP port."""
     killed = []
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [4321],
     )
     monkeypatch.setattr(
-        "osh.backends._pid_command",
+        "osh.runtimes._pid_command",
         lambda pid: "/project/.venv/bin/odoo --dev=all",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
     # SIGTERM releases the port right away — no real waiting in tests.
-    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
+    monkeypatch.setattr("osh.runtimes._wait_for_port_release", lambda *a, **k: True)
 
     result = CliRunner().invoke(main, ["runtime", "stop"])
 
@@ -48,11 +48,11 @@ def test_stop_host_leaves_non_odoo_listener(in_project, monkeypatch):
     """``osh runtime stop`` does not kill a foreign process holding the port."""
     killed = []
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [4321],
     )
     monkeypatch.setattr(
-        "osh.backends._pid_command",
+        "osh.runtimes._pid_command",
         lambda pid: "python3 -m http.server 8069",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append(pid))
@@ -65,18 +65,18 @@ def test_stop_host_leaves_non_odoo_listener(in_project, monkeypatch):
 
 
 def test_stop_venv_kills_odoo_listener(in_project, monkeypatch):
-    """The ``venv`` backend shares the local port-kill teardown."""
+    """The ``venv`` runtime shares the local port-kill teardown."""
     killed = []
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [99],
     )
     monkeypatch.setattr(
-        "osh.backends._pid_command",
+        "osh.runtimes._pid_command",
         lambda pid: "odoo-bin -d mydb",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append(pid))
-    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
+    monkeypatch.setattr("osh.runtimes._wait_for_port_release", lambda *a, **k: True)
 
     result = CliRunner().invoke(main, ["venv", "stop"])
 
@@ -88,18 +88,18 @@ def test_stop_host_escalates_to_sigkill(in_project, monkeypatch):
     """An Odoo process that ignores SIGTERM is escalated to SIGKILL."""
     killed = []
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [4321],
     )
     monkeypatch.setattr(
-        "osh.backends._pid_command",
+        "osh.runtimes._pid_command",
         lambda pid: "odoo-bin -d mydb",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
     # First wait times out (SIGTERM ignored), second succeeds (SIGKILL).
     releases = iter([False, True])
     monkeypatch.setattr(
-        "osh.backends._wait_for_port_release", lambda *a, **k: next(releases)
+        "osh.runtimes._wait_for_port_release", lambda *a, **k: next(releases)
     )
 
     result = CliRunner().invoke(main, ["runtime", "stop"])
@@ -114,15 +114,15 @@ def test_stop_host_warns_when_process_survives_sigkill(in_project, monkeypatch):
     """A process still holding the port after SIGKILL is reported."""
     killed = []
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [4321],
     )
     monkeypatch.setattr(
-        "osh.backends._pid_command",
+        "osh.runtimes._pid_command",
         lambda pid: "odoo-bin -d mydb",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
-    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: False)
+    monkeypatch.setattr("osh.runtimes._wait_for_port_release", lambda *a, **k: False)
 
     result = CliRunner().invoke(main, ["runtime", "stop"])
 
@@ -136,12 +136,12 @@ def test_stop_host_skips_sigkill_when_pid_was_reused(in_project, monkeypatch):
     killed = []
     commands = iter(["odoo-bin -d mydb", "postgres: writer process"])
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [4321],
     )
-    monkeypatch.setattr("osh.backends._pid_command", lambda pid: next(commands))
+    monkeypatch.setattr("osh.runtimes._pid_command", lambda pid: next(commands))
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
-    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: False)
+    monkeypatch.setattr("osh.runtimes._wait_for_port_release", lambda *a, **k: False)
 
     result = CliRunner().invoke(main, ["runtime", "stop"])
 
@@ -155,15 +155,15 @@ def test_stop_host_kills_python_module_odoo(in_project, monkeypatch):
     """``python3 -m odoo`` is recognised as Odoo."""
     killed = []
     monkeypatch.setattr(
-        "osh.backends._port_listeners",
+        "osh.runtimes._port_listeners",
         lambda port: [77],
     )
     monkeypatch.setattr(
-        "osh.backends._pid_command",
+        "osh.runtimes._pid_command",
         lambda pid: "/usr/bin/python3 -m odoo --http-port=8069",
     )
     monkeypatch.setattr("os.kill", lambda pid, sig: killed.append((pid, sig)))
-    monkeypatch.setattr("osh.backends._wait_for_port_release", lambda *a, **k: True)
+    monkeypatch.setattr("osh.runtimes._wait_for_port_release", lambda *a, **k: True)
 
     result = CliRunner().invoke(main, ["runtime", "stop"])
 
@@ -173,7 +173,7 @@ def test_stop_host_kills_python_module_odoo(in_project, monkeypatch):
 
 def test_looks_like_odoo_variants():
     """The Odoo heuristic accepts wrappers but rejects unrelated servers."""
-    from osh.backends import _looks_like_odoo
+    from osh.runtimes import _looks_like_odoo
 
     assert _looks_like_odoo("/project/.venv/bin/odoo --dev=all")
     assert _looks_like_odoo("odoo-bin -d mydb")
@@ -188,35 +188,35 @@ def test_looks_like_odoo_variants():
 
 def test_port_listeners_warns_when_lsof_fails(monkeypatch):
     """A failing ``lsof`` is reported instead of silently reporting no listener."""
-    from osh import backends
+    from osh import runtimes
 
-    monkeypatch.setattr(backends.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(runtimes.shutil, "which", lambda tool: f"/usr/bin/{tool}")
     monkeypatch.setattr(
-        backends,
+        runtimes,
         "run_subprocess",
         lambda *a, **k: (1, "", "lsof: WARNING: can't stat() /proc"),
     )
     warnings = []
-    monkeypatch.setattr(backends.echo, "warning", lambda msg, **k: warnings.append(msg))
+    monkeypatch.setattr(runtimes.echo, "warning", lambda msg, **k: warnings.append(msg))
 
-    assert backends._port_listeners(8069) == []
+    assert runtimes._port_listeners(8069) == []
     assert "Could not check port 8069 with lsof" in warnings[0]
 
 
 def test_port_listeners_quiet_when_port_is_free(monkeypatch):
     """``lsof`` finding nothing is the normal case and must not warn."""
-    from osh import backends
+    from osh import runtimes
 
-    monkeypatch.setattr(backends.shutil, "which", lambda tool: f"/usr/bin/{tool}")
-    monkeypatch.setattr(backends, "run_subprocess", lambda *a, **k: (1, "", ""))
+    monkeypatch.setattr(runtimes.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(runtimes, "run_subprocess", lambda *a, **k: (1, "", ""))
     warnings = []
-    monkeypatch.setattr(backends.echo, "warning", lambda msg, **k: warnings.append(msg))
+    monkeypatch.setattr(runtimes.echo, "warning", lambda msg, **k: warnings.append(msg))
 
-    assert backends._port_listeners(8069) == []
+    assert runtimes._port_listeners(8069) == []
     assert warnings == []
 
 
-def test_stop_docker_backend_runs_compose_down(in_project, monkeypatch):
+def test_stop_docker_runtime_runs_compose_down(in_project, monkeypatch):
     """``osh docker stop`` invokes ``docker compose down``."""
     _write_docker_config(in_project)
     _patch_docker_ps(monkeypatch, [])
@@ -226,7 +226,7 @@ def test_stop_docker_backend_runs_compose_down(in_project, monkeypatch):
         calls.append(args)
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command", fake_run_command
+        "osh.plugins.osh_runtime_docker.runtimes.run_command", fake_run_command
     )
 
     result = CliRunner().invoke(main, ["docker", "stop"])
@@ -286,7 +286,7 @@ def test_stop_docker_missing_compose_file_removes_containers(in_project, monkeyp
     )
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
+        "osh.plugins.osh_runtime_docker.runtimes.run_command",
         lambda args, **kw: calls.append(args),
     )
 
@@ -299,8 +299,8 @@ def test_stop_docker_missing_compose_file_removes_containers(in_project, monkeyp
     ]
 
 
-def test_stop_backend_group_dispatches_to_active_backend(in_project, monkeypatch):
-    """``osh runtime stop`` delegates to the active backend's teardown."""
+def test_stop_runtime_group_dispatches_to_active_runtime(in_project, monkeypatch):
+    """``osh runtime stop`` delegates to the active runtime's teardown."""
     from osh.db import set_project_config
 
     _write_docker_config(in_project)
@@ -308,7 +308,7 @@ def test_stop_backend_group_dispatches_to_active_backend(in_project, monkeypatch
     _patch_docker_ps(monkeypatch, [])
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
+        "osh.plugins.osh_runtime_docker.runtimes.run_command",
         lambda args, **kwargs: calls.append(args),
     )
 
@@ -343,7 +343,7 @@ def test_stop_docker_by_project_name(in_project, tmp_path, monkeypatch):
         calls.append((args, kwargs.get("cwd")))
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command", fake_run_command
+        "osh.plugins.osh_runtime_docker.runtimes.run_command", fake_run_command
     )
 
     result = CliRunner().invoke(main, ["docker", "stop", "other"])
@@ -379,7 +379,7 @@ def test_stop_docker_uses_running_compose_project_name(in_project, monkeypatch):
     )
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
+        "osh.plugins.osh_runtime_docker.runtimes.run_command",
         lambda args, **kw: calls.append(args),
     )
 
@@ -465,12 +465,12 @@ def test_stop_docker_by_name_compose_labels_fallback(tmp_path, monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._find_compose_tool",
+        "osh.plugins.osh_runtime_docker.runtimes._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
+        "osh.plugins.osh_runtime_docker.runtimes.run_command",
         lambda args, **kw: calls.append(args),
     )
 
@@ -510,7 +510,7 @@ def test_stop_docker_by_name_removed_project(tmp_path, monkeypatch):
     )
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
+        "osh.plugins.osh_runtime_docker.runtimes.run_command",
         lambda args, **kw: calls.append(args),
     )
 

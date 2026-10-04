@@ -248,14 +248,14 @@ class NaturalOrderGroup(click.Group):
     Also allows group-level options (e.g. ``-v``) to appear after the
     subcommand name, so they do not have to be redeclared on every command.
 
-    Commands whose names are in ``plugin_commands`` or ``backend_commands``
+    Commands whose names are in ``plugin_commands`` or ``runtime_commands``
     — ``{name: source}`` mappings assigned by ``cli.py`` after plugin
     registration — are listed in separate help sections, annotated with
     their source.
     """
 
     plugin_commands = {}
-    backend_commands = {}
+    runtime_commands = {}
 
     def list_commands(self, ctx):  # noqa: D401
         return list(self.commands)  # retain insertion order
@@ -272,17 +272,17 @@ class NaturalOrderGroup(click.Group):
             return
         limit = formatter.width - 6 - max(len(name) for name, _ in commands)
         core_rows = []
-        backend_rows = []
+        runtime_rows = []
         plugin_rows = []
         for name, cmd in commands:
-            source = self.backend_commands.get(name, self.plugin_commands.get(name))
+            source = self.runtime_commands.get(name, self.plugin_commands.get(name))
             help_text = cmd.get_short_help_str(
                 limit - len(f" [{source}]") if source else limit
             )
             if source:
                 help_text = f"{help_text} [{source}]".strip()
-            if name in self.backend_commands:
-                backend_rows.append((name, help_text))
+            if name in self.runtime_commands:
+                runtime_rows.append((name, help_text))
             elif name in self.plugin_commands:
                 plugin_rows.append((name, help_text))
             else:
@@ -290,9 +290,9 @@ class NaturalOrderGroup(click.Group):
         if core_rows:
             with formatter.section("Commands"):
                 formatter.write_dl(core_rows)
-        if backend_rows:
+        if runtime_rows:
             with formatter.section("Runtime Commands"):
-                formatter.write_dl(backend_rows)
+                formatter.write_dl(runtime_rows)
         if plugin_rows:
             with formatter.section("Plugin Commands"):
                 formatter.write_dl(plugin_rows)
@@ -331,14 +331,14 @@ class NaturalOrderGroup(click.Group):
         return super().parse_args(ctx, head + tail)
 
 
-def format_backends_section(formatter, backends):
-    """Write a Backends help section listing each backend name and description.
+def format_runtimes_section(formatter, runtimes):
+    """Write a Runtimes help section listing each runtime name and description.
 
-    *backends* maps names to backend classes (read ``description``) or to
+    *runtimes* maps names to runtime classes (read ``description``) or to
     plain description strings — the metadata form lets help render without
-    importing backend plugins.
+    importing runtime plugins.
     """
-    if not backends:
+    if not runtimes:
         return
     records = [
         (
@@ -349,7 +349,11 @@ def format_backends_section(formatter, backends):
                 else getattr(entry, "description", "") or ""
             ),
         )
-        for name, entry in sorted(backends.items())
+        for name, entry in sorted(runtimes.items())
     ]
-    with formatter.section("Backends"):
+    with formatter.section("Runtimes"):
         formatter.write_dl(records)
+
+
+# Deprecated alias kept for plugins written against the backend API.
+format_backends_section = format_runtimes_section

@@ -5,10 +5,10 @@ import re
 
 from click.testing import CliRunner
 
-from osh.backends import NoneBackend
 from osh.cli import main
 from osh.commands.shell_cmd import build_dynamic_odoo_config, shell
-from osh.plugins.osh_backend_docker.backends import DockerBackend
+from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
+from osh.runtimes import HostRuntime
 
 
 def _setup_venv(project):
@@ -21,8 +21,8 @@ def _setup_venv(project):
     return venv_bin
 
 
-def _use_backend(project, name):
-    """Record *name* as the project's active run backend."""
+def _use_runtime(project, name):
+    """Record *name* as the project's active run runtime."""
     from osh.db import set_project_config
 
     set_project_config(project, "run", "target", name)
@@ -41,13 +41,13 @@ def test_shell_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
     )
     monkeypatch.setattr("osh.db.db_exists", lambda base, name, **kw: True)
 
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
     monkeypatch.setenv("SHELL", "/bin/zsh")
 
     calls = []
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
@@ -72,12 +72,12 @@ def test_shell_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
     (venv_bin / "psql").write_text("#!/bin/sh\necho psql")
     (venv_bin / "psql").chmod(0o755)
 
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
 
     calls = []
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
@@ -98,7 +98,7 @@ def test_shell_tool_passthrough_skips_missing_db_prompt(tmp_project, monkeypatch
     the create/copy prompt — that prompt is for Odoo runs.
     """
     _setup_venv(tmp_project)
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
     # Simulate a missing branch database; a probing resolve would abort
     # (non-interactive) or prompt (TTY). Passthrough must not probe.
@@ -106,7 +106,7 @@ def test_shell_tool_passthrough_skips_missing_db_prompt(tmp_project, monkeypatch
 
     calls = []
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
@@ -125,11 +125,11 @@ def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
     (osh_dir / "odoo.conf").write_text("[options]\nlimit_time_cpu = 0\n")
 
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
 
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: None,
     )
 
@@ -149,7 +149,7 @@ def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch
 def test_shell_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
     """``osh shell --dry-run`` writes the generated config so it can be inspected."""
     _setup_venv(tmp_project)
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -165,12 +165,12 @@ def test_shell_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
 def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     """An explicit ``--config`` argument disables the generated config."""
     _setup_venv(tmp_project)
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
 
     calls = []
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args))),
     )
 
@@ -183,37 +183,37 @@ def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
 
 
 def test_shell_docker_runs_container_with_env_vars(tmp_project, branch_db, monkeypatch):
-    """``osh shell`` on the docker backend builds a compose invocation with env vars."""
+    """``osh shell`` on the docker runtime builds a compose invocation with env vars."""
     osh_dir = tmp_project / ".osh"
     docker_toml = osh_dir / "docker.toml"
     docker_toml.write_text(
         "service = 'odoo'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
     )
     (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
-    _use_backend(tmp_project, "docker")
+    _use_runtime(tmp_project, "docker")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        "osh.plugins.osh_runtime_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     monkeypatch.chdir(tmp_project)
 
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.os.execvp",
+        "osh.plugins.osh_runtime_docker.runtimes.os.execvp",
         lambda exe, args: calls.append((exe, list(args))),
     )
     # Service lifecycle: stack reports stopped, `up -d` is a no-op, no collision.
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        "osh.plugins.osh_runtime_docker.runtimes.run_subprocess",
         lambda *a, **kw: (0, "", ""),
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_command",
+        "osh.plugins.osh_runtime_docker.runtimes.run_command",
         lambda *a, **kw: None,
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.port_in_use",
+        "osh.plugins.osh_runtime_docker.runtimes.port_in_use",
         lambda *a, **kw: False,
     )
 
@@ -239,8 +239,8 @@ def test_build_dynamic_odoo_config_uses_container_paths_for_docker(
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
     (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
 
-    backend = DockerBackend()
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    runtime = DockerRuntime()
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
     text = conf.read_text()
     assert "/mnt/extra-addons/.osh/odoo/addons" in text
     assert "/mnt/extra-addons/.osh/enterprise" in text
@@ -255,7 +255,7 @@ def test_build_dynamic_odoo_config_data_dir(tmp_project, monkeypatch):
         "compose_file = 'docker-compose.yml'\n"
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        "osh.plugins.osh_runtime_docker.runtimes.run_subprocess",
         lambda *a, **kw: (
             0,
             '{"services": {"odoo": {"volumes": '
@@ -263,14 +263,14 @@ def test_build_dynamic_odoo_config_data_dir(tmp_project, monkeypatch):
             "",
         ),
     )
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
     assert "data_dir = /odoo/data" in conf.read_text()
 
     # A data_dir in the project's seed config always wins.
     (tmp_project / ".osh" / "odoo.conf").write_text(
         "[options]\ndata_dir = /custom/data\n"
     )
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
     text = conf.read_text()
     assert "data_dir = /custom/data" in text
     assert "/odoo/data" not in text
@@ -278,8 +278,8 @@ def test_build_dynamic_odoo_config_data_dir(tmp_project, monkeypatch):
 
 def test_build_dynamic_odoo_config_escapes_dbfilter(tmp_project):
     """Dots in database names do not become ``dbfilter`` regex wildcards."""
-    backend = NoneBackend()
-    conf = build_dynamic_odoo_config(tmp_project, "my.db", backend)
+    runtime = HostRuntime()
+    conf = build_dynamic_odoo_config(tmp_project, "my.db", runtime)
     text = conf.read_text()
     assert "db_name = my.db" in text
     assert "dbfilter = ^my\\.db$" in text
@@ -289,23 +289,23 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     """The helper can omit ``dbfilter`` when requested."""
     (tmp_project / ".osh" / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
 
-    backend = NoneBackend()
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend, no_db_filter=True)
+    runtime = HostRuntime()
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime, no_db_filter=True)
     text = conf.read_text()
     assert "db_name = mydb" in text
     assert "dbfilter" not in text
 
 
 def test_db_shell_matches_osh_shell_on_venv(tmp_project, monkeypatch):
-    """``osh db shell`` on a host-like backend behaves like ``osh shell``."""
+    """``osh db shell`` on a host-like runtime behaves like ``osh shell``."""
     _setup_venv(tmp_project)
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
     monkeypatch.setenv("SHELL", "/bin/zsh")
 
     calls = []
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: calls.append((exe, list(args), env)),
     )
 
@@ -324,11 +324,11 @@ def test_shell_does_not_record_last_used_database(tmp_project, branch_db, monkey
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
     monkeypatch.setenv("SHELL", "/bin/zsh")
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: None,
     )
 
@@ -344,7 +344,7 @@ def test_shell_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeyp
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
-    _use_backend(tmp_project, "venv")
+    _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()

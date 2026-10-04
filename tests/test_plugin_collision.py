@@ -122,7 +122,7 @@ def test_plugin_commands_listed_in_separate_help_section(monkeypatch, tmp_path):
     assert "[fake]" in plugin_section
 
 
-def test_backend_groups_listed_in_separate_help_section(monkeypatch, tmp_path):
+def test_runtime_groups_listed_in_separate_help_section(monkeypatch, tmp_path):
     """`osh --help` lists runtime groups under Runtime Commands — lazily."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
@@ -137,18 +137,18 @@ def test_backend_groups_listed_in_separate_help_section(monkeypatch, tmp_path):
     result = runner.invoke(cli.main, ["--help"])
 
     assert result.exit_code == 0
-    assert "docker" in cli.main.backend_commands
+    assert "docker" in cli.main.runtime_commands
     core_section, _, rest = result.output.partition("Runtime Commands:")
-    backend_section, _, _ = rest.partition("Plugin Commands:")
+    runtime_section, _, _ = rest.partition("Plugin Commands:")
     assert "\n  docker " not in core_section
-    assert "\n  docker " in backend_section
-    assert "[osh-backend-docker]" in backend_section
-    # Help renders from metadata — the backend plugins are never imported.
+    assert "\n  docker " in runtime_section
+    assert "[osh-runtime-docker]" in runtime_section
+    # Help renders from metadata — the runtime plugins are never imported.
     from osh.utils.plugin_registry import plugin_registry
 
     specs = plugin_registry().specs
-    assert not specs["osh-backend-docker"].loaded
-    assert not specs["osh-backend-venv"].loaded
+    assert not specs["osh-runtime-docker"].loaded
+    assert not specs["osh-runtime-venv"].loaded
 
 
 def test_group_plugin_subcommand_listed_in_separate_section(monkeypatch, tmp_path):

@@ -1,7 +1,7 @@
 # Plugin Development Guide
 
 This guide is for extending `osh` with plugins. Plugins can add commands,
-execution backends, and backup sources, and extend core commands in place.
+execution runtimes, and backup sources, and extend core commands in place.
 
 For general `osh` development, see `DEVELOP.md`. For using `osh`, see `README.md`.
 
@@ -47,7 +47,7 @@ python -m osh hello --name developer
 ```
 
 The package's `__init__.py` must expose the plugin's contributions —
-`CommandHandler` subclasses, `Backend`/
+`CommandHandler` subclasses, `Runtime`/
 `BackupSource` subclasses and handler extensions are discovered among
 its attributes, so re-export implementations living in submodules.
 
@@ -58,11 +58,11 @@ what plugins install:
 
 1. **Metadata inspection** — at startup, `osh` scans plugin sources and
    reads only `osh-plugin.toml` files and entry-point declarations.
-   Command, backend and source names register as lightweight stubs; **no
+   Command, runtime and source names register as lightweight stubs; **no
    plugin module is imported**.
 2. **Import on use** — a plugin's module is imported only when needed:
    invoking `osh hello` imports the plugin declaring `hello`, resolving
-   the `docker` backend imports only the plugin declaring it, and
+   the `docker` runtime imports only the plugin declaring it, and
    composing `backup.restore` imports only plugins declaring
    `extends = ["backup.restore"]`. Other installed plugins are never
    evaluated.
@@ -111,10 +111,10 @@ _sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 [group_commands.db]        # subcommands of an existing group
 restore = "Restore a backup."
 
-[group_commands.docker]    # `osh docker` subcommands (backend lifecycle)
-init = "Initialise the project for the docker backend."
+[group_commands.docker]    # `osh docker` subcommands (runtime lifecycle)
+init = "Initialise the project for the docker runtime."
 
-[backends]                 # Backend subclasses provided
+[runtimes]                 # Runtime subclasses provided
 docker = "Run Odoo inside a Docker Compose stack."
 
 [sources]                  # `osh backup get` backup source schemes provided
@@ -139,7 +139,7 @@ failing dependency fails the plugin's load with a clear error, and
 circular dependencies are reported. Handler extension doesn't need it —
 `extends` plus `resolve()` already order the imports — `depends` covers
 the rest: importing another plugin's package directly, relying on its
-import side effects, or using its backends or handlers at module level.
+import side effects, or using its runtimes or handlers at module level.
 Unresolved `extends` and `depends` references also warn at startup,
 without importing anything.
 
@@ -254,7 +254,7 @@ Group subcommands are referenced as `<group>.<name>` (e.g.
 `osh plug alias my-plugin backup.restore other-name`). An alias or fallback
 that itself collides is an error, and the command is skipped.
 
-Backend and backup source names are functional identifiers (`osh <name>`
+Runtime and backup source names are functional identifiers (`osh <name>`
 command groups and `<scheme>://` prefixes), so they cannot be renamed —
 a collision is an error and the contribution is skipped.
 
@@ -286,7 +286,7 @@ without notice.
   `find_project_root`, `ensure_tool`, `get_odoo_data_dir`,
   `get_odoo_config_path`, `resolve_config_file`, `discover_addons_paths`,
   `decode_stderr`.
-- `osh.backends` — `Backend`, `EnvSpec`, `copy_odoo_rc_to_osh_conf`.
+- `osh.runtimes` — `Runtime`, `EnvSpec`, `copy_odoo_rc_to_osh_conf`.
 - `osh.backup_sources` — `BackupSource`, `SourceError` — the interface
   for new `osh backup get` schemes.
 - `osh.echo` — output helpers: `info`, `warning`, `error`, `internal`,
@@ -294,16 +294,16 @@ without notice.
 - `osh.handlers` — `CommandHandler`, `Env`, `resolve()`,
   `subcommand()` — see
   [Extending core commands](#extending-core-commands).
-- `osh.db` — database and backend-selection helpers: `run_in_backend`,
+- `osh.db` — database and runtime-selection helpers: `run_in_runtime`,
   `create_db`, `drop_db`, `db_exists`, `resolve_db_name`,
-  `get_current_branch`, `resolve_backend`, `get_active_backend_name`,
-  `deactivate_backend`.
+  `get_current_branch`, `resolve_runtime`, `get_active_runtime_name`,
+  `deactivate_runtime`.
 - `osh.sources` — source installation helpers (`ensure_osh_sources`,
   `pull_odoo_sources`, ...).
 
 Internal implementation modules live in `osh/utils/` and `osh/commands/`.
 `Diagnostics` in `osh.commands.helpers` is the one exception — it is part
-of the backend contract.
+of the runtime contract.
 
 ## API reference
 
@@ -388,42 +388,42 @@ Extensions subclass the group class and override methods — an anonymous
 subclass can also _add_ a method, which registers as a new subcommand
 of the group.
 
-### Backend plugins
+### Runtime plugins
 
-A backend plugin subclasses `Backend`, declares the backend under
-`[backends]` and exposes its lifecycle commands as `CommandHandler`
-subclasses under `[group_commands.<backend>]`:
+A runtime plugin subclasses `Runtime`, declares the runtime under
+`[runtimes]` and exposes its lifecycle commands as `CommandHandler`
+subclasses under `[group_commands.<runtime>]`:
 
 ```toml
-[backends]
-mybackend = "Run Odoo on my custom target."
+[runtimes]
+myruntime = "Run Odoo on my custom target."
 
-[group_commands.mybackend]
-init = "Initialise the project for the mybackend backend."
-activate = "Make mybackend the project's active run backend."
-stop = "Stop resources left running by the mybackend backend."
+[group_commands.myruntime]
+init = "Initialise the project for the myruntime runtime."
+activate = "Make myruntime the project's active run runtime."
+stop = "Stop resources left running by the myruntime runtime."
 ```
 
 ```python
-from osh.backends import Backend
-from osh.commands.backend_cmd import BackendCommands
+from osh.runtimes import Runtime
+from osh.commands.runtime_cmd import RuntimeCommands
 
 
-class MyBackend(Backend):
-    backend_type = "backend"
-    name = "mybackend"
+class MyRuntime(Runtime):
+    runtime_type = "runtime"
+    name = "myruntime"
     ...
 
 
-class MyBackendCommands(BackendCommands):
-    _cli_name = "mybackend"
+class MyRuntimeCommands(RuntimeCommands):
+    _cli_name = "myruntime"
 ```
 
-`BackendCommands` (from `osh.commands.backend_cmd`) provides the
+`RuntimeCommands` (from `osh.commands.runtime_cmd`) provides the
 standard lifecycle as `@subcommand` methods: `osh <name> init` runs the
 common base setup and then calls `cls.init(...)` with the parsed
 `get_init_options()`; `osh <name> activate` is the lightweight way to
-switch the project to an already-initialized backend; `osh <name> stop`
+switch the project to an already-initialized runtime; `osh <name> stop`
 calls `cls.stop(...)` with `get_stop_options()`. The `osh <name>` group
 is created automatically — `osh <name> --help` lists the declared
 subcommands without importing the plugin, and the group shows under
@@ -436,42 +436,36 @@ overriding the method and calling `super()`, adding parameters through
 a `<method>_options()` hook — or by another plugin `extends`-ing the
 handler.
 
-The backend class is imported only when the runtime is selected
-(`run.runtime = mybackend`) or one of its commands is invoked — listing
+The runtime class is imported only when the runtime is selected
+(`run.runtime = myruntime`) or one of its commands is invoked — listing
 runtimes in `--help` and `osh runtime list` reads the declared
 descriptions instead.
 
 Activation records `run.runtime = <name>` in `.osh/config.toml` (the
 legacy `run.target` key is still read, and removed on the next
 activation), and `osh odoo`/`osh shell`/`osh db` then run through the
-backend. Plugins should use `get_active_backend_name`,
-`set_active_backend_name` and `resolve_backend` from `osh.db` rather than
+runtime. Plugins should use `get_active_runtime_name`,
+`set_active_runtime_name` and `resolve_runtime` from `osh.db` rather than
 reading the keys directly. Built-in examples:
-`osh/plugins/osh_backend_docker/` (Docker Compose) and
-`osh/plugins/osh_backend_venv/` (managed virtualenv). The core `host`
-runtime (`HostBackend`) — plain host execution, the default when nothing
+`osh/plugins/osh_runtime_docker/` (Docker Compose) and
+`osh/plugins/osh_runtime_venv/` (managed virtualenv). The core `host`
+runtime (`HostRuntime`) — plain host execution, the default when nothing
 is activated — has no command group: `osh init` is its setup,
 `osh runtime stop` its teardown and `osh runtime deactivate` the way back
 to it.
 
-**Compatibility:** the host runtime was previously named `none`
-(`NoneBackend`). `NoneBackend` remains an alias of `HostBackend`, the
-names `none`/`local` resolve to `host`, and a plugin backend declaring
-`name = "none"` conflicts with the built-in. `osh backend` remains a
-hidden, deprecated alias of `osh runtime`.
-
-#### Backend class attributes
+#### Runtime class attributes
 
 ```python
-class MyBackend(Backend):
-    backend_type = "backend"
+class MyRuntime(Runtime):
+    runtime_type = "runtime"
     name = "my-target"              # Activated via `osh my-target init`/`activate`
     label = "My Target"             # Short label shown to users
     description = "Runs Odoo on my custom target."
     help_text = "Long help text for --help."
 ```
 
-#### Backend class methods
+#### Runtime class methods
 
 - `get_init_options(cls)`: return a list of `click.Option` instances that
   `osh <name> init` should accept, on top of the common init options
@@ -484,7 +478,7 @@ class MyBackend(Backend):
 
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
   _base_, or `None` if it cannot be determined. The base implementation reads
-  the version from the checked-out Odoo sources; backends override it to try
+  the version from the checked-out Odoo sources; runtimes override it to try
   target-specific detection first (e.g. the local executable, a compose image
   tag).
 
@@ -497,7 +491,7 @@ class MyBackend(Backend):
   prepare `target` for use and return `True` when ready. This is called by
   `osh <name> init` after the common base setup.
 
-- `stop(self, ctx, base, **options)`: stop anything the backend
+- `stop(self, ctx, base, **options)`: stop anything the runtime
   leaves running. Called by `osh <name> stop`; the default implementation
   kills a rogue Odoo process listening on the configured HTTP port.
 
@@ -505,13 +499,13 @@ class MyBackend(Backend):
   execute a command inside the target environment. `env_spec` is an `EnvSpec`
   instance (or an `argv`-style list for backwards compatibility). It carries
   the assembled `argv` list and environment variables such as `ODOO_RC` and
-  `PGDATABASE`. When `argv` is empty, backends should launch an interactive
+  `PGDATABASE`. When `argv` is empty, runtimes should launch an interactive
   shell.
 
 - `db_env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
   execute a command inside the _database_ environment, used by
   `osh db shell`. The default delegates to `env()` — the right answer for
-  host-like backends where PostgreSQL shares Odoo's environment. Backends
+  host-like runtimes where PostgreSQL shares Odoo's environment. Runtimes
   with a separate database service (e.g. Docker's Compose `db` service)
   override it to target that service.
 
@@ -589,7 +583,7 @@ extension target to declare under `extends`:
 | `switch`                 | `osh switch`                                                               | `Switch` (`switch_cmd`)      |
 | `shell`                  | `osh shell`                                                                | `ShellRun` (`shell_cmd`)     |
 | `db`, `db.<sub>`         | `osh db show`/`list`/`set`/`copy`/`shell`/`unset`                          | `Db` (`db_cmd`)              |
-| `runtime`, `runtime.<s>` | `osh runtime status`/`list`/`activate`/`deactivate`/`stop`                 | `RuntimeCtl` (`backend_cmd`) |
+| `runtime`, `runtime.<s>` | `osh runtime status`/`list`/`activate`/`deactivate`/`stop`                 | `RuntimeCtl` (`runtime_cmd`) |
 | `config`, `config.show`  | `osh config show`                                                          | `Config` (`config_cmd`)      |
 | `config.user.<sub>`      | `osh config user verbosity`                                                | `ConfigUser` (`config_cmd`)  |
 | `config.odoo.<sub>`      | `osh config odoo dev`                                                      | `ConfigOdoo` (`config_cmd`)  |
@@ -628,7 +622,7 @@ Extension points on `osh odoo`:
   (`get_options()` merges them across the MRO). For parameters computed
   at runtime, override `get_options()` and append to `super()`.
 - `pre_env()` — runs after the `EnvSpec` is assembled, right before
-  `Backend.env()` executes. It runs for every `osh odoo` invocation —
+  `Runtime.env()` executes. It runs for every `osh odoo` invocation —
   exec and `--wait` paths, `--dry-run` and subcommands included — so
   extensions must self-filter. Raising `click.ClickException` aborts the
   run. Since `osh odoo` execs Odoo, `pre_env()` is also the place to
@@ -747,10 +741,10 @@ Example:
 ### EnvSpec
 
 `osh odoo`, `osh run` and `osh backup restore` pass an `EnvSpec` dataclass
-(from `osh/backends.py`) to `Backend.env()`. It describes a command to
+(from `osh/runtimes.py`) to `Runtime.env()`. It describes a command to
 execute inside the prepared target environment:
 
-- `argv`: the command and arguments to execute. When empty, backends
+- `argv`: the command and arguments to execute. When empty, runtimes
   should launch an interactive shell.
 - `env`: a mapping of extra environment variables (`ODOO_RC`,
   `PGDATABASE`, `PGHOST`, etc.) to expose before running the command.
@@ -759,10 +753,10 @@ execute inside the prepared target environment:
 
 ### Diagnostics
 
-Backends return diagnostics via the `Diagnostics` dataclass in
+Runtimes return diagnostics via the `Diagnostics` dataclass in
 `osh/commands/helpers.py`:
 
-- `backend`: backend name.
+- `runtime`: runtime name.
 - `ready`: `True` unless `add_error()` was called.
 - `errors`, `warnings`, `info`, `plan`: lists/dicts describing checks.
 - `add_error(msg)`, `add_warning(msg)`, `add_info(key, value)`,
@@ -771,32 +765,32 @@ Backends return diagnostics via the `Diagnostics` dataclass in
 `osh odoo` aborts on `errors`; `osh <name> init` uses `plan` to show the
 user what will happen.
 
-### Minimal backend plugin example
+### Minimal runtime plugin example
 
 ```toml
-# ~/.config/osh/plugins/my_backend/osh-plugin.toml
-description = "Echo backend plugin."
+# ~/.config/osh/plugins/my_runtime/osh-plugin.toml
+description = "Echo runtime plugin."
 
-[backends]
+[runtimes]
 echo = "Print the Odoo command instead of running it."
 
 [group_commands.echo]
-init = "Initialise the project for the echo backend."
-activate = "Make echo the project's active run backend."
-stop = "Stop resources left running by the echo backend."
+init = "Initialise the project for the echo runtime."
+activate = "Make echo the project's active run runtime."
+stop = "Stop resources left running by the echo runtime."
 ```
 
 ```python
-# ~/.config/osh/plugins/my_backend/__init__.py
+# ~/.config/osh/plugins/my_runtime/__init__.py
 import click
-from osh.backends import Backend, EnvSpec
-from osh.commands.backend_cmd import BackendCommands
+from osh.runtimes import Runtime, EnvSpec
+from osh.commands.runtime_cmd import RuntimeCommands
 from osh.commands.helpers import Diagnostics
 
 
-class EchoBackend(Backend):
+class EchoRuntime(Runtime):
     name = "echo"
-    label = "Echo backend"
+    label = "Echo runtime"
     description = "Prints the Odoo command instead of running it."
 
     @classmethod
@@ -815,7 +809,7 @@ class EchoBackend(Backend):
         return 0
 
 
-class EchoCommands(BackendCommands):
+class EchoCommands(RuntimeCommands):
     """``osh echo`` group — init/activate/stop inherited."""
 
     _cli_name = "echo"

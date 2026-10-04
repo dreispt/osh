@@ -5,16 +5,16 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...commands.backend_cmd import BackendCommands
+from ...commands.runtime_cmd import RuntimeCommands
 from ...common import find_project_root
 from ...handlers import subcommand
 from .discovery import _list_containers
 
 
-class Docker(BackendCommands):
+class Docker(RuntimeCommands):
     """The ``osh docker`` command group — Compose runtime lifecycle.
 
-    ``init``, ``activate`` and ``stop`` come from ``BackendCommands``;
+    ``init``, ``activate`` and ``stop`` come from ``RuntimeCommands``;
     ``stop`` is extended to accept a project name and ``list`` is a
     docker-specific addition.
     """
@@ -31,12 +31,12 @@ class Docker(BackendCommands):
         list`` — so another project's stack can be stopped without cd'ing
         there, e.g. to free a dangling 8069 port.
         """
-        backend = self.backend()
-        options = self.backend_options(self.backend_cls().get_stop_options())
+        runtime = self.runtime()
+        options = self.runtime_options(self.runtime_cls().get_stop_options())
         if self.project is None:
-            backend.stop(self.ctx, find_project_root(required=True), **options)
+            runtime.stop(self.ctx, find_project_root(required=True), **options)
         else:
-            backend.stop_by_name(self.ctx, self.project, **options)
+            runtime.stop_by_name(self.ctx, self.project, **options)
 
     @subcommand
     @click.option(

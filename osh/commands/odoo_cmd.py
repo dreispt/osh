@@ -15,8 +15,7 @@ import sys
 import click
 
 from .. import echo
-from ..backends import EnvSpec
-from ..cli_utils import format_backends_section, handler_command
+from ..cli_utils import format_runtimes_section, handler_command
 from ..common import find_project_root, has_arg, odoo_http_port
 from ..config import get_user_preference
 from ..db import (
@@ -24,13 +23,14 @@ from ..db import (
     db_exists,
     get_last_db,
     get_project_config,
-    resolve_backend,
     resolve_branch,
     resolve_db_name,
+    resolve_runtime,
     set_last_db,
 )
 from ..handlers import CommandHandler
-from ..utils.plugin_loader import backend_meta
+from ..runtimes import EnvSpec
+from ..utils.plugin_loader import runtime_meta
 from .helpers import check_run_diagnostics
 from .shell_cmd import parse_explicit_db, prepare_env_context
 
@@ -54,8 +54,8 @@ class OdooRun(CommandHandler):
     ``--dev`` yourself or use ``--no-dev``. The default can be changed with
     ``osh config odoo dev <value>`` (``off`` disables the injection).
 
-    The execution backend is the one activated for the project — see
-    ``osh <backend> init``/``osh <backend> activate`` (e.g. ``osh docker
+    The execution runtime is the one activated for the project — see
+    ``osh <runtime> init``/``osh <runtime> activate`` (e.g. ``osh docker
     activate``).
 
     Environment variables:
@@ -76,8 +76,9 @@ class OdooRun(CommandHandler):
     Extensions subclass ``OdooRun`` and override the step methods,
     calling ``super()`` to keep the rest of the chain. Command state is
     on ``self``: ``ctx``, the parsed params (``dry_run``, ``extra_args``,
-    ...) plus ``base``, ``backend``, ``diagnostics``, ``db_name`` and
-    ``env_spec`` as ``run()`` fills them in.
+    ...) plus ``base``, ``runtime``, ``diagnostics``, ``db_name`` and
+    ``env_spec`` as ``run()`` fills them in. ``backend`` is a deprecated
+    alias of ``runtime``.
     """
 
     _cli_name = "odoo"
@@ -92,12 +93,12 @@ class OdooRun(CommandHandler):
 
     @classmethod
     def format_cli_help(cls, formatter):
-        """Append the list of available backends to ``osh odoo --help``.
+        """Append the list of available runtimes to ``osh odoo --help``.
 
         Uses declared metadata only, so rendering help never imports
-        backend plugins.
+        runtime plugins.
         """
-        format_backends_section(formatter, backend_meta())
+        format_runtimes_section(formatter, runtime_meta())
 
     @click.option(
         "--dry-run",
@@ -119,9 +120,9 @@ class OdooRun(CommandHandler):
     @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
         self.base = find_project_root(required=True)
-        self.backend = resolve_backend(self.base)
+        self.runtime = self.backend = resolve_runtime(self.base)
         self.diagnostics = check_run_diagnostics(
-            self.base, self.backend, self.ctx, compose_file=self.compose_file
+            self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )
         self.extra_args = _with_dev_default(
             self.base, self.extra_args, no_dev=self.no_dev
@@ -139,7 +140,7 @@ class OdooRun(CommandHandler):
         return bool(self.extra_args) and not self.extra_args[0].startswith("-")
 
     def publish_http_port(self):
-        """Publish the requested -p/--http-port to the backend up front.
+        """Publish the requested -p/--http-port to the runtime up front.
 
         For an Odoo server run, pre-run probes (db_exists, env prep) must
         bring the stack up on the right port instead of the configured one.
@@ -177,23 +178,23 @@ class OdooRun(CommandHandler):
         return db_name
 
     def resolve_executable(self):
-        """Return the Odoo executable name for the active backend."""
-        if self.backend.host_executable:
+        """Return the Odoo executable name for the active runtime."""
+        if self.runtime.host_executable:
             return (
-                self.diagnostics.info.get(self.backend.name, {}).get("odoo_executable")
+                self.diagnostics.info.get(self.runtime.name, {}).get("odoo_executable")
                 or "odoo-bin"
             )
         return "odoo"
 
     def build_env_spec(self):
-        """Assemble the ``EnvSpec`` passed to ``backend.env()``.
+        """Assemble the ``EnvSpec`` passed to ``runtime.env()``.
 
         Subcommands (e.g. shell, neutralize) do not need dbfilter.
         """
         no_db_filter = self.no_db_filter or self.has_subcommand
         conf_path, env_vars, resolved_db = prepare_env_context(
             self.base,
-            self.backend,
+            self.runtime,
             ctx=self.ctx,
             db_name=self.db_name,
             no_db_filter=no_db_filter,
@@ -212,7 +213,7 @@ class OdooRun(CommandHandler):
         )
 
     def pre_env(self):
-        """Run after the EnvSpec is assembled, before ``backend.env()``.
+        """Run after the EnvSpec is assembled, before ``runtime.env()``.
 
         Extension point — extending subclasses override this; the parsed
         CLI values (including ``extra_args``, ``dry_run`` and
@@ -226,11 +227,11 @@ class OdooRun(CommandHandler):
         """
 
     def execute(self):
-        """Execute the assembled command through the backend."""
+        """Execute the assembled command through the runtime."""
         wait = self.wait_for_exit
         if wait is None:
             wait = _env_flag("OSH_WAIT")
-        self.backend.env(
+        self.runtime.env(
             self.ctx, self.base, self.env_spec, dry_run=self.dry_run, wait=wait
         )
 

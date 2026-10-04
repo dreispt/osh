@@ -1,4 +1,4 @@
-"""Docker Compose backend implementation for ``osh init`` and ``osh odoo``."""
+"""Docker Compose runtime implementation for ``osh init`` and ``osh odoo``."""
 
 import hashlib
 import json
@@ -12,8 +12,8 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...backends import Backend, copy_odoo_rc_to_osh_conf
 from ...common import odoo_http_port, run_command, run_subprocess
+from ...runtimes import Runtime, copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 from .diagnostics import _environment_build_groups
 from .diagnostics import diagnose as _diagnose
@@ -58,12 +58,12 @@ _DB_READY_TIMEOUT_SECONDS = 60.0
 _DB_READY_POLL_SECONDS = 0.5
 
 
-class DockerBackend(Backend):
+class DockerRuntime(Runtime):
     """Docker Compose runtime for ``osh init`` and ``osh odoo``."""
 
     name = "docker"
     label = "Docker Compose"
-    backend_type = "backend"
+    runtime_type = "runtime"
     description = (
         "Run Odoo inside a Docker Compose stack; uses the project's compose "
         "file or Dockerfile when present, generates one otherwise."
@@ -580,7 +580,7 @@ class DockerBackend(Backend):
         """Stop and remove this project's Compose stack."""
         cfg = _load_docker_config(base)
         if not cfg:
-            echo.info("No Docker backend configured; nothing to stop.", err=True)
+            echo.info("No Docker runtime configured; nothing to stop.", err=True)
             return
         compose_file = _resolve_compose_file(base, options.get("compose_file"), cfg=cfg)
         compose_path = Path(compose_file) if compose_file else None
@@ -1074,3 +1074,7 @@ def _containerize_arg(arg, base):
     except (ValueError, OSError):
         return value
     return f"/mnt/extra-addons/{rel.as_posix()}"
+
+
+# Deprecated alias kept for plugins written against the backend API.
+DockerBackend = DockerRuntime

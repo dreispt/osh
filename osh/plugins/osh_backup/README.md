@@ -3,13 +3,13 @@
 Provides the `osh backup` command group: `get`, `restore`, `list` and
 `remote`.
 
-All database work is backend-agnostic: `pg_dump`/`pg_restore`/`psql` run
-through the active backend's execution context (the same one `osh shell`
+All database work is runtime-agnostic: `pg_dump`/`pg_restore`/`psql` run
+through the active runtime's execution context (the same one `osh shell`
 uses), so `docker` projects dump and restore inside the Compose stack and
 `local`/`venv` projects use host tools. Backup contents and `.zip`
-filestores are streamed through the backend's stdin/stdout (`tar` archives
+filestores are streamed through the runtime's stdin/stdout (`tar` archives
 for filestores), so no host file path needs to be reachable inside the
-backend environment — this also works when the project root is not mounted
+runtime environment — this also works when the project root is not mounted
 in the container at all.
 
 ## `osh backup get <source>`
@@ -17,7 +17,7 @@ in the container at all.
 Fetches a backup into the project cache (`.osh/backups/`) and records it in
 the backup metadata. Supported source schemes:
 
-- `db://<name>` — dump a live database reachable from the active backend.
+- `db://<name>` — dump a live database reachable from the active runtime.
 - `http(s)://...` — download a dump archive (e.g. a nightly export URL).
 - `odoosh://...` — download from an Odoo.sh project.
 - `ssh://...` — fetch over SSH.

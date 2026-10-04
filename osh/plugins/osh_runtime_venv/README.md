@@ -1,4 +1,4 @@
-# osh_backend_venv — managed virtualenv runtime
+# osh_runtime_venv — managed virtualenv runtime
 
 Provides the `venv` runtime.
 

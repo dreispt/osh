@@ -3,9 +3,9 @@
 Stage 1 — metadata discovery and the plugin registry — lives in
 ``plugin_registry``. This module resolves *contributions*: it imports a
 plugin's module the first time something it provides is needed — its
-command invoked, a handler it extends executed, its backend selected, or
+command invoked, a handler it extends executed, its runtime selected, or
 its backup source scheme used — and scans the loaded module for
-self-described classes (``CommandHandler`` subclasses, ``Backend`` /
+self-described classes (``CommandHandler`` subclasses, ``Runtime`` /
 ``BackupSource`` subclasses).
 
 Command/handler semantics live with the classes themselves —
@@ -39,7 +39,7 @@ def ensure_declared(meta_key, name=None):
 
     This is the stage-2 trigger for non-command contributions: composing
     handler *name* imports plugins listing it under ``extends``; resolving
-    backend *name* or source scheme *name* imports the plugins declaring it.
+    runtime *name* or source scheme *name* imports the plugins declaring it.
     """
 
     def wanted(spec):
@@ -127,58 +127,65 @@ def load_group_commands():
     return result
 
 
-def get_backend_class(name):
-    """Return the backend class registered as *name*, or ``None``.
+def get_runtime_class(name):
+    """Return the runtime class registered as *name*, or ``None``.
 
     Only the plugin declaring *name* is imported — resolving the ``venv``
-    backend never touches the ``docker`` plugin.
+    runtime never touches the ``docker`` plugin.
     """
-    from ..backends import Backend, HostBackend
-    from ..db import normalize_backend_name
+    from ..db import normalize_runtime_name
+    from ..runtimes import HostRuntime, Runtime
 
-    name = normalize_backend_name(name)
+    name = normalize_runtime_name(name)
     if name == "host":
-        return HostBackend
-    ensure_declared("backends", name)
-    for _source, cls in iter_plugin_subclasses(Backend):
+        return HostRuntime
+    ensure_declared("runtimes", name)
+    for _source, cls in iter_plugin_subclasses(Runtime):
         if getattr(cls, "name", None) == name:
             return cls
     return None
 
 
-def backend_meta():
-    """Return ``{name: description}`` for all backends — without importing.
+def runtime_meta():
+    """Return ``{name: description}`` for all runtimes — without importing.
 
-    Combines ``[backends]`` declarations with classes already loaded, so
-    help sections can render without evaluating backend plugins.
+    Combines ``[runtimes]`` declarations with classes already loaded, so
+    help sections can render without evaluating runtime plugins.
     """
-    from ..backends import Backend
+    from ..runtimes import Runtime
 
     meta = {"host": "Run on the host (default)."}
-    for name, desc in declared_meta("backends").items():
+    for name, desc in declared_meta("runtimes").items():
         meta.setdefault(name, desc)
-    for _source, cls in _iter_loaded_subclasses(Backend):
+    for _source, cls in _iter_loaded_subclasses(Runtime):
         name = getattr(cls, "name", None)
         if name:
             meta[name] = getattr(cls, "description", "") or meta.get(name, "")
     return meta
 
 
-def load_backends():
-    """Return a mapping of backend name to class, importing all declarers.
+def load_runtimes():
+    """Return a mapping of runtime name to class, importing all declarers.
 
     Always includes the built-in ``host`` runtime. For resolving the
-    project's active backend prefer ``get_backend_class(name)``, which
+    project's active runtime prefer ``get_runtime_class(name)``, which
     imports only the plugin providing it.
     """
-    from ..backends import Backend, HostBackend
+    from ..runtimes import HostRuntime, Runtime
 
-    ensure_declared("backends")
-    result = {"host": HostBackend}
-    for source, cls in iter_plugin_subclasses(Backend):
+    ensure_declared("runtimes")
+    result = {"host": HostRuntime}
+    for source, cls in iter_plugin_subclasses(Runtime):
         if getattr(cls, "name", None):
-            _register_backend(result, source, cls)
+            _register_runtime(result, source, cls)
     return result
+
+
+# Deprecated aliases kept for plugins written against the old backend API
+# — scheduled for removal in a later release.
+get_backend_class = get_runtime_class
+backend_meta = runtime_meta
+load_backends = load_runtimes
 
 
 def get_source_class(scheme):
@@ -417,19 +424,19 @@ def _module_subclasses(module, base):
             yield impl
 
 
-def _register_backend(result, source, backend):
-    """Register *backend* in *result* unless its name is taken.
+def _register_runtime(result, source, runtime):
+    """Register *runtime* in *result* unless its name is taken.
 
-    Legacy names count as their current one: a plugin backend named
+    Legacy names count as their current one: a plugin runtime named
     ``none`` conflicts with the built-in ``host`` runtime.
     """
-    from ..db import normalize_backend_name
+    from ..db import normalize_runtime_name
 
-    name = normalize_backend_name(backend.name)
+    name = normalize_runtime_name(runtime.name)
     if name in result:
         echo.error(
-            f"runtime '{backend.name}' from '{source}' conflicts with "
+            f"runtime '{runtime.name}' from '{source}' conflicts with "
             f"an existing runtime and is ignored."
         )
         return
-    result[name] = backend
+    result[name] = runtime

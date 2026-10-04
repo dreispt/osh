@@ -141,7 +141,7 @@ class CommandHandler:
         ``@click.argument`` decorators stacked on ``run()``, merged over
         the MRO (base class first). Extension point — subclasses override
         this and append to ``super().get_options()`` when parameters are
-        dynamic, e.g. backend-provided options.
+        dynamic, e.g. runtime-provided options.
         """
         params = []
         for klass in reversed(cls.__mro__):

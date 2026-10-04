@@ -163,7 +163,7 @@ def _port_process_hint(port):
     process's working directory points at the project where ``osh runtime
     stop`` would free the port.
     """
-    from ...backends import _looks_like_odoo, _pid_command, _port_listeners
+    from ...runtimes import _looks_like_odoo, _pid_command, _port_listeners
 
     for pid in _port_listeners(port):
         cmdline = _pid_command(pid)

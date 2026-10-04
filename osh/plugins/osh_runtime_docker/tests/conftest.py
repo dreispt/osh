@@ -1,4 +1,4 @@
-"""Fixtures for the Docker backend plugin tests."""
+"""Fixtures for the Docker runtime plugin tests."""
 
 import os
 import shutil
@@ -28,7 +28,7 @@ def fake_docker(tmp_path, monkeypatch):
 
 
 def _write_docker_config(project, port=None):
-    """Write a minimal docker backend config and generated compose file."""
+    """Write a minimal docker runtime config and generated compose file."""
     osh_dir = project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     text = 'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'

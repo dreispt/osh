@@ -1,6 +1,6 @@
 """Diagnostic collection and reporting for Osh commands.
 
-Backends implement ``diagnose`` to inspect the environment and the current
+Runtimes implement ``diagnose`` to inspect the environment and the current
 project. The same diagnostics are reused by ``osh init`` (to plan and ask
 for confirmation) and ``osh odoo``/``osh shell`` (to check prerequisites
 before executing).
@@ -17,11 +17,11 @@ import click
 from .. import echo
 
 
-@dataclass
+@dataclass(init=False)
 class Diagnostics:
     """Container for environment checks, plans and final command data."""
 
-    backend: str
+    runtime: str
     ready: bool = True
     project: Path | None = None
     target: str | None = None
@@ -31,9 +31,42 @@ class Diagnostics:
     plan: list[str] = field(default_factory=list)
     command: list[str] | None = None
 
+    def __init__(
+        self,
+        runtime="",
+        ready=True,
+        project=None,
+        target=None,
+        errors=None,
+        warnings=None,
+        info=None,
+        plan=None,
+        command=None,
+        backend=None,
+    ):
+        # ``backend`` is the deprecated name of the ``runtime`` argument.
+        self.runtime = runtime or backend or ""
+        self.ready = ready
+        self.project = project
+        self.target = target
+        self.errors = errors if errors is not None else []
+        self.warnings = warnings if warnings is not None else []
+        self.info = info if info is not None else {}
+        self.plan = plan if plan is not None else []
+        self.command = command
+
+    @property
+    def backend(self):
+        """Deprecated alias for :attr:`runtime`."""
+        return self.runtime
+
+    @backend.setter
+    def backend(self, value):
+        self.runtime = value
+
     def _default_topic(self):
         """Return the default topic for info entries."""
-        return self.backend or "general"
+        return self.runtime or "general"
 
     def add_error(self, message):
         """Record a blocking error and mark the project as not ready."""
@@ -56,35 +89,35 @@ class Diagnostics:
 
 def collect_diagnostics(
     base,
-    backend,
+    runtime,
     ctx=None,
     *,
     target=None,
     sections=None,
     **options,
 ):
-    """Collect backend-specific diagnostics for *base*."""
-    diagnostics = backend.diagnose(base, ctx, sections=sections, **options)
+    """Collect runtime-specific diagnostics for *base*."""
+    diagnostics = runtime.diagnose(base, ctx, sections=sections, **options)
     diagnostics.project = base
-    diagnostics.target = target or backend.name
+    diagnostics.target = target or runtime.name
     return diagnostics
 
 
-def check_run_diagnostics(base, backend, ctx, *, compose_file=None):
+def check_run_diagnostics(base, runtime, ctx, *, compose_file=None):
     """Collect run-phase diagnostics; print warnings, raise on errors.
 
     Shared pre-flight for ``osh odoo``/``osh shell`` and plugin commands that
-    need the backend checked before executing (e.g. ``osh backup restore``).
+    need the runtime checked before executing (e.g. ``osh backup restore``).
     Returns the collected ``Diagnostics``.
     """
     diagnostics = collect_diagnostics(
         base,
-        backend,
+        runtime,
         ctx,
-        target=backend.name,
+        target=runtime.name,
         phase="run",
         compose_file=compose_file,
-        sections=backend.diagnose_sections_for_phase("run"),
+        sections=runtime.diagnose_sections_for_phase("run"),
     )
     for warning_msg in diagnostics.warnings:
         echo.warning(warning_msg)

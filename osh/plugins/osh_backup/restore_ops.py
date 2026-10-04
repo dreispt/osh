@@ -4,8 +4,8 @@ These helpers resolve a backup file from the project cache or a path, pick
 the right restore tool for its format, restore the dump, copy the filestore
 for ``.zip`` backups, and run neutralization SQL scripts.
 
-Backup contents are streamed through the backend's stdin, so the same
-commands work identically on host and container backends — no host file
+Backup contents are streamed through the runtime's stdin, so the same
+commands work identically on host and container runtimes — no host file
 path ever reaches the execution environment.
 """
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...db import install_filestore, run_in_backend, run_psql_script
+from ...db import install_filestore, run_in_runtime, run_psql_script
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content
 
@@ -122,7 +122,7 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
     )
 
     # The dump is streamed through stdin, so the host path is never passed
-    # to the backend environment (e.g. a container that cannot see it).
+    # to the runtime environment (e.g. a container that cannot see it).
     if backup_format == "dump":
         _run_db_tool(
             ctx,
@@ -183,16 +183,16 @@ def run_project_neutralize_scripts(base, db_name, *, dry_run=False, ctx=None):
 
 
 def _run_db_tool(ctx, base, argv, error_msg, *, stdin_path=None):
-    """Run a database CLI tool inside the active backend environment.
+    """Run a database CLI tool inside the active runtime environment.
 
     *stdin_path* is opened on the host and streamed as the command's stdin,
-    so no host path ever reaches the backend environment.
+    so no host path ever reaches the runtime environment.
     """
     if stdin_path is None:
-        returncode, _, stderr = run_in_backend(ctx, base, argv)
+        returncode, _, stderr = run_in_runtime(ctx, base, argv)
     else:
         with open(stdin_path, "rb") as stdin, _stdin_progress(stdin, stdin_path):
-            returncode, _, stderr = run_in_backend(ctx, base, argv, stdin=stdin)
+            returncode, _, stderr = run_in_runtime(ctx, base, argv, stdin=stdin)
     if returncode is None:
         raise click.ClickException(f"{error_msg}: command not found")
     if returncode != 0:

@@ -1,9 +1,9 @@
 """`osh init` command implementation.
 
-``osh init`` performs only the backend-independent project setup: ``.osh/``
+``osh init`` performs only the runtime-independent project setup: ``.osh/``
 and the project config, ``.odoorc`` migration, dev-friendly config and the
-neutralize scripts. Backend setup is layered on top by ``osh <backend> init``
-commands, which call :func:`base_init` and then :func:`run_backend_init`.
+neutralize scripts. Runtime setup is layered on top by ``osh <runtime> init``
+commands, which call :func:`base_init` and then :func:`run_runtime_init`.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from pathlib import Path
 import click
 
 from .. import echo
-from ..backends import copy_odoo_rc_to_osh_conf
 from ..cli_utils import handler_command
 from ..common import (
     find_enclosing_project,
@@ -28,11 +27,12 @@ from ..common import (
 from ..config import get_init_parent, load_user_init_config, save_user_preference
 from ..db import (
     get_project_config,
-    set_active_backend_name,
+    set_active_runtime_name,
     set_project_config,
     unset_project_config,
 )
 from ..handlers import CommandHandler
+from ..runtimes import copy_odoo_rc_to_osh_conf
 from .helpers import Diagnostics
 
 
@@ -45,8 +45,8 @@ class Init(CommandHandler):
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
     Creates `.osh/` and the project configuration, migrates `.odoorc` and
-    installs the neutralize scripts. Backend setup — virtualenv, Odoo
-    sources, Docker stack — is done by the backend's own init command,
+    installs the neutralize scripts. Runtime setup — virtualenv, Odoo
+    sources, Docker stack — is done by the runtime's own init command,
     e.g. `osh venv init` or `osh docker init`.
 
     Examples:
@@ -266,9 +266,9 @@ def base_init(
     return edition, version
 
 
-def run_backend_init(
+def run_runtime_init(
     ctx,
-    backend,
+    runtime,
     target,
     *,
     version,
@@ -277,19 +277,19 @@ def run_backend_init(
     dry_run,
     **options,
 ):
-    """Run the backend-specific part of ``osh <backend> init``.
+    """Run the runtime-specific part of ``osh <runtime> init``.
 
-    Diagnoses the target for *backend*, shows the planned actions, asks for
-    confirmation and calls ``backend.init``. On success the backend is
-    recorded as the project's active run backend.
+    Diagnoses the target for *runtime*, shows the planned actions, asks for
+    confirmation and calls ``runtime.init``. On success the runtime is
+    recorded as the project's active run runtime.
     """
-    diagnostics = backend.diagnose(
+    diagnostics = runtime.diagnose(
         target,
         ctx,
         phase="init",
         version=version,
         edition=edition,
-        sections=backend.diagnose_sections_for_phase("init"),
+        sections=runtime.diagnose_sections_for_phase("init"),
         **options,
     )
     for warning_msg in diagnostics.warnings:
@@ -300,7 +300,7 @@ def run_backend_init(
         raise click.ClickException("\n".join(diagnostics.errors))
 
     todo = TodoPlan(diagnostics)
-    todo.execute_plan(backend, backend.name)
+    todo.execute_plan(runtime, runtime.name)
 
     confirmed = False
     if not dry_run and not assume_yes and todo.plan and sys.stdin.isatty():
@@ -308,7 +308,7 @@ def run_backend_init(
             raise click.ClickException("Aborted.")
         confirmed = True
 
-    result = backend.init(
+    result = runtime.init(
         target,
         version=version,
         edition=edition,
@@ -320,22 +320,26 @@ def run_backend_init(
     )
 
     if not dry_run:
-        set_active_backend_name(target, backend.name)
-        init_values = {"target": backend.name}
+        set_active_runtime_name(target, runtime.name)
+        init_values = {"target": runtime.name}
         init_values.update(
             {key: str(value) for key, value in options.items() if value is not None}
         )
         set_project_config(target, "init", values=init_values)
-        echo.info(f"Runtime '{backend.name}' is ready.")
+        echo.info(f"Runtime '{runtime.name}' is ready.")
 
     return result
+
+
+# Deprecated alias kept for plugins written against the backend API.
+run_backend_init = run_runtime_init
 
 
 class TodoPlan:
     """Progress tracker for init steps.
 
     Attributes:
-        diagnostics: Backend diagnostic results (warnings, errors, plan items)
+        diagnostics: Runtime diagnostic results (warnings, errors, plan items)
         plan: List of planned action strings for progress display
         index: Current position in the plan (0-based, increments on each start())
     """
@@ -349,12 +353,12 @@ class TodoPlan:
         """Record a planned action for the init process."""
         self.plan.append(item)
 
-    def execute_plan(self, backend, backend_name: str) -> None:
-        """Add backend plans on top of the diagnostics plans and display them."""
-        backend._add_init_plans(self)
+    def execute_plan(self, runtime, runtime_name: str) -> None:
+        """Add runtime plans on top of the diagnostics plans and display them."""
+        runtime._add_init_plans(self)
         # Display planned actions
         if self.plan:
-            echo.info(f"Planned actions for {backend_name}:")
+            echo.info(f"Planned actions for {runtime_name}:")
             for item in self.plan:
                 echo.info(f"  - {_bold_label(item)}")
 

@@ -6,7 +6,7 @@ from osh.cli import main
 from osh.db import set_project_config
 
 
-def test_status_without_active_backend(in_project):
+def test_status_without_active_runtime(in_project):
     """``osh runtime status`` reports host execution when nothing is active.
 
     The wording matches the ``host (active)`` marker ``osh runtime list``
@@ -19,8 +19,8 @@ def test_status_without_active_backend(in_project):
     assert "commands run on the host" in result.output
 
 
-def test_status_reports_active_backend(in_project):
-    """``osh runtime status`` names the backend recorded as run.runtime."""
+def test_status_reports_active_runtime(in_project):
+    """``osh runtime status`` names the runtime recorded as run.runtime."""
     set_project_config(in_project, "run", "runtime", "venv")
 
     result = CliRunner().invoke(main, ["runtime", "status"])
@@ -29,19 +29,19 @@ def test_status_reports_active_backend(in_project):
     assert "Active runtime: venv" in result.output
 
 
-def test_status_warns_when_backend_unavailable(in_project):
-    """A run.runtime naming an unloaded backend is reported with a warning."""
-    set_project_config(in_project, "run", "runtime", "missing-backend")
+def test_status_warns_when_runtime_unavailable(in_project):
+    """A run.runtime naming an unloaded runtime is reported with a warning."""
+    set_project_config(in_project, "run", "runtime", "missing-runtime")
 
     result = CliRunner().invoke(main, ["runtime", "status"])
 
     assert result.exit_code == 0, result.output
-    assert "Active runtime: missing-backend" in result.output
+    assert "Active runtime: missing-runtime" in result.output
     assert "not available" in result.output
 
 
-def test_list_shows_all_backends(in_project):
-    """``osh runtime list`` lists the built-in and bundled plugin backends."""
+def test_list_shows_all_runtimes(in_project):
+    """``osh runtime list`` lists the built-in and bundled plugin runtimes."""
     result = CliRunner().invoke(main, ["runtime", "list"])
 
     assert result.exit_code == 0, result.output
@@ -50,8 +50,8 @@ def test_list_shows_all_backends(in_project):
     assert "docker" in result.output
 
 
-def test_list_marks_active_backend(in_project):
-    """``osh runtime list`` marks the project's active backend."""
+def test_list_marks_active_runtime(in_project):
+    """``osh runtime list`` marks the project's active runtime."""
     set_project_config(in_project, "run", "runtime", "docker")
 
     result = CliRunner().invoke(main, ["runtime", "list"])

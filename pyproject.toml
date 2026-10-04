@@ -1,6 +1,6 @@
 [project]
 name = "osh"
-version = "1.5.0"
+version = "1.6.0"
 description = "Odoo Shell command-line interface"
 authors = [
     {name = "Odoo Community Association", email="info@odoo-community.org"}
@@ -58,7 +58,7 @@ include-package-data = true
 exclude = ["tests", "tests.*", "*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
-osh = ["plugins/*/osh-plugin.toml", "plugins/osh_backend_docker/data/*.yml", "data/*.sql"]
+osh = ["plugins/*/osh-plugin.toml", "plugins/osh_runtime_docker/data/*.yml", "data/*.sql"]
 
 [tool.black]
 line-length = 88

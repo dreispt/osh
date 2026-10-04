@@ -28,7 +28,7 @@ _COMPOSE_CANDIDATES = (
 
 
 def _load_docker_config(base):
-    """Load the Docker backend configuration from ``.osh/docker.toml``."""
+    """Load the Docker runtime configuration from ``.osh/docker.toml``."""
     return _config.load_docker_config(base)
 
 
@@ -91,7 +91,7 @@ def _save_docker_config(
     _config.save_docker_config(base, data)
 
     docker_toml = base / _DOCKER_TOML
-    echo.info(f"Wrote Docker backend config to {docker_toml}.", err=True)
+    echo.info(f"Wrote Docker runtime config to {docker_toml}.", err=True)
 
 
 # Compose service names must be safe as a YAML mapping key in the generated
@@ -270,7 +270,7 @@ def _build_service_images(target, compose_file=None):
 
 
 def _run_smoke_test(target, compose_file=None):
-    """Run the Odoo smoke test for Docker backend."""
+    """Run the Odoo smoke test for Docker runtime."""
     cfg = _load_docker_config(target)
     svc = cfg.get("service")
     if not svc:
@@ -314,7 +314,7 @@ def _generate_compose_file(
         )
         return True
     template = importlib.resources.read_text(
-        "osh.plugins.osh_backend_docker.data",
+        "osh.plugins.osh_runtime_docker.data",
         "docker-compose-build.yml" if dockerfile else "docker-compose.yml",
     )
     # JSON string syntax is valid YAML, so this safely quotes values with

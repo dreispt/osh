@@ -9,7 +9,7 @@ Plugin modules are never evaluated while commands are listed or
 
 Stage 2 — import on demand — lives in ``plugin_loader``: a plugin module
 is imported the first time one of its contributions is needed — its
-command invoked, a handler it extends executed, its backend selected, or
+command invoked, a handler it extends executed, its runtime selected, or
 its backup source scheme used.
 
 ``osh-plugin.toml`` declares a plugin's surface for stage 1::
@@ -25,8 +25,8 @@ its backup source scheme used.
     audit = "Audit the db."
     remote = { group = true, help = "Manage remotes." }
     [group_commands.docker]               # ``osh docker`` lifecycle commands
-    init = "Initialise for the docker backend."
-    [backends]                            # backend classes provided
+    init = "Initialise for the docker runtime."
+    [runtimes]                            # runtime classes provided
     docker = "Run inside Docker."
     [sources]                             # BackupSource schemes provided
     s3 = "S3 backups."
@@ -36,7 +36,7 @@ Declaration values are short help strings, or tables with ``help`` and
 contributions.
 
 Plugin modules still self-describe on import — ``CommandHandler``
-subclasses and ``Backend``/``BackupSource`` subclasses are discovered
+subclasses and ``Runtime``/``BackupSource`` subclasses are discovered
 among module attributes — the toml only says *when* the module is worth
 importing.
 
@@ -514,16 +514,27 @@ def _is_plugin_dir(path):
 
 
 def plugin_meta(path):
-    """Return the metadata dict from a plugin dir's ``osh-plugin.toml``."""
+    """Return the metadata dict from a plugin dir's ``osh-plugin.toml``.
+
+    The legacy ``[backends]`` section is merged into ``[runtimes]`` — the
+    old name is deprecated and scheduled for removal in a later release.
+    """
     marker = path / PLUGIN_MARKER
     if not marker.is_file():
         return {}
     try:
         from ..config import tomllib
 
-        return tomllib.loads(marker.read_text(encoding="utf-8"))
+        meta = tomllib.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    if isinstance(meta.get("backends"), dict):
+        runtimes = meta.setdefault("runtimes", {})
+        if isinstance(runtimes, dict):
+            runtimes.update(meta.pop("backends"))
+        else:
+            meta["runtimes"] = meta.pop("backends")
+    return meta
 
 
 def min_osh_ok(requirement):

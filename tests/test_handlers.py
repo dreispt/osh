@@ -19,11 +19,11 @@ from osh.utils import plugin_loader
 def test_core_commands_resolve_to_their_handlers():
     """Every built-in command name resolves to its handler class."""
     from osh.commands import (
-        backend_cmd,
         config_cmd,
         db_cmd,
         init_cmd,
         plug_cmd,
+        runtime_cmd,
         shell_cmd,
     )
     from osh.plugins.osh_switch import switch_cmd
@@ -39,12 +39,12 @@ def test_core_commands_resolve_to_their_handlers():
         "db.copy": db_cmd.Db,
         "db.shell": db_cmd.Db,
         "db.unset": db_cmd.Db,
-        "runtime": backend_cmd.RuntimeCtl,
-        "runtime.status": backend_cmd.RuntimeCtl,
-        "runtime.list": backend_cmd.RuntimeCtl,
-        "runtime.activate": backend_cmd.RuntimeCtl,
-        "runtime.deactivate": backend_cmd.RuntimeCtl,
-        "runtime.stop": backend_cmd.RuntimeCtl,
+        "runtime": runtime_cmd.RuntimeCtl,
+        "runtime.status": runtime_cmd.RuntimeCtl,
+        "runtime.list": runtime_cmd.RuntimeCtl,
+        "runtime.activate": runtime_cmd.RuntimeCtl,
+        "runtime.deactivate": runtime_cmd.RuntimeCtl,
+        "runtime.stop": runtime_cmd.RuntimeCtl,
         "config": config_cmd.Config,
         "config.show": config_cmd.Config,
         "config.user": config_cmd.ConfigUser,
@@ -417,7 +417,7 @@ def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):
 
     seen = {}
 
-    class FakeBackend:
+    class FakeRuntime:
         def env(self, ctx, base, env_spec, **kwargs):
             seen["env"] = env_spec
 
@@ -428,8 +428,8 @@ def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):
             return []
 
     monkeypatch.setattr(
-        "osh.commands.shell_cmd.db_module.resolve_backend",
-        lambda base: FakeBackend(),
+        "osh.commands.shell_cmd.db_module.resolve_runtime",
+        lambda base: FakeRuntime(),
     )
     monkeypatch.setattr(
         "osh.commands.shell_cmd.check_run_diagnostics", lambda *a, **k: None

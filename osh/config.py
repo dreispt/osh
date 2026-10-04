@@ -5,7 +5,7 @@ place to read and write every config source:
 
 - User config: ``~/.config/osh/config.toml``
 - Project config: ``.osh/config.toml``
-- Docker backend config: ``.osh/docker.toml``
+- Docker runtime config: ``.osh/docker.toml``
 """
 
 import re
@@ -29,7 +29,7 @@ def get_project_config_path(base):
 
 
 def get_docker_config_path(base):
-    """Return the path to the Docker backend TOML configuration file."""
+    """Return the path to the Docker runtime TOML configuration file."""
     return Path(base) / ".osh" / "docker.toml"
 
 
@@ -457,11 +457,11 @@ def set_local_config(base, section, option, value):
 
 
 # ---------------------------------------------------------------------------
-# Docker backend config (TOML)
+# Docker runtime config (TOML)
 
 
 def load_docker_config(base):
-    """Load the Docker backend configuration from ``.osh/docker.toml``."""
+    """Load the Docker runtime configuration from ``.osh/docker.toml``."""
     return _load_toml(get_docker_config_path(base))
 
 

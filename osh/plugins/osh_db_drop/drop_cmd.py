@@ -19,7 +19,7 @@ class DbDrop(CommandHandler):
     """Drop a PostgreSQL database and its Odoo filestore.
 
     Removes the database and the matching ``filestore/<db>`` directory under
-    Odoo's ``data_dir`` (inside the container on Docker backends). Asks for
+    Odoo's ``data_dir`` (inside the container on Docker runtimes). Asks for
     confirmation unless ``--force`` is given.
 
     Examples:
