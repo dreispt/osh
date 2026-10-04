@@ -6,8 +6,9 @@ other targets, such as Docker or remote containers, while keeping the same
 ``osh <name>`` lifecycle commands (``init``, ``activate``, ``stop``) by
 subclassing the handlers in ``osh.commands.backend_cmd``.
 
-``NoneBackend`` is the built-in default backend, used when no other backend
-is configured: it runs commands directly on the host.
+``HostBackend`` (the ``host`` runtime) is the built-in default, used when
+no other runtime is configured: it runs commands directly on the host. The
+legacy ``none`` name still resolves to it.
 """
 
 import os
@@ -39,7 +40,7 @@ from .common import (
 from .utils.odoo_layout import find_odoo_executable
 from .utils.version import get_version_from_executable
 
-# ``NoneBackend.stop`` timings: how long to wait for Odoo to release its
+# ``HostBackend.stop`` timings: how long to wait for Odoo to release its
 # HTTP port after SIGTERM before escalating to SIGKILL, how long to wait
 # for SIGKILL to take effect, and how often to re-check the port.
 _SIGTERM_GRACE_SECONDS = 5.0
@@ -153,7 +154,7 @@ class Backend(ABC):
 
         Each pair gives a built environment artifact's timestamp and the
         files it was built from. The default returns ``()``: backends that
-        manage no built environment (e.g. ``none``) never report staleness.
+        manage no built environment (e.g. ``host``) never report staleness.
         """
         return ()
 
@@ -275,24 +276,24 @@ class Backend(ABC):
         echo.info(f"Nothing to stop for the '{self.name}' backend.", err=True)
 
 
-class NoneBackend(Backend):
-    """Default backend: run commands directly on the host.
+class HostBackend(Backend):
+    """Default runtime: run commands directly on the host.
 
-    The ``none`` backend manages no environment — it execs the resolved
+    The ``host`` runtime manages no environment — it execs the resolved
     Odoo executable (``.venv/bin/odoo``, a source checkout, or whatever is
     on ``PATH``) with the project environment applied. Managed targets such
     as ``venv`` subclass it and layer their environment on top.
     """
 
-    name = "none"
-    label = "Host (no backend)"
+    name = "host"
+    label = "Host"
     backend_type = "backend"
     host_executable = True
     description = "Run Odoo directly on the host (default)."
     help_text = (
         "Runs commands directly on the host with the project's Odoo config "
         "and database environment applied — no virtualenv or container is "
-        "managed. Odoo itself is resolved from ``.venv/bin``, ``.osh/odoo`` "
+        "managed; use it on servers where the environment already exists. Odoo itself is resolved from ``.venv/bin``, ``.osh/odoo`` "
         "sources, or ``PATH``."
     )
 
@@ -379,9 +380,9 @@ class NoneBackend(Backend):
         return d
 
     def _add_init_plans(self, todo):
-        """The ``none`` backend manages no environment — nothing to install."""
+        """The ``host`` runtime manages no environment — nothing to install."""
         todo.add_plan(
-            "Nothing to install: the 'none' backend runs commands on the host"
+            "Nothing to install: the 'host' runtime runs commands on the host"
         )
 
     def init(
@@ -394,7 +395,7 @@ class NoneBackend(Backend):
         todo,
         **options,
     ):
-        """Register the project; the ``none`` backend manages no environment."""
+        """Register the project; the ``host`` runtime manages no environment."""
         return True
 
     def _base_env(self, base, capture):
@@ -509,6 +510,10 @@ class NoneBackend(Backend):
                     f"Odoo process {pid} is still listening on port {port} "
                     "after SIGKILL."
                 )
+
+
+# Deprecated alias kept for plugins written against the ``none`` backend.
+NoneBackend = HostBackend
 
 
 def _wait_for_port_release(port, pid, timeout=_SIGTERM_GRACE_SECONDS):

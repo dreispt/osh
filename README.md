@@ -53,7 +53,7 @@ osh odoo
 
 The init step:
 
-- Uses the chosen run backend, venv or docker.
+- Uses the chosen runtime: `host` (Odoo already installed), `venv` or `docker`.
 - Downloads the required Odoo sources, including Enterprise or Design Themes
   (for example, for Odoo.sh project that don't include these sources).
 - Sets up the necessary run environment for Odoo.
@@ -77,7 +77,7 @@ Run `osh <command> --help` for full usage details.
 
 | Command                    | What it does                                                                                                         |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); backend init adds the rest; version optional on re-init           |
+| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); runtime init adds the rest; version optional on re-init           |
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
 | `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
@@ -87,27 +87,30 @@ Run `osh <command> --help` for full usage details.
 | `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
 | `osh plug`                 | Install, list, enable, disable, alias, or uninstall osh plugins                                                      |
 
-Each backend contributes its own command group for target-specific setup
-and lifecycle:
+A _runtime_ is where Osh runs Odoo and its tools: `host` (the default —
+Odoo and its dependencies already installed on the machine), `venv` or
+`docker`. Each managed runtime contributes its own command group for
+runtime-specific setup and lifecycle:
 
-| Backend commands  | What it does                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------ |
-| `osh backend ...` | Active-backend state: `status`, `list`, `deactivate` (back to host), `stop` (stop its resources) |
-| `osh config`      | View or change osh settings for this project                                                     |
-| `osh venv ...`    | Managed virtualenv + Odoo sources: `init`, `activate`, `stop`                                    |
-| `osh docker ...`  | Docker Compose stack: `init`, `activate`, `list`, `stop`                                         |
+| Runtime commands  | What it does                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `osh runtime ...` | Active-runtime state: `status`, `list`, `activate NAME`, `deactivate` (back to host), `stop` (its resources) |
+| `osh config`      | View or change osh settings for this project                                                                 |
+| `osh venv ...`    | Managed virtualenv + Odoo sources: `init`, `activate`, `stop`                                                |
+| `osh docker ...`  | Docker Compose stack: `init`, `activate`, `list`, `stop`                                                     |
 
-`osh <backend> init` runs the base setup first, then the backend's own
+`osh <runtime> init` runs the base setup first, then the runtime's own
 steps (e.g. `osh docker init` writes `docker.toml` and honors a project
 compose file or Dockerfile when present, generating the Compose file
-otherwise). `osh <backend> activate` switches the project to an
-already-initialized backend — the active backend is what `osh odoo`,
-`osh shell` and `osh db` run through, and `osh backend deactivate`
-switches back to plain host execution. `osh backend status` shows which
-backend is active and `osh backend list` what's available.
-`osh backend stop` stops whatever
-the active backend left running — `osh <backend> stop` does the same for a
-specific backend (and carries its options, e.g. `osh docker stop
+otherwise). `osh <runtime> activate` (or `osh runtime activate <runtime>`)
+switches the project to an already-initialized runtime, recorded as
+`run.runtime` in `.osh/config.toml` — the active runtime is what
+`osh odoo`, `osh shell` and `osh db` run through, and
+`osh runtime deactivate` switches back to the `host` runtime.
+`osh runtime status` shows which runtime is active and `osh runtime list`
+what's available. `osh runtime stop` stops whatever
+the active runtime left running — `osh <runtime> stop` does the same for a
+specific runtime (and carries its options, e.g. `osh docker stop
 --compose-file`). `osh docker list` shows all running containers and the
 Osh project each belongs to, and `osh docker stop <name>` stops another
 project's stack by its directory name — handy when a leftover stack still
@@ -154,9 +157,9 @@ osh db unset --branch feature/old-thing
 
 `osh db list` also reports filestore directories under Odoo's `data_dir` that
 no longer have a matching database — leftovers that `osh db drop` removes.
-On the Docker backend, `osh db shell` runs inside the Compose `db` service
+On the Docker runtime, `osh db shell` runs inside the Compose `db` service
 (configurable via `db_service` in `.osh/docker.toml`); on host and virtualenv
-backends it is the same environment as `osh shell`.
+runtimes it is the same environment as `osh shell`.
 
 The generated name is based on the project directory name and the git branch
 (or `default` in detached `HEAD` state). Special characters are sanitized to
@@ -202,7 +205,7 @@ To remove the Osh environment from a project, simply delete the `.osh` directory
 - Project settings (`.osh/config.toml`)
 - Generated Odoo configuration (`.osh/odoo.conf`)
 - Source symlinks and cached backups (`.osh/backups/`)
-- Docker backend configuration (`.osh/docker.toml`, `.osh/docker-compose.yml`)
+- Docker runtime configuration (`.osh/docker.toml`, `.osh/docker-compose.yml`)
 
 ```bash
 rm -rf .osh
@@ -212,10 +215,10 @@ Your project files, virtual environment (`.venv/`), and any existing Odoo source
 
 ## Plugins
 
-`osh` is extensible: plugins can add commands, backends, backup
+`osh` is extensible: plugins can add commands, runtimes, backup
 source schemes and extend core commands in place. The bundled plugins provide `osh backup`
-(`get`, `restore`, `list`, `remote`) and `osh test`, plus the `none` (plain
-host), `venv` and `docker` backends.
+(`get`, `restore`, `list`, `remote`) and `osh test`, plus the `venv` and
+`docker` runtimes (the `host` runtime is built in).
 
 Community plugins live in [osh-contrib](https://github.com/dreispt/osh-contrib):
 

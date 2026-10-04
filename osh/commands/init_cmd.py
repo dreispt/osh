@@ -26,7 +26,12 @@ from ..common import (
     setup_project_neutralize_scripts,
 )
 from ..config import get_init_parent, load_user_init_config, save_user_preference
-from ..db import get_project_config, set_project_config, unset_project_config
+from ..db import (
+    get_project_config,
+    set_active_backend_name,
+    set_project_config,
+    unset_project_config,
+)
 from ..handlers import CommandHandler
 from .helpers import Diagnostics
 
@@ -133,7 +138,7 @@ class Init(CommandHandler):
             echo.info(f"Initialised project directory at {self.target}")
             echo.friendly("Next steps:")
             echo.friendly(
-                "  osh <backend> init  # e.g. 'osh venv init' or 'osh docker init'"
+                "  osh <runtime> init  # e.g. 'osh venv init' or 'osh docker init'"
             )
 
 
@@ -195,12 +200,12 @@ def base_init(
     dry_run,
     dev,
 ):
-    """Common project setup shared by ``osh init`` and ``osh <backend> init``.
+    """Common project setup shared by ``osh init`` and ``osh <runtime> init``.
 
     Creates the target directory and ``.osh/``, resolves the version and
     edition, migrates ``.odoorc``, applies dev-friendly config, records the
     ``[init]`` settings and installs the neutralize scripts. Returns the
-    resolved ``(edition, version)`` pair for the backend init to reuse.
+    resolved ``(edition, version)`` pair for the runtime init to reuse.
     """
     version = version or _resolve_version(
         target, assume_yes=assume_yes, dry_run=dry_run
@@ -315,13 +320,13 @@ def run_backend_init(
     )
 
     if not dry_run:
-        set_project_config(target, "run", "target", backend.name)
+        set_active_backend_name(target, backend.name)
         init_values = {"target": backend.name}
         init_values.update(
             {key: str(value) for key, value in options.items() if value is not None}
         )
         set_project_config(target, "init", values=init_values)
-        echo.info(f"Backend '{backend.name}' is ready.")
+        echo.info(f"Runtime '{backend.name}' is ready.")
 
     return result
 

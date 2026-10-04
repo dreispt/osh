@@ -1,8 +1,8 @@
-# osh_backend_venv — managed virtualenv backend
+# osh_backend_venv — managed virtualenv runtime
 
-Provides the `venv` run backend.
+Provides the `venv` runtime.
 
-`venv` is the managed host backend: unlike the core `none` backend (which
+`venv` is the managed host runtime: unlike the core `host` runtime (which
 just executes on the host with whatever is already installed), `venv` sets
 up and maintains a Python virtualenv plus the Odoo source trees for the
 project.
@@ -28,6 +28,6 @@ host with the virtualenv activated — `VIRTUAL_ENV` is set and
 environment. `find_odoo_executable` resolves the `odoo`/`odoo-bin` binary
 from `.venv/bin` first, so no manual activation is needed.
 
-`osh venv stop` mirrors `osh backend stop`: it probes the configured HTTP
+`osh venv stop` mirrors `osh runtime stop`: it probes the configured HTTP
 port and terminates a rogue Odoo process left behind by a previous run
 (foreign listeners are reported, never killed).

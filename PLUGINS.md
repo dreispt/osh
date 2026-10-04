@@ -427,7 +427,7 @@ switch the project to an already-initialized backend; `osh <name> stop`
 calls `cls.stop(...)` with `get_stop_options()`. The `osh <name>` group
 is created automatically — `osh <name> --help` lists the declared
 subcommands without importing the plugin, and the group shows under
-"Backend Commands" in `osh --help`.
+"Runtime Commands" in `osh --help`.
 
 The lifecycle methods are ordinary `@subcommand` methods: extra
 subcommands are more methods on the same class (like the docker
@@ -436,18 +436,29 @@ overriding the method and calling `super()`, adding parameters through
 a `<method>_options()` hook — or by another plugin `extends`-ing the
 handler.
 
-The backend class is imported only when the backend is selected
-(`run.target = mybackend`) or one of its commands is invoked — listing
-backends in `--help` and `osh backend list` reads the declared
+The backend class is imported only when the runtime is selected
+(`run.runtime = mybackend`) or one of its commands is invoked — listing
+runtimes in `--help` and `osh runtime list` reads the declared
 descriptions instead.
 
-Activation records `run.target = <name>` in `.osh/config.toml`, and
-`osh odoo`/`osh shell`/`osh db` then run through the backend. Built-in
-examples: `osh/plugins/osh_backend_docker/` (Docker Compose) and
-`osh/plugins/osh_backend_venv/` (managed virtualenv). The core `none`
-backend — plain host execution, the default when nothing is activated —
-has no command group: `osh init` is its setup, `osh backend stop` its
-teardown and `osh backend deactivate` the way back to it.
+Activation records `run.runtime = <name>` in `.osh/config.toml` (the
+legacy `run.target` key is still read, and removed on the next
+activation), and `osh odoo`/`osh shell`/`osh db` then run through the
+backend. Plugins should use `get_active_backend_name`,
+`set_active_backend_name` and `resolve_backend` from `osh.db` rather than
+reading the keys directly. Built-in examples:
+`osh/plugins/osh_backend_docker/` (Docker Compose) and
+`osh/plugins/osh_backend_venv/` (managed virtualenv). The core `host`
+runtime (`HostBackend`) — plain host execution, the default when nothing
+is activated — has no command group: `osh init` is its setup,
+`osh runtime stop` its teardown and `osh runtime deactivate` the way back
+to it.
+
+**Compatibility:** the host runtime was previously named `none`
+(`NoneBackend`). `NoneBackend` remains an alias of `HostBackend`, the
+names `none`/`local` resolve to `host`, and a plugin backend declaring
+`name = "none"` conflicts with the built-in. `osh backend` remains a
+hidden, deprecated alias of `osh runtime`.
 
 #### Backend class attributes
 
@@ -578,7 +589,7 @@ extension target to declare under `extends`:
 | `switch`                 | `osh switch`                                                               | `Switch` (`switch_cmd`)      |
 | `shell`                  | `osh shell`                                                                | `ShellRun` (`shell_cmd`)     |
 | `db`, `db.<sub>`         | `osh db show`/`list`/`set`/`copy`/`shell`/`unset`                          | `Db` (`db_cmd`)              |
-| `backend`, `backend.<s>` | `osh backend status`/`list`/`deactivate`/`stop`                            | `BackendCtl` (`backend_cmd`) |
+| `runtime`, `runtime.<s>` | `osh runtime status`/`list`/`activate`/`deactivate`/`stop`                 | `RuntimeCtl` (`backend_cmd`) |
 | `config`, `config.show`  | `osh config show`                                                          | `Config` (`config_cmd`)      |
 | `config.user.<sub>`      | `osh config user verbosity`                                                | `ConfigUser` (`config_cmd`)  |
 | `config.odoo.<sub>`      | `osh config odoo dev`                                                      | `ConfigOdoo` (`config_cmd`)  |

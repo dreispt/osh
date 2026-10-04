@@ -160,7 +160,7 @@ def _port_process_hint(port):
     """Identify a host process listening on *port*, for error messages.
 
     Returns e.g. ``"'/p/.venv/bin/odoo --dev=all' (pid 123) in /p"`` — the
-    process's working directory points at the project where ``osh backend
+    process's working directory points at the project where ``osh runtime
     stop`` would free the port.
     """
     from ...backends import _looks_like_odoo, _pid_command, _port_listeners

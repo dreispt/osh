@@ -1,4 +1,4 @@
-"""Commands bundled with the ``docker`` backend plugin."""
+"""Commands bundled with the ``docker`` runtime plugin."""
 
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from .discovery import _list_containers
 
 
 class Docker(BackendCommands):
-    """The ``osh docker`` command group — Compose backend lifecycle.
+    """The ``osh docker`` command group — Compose runtime lifecycle.
 
     ``init``, ``activate`` and ``stop`` come from ``BackendCommands``;
     ``stop`` is extended to accept a project name and ``list`` is a
@@ -26,7 +26,7 @@ class Docker(BackendCommands):
     def stop(self):
         """Stop the project's Compose stack, or PROJECT's.
 
-        Unlike the generic ``osh <backend> stop``, it accepts an optional
+        Unlike the generic ``osh <runtime> stop``, it accepts an optional
         project name — the project directory name shown by ``osh docker
         list`` — so another project's stack can be stopped without cd'ing
         there, e.g. to free a dangling 8069 port.

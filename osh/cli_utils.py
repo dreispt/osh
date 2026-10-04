@@ -291,7 +291,7 @@ class NaturalOrderGroup(click.Group):
             with formatter.section("Commands"):
                 formatter.write_dl(core_rows)
         if backend_rows:
-            with formatter.section("Backend Commands"):
+            with formatter.section("Runtime Commands"):
                 formatter.write_dl(backend_rows)
         if plugin_rows:
             with formatter.section("Plugin Commands"):

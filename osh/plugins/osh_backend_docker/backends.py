@@ -59,7 +59,7 @@ _DB_READY_POLL_SECONDS = 0.5
 
 
 class DockerBackend(Backend):
-    """Unified Docker Compose backend for ``osh init`` and ``osh odoo``."""
+    """Docker Compose runtime for ``osh init`` and ``osh odoo``."""
 
     name = "docker"
     label = "Docker Compose"
@@ -554,7 +554,7 @@ class DockerBackend(Backend):
         if process:
             raise click.ClickException(
                 f"Port {port} is already used by {process}. "
-                "If it's an Osh session, run 'osh backend stop' there; "
+                "If it's an Osh session, run 'osh runtime stop' there; "
                 "otherwise stop it, or run 'osh odoo -p <n>' here."
             )
         raise click.ClickException(

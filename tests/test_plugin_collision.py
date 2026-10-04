@@ -123,7 +123,7 @@ def test_plugin_commands_listed_in_separate_help_section(monkeypatch, tmp_path):
 
 
 def test_backend_groups_listed_in_separate_help_section(monkeypatch, tmp_path):
-    """`osh --help` lists backend groups under Backend Commands — lazily."""
+    """`osh --help` lists runtime groups under Runtime Commands — lazily."""
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
 
@@ -138,7 +138,7 @@ def test_backend_groups_listed_in_separate_help_section(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "docker" in cli.main.backend_commands
-    core_section, _, rest = result.output.partition("Backend Commands:")
+    core_section, _, rest = result.output.partition("Runtime Commands:")
     backend_section, _, _ = rest.partition("Plugin Commands:")
     assert "\n  docker " not in core_section
     assert "\n  docker " in backend_section

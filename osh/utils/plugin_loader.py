@@ -133,10 +133,12 @@ def get_backend_class(name):
     Only the plugin declaring *name* is imported — resolving the ``venv``
     backend never touches the ``docker`` plugin.
     """
-    from ..backends import Backend, NoneBackend
+    from ..backends import Backend, HostBackend
+    from ..db import normalize_backend_name
 
-    if name == "none":
-        return NoneBackend
+    name = normalize_backend_name(name)
+    if name == "host":
+        return HostBackend
     ensure_declared("backends", name)
     for _source, cls in iter_plugin_subclasses(Backend):
         if getattr(cls, "name", None) == name:
@@ -152,7 +154,7 @@ def backend_meta():
     """
     from ..backends import Backend
 
-    meta = {"none": "Run on the host (default)."}
+    meta = {"host": "Run on the host (default)."}
     for name, desc in declared_meta("backends").items():
         meta.setdefault(name, desc)
     for _source, cls in _iter_loaded_subclasses(Backend):
@@ -165,14 +167,14 @@ def backend_meta():
 def load_backends():
     """Return a mapping of backend name to class, importing all declarers.
 
-    Always includes the built-in ``none`` backend. For resolving the
+    Always includes the built-in ``host`` runtime. For resolving the
     project's active backend prefer ``get_backend_class(name)``, which
     imports only the plugin providing it.
     """
-    from ..backends import Backend, NoneBackend
+    from ..backends import Backend, HostBackend
 
     ensure_declared("backends")
-    result = {"none": NoneBackend}
+    result = {"host": HostBackend}
     for source, cls in iter_plugin_subclasses(Backend):
         if getattr(cls, "name", None):
             _register_backend(result, source, cls)
@@ -416,12 +418,18 @@ def _module_subclasses(module, base):
 
 
 def _register_backend(result, source, backend):
-    """Register *backend* in *result* unless its name is taken."""
-    name = backend.name
+    """Register *backend* in *result* unless its name is taken.
+
+    Legacy names count as their current one: a plugin backend named
+    ``none`` conflicts with the built-in ``host`` runtime.
+    """
+    from ..db import normalize_backend_name
+
+    name = normalize_backend_name(backend.name)
     if name in result:
         echo.error(
-            f"backend '{name}' from '{source}' conflicts with "
-            f"an existing backend and is ignored."
+            f"runtime '{backend.name}' from '{source}' conflicts with "
+            f"an existing runtime and is ignored."
         )
         return
     result[name] = backend

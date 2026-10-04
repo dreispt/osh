@@ -1,16 +1,20 @@
-"""``osh <backend>`` lifecycle commands and the ``osh backend`` group.
+"""``osh <runtime>`` lifecycle commands and the ``osh runtime`` group.
 
-``BackendCommands`` is the shared base backend plugins subclass to
-expose ``osh <backend> init``, ``activate`` and ``stop`` — ordinary
-``@subcommand`` methods declared under ``[group_commands.<backend>]``
-in ``osh-plugin.toml`` alongside the backend's ``[backends]`` entry.
-The backend a group manages is named by ``_cli_name``: a ``Docker``
-handler named ``docker`` binds the ``docker`` backend.
+A *runtime* is where Osh runs Odoo and its tools: ``host`` (the built-in
+default), ``venv``, ``docker``, ... Runtimes are implemented as
+``Backend`` classes. ``BackendCommands`` is the shared base runtime
+plugins subclass to expose ``osh <runtime> init``, ``activate`` and
+``stop`` — ordinary ``@subcommand`` methods declared under
+``[group_commands.<runtime>]`` in ``osh-plugin.toml`` alongside the
+runtime's ``[backends]`` entry. The runtime a group manages is named by
+``_cli_name``: a ``Docker`` handler named ``docker`` binds the ``docker``
+runtime.
 
-The core ``osh backend`` group owns backend *selection* state: ``status``
-and ``list`` report what is active and available, ``deactivate`` is the
-generic way back to the ``none`` backend and ``stop`` delegates teardown
-to the active backend.
+The core ``osh runtime`` group owns runtime *selection* state: ``status``
+and ``list`` report what is active and available, ``activate`` and
+``deactivate`` switch it (``deactivate`` is the way back to ``host``) and
+``stop`` delegates teardown to the active runtime. ``osh backend`` is a
+hidden, deprecated alias of ``osh runtime``.
 """
 
 from pathlib import Path
@@ -24,7 +28,7 @@ from ..db import (
     deactivate_backend,
     get_active_backend_name,
     resolve_backend,
-    set_project_config,
+    set_active_backend_name,
 )
 from ..handlers import CommandHandler, subcommand
 from ..utils.plugin_loader import backend_meta, get_backend_class
@@ -38,33 +42,33 @@ from .init_cmd import (
 )
 
 
-class BackendCtl(CommandHandler):
-    """Inspect and change the project's active backend."""
+class RuntimeCtl(CommandHandler):
+    """Inspect and change the project's active runtime."""
 
-    _cli_name = "backend"
+    _cli_name = "runtime"
 
     @subcommand
     def status(self):
-        """Show the project's active backend.
+        """Show the project's active runtime.
 
-        The active backend is what ``osh odoo``, ``osh shell`` and ``osh db``
-        run through — the ``none`` backend means plain host execution. The name
-        matches the one ``osh backend list`` marks as active.
+        The active runtime is what ``osh odoo``, ``osh shell`` and ``osh db``
+        run through — the ``host`` runtime means plain host execution. The
+        name matches the one ``osh runtime list`` marks as active.
         """
         base = find_project_root(required=True)
         name = get_active_backend_name(base)
-        if not name or name == "none":
-            echo.info("Active backend: none — commands run on the host.")
+        if not name or name == "host":
+            echo.info("Active runtime: host — commands run on the host.")
             return
-        echo.info(f"Active backend: {name}")
+        echo.info(f"Active runtime: {name}")
         if name not in backend_meta():
-            echo.warning(f"Backend '{name}' is not available — is its plugin enabled?")
+            echo.warning(f"Runtime '{name}' is not available — is its plugin enabled?")
 
     @subcommand
     def list(self):
-        """List the available backends, marking the project's active one.
+        """List the available runtimes, marking the project's active one.
 
-        Works outside a project too — without a project no backend is marked
+        Works outside a project too — without a project no runtime is marked
         active.
         """
         base = find_project_root(required=False)
@@ -74,49 +78,77 @@ class BackendCtl(CommandHandler):
             echo.info(f"{name}{marker}" + (f" — {description}" if description else ""))
 
     @subcommand
-    def deactivate(self):
-        """Deactivate the active backend; commands run on the host again.
+    @click.argument("runtime_name", metavar="NAME")
+    def activate(self):
+        """Make runtime NAME the project's active runtime.
 
-        Records ``none`` as the run backend — the counterpart of
-        ``osh <backend> activate``. Resources the previous backend left running
-        are not stopped; use ``osh <backend> stop`` for that.
+        Same as ``osh NAME activate``, and also accepts ``host``: run-phase
+        diagnostics abort on errors, then the runtime is recorded as
+        ``run.runtime``.
+        """
+        base = find_project_root(required=True)
+        backend_cls = get_backend_class(self.runtime_name)
+        if backend_cls is None:
+            raise click.ClickException(
+                f"No runtime named '{self.runtime_name}' is available."
+            )
+        backend = backend_cls()
+        check_run_diagnostics(base, backend, self.ctx)
+        set_active_backend_name(base, backend.name)
+        echo.info(f"Runtime '{backend.name}' is now the active runtime.")
+
+    @subcommand
+    def deactivate(self):
+        """Deactivate the active runtime; commands run on the host again.
+
+        Records ``host`` as the active runtime — the counterpart of
+        ``osh <runtime> activate``. Resources the previous runtime left
+        running are not stopped; use ``osh <runtime> stop`` for that.
         """
         base = find_project_root(required=True)
         previous = deactivate_backend(base)
         if previous is None:
-            echo.info("No backend is active; commands already run on the host.")
+            echo.info("No runtime is active; commands already run on the host.")
             return
         echo.info(
-            f"Backend '{previous}' deactivated; commands now run on the host. "
+            f"Runtime '{previous}' deactivated; commands now run on the host. "
             f"Run 'osh {previous} stop' to stop resources it left running."
         )
 
     @subcommand
     def stop(self):
-        """Stop resources the active backend left running.
+        """Stop resources the active runtime left running.
 
-        Delegates to the active backend's ``stop``: the ``none``/``venv``
-        backends terminate a host Odoo process on the project's HTTP port,
-        ``docker`` runs ``docker compose down``. Backend-specific options
-        (e.g. ``--compose-file``) are on ``osh <backend> stop``.
+        Delegates to the active runtime's ``stop``: the ``host``/``venv``
+        runtimes terminate a host Odoo process on the project's HTTP port,
+        ``docker`` runs ``docker compose down``. Runtime-specific options
+        (e.g. ``--compose-file``) are on ``osh <runtime> stop``.
         """
         base = find_project_root(required=True)
         resolve_backend(base).stop(self.ctx, base)
 
 
-backend = handler_group("backend", BackendCtl)
+# Deprecated name of the handler, kept for compatibility.
+BackendCtl = RuntimeCtl
+
+runtime = handler_group("runtime", RuntimeCtl)
+
+# ``osh backend`` — hidden, deprecated alias of ``osh runtime``.
+backend = handler_group("backend", RuntimeCtl)
+backend.hidden = True
+backend.deprecated = "Use 'osh runtime' instead."
 
 
 class BackendCommands(CommandHandler):
-    """Base for ``osh <backend>`` command groups — lifecycle as methods.
+    """Base for ``osh <runtime>`` command groups — lifecycle as methods.
 
-    A backend plugin subclasses this, sets ``_cli_name`` to the backend
-    name and declares the commands under ``[group_commands.<backend>]``
+    A runtime plugin subclasses this, sets ``_cli_name`` to the runtime
+    name and declares the commands under ``[group_commands.<runtime>]``
     in ``osh-plugin.toml``. Its own ``@subcommand`` methods add
-    backend-specific commands; overriding a lifecycle method (calling
+    runtime-specific commands; overriding a lifecycle method (calling
     ``super()``) customizes it.
 
-    Backend-specific parameters come from the backend class's option
+    Runtime-specific parameters come from the backend class's option
     hooks (``get_init_options``, ``get_stop_options``), exposed through
     the ``init_options``/``stop_options`` classmethods; their parsed
     values are collected into kwargs through :meth:`backend_options`.
@@ -124,11 +156,11 @@ class BackendCommands(CommandHandler):
 
     @subcommand
     def init(self):
-        """Initialise the project for this backend, on top of ``osh init``.
+        """Initialise the project for this runtime, on top of ``osh init``.
 
-        Combines ``osh init``'s parameters with the backend's
+        Combines ``osh init``'s parameters with the runtime's
         ``get_init_options()``; runs ``base_init`` first, then
-        ``run_backend_init`` for the backend-specific setup.
+        ``run_backend_init`` for the runtime-specific setup.
         """
         version, directory = _split_version_arg(self.version, self.directory)
         target = (directory or Path.cwd()).expanduser().resolve()
@@ -156,26 +188,26 @@ class BackendCommands(CommandHandler):
 
     @classmethod
     def init_options(cls):
-        """``osh <backend> init`` params: ``osh init``'s plus the backend's."""
+        """``osh <runtime> init`` params: ``osh init``'s plus the runtime's."""
         return [*Init.get_options(), *cls.backend_cls().get_init_options()]
 
     @subcommand
     def activate(self):
-        """Record the backend as the project's run target.
+        """Record the runtime as the project's active runtime.
 
-        Lighter than ``init``: verifies the backend can run in the project —
-        run-phase diagnostics abort on errors — then records it as the
-        project's active run backend.
+        Lighter than ``init``: verifies the runtime can run in the project —
+        run-phase diagnostics abort on errors — then records it as
+        ``run.runtime``.
         """
         base = find_project_root(required=True)
         backend = self.backend()
         check_run_diagnostics(base, backend, self.ctx)
-        set_project_config(base, "run", "target", backend.name)
-        echo.info(f"Backend '{backend.name}' is now the active run backend.")
+        set_active_backend_name(base, backend.name)
+        echo.info(f"Runtime '{backend.name}' is now the active runtime.")
 
     @subcommand
     def stop(self):
-        """Stop resources the backend left running."""
+        """Stop resources the runtime left running."""
         self.backend().stop(
             self.ctx,
             find_project_root(required=True),
@@ -184,7 +216,7 @@ class BackendCommands(CommandHandler):
 
     @classmethod
     def stop_options(cls):
-        """``osh <backend> stop`` params: the backend's own options."""
+        """``osh <runtime> stop`` params: the runtime's own options."""
         return list(cls.backend_cls().get_stop_options())
 
     version = None
@@ -197,7 +229,7 @@ class BackendCommands(CommandHandler):
 
     @classmethod
     def backend_name(cls):
-        """Return the name of the backend this group manages."""
+        """Return the name of the runtime this group manages."""
         return cls._cli_group or cls._cli_name
 
     @classmethod
@@ -206,7 +238,7 @@ class BackendCommands(CommandHandler):
         name = cls.backend_name()
         backend = get_backend_class(name) if name else None
         if backend is None:
-            raise click.ClickException(f"No backend named '{name}' is available.")
+            raise click.ClickException(f"No runtime named '{name}' is available.")
         return backend
 
     def backend(self):
