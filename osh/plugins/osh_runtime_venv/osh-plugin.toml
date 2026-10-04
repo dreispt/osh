@@ -1,6 +1,6 @@
 description = "Python virtualenv runtime."
 
-[backends]
+[runtimes]
 venv = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
 
 [group_commands.venv]

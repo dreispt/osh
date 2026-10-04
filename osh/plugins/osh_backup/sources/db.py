@@ -8,7 +8,7 @@ from pathlib import Path
 from .... import echo
 from ....backup_sources import BackupSource, SourceError, now_stamp
 from ....common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
-from ....db import export_filestore, run_in_backend
+from ....db import export_filestore, run_in_runtime
 
 
 class DbSource(BackupSource):
@@ -65,13 +65,13 @@ Examples:
             self._fetch_zip(output)
 
     def _run_pg_dump(self, args, output_file):
-        """Run pg_dump through the active backend, writing stdout to *output_file*."""
+        """Run pg_dump through the active runtime, writing stdout to *output_file*."""
         if self.base is None:
-            # Outside a project there is no backend context — run on the host.
+            # Outside a project there is no runtime context — run on the host.
             return run_subprocess(
                 args, env=merged_env(), stdout=output_file, text=False
             )
-        return run_in_backend(None, self.base, args, stdout=output_file, text=False)
+        return run_in_runtime(None, self.base, args, stdout=output_file, text=False)
 
     def _checked_pg_dump(self, args, output_file):
         """Run pg_dump, raising ``SourceError`` when it is missing or fails."""
@@ -112,7 +112,7 @@ Examples:
         """Copy this database's filestore into *dest_dir*; False if missing."""
         if self.base is not None:
             return export_filestore(None, self.base, self.db_name, dest_dir)
-        # Outside a project there is no backend — read the host data dir.
+        # Outside a project there is no runtime — read the host data dir.
         data_dir = get_odoo_data_dir(None)
         source = data_dir / "filestore" / self.db_name if data_dir else None
         if not (source and source.exists()):

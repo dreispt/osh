@@ -6,12 +6,12 @@ with the root click group in `cli.py`.
 
 from . import (
     addon_cmd,
-    backend_cmd,
     config_cmd,
     db_cmd,
     init_cmd,
     odoo_cmd,
     plug_cmd,
+    runtime_cmd,
     shell_cmd,
 )
 
@@ -21,8 +21,8 @@ COMMANDS = [
     shell_cmd.shell,
     db_cmd.db,
     addon_cmd.addon,
-    backend_cmd.runtime,
-    backend_cmd.backend,
+    runtime_cmd.runtime,
+    runtime_cmd.backend,
     config_cmd.config,
     plug_cmd.plug,
 ]

@@ -397,7 +397,7 @@ def test_list_command_reports_missing_psql(tmp_project, monkeypatch):
     from osh.commands.db_cmd import db
 
     monkeypatch.setattr(
-        "osh.commands.db_cmd.run_in_backend",
+        "osh.commands.db_cmd.run_in_runtime",
         lambda *args, **kwargs: (None, "", "command not found"),
     )
     monkeypatch.chdir(tmp_project)

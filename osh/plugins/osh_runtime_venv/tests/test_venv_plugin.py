@@ -1,4 +1,4 @@
-"""Tests for the built-in venv backend plugin."""
+"""Tests for the built-in venv runtime plugin."""
 
 import os
 import sys
@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.db import get_project_config, set_project_config
-from osh.plugins.osh_backend_venv.backends import VenvBackend
+from osh.plugins.osh_runtime_venv.runtimes import VenvRuntime
 from tests.helpers import make_bare_repo
 
 from .conftest import real_commands
@@ -26,7 +26,7 @@ def test_diagnose_warns_when_requirements_change_after_install(tmp_project):
     os.utime(installed, (0, 0))  # installed long ago
     (tmp_project / "requirements.txt").write_text("requests\n")
 
-    warnings = VenvBackend().diagnose(tmp_project, phase="run").warnings
+    warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
 
     assert any("osh venv init" in w for w in warnings)
 
@@ -40,7 +40,7 @@ def test_diagnose_quiet_when_venv_newer_than_requirements(tmp_project):
     installed.parent.mkdir(parents=True)
     installed.touch()
 
-    warnings = VenvBackend().diagnose(tmp_project, phase="run").warnings
+    warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
 
     assert not any("osh venv init" in w for w in warnings)
 
@@ -167,14 +167,14 @@ class TestInitCommand:
         monkeypatch.setattr("venv.create", lambda *a, **kw: None)
 
         monkeypatch.setattr(
-            "osh.plugins.osh_backend_venv.utils.run_subprocess",
+            "osh.plugins.osh_runtime_venv.utils.run_subprocess",
             lambda *args, **kwargs: (1, "", ""),
         )
 
         # Force the use of the running interpreter so venv.create is used.
         current_version = f"{sys.version_info.major}.{sys.version_info.minor}"
         monkeypatch.setattr(
-            "osh.plugins.osh_backend_venv.utils.resolve_python_for_odoo",
+            "osh.plugins.osh_runtime_venv.utils.resolve_python_for_odoo",
             lambda version: {
                 "exe": Path(sys.executable),
                 "version": current_version,
@@ -444,8 +444,8 @@ class TestInitEdition:
         assert (target / ".osh" / "odoo").is_symlink()
 
 
-def test_backend_init_reuses_recorded_version(tmp_project, monkeypatch):
-    """``osh <backend> init`` resolves the version the same way."""
+def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
+    """``osh <runtime> init`` resolves the version the same way."""
     set_project_config(tmp_project, "init", "version", "18.0")
     odoo_src = tmp_project / "odoo"
     odoo_src.mkdir()

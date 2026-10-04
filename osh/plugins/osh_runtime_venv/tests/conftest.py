@@ -1,4 +1,4 @@
-"""Fixtures for the venv backend plugin tests."""
+"""Fixtures for the venv runtime plugin tests."""
 
 import venv
 
@@ -32,7 +32,7 @@ def real_commands(monkeypatch):
         return run_subprocess(args, **kwargs)
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_venv.utils.run_subprocess",
+        "osh.plugins.osh_runtime_venv.utils.run_subprocess",
         fake_run_subprocess,
     )
 

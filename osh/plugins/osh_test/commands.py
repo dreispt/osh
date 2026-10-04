@@ -2,7 +2,7 @@
 
 `osh test` is a thin wrapper around `osh odoo` that adds test-specific
 options and generates the right `-i`/`-u`/`--test-enable` arguments. It runs
-on the project's active backend (see ``osh <backend> activate``).
+on the project's active runtime (see ``osh <runtime> activate``).
 """
 
 import click
@@ -20,7 +20,7 @@ class TestRun(CommandHandler):
     This is a wrapper around `osh odoo` that chains two Odoo invocations:
     an install/update run without `--test-enable`, followed by an update run
     with `--test-enable` so tests execute on the already installed modules.
-    It runs on the project's active backend; `--compose-file` is forwarded.
+    It runs on the project's active runtime; `--compose-file` is forwarded.
 
     The test database is `<project>-<branch>-test` by default. On a fresh
     database, modules are first installed with `-i <modules>` and then tested
@@ -157,7 +157,7 @@ class TestRun(CommandHandler):
         stop_arg = ["--stop-after-init"] if not self.no_stop_after_init else []
 
         # First invocation: install or update modules without running tests.
-        # Run in wait mode so the backend returns control instead of
+        # Run in wait mode so the runtime returns control instead of
         # exec/replacing.
         install_mode = "-i" if need_install else "-u"
         install_args = base_odoo_args + [install_mode, module_list] + stop_arg
@@ -169,7 +169,7 @@ class TestRun(CommandHandler):
         ).run()
 
         # Second invocation: update modules and run tests. This is the final
-        # process, so the backend can exec/replace as usual.
+        # process, so the runtime can exec/replace as usual.
         test_args = (
             base_odoo_args
             + ["-u", module_list, "--test-enable"]

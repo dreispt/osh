@@ -154,12 +154,12 @@ def get_pg_env(base):
 _LEGACY_RUNTIME_NAMES = {"none": "host", "local": "host"}
 
 
-def normalize_backend_name(name):
+def normalize_runtime_name(name):
     """Return *name*, mapping the legacy ``none``/``local`` names to ``host``."""
     return _LEGACY_RUNTIME_NAMES.get(name, name)
 
 
-def get_active_backend_name(base, default="host"):
+def get_active_runtime_name(base, default="host"):
     """Return the project's active runtime name.
 
     Reads ``run.runtime``, falling back to the legacy ``run.target`` key.
@@ -167,10 +167,10 @@ def get_active_backend_name(base, default="host"):
     name = get_project_config(base, "run", "runtime") or get_project_config(
         base, "run", "target", fallback=default
     )
-    return normalize_backend_name(name)
+    return normalize_runtime_name(name)
 
 
-def set_active_backend_name(base, name):
+def set_active_runtime_name(base, name):
     """Record *name* as the project's active runtime (``run.runtime``).
 
     The legacy ``run.target`` key is removed so the two never disagree.
@@ -180,38 +180,38 @@ def set_active_backend_name(base, name):
         unset_project_config(base, "run", "target")
 
 
-def deactivate_backend(base):
+def deactivate_runtime(base):
     """Record ``host`` as the active runtime; return the previous name.
 
     Returns ``None`` when no managed runtime was active. Runtime plugins can
     call this from their own deactivate command to keep the ``run.runtime``
     bookkeeping in one place.
     """
-    previous = get_active_backend_name(base, default=None)
+    previous = get_active_runtime_name(base, default=None)
     if not previous or previous == "host":
         return None
-    set_active_backend_name(base, "host")
+    set_active_runtime_name(base, "host")
     return previous
 
 
-def resolve_backend(base, default="host"):
-    """Instantiate the runtime backend configured for *base*.
+def resolve_runtime(base, default="host"):
+    """Instantiate the runtime configured for *base*.
 
     The active runtime is the ``run.runtime`` (or legacy ``run.target``) recorded in the project config
-    by ``osh <backend> init`` or ``osh <backend> activate``, falling back to
+    by ``osh <runtime> init`` or ``osh <runtime> activate``, falling back to
     *default*. This is the supported way for commands and plugins to obtain
-    the active backend instance.
+    the active runtime instance.
     """
-    from .utils.plugin_loader import get_backend_class
+    from .utils.plugin_loader import get_runtime_class
 
-    target = get_active_backend_name(base, default=default)
-    backend_cls = get_backend_class(target)
-    if backend_cls is None:
-        raise click.ClickException(f"Unknown backend: {target}")
-    return backend_cls()
+    target = get_active_runtime_name(base, default=default)
+    runtime_cls = get_runtime_class(target)
+    if runtime_cls is None:
+        raise click.ClickException(f"Unknown runtime: {target}")
+    return runtime_cls()
 
 
-def run_in_backend(
+def run_in_runtime(
     ctx,
     base,
     argv,
@@ -224,12 +224,12 @@ def run_in_backend(
     stdout=None,
     text=True,
 ):
-    """Run *argv* inside the active backend's environment.
+    """Run *argv* inside the active runtime's environment.
 
     PostgreSQL connection variables from the project Odoo config are merged
     into the command environment, so ``psql``/``createdb``/... connect the
     same way Odoo itself does, in the same execution context Odoo runs in.
-    These helpers deliberately know nothing about which backend is active.
+    These helpers deliberately know nothing about which runtime is active.
 
     This is the supported public API for plugins that need to run commands
     in the project's execution context (e.g. database tooling).
@@ -239,14 +239,14 @@ def run_in_backend(
     ``capture=False`` the command's output is streamed and a non-zero exit
     raises ``click.ClickException``.
     """
-    from .backends import EnvSpec
+    from .runtimes import EnvSpec
 
-    backend = resolve_backend(base)
+    runtime = resolve_runtime(base)
     merged = {**get_pg_env(base), **(env or {})}
     env_spec = EnvSpec(
         argv=[str(a) for a in argv], env=merged, input=input, stdin=stdin
     )
-    result = backend.env(
+    result = runtime.env(
         ctx,
         base,
         env_spec,
@@ -257,20 +257,30 @@ def run_in_backend(
         text=text,
     )
     # ``None`` comes back from dry-run and streamed (capture=False) runs; a
-    # streamed failure already raised inside the backend.
+    # streamed failure already raised inside the runtime.
     if result is None:
         return 0, "", ""
     return result
+
+
+# Deprecated aliases kept for plugins written against the old backend API
+# — scheduled for removal in a later release.
+normalize_backend_name = normalize_runtime_name
+get_active_backend_name = get_active_runtime_name
+set_active_backend_name = set_active_runtime_name
+deactivate_backend = deactivate_runtime
+resolve_backend = resolve_runtime
+run_in_backend = run_in_runtime
 
 
 def install_filestore(ctx, base, src_dir, db_name):
     """Install the contents of *src_dir* as the filestore of *db_name*.
 
     The directory contents are streamed as a tar through stdin, so this works
-    identically on host and container backends — the destination may live in
+    identically on host and container runtimes — the destination may live in
     a container volume unreachable from the host.
     """
-    data_dir = resolve_backend(base).odoo_data_dir(base)
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
     if data_dir is None:
         echo.warning("could not determine Odoo data_dir; filestore not installed.")
         return
@@ -283,11 +293,11 @@ def install_filestore(ctx, base, src_dir, db_name):
                 tar.add(item, arcname=item.relative_to(src_dir).as_posix())
         tar_file.flush()
         tar_file.seek(0)
-        returncode, _, stderr = run_in_backend(
+        returncode, _, stderr = run_in_runtime(
             ctx, base, ["sh", "-c", script], stdin=tar_file
         )
     if returncode is None:
-        raise RuntimeError("Could not locate `sh`/`tar` in the backend environment.")
+        raise RuntimeError("Could not locate `sh`/`tar` in the runtime environment.")
     if returncode != 0:
         raise RuntimeError(f"Failed to install filestore for '{db_name}': {stderr}")
     echo.info(f"Installed filestore for '{db_name}' at {dest_path}", err=True)
@@ -296,18 +306,18 @@ def install_filestore(ctx, base, src_dir, db_name):
 def export_filestore(ctx, base, db_name, dest_dir):
     """Export the filestore of *db_name* into host directory *dest_dir*.
 
-    Streams a tar out of the backend environment, so the source may live in a
+    Streams a tar out of the runtime environment, so the source may live in a
     container volume unreachable from the host. Returns False when the data
     dir or the database filestore cannot be found.
     """
-    data_dir = resolve_backend(base).odoo_data_dir(base)
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
     if data_dir is None:
         return False
     src = f"{data_dir}/filestore/{db_name}"
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
-        returncode, _, _ = run_in_backend(
+        returncode, _, _ = run_in_runtime(
             ctx,
             base,
             ["tar", "-c", "-C", src, "."],
@@ -333,10 +343,10 @@ def db_exists(base, db_name, ctx=None, *, dry_run=False):
     """Return True if the PostgreSQL database exists.
 
     In *dry_run* mode the probe still runs where it is side-effect free
-    (host backend); backends where probing would start a container report
+    (host runtime); runtimes where probing would start a container report
     "does not exist" unless the stack is already up.
     """
-    returncode, _, _ = run_in_backend(
+    returncode, _, _ = run_in_runtime(
         ctx, base, ["psql", "-d", db_name, "-c", "SELECT 1"], dry_run=dry_run
     )
     # A failed connection means the database does not exist (or psql is
@@ -348,12 +358,12 @@ def drop_db(base, db_name, ctx=None):
     """Drop a PostgreSQL database if it exists."""
     # `dropdb` is expected to fail when the database does not exist; the
     # result is ignored so callers can call this defensively.
-    run_in_backend(ctx, base, ["dropdb", db_name])
+    run_in_runtime(ctx, base, ["dropdb", db_name])
 
 
 def create_db(base, db_name, ctx=None):
     """Create a fresh PostgreSQL database."""
-    returncode, _, stderr = run_in_backend(ctx, base, ["createdb", db_name], text=False)
+    returncode, _, stderr = run_in_runtime(ctx, base, ["createdb", db_name], text=False)
     if returncode is None:
         raise RuntimeError("Could not locate `createdb`. Is PostgreSQL installed?")
     if returncode != 0:
@@ -370,7 +380,7 @@ def copy_db(base, from_db, to_db, ctx=None):
         f"pg_dump -Fc {shlex.quote(from_db)}"
         f" | pg_restore --no-owner -d {shlex.quote(to_db)}"
     )
-    returncode, _, stderr = run_in_backend(ctx, base, ["sh", "-c", pipeline])
+    returncode, _, stderr = run_in_runtime(ctx, base, ["sh", "-c", pipeline])
     if returncode is None:
         raise RuntimeError(
             "Could not locate `pg_dump` or `pg_restore`. Is PostgreSQL installed?"
@@ -383,7 +393,7 @@ def copy_db(base, from_db, to_db, ctx=None):
 
 def run_psql_script(base, db_name, script_path, ctx=None):
     """Execute a SQL script against *db_name* using psql."""
-    returncode, _, stderr = run_in_backend(
+    returncode, _, stderr = run_in_runtime(
         ctx,
         base,
         ["psql", "-d", db_name],
@@ -592,7 +602,7 @@ def get_database_version(base, db_name, ctx=None):
     This reads the ``latest_version`` of the ``base`` module, which tracks the
     Odoo version used when the database was installed/last updated.
     """
-    returncode, stdout, _ = run_in_backend(
+    returncode, stdout, _ = run_in_runtime(
         ctx,
         base,
         [

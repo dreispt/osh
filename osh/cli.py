@@ -11,10 +11,10 @@ from .cli_utils import NaturalOrderGroup
 from .commands import COMMANDS
 from .config import get_plugin_aliases
 from .utils.plugin_loader import (
-    backend_meta,
     declared_meta,
     load_group_commands,
     load_plugins,
+    runtime_meta,
     warn_unresolved_meta,
 )
 
@@ -159,19 +159,19 @@ main.plugin_commands = _plugin_commands
 # managed runtime; ``osh init`` is its setup, ``osh runtime stop`` its
 # teardown, ``osh runtime deactivate`` the way back.
 # Targeting a non-group command is an error.
-main.backend_commands = {}
+main.runtime_commands = {}
 for group_name, entries in load_group_commands().items():
     target = main.commands.get(group_name)
     if target is None:
         target = NaturalOrderGroup(
             name=group_name,
-            help=declared_meta("backends").get(group_name),
+            help=declared_meta("runtimes").get(group_name),
         )
         registered = _register_plugin_command(main, target, entries[0][0], group_name)
         if registered is None:
             continue
-        if group_name in backend_meta():
-            main.backend_commands[registered] = entries[0][0]
+        if group_name in runtime_meta():
+            main.runtime_commands[registered] = entries[0][0]
         else:
             main.plugin_commands[registered] = entries[0][0]
     if not isinstance(target, click.Group):

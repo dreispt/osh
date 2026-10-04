@@ -12,8 +12,8 @@ def _active_target(project):
     return get_project_config(project, "run", "runtime")
 
 
-def test_deactivate_without_backend_is_noop(in_project):
-    """``osh runtime deactivate`` reports when no backend is active."""
+def test_deactivate_without_runtime_is_noop(in_project):
+    """``osh runtime deactivate`` reports when no runtime is active."""
     result = CliRunner().invoke(main, ["runtime", "deactivate"])
 
     assert result.exit_code == 0, result.output
@@ -34,7 +34,7 @@ def test_deactivate_records_host_runtime(in_project):
 
 
 def test_activate_venv_records_run_runtime(in_project):
-    """``osh venv activate`` records 'venv' as the project's run backend."""
+    """``osh venv activate`` records 'venv' as the project's run runtime."""
     result = CliRunner().invoke(main, ["venv", "activate"])
 
     assert result.exit_code == 0, result.output
@@ -42,7 +42,7 @@ def test_activate_venv_records_run_runtime(in_project):
 
 
 def test_activate_docker_requires_init(in_project):
-    """``osh docker activate`` fails when the backend was never initialized."""
+    """``osh docker activate`` fails when the runtime was never initialized."""
     result = CliRunner().invoke(main, ["docker", "activate"])
 
     assert result.exit_code != 0
@@ -54,11 +54,11 @@ def test_activate_docker_records_run_runtime(in_project, monkeypatch):
     """``osh docker activate`` on an initialized project records 'docker'."""
     _write_docker_config(in_project)
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        "osh.plugins.osh_runtime_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        "osh.plugins.osh_runtime_docker.runtimes.run_subprocess",
         lambda *a, **kw: (0, "", ""),
     )
 
@@ -68,15 +68,15 @@ def test_activate_docker_records_run_runtime(in_project, monkeypatch):
     assert _active_target(in_project) == "docker"
 
 
-def test_activate_switches_active_backend(in_project, monkeypatch):
-    """Activating a different backend replaces the recorded run backend."""
+def test_activate_switches_active_runtime(in_project, monkeypatch):
+    """Activating a different runtime replaces the recorded run runtime."""
     _write_docker_config(in_project)
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        "osh.plugins.osh_runtime_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.run_subprocess",
+        "osh.plugins.osh_runtime_docker.runtimes.run_subprocess",
         lambda *a, **kw: (0, "", ""),
     )
 

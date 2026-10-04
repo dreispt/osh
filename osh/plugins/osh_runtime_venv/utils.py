@@ -8,8 +8,8 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...backends import copy_odoo_rc_to_osh_conf
 from ...common import format_cmd, run_subprocess
+from ...runtimes import copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 from .python_versions import resolve_python_for_odoo
 

@@ -1,6 +1,6 @@
 """Common helpers shared across Osh core and plugins.
 
-This module hosts backend-agnostic utilities used by multiple plugins and
+This module hosts runtime-agnostic utilities used by multiple plugins and
 core commands: project root discovery, path conventions, tool availability
 checks, and addon discovery. Functions here are intentionally public (no
 leading underscore) since they form the shared library contract between

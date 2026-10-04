@@ -10,7 +10,7 @@ from ..db import (
     db_exists,
     resolve_branch,
     resolve_db_name,
-    run_in_backend,
+    run_in_runtime,
     sanitize_db_name,
     set_project_config,
     unset_project_config,
@@ -86,7 +86,7 @@ class Db(CommandHandler):
           osh db list --all
         """
         self.base = find_project_root(required=True)
-        returncode, stdout, stderr = run_in_backend(self.ctx, self.base, ["psql", "-l"])
+        returncode, stdout, stderr = run_in_runtime(self.ctx, self.base, ["psql", "-l"])
         if returncode is None:
             raise click.ClickException(
                 "Could not locate `psql`. Is PostgreSQL installed?"
@@ -159,7 +159,7 @@ class Db(CommandHandler):
 
         Without arguments this opens an interactive shell where the database
         runs: the Compose ``db`` service container on Docker projects, or the
-        project environment itself on host/venv backends — where it is
+        project environment itself on host/venv runtimes — where it is
         equivalent to ``osh shell``. PostgreSQL connection variables
         (``PGHOST``, ``PGUSER``, ``PGDATABASE``, ...) are already configured for
         the current branch's database. Any arguments are passed through as a

@@ -122,7 +122,7 @@ def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_cmd.check_run_diagnostics",
         lambda *args, **kwargs: Diagnostics(
-            backend="none", info={}, warnings=[], errors=[]
+            runtime="none", info={}, warnings=[], errors=[]
         ),
     )
 
@@ -226,15 +226,15 @@ def test_restore_uses_metadata_format(monkeypatch, in_project):
         format="dump",  # Detected format (source of truth)
     )
 
-    # Mock the backend runner to track which tool is invoked
+    # Mock the runtime runner to track which tool is invoked
     restore_calls = []
 
-    def mock_run_in_backend(ctx, base, argv, **kwargs):
+    def mock_run_in_runtime(ctx, base, argv, **kwargs):
         restore_calls.append(argv[0])  # Track the command name
         return (0, "", "")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.restore_ops.run_in_backend", mock_run_in_backend
+        "osh.plugins.osh_backup.restore_ops.run_in_runtime", mock_run_in_runtime
     )
 
     # Call the restore function directly
@@ -334,12 +334,12 @@ def test_restore_dump_streams_file_via_stdin(monkeypatch, in_project, tmp_path):
 
     calls = []
 
-    def mock_run_in_backend(ctx, base, argv, **kwargs):
+    def mock_run_in_runtime(ctx, base, argv, **kwargs):
         calls.append((argv, kwargs["stdin"].read()))
         return (0, "", "")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.restore_ops.run_in_backend", mock_run_in_backend
+        "osh.plugins.osh_backup.restore_ops.run_in_runtime", mock_run_in_runtime
     )
     restore_dump(in_project, dump, "testdb", dry_run=False)
 
@@ -349,7 +349,7 @@ def test_restore_dump_streams_file_via_stdin(monkeypatch, in_project, tmp_path):
 
 
 def test_restore_sql_gz_pipes_gunzip_via_stdin(monkeypatch, in_project, tmp_path):
-    """`.sql.gz` backups stream through `gunzip -c | psql` in the backend."""
+    """`.sql.gz` backups stream through `gunzip -c | psql` in the runtime."""
     from osh.plugins.osh_backup.restore_ops import restore_dump
 
     dump = tmp_path / "backup.sql.gz"
@@ -357,12 +357,12 @@ def test_restore_sql_gz_pipes_gunzip_via_stdin(monkeypatch, in_project, tmp_path
 
     calls = []
 
-    def mock_run_in_backend(ctx, base, argv, **kwargs):
+    def mock_run_in_runtime(ctx, base, argv, **kwargs):
         calls.append((argv, kwargs["stdin"].read()))
         return (0, "", "")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.restore_ops.run_in_backend", mock_run_in_backend
+        "osh.plugins.osh_backup.restore_ops.run_in_runtime", mock_run_in_runtime
     )
     restore_dump(in_project, dump, "testdb", dry_run=False)
 
@@ -390,7 +390,7 @@ def test_restore_zip_streams_sql_and_installs_filestore(
     calls = []
     installed = []
 
-    def mock_run_in_backend(ctx, base, argv, **kwargs):
+    def mock_run_in_runtime(ctx, base, argv, **kwargs):
         calls.append((argv, kwargs["stdin"].read()))
         return (0, "", "")
 
@@ -399,7 +399,7 @@ def test_restore_zip_streams_sql_and_installs_filestore(
         installed.append(((Path(src_dir) / "ab" / "cdef").read_text(), db_name))
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.restore_ops.run_in_backend", mock_run_in_backend
+        "osh.plugins.osh_backup.restore_ops.run_in_runtime", mock_run_in_runtime
     )
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_ops.install_filestore",
@@ -418,17 +418,17 @@ def test_restore_zip_streams_sql_and_installs_filestore(
 
 
 def test_filestore_install_export_roundtrip(monkeypatch, in_project, tmp_path):
-    """install_filestore/export_filestore round-trip through the host backend."""
-    from osh.backends import NoneBackend
+    """install_filestore/export_filestore round-trip through the host runtime."""
     from osh.db import export_filestore, install_filestore
+    from osh.runtimes import HostRuntime
 
     data_dir = tmp_path / "data"
 
-    class _Backend(NoneBackend):
+    class _Runtime(HostRuntime):
         def odoo_data_dir(self, base):
             return data_dir
 
-    monkeypatch.setattr("osh.db.resolve_backend", lambda base, **kw: _Backend())
+    monkeypatch.setattr("osh.db.resolve_runtime", lambda base, **kw: _Runtime())
 
     src_dir = tmp_path / "src"
     (src_dir / "aa" / "bb").mkdir(parents=True)
@@ -445,14 +445,14 @@ def test_filestore_install_export_roundtrip(monkeypatch, in_project, tmp_path):
 
 def test_export_filestore_missing_returns_false(monkeypatch, in_project, tmp_path):
     """export_filestore returns False when the filestore does not exist."""
-    from osh.backends import NoneBackend
     from osh.db import export_filestore
+    from osh.runtimes import HostRuntime
 
-    class _Backend(NoneBackend):
+    class _Runtime(HostRuntime):
         def odoo_data_dir(self, base):
             return tmp_path / "data"
 
-    monkeypatch.setattr("osh.db.resolve_backend", lambda base, **kw: _Backend())
+    monkeypatch.setattr("osh.db.resolve_runtime", lambda base, **kw: _Runtime())
 
     assert not export_filestore(None, in_project, "missing-db", tmp_path / "out")
 
@@ -473,10 +473,10 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
     detected = detect_backup_format_by_content(backup)
     assert detected == "zip", f"Content detection should identify ZIP, got: {detected}"
 
-    # Mock the backend runner to track which tool is invoked
+    # Mock the runtime runner to track which tool is invoked
     restore_calls = []
 
-    def mock_run_in_backend(ctx, base, argv, **kwargs):
+    def mock_run_in_runtime(ctx, base, argv, **kwargs):
         restore_calls.append(argv[0])  # Track the command name
         return (0, "", "")
 
@@ -484,7 +484,7 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
         restore_calls.append("restore_zip")
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backup.restore_ops.run_in_backend", mock_run_in_backend
+        "osh.plugins.osh_backup.restore_ops.run_in_runtime", mock_run_in_runtime
     )
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_ops._restore_zip", mock_restore_zip

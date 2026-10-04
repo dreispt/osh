@@ -13,7 +13,6 @@ import click
 
 from .. import db as db_module
 from .. import echo
-from ..backends import EnvSpec
 from ..cli_utils import handler_command
 from ..common import (
     find_project_root,
@@ -22,11 +21,12 @@ from ..common import (
     has_arg,
 )
 from ..handlers import CommandHandler
+from ..runtimes import EnvSpec
 from .helpers import check_run_diagnostics
 
 
 def build_dynamic_odoo_config(
-    base, db_name, backend, *, conf_path=None, no_db_filter=False, extra_args=()
+    base, db_name, runtime, *, conf_path=None, no_db_filter=False, extra_args=()
 ):
     """Build a branch/database-specific Odoo config file in ``.osh/cache/env``.
 
@@ -34,8 +34,8 @@ def build_dynamic_odoo_config(
     adds the discovered addons path, ``db_name`` and ``dbfilter`` so that
     ``odoo-bin`` and ``psql`` work inside the environment without extra flags.
 
-    The *backend* parameter is used to build backend-specific addons paths
-    (e.g., container paths for Docker backends).
+    The *runtime* parameter is used to build runtime-specific addons paths
+    (e.g., container paths for Docker runtimes).
     """
     if conf_path is None:
         cache_dir = base / ".osh" / "cache" / "env"
@@ -57,12 +57,12 @@ def build_dynamic_odoo_config(
         cfg.add_section("options")
 
     if not has_arg(extra_args, "--addons-path"):
-        addons_paths = backend.build_addons_paths(base, include_themes=True)
+        addons_paths = runtime.build_addons_paths(base, include_themes=True)
         if addons_paths:
             cfg.set("options", "addons_path", ",".join(str(p) for p in addons_paths))
 
     if not cfg.has_option("options", "data_dir"):
-        data_dir = backend.odoo_data_dir(base)
+        data_dir = runtime.odoo_data_dir(base)
         if data_dir:
             cfg.set("options", "data_dir", str(data_dir))
 
@@ -79,7 +79,7 @@ def build_dynamic_odoo_config(
 
 def prepare_env_context(
     base,
-    backend,
+    runtime,
     *,
     ctx=None,
     db_name=None,
@@ -87,7 +87,7 @@ def prepare_env_context(
     extra_args=(),
     dry_run=False,
 ):
-    """Build the dynamic Odoo config and environment variables for a backend.
+    """Build the dynamic Odoo config and environment variables for a runtime.
 
     Returns ``(config_path, env_vars, db_name)``. ``config_path`` is ``None``
     when the user passed an explicit ``--config`` argument. ``env_vars``
@@ -106,7 +106,7 @@ def prepare_env_context(
         conf_path = build_dynamic_odoo_config(
             base,
             db_name,
-            backend,
+            runtime,
             no_db_filter=no_db_filter,
             extra_args=extra_args,
         )
@@ -144,7 +144,7 @@ class ShellRun(CommandHandler):
     """
 
     # Extension surface: parsed params (``dry_run``, ``compose_file``,
-    # ``extra_args``) plus ``base``, ``backend``, ``args``, ``db_name`` and
+    # ``extra_args``) plus ``base``, ``runtime``, ``args``, ``db_name`` and
     # ``env_spec`` as ``run()`` fills them in; ``execute()`` dispatches on
     # ``use_db_env`` — set by ``db shell`` to enter the database
     # environment instead of the project one.
@@ -171,9 +171,9 @@ class ShellRun(CommandHandler):
     @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
         self.base = find_project_root(required=True)
-        self.backend = db_module.resolve_backend(self.base)
+        self.runtime = self.backend = db_module.resolve_runtime(self.base)
         check_run_diagnostics(
-            self.base, self.backend, self.ctx, compose_file=self.compose_file
+            self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )
         self.args = list(self.extra_args)
         if self.args and self.args[0] == "--":
@@ -182,10 +182,10 @@ class ShellRun(CommandHandler):
         self.execute()
 
     def build_env_spec(self):
-        """Assemble the ``EnvSpec`` passed to ``backend.env()``."""
+        """Assemble the ``EnvSpec`` passed to ``runtime.env()``."""
         conf_path, env_vars, resolved_db = prepare_env_context(
             self.base,
-            self.backend,
+            self.runtime,
             ctx=self.ctx,
             db_name=parse_explicit_db(self.args),
             extra_args=self.args,
@@ -210,7 +210,7 @@ class ShellRun(CommandHandler):
         the Compose ``db`` service on Docker projects — over the project
         environment.
         """
-        env_fn = self.backend.db_env if self.use_db_env else self.backend.env
+        env_fn = self.runtime.db_env if self.use_db_env else self.runtime.env
         env_fn(self.ctx, self.base, self.env_spec, dry_run=self.dry_run)
 
 

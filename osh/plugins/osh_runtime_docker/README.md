@@ -1,4 +1,4 @@
-# osh_backend_docker — Docker Compose runtime
+# osh_runtime_docker — Docker Compose runtime
 
 Provides the `docker` runtime: Odoo and its tools (`psql`, `pg_dump`,
 `createdb`, ...) run inside a Docker Compose stack instead of on the host.

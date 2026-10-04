@@ -5,18 +5,18 @@ from pathlib import Path
 
 import click
 
-from ...backends import HostBackend
 from ...common import get_venv_bin, run_subprocess, venv_env
+from ...runtimes import HostRuntime
 from .python_versions import get_available_python_versions, get_python_requirements
 from .utils import init_project
 
 
-class VenvBackend(HostBackend):
+class VenvRuntime(HostRuntime):
     """Runtime that manages a project ``.venv`` and runs inside it."""
 
     name = "venv"
     label = "Python virtualenv"
-    backend_type = "backend"
+    runtime_type = "runtime"
     description = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
     help_text = (
         "Clones Odoo (and optionally Enterprise and design-themes) into ``.osh/``, "
@@ -46,7 +46,7 @@ class VenvBackend(HostBackend):
             ),
         ]
 
-    _DIAGNOSE_SECTIONS = HostBackend._DIAGNOSE_SECTIONS + (
+    _DIAGNOSE_SECTIONS = HostRuntime._DIAGNOSE_SECTIONS + (
         "python",
         "requirements",
     )
@@ -206,3 +206,7 @@ def _requirement_files(base):
         )
         if path.is_file()
     ]
+
+
+# Deprecated alias kept for plugins written against the backend API.
+VenvBackend = VenvRuntime

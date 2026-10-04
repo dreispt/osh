@@ -22,7 +22,7 @@ def osh_source_dirs(tmp_project):
 
 
 def _write_docker_config(project, port=None):
-    """Write a minimal docker backend config and generated compose file."""
+    """Write a minimal docker runtime config and generated compose file."""
     osh_dir = project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
     text = 'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
@@ -55,7 +55,7 @@ def _patch_docker_ps(monkeypatch, lines):
         return 0, "\n".join(lines), ""
 
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.discovery.run_subprocess",
+        "osh.plugins.osh_runtime_docker.discovery.run_subprocess",
         fake_run_subprocess,
     )
     return calls
@@ -142,14 +142,14 @@ def test_db(pg_db, monkeypatch):
 
 @pytest.fixture
 def capture_execvp(monkeypatch):
-    """Capture ``osh.backends.os.execvpe`` calls.
+    """Capture ``osh.runtimes.os.execvpe`` calls.
 
     Each entry is ``(exe, args, env)``; ``env`` is the full environment the
     child process would have received.
     """
     exec_calls = []
     monkeypatch.setattr(
-        "osh.backends.os.execvpe",
+        "osh.runtimes.os.execvpe",
         lambda exe, args, env: exec_calls.append((exe, args, env)),
     )
     return exec_calls
@@ -257,7 +257,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_cmd.check_run_diagnostics",
         lambda *args, **kwargs: Diagnostics(
-            backend="none", info={}, warnings=[], errors=[]
+            runtime="none", info={}, warnings=[], errors=[]
         ),
     )
 

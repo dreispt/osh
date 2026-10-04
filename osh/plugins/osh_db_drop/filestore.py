@@ -2,7 +2,7 @@
 
 from ... import echo
 from ...commands.db_cmd import Db
-from ...db import resolve_backend, run_in_backend
+from ...db import resolve_runtime, run_in_runtime
 
 
 class DanglingFilestores(Db):
@@ -28,11 +28,11 @@ class DanglingFilestores(Db):
 
 
 def remove_filestore(ctx, base, db_name):
-    """Remove the filestore directory of *db_name* inside the backend.
+    """Remove the filestore directory of *db_name* inside the runtime.
 
     Prints the removed path when a filestore directory existed. Best
     effort: warns and returns when the data dir cannot be determined.
-    On container backends the removal runs inside the container, where the
+    On container runtimes the removal runs inside the container, where the
     data dir volume is mounted.
     """
     path = _filestore_path(base, db_name)
@@ -41,7 +41,7 @@ def remove_filestore(ctx, base, db_name):
         return
     if not filestore_exists(ctx, base, db_name):
         return
-    run_in_backend(ctx, base, ["rm", "-rf", path])
+    run_in_runtime(ctx, base, ["rm", "-rf", path])
     echo.info(f"Removed filestore for '{db_name}' at {path}", err=True)
 
 
@@ -50,28 +50,28 @@ def filestore_exists(ctx, base, db_name):
     path = _filestore_path(base, db_name)
     if path is None:
         return False
-    returncode, _, _ = run_in_backend(ctx, base, ["test", "-d", path])
+    returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", path])
     return returncode == 0
 
 
 def _filestore_path(base, db_name):
-    """Return the filestore path for *db_name* inside the backend, or None."""
-    data_dir = resolve_backend(base).odoo_data_dir(base)
+    """Return the filestore path for *db_name* inside the runtime, or None."""
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
     if data_dir is None:
         return None
     return f"{data_dir}/filestore/{db_name}"
 
 
 def list_filestore_dirs(ctx, base):
-    """Return filestore directory names inside the backend env, or [].
+    """Return filestore directory names inside the runtime env, or [].
 
     Returns an empty list when the data dir cannot be determined or the
     filestore directory does not exist.
     """
-    data_dir = resolve_backend(base).odoo_data_dir(base)
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
     if data_dir is None:
         return []
-    returncode, stdout, _ = run_in_backend(
+    returncode, stdout, _ = run_in_runtime(
         ctx, base, ["ls", "-1", f"{data_dir}/filestore"]
     )
     if returncode != 0 or not stdout:

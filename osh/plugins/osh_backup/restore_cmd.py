@@ -13,8 +13,8 @@ from ...db import (
     db_exists,
     drop_db,
     get_database_version,
-    resolve_backend,
     resolve_db_name,
+    resolve_runtime,
     sanitize_db_name,
     set_last_db,
 )
@@ -27,8 +27,9 @@ from .remotes import newest_cache_for_remote, newest_cache_for_source
 
 # `osh backup restore` handler — extensions subclass DbRestore and override
 # step methods, calling super(). Command state is on ``self``: ``ctx``,
-# the parsed params plus ``base``, ``backend``, ``dump_path`` and
-# ``db_name`` as ``run()`` fills them in.
+# the parsed params plus ``base``, ``runtime``, ``dump_path`` and
+# ``db_name`` as ``run()`` fills them in; ``backend`` is a deprecated alias
+# of ``runtime``.
 class DbRestore(CommandHandler):
     """Restore a backup into the current branch's database and neutralize it.
 
@@ -49,7 +50,7 @@ class DbRestore(CommandHandler):
       .zip    -> unzip + psql + filestore copy
 
     Backup contents are streamed to the tool's standard input, so host file
-    paths never reach the backend environment — this works the same on the
+    paths never reach the runtime environment — this works the same on the
     host and inside a Docker container.
 
     For `.zip` backups, the filestore directory is copied into the configured
@@ -122,8 +123,8 @@ class DbRestore(CommandHandler):
         self.base = find_project_root(required=True)
         self.dump_path = self.resolve_dump_path()
         self.db_name = self.resolve_target_db()
-        self.backend = resolve_backend(self.base)
-        check_run_diagnostics(self.base, self.backend, self.ctx)
+        self.runtime = self.backend = resolve_runtime(self.base)
+        check_run_diagnostics(self.base, self.runtime, self.ctx)
         self.prepare_target()
         self.restore_dump()
         if not self.no_neutralize:

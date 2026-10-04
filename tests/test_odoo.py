@@ -9,7 +9,7 @@ from osh.cli import main
 from osh.commands.odoo_cmd import odoo
 from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.common import discover_addons_paths, discover_module_names
-from osh.plugins.osh_backend_docker.backends import DockerBackend
+from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 from osh.utils.odoo_layout import build_addons_paths
 
 
@@ -259,7 +259,7 @@ def test_odoo_osh_wait_env_var_waits_for_process(
 
     calls = []
     monkeypatch.setattr(
-        "osh.backends.run_command",
+        "osh.runtimes.run_command",
         lambda args, **kwargs: calls.append(list(args)),
     )
 
@@ -285,7 +285,7 @@ def test_odoo_compose_file_from_env_var(
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
     monkeypatch.setenv("OSH_COMPOSE_FILE", "devel.yaml")
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.utils._find_compose_tool",
+        "osh.plugins.osh_runtime_docker.utils._find_compose_tool",
         lambda: ["docker", "compose"],
     )
     from osh.db import set_project_config
@@ -304,12 +304,12 @@ def test_dynamic_config_translates_addons_path_for_docker(
     tmp_project,
     osh_source_dirs,
 ):
-    """The dynamic config uses container paths for the Docker backend."""
-    backend = DockerBackend()
+    """The dynamic config uses container paths for the Docker runtime."""
+    runtime = DockerRuntime()
     conf = build_dynamic_odoo_config(
         tmp_project,
         "mydb",
-        backend,
+        runtime,
     )
     text = conf.read_text()
     assert "/mnt/extra-addons/.osh/odoo/addons" in text
@@ -482,11 +482,11 @@ def test_config_odoo_dev_writes_project_config(in_project):
     assert get_project_config(in_project, "odoo", "dev") == "off"
 
 
-def test_host_backend_diagnose_reports_installed_odoo_version(
+def test_host_runtime_diagnose_reports_installed_odoo_version(
     tmp_project, fake_odoo_executable
 ):
-    """``HostBackend.diagnose`` reports the installed Odoo version."""
-    from osh.backends import HostBackend
+    """``HostRuntime.diagnose`` reports the installed Odoo version."""
+    from osh.runtimes import HostRuntime
 
-    diagnostics = HostBackend().diagnose(tmp_project)
+    diagnostics = HostRuntime().diagnose(tmp_project)
     assert diagnostics.info["host"]["odoo_version"] == "odoo 19.0"

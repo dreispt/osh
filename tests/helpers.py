@@ -11,7 +11,7 @@ def write_stub_pip(venv_path):
     ``pip install`` is the one step of ``osh venv init`` that cannot run
     for real (it fetches from PyPI), so a stub is provided as a real
     executable file — the same canned-answer technique as
-    ``osh_backend_docker/tests/fakebin/docker``.
+    ``osh_runtime_docker/tests/fakebin/docker``.
     """
     bin_dir = Path(venv_path) / ("Scripts" if os.name == "nt" else "bin")
     bin_dir.mkdir(parents=True, exist_ok=True)

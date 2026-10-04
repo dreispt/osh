@@ -1,6 +1,6 @@
 description = "Docker Compose runtime."
 
-[backends]
+[runtimes]
 docker = "Run Odoo inside a Docker Compose stack."
 
 [group_commands.docker]

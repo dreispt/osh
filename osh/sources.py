@@ -1,6 +1,6 @@
 """Core helpers for acquiring Odoo source copies.
 
-These helpers are shared by the local and Docker backends so that both can
+These helpers are shared by the local and Docker runtimes so that both can
 resolve, cache and install Odoo, Enterprise and design-themes sources under
 ``.osh/``.
 """
@@ -345,7 +345,7 @@ def _install_source_plan(
         echo.info(f"Linking {name} \u2192 {spec}\u2026", err=True)
         # Prefer a relative link for targets under the project root so it
         # survives host path moves and container mounts (e.g. the Docker
-        # backend's /mnt/extra-addons).
+        # runtime's /mnt/extra-addons).
         try:
             Path(spec).resolve().relative_to(osh_dir.parent.resolve())
             target = os.path.relpath(spec, link.parent)

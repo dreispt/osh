@@ -223,11 +223,11 @@ def test_broken_plugin_leaves_no_sys_modules_entry(plugin_dir, capsys):
     assert "osh_user_plugin_repo_k" not in sys.modules
 
 
-def test_user_plugin_backends_and_sources(plugin_dir, capsys):
-    """User plugins can contribute backends, sources and group commands."""
+def test_user_plugin_runtimes_and_sources(plugin_dir, capsys):
+    """User plugins can contribute runtimes, sources and group commands."""
     _copy_plugin(plugin_dir, "repo_l")
 
-    assert "mybackend" in plugin_loader.load_backends()
+    assert "mybackend" in plugin_loader.load_runtimes()
     entries = plugin_loader.iter_plugin_subclasses(BackupSource)
     assert any(
         s == "repo-l" and getattr(i, "scheme", None) == "myscheme" for s, i in entries
@@ -235,7 +235,7 @@ def test_user_plugin_backends_and_sources(plugin_dir, capsys):
     groups = plugin_loader.load_group_commands()
     assert any(c.name == "mysub" for _s, c in groups["db"])
 
-    # Backend lifecycle commands are ordinary group subcommands — a lazy
+    # Runtime lifecycle commands are ordinary group subcommands — a lazy
     # stub until resolved.
     from osh.cli_utils import LazyCommand
 
@@ -248,13 +248,13 @@ def test_user_plugin_backends_and_sources(plugin_dir, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_backend_name_collision_is_skipped(plugin_dir, capsys):
-    """A backend named like the built-in host runtime (legacy ``none``) is skipped."""
+def test_runtime_name_collision_is_skipped(plugin_dir, capsys):
+    """A runtime named like the built-in host runtime (legacy ``none``) is skipped."""
     _copy_plugin(plugin_dir, "repo_m")
 
-    backends = plugin_loader.load_backends()
-    assert backends["host"].__module__ == "osh.backends"
-    assert "none" not in backends
+    runtimes = plugin_loader.load_runtimes()
+    assert runtimes["host"].__module__ == "osh.runtimes"
+    assert "none" not in runtimes
     assert "conflicts" in capsys.readouterr().err
 
 
@@ -367,11 +367,11 @@ def test_lazy_command_import_error_is_reported(plugin_dir):
     assert "nonexistent_package_xyz" in result.output
 
 
-def test_lazy_backend_imports_only_its_plugin(plugin_dir):
-    """``get_backend_class`` imports only the plugin declaring the backend."""
+def test_lazy_runtime_imports_only_its_plugin(plugin_dir):
+    """``get_runtime_class`` imports only the plugin declaring the runtime."""
     _copy_plugin(plugin_dir, "repo_backends")
 
-    cls = plugin_loader.get_backend_class("a-backend")
+    cls = plugin_loader.get_runtime_class("a-backend")
 
     assert cls.__name__ == "A"
     specs = plugin_loader.plugin_registry().specs

@@ -1,4 +1,4 @@
-"""Tests for the built-in Docker backend plugin."""
+"""Tests for the built-in Docker runtime plugin."""
 
 import json
 import os
@@ -12,21 +12,21 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from osh.backends import Backend, EnvSpec
 from osh.cli import main
 from osh.commands.shell_cmd import build_dynamic_odoo_config
-from osh.plugins.osh_backend_docker.backends import DockerBackend
-from osh.utils.plugin_loader import load_backends, load_plugins
+from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
+from osh.runtimes import EnvSpec, Runtime
+from osh.utils.plugin_loader import load_plugins, load_runtimes
 
 from .conftest import FAKEBIN, _write_docker_config
 
 
-def test_docker_backends_are_registered():
-    """The docker plugin registers the unified Docker backend."""
-    backends = load_backends()
-    assert "docker" in backends
-    assert backends["docker"].name == "docker"
-    assert backends["docker"].backend_type == "backend"
+def test_docker_runtime_is_registered():
+    """The docker plugin registers the unified Docker runtime."""
+    runtimes = load_runtimes()
+    assert "docker" in runtimes
+    assert runtimes["docker"].name == "docker"
+    assert runtimes["docker"].runtime_type == "runtime"
 
 
 FIXTURE_PROJECT = os.path.join(FAKEBIN, "..", "fixtures", "odoo-project")
@@ -59,7 +59,7 @@ def docker_daemon(docker_cli, monkeypatch, tmp_path):
     # Port probing is a host socket check, not a Docker call — pretend the
     # Odoo port is free so ensure_service_up never binds anything.
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.port_in_use",
+        "osh.plugins.osh_runtime_docker.runtimes.port_in_use",
         lambda *a, **kw: False,
     )
     yield name
@@ -115,13 +115,18 @@ def docker_shared_project(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("docker-shared")
     project = tmp_path / "project"
     shutil.copytree(FIXTURE_PROJECT, project)
+    # Pin source mtimes to the past: the staleness check compares them with
+    # the image's Created, which BuildKit inherits from an earlier identical
+    # build — a cached rebuild can predate freshly copied files.
+    for path in project.rglob("*"):
+        os.utime(path, (1_600_000_000, 1_600_000_000))
     (project / ".osh").mkdir(exist_ok=True)
     shutil.copy(project / "docker.toml", project / ".osh" / "docker.toml")
     name = f"osh-test-{uuid.uuid4().hex[:8]}"
     previous = os.environ.get("COMPOSE_PROJECT_NAME")
     os.environ["COMPOSE_PROJECT_NAME"] = name
     try:
-        DockerBackend().ensure_service_up(project)
+        DockerRuntime().ensure_service_up(project)
         yield project
     finally:
         subprocess.run(
@@ -552,9 +557,9 @@ def test_init_docker_dry_run_still_validates_service(tmp_project, docker_cli):
     (tmp_project / "compose.yaml").write_text("services:\n  web:\n    image: web\n")
     from osh.commands.init_cmd import TodoPlan
 
-    backend = DockerBackend()
+    runtime = DockerRuntime()
     with pytest.raises(click.ClickException, match="Service 'odoo' not found"):
-        backend.init(
+        runtime.init(
             tmp_project,
             version="19.0",
             dry_run=True,
@@ -581,7 +586,7 @@ def test_generated_stack_runs_under_osh_project(tmp_project, capsys):
     """The generated stack runs under the isolated ``osh-*`` project name."""
     _write_docker_config(tmp_project)
 
-    DockerBackend().env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+    DockerRuntime().env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     assert " -p osh-" in capsys.readouterr().err
 
@@ -594,7 +599,7 @@ def test_foreign_compose_shares_project_name(tmp_project, capsys):
     )
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
 
-    DockerBackend().env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+    DockerRuntime().env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert str(tmp_project / "devel.yaml") in err
@@ -621,7 +626,7 @@ def test_compose_override_generated_stack_needs_none(docker_daemon, tmp_project)
         "services:\n  odoo:\n    image: busybox\n    command: sleep infinity\n"
     )
 
-    DockerBackend().ensure_service_up(tmp_project)
+    DockerRuntime().ensure_service_up(tmp_project)
 
     assert not (tmp_project / ".osh" / "docker-compose.osh.yml").exists()
     # The generated stack runs under osh's own ``-p osh-*`` project name.
@@ -638,19 +643,19 @@ def test_diagnose_reports_odoo_version_from_docker_toml(tmp_project, docker_cli)
         "service = 'odoo'\nversion = '19.0'\n"
     )
 
-    d = DockerBackend().diagnose(tmp_project)
+    d = DockerRuntime().diagnose(tmp_project)
 
     assert d.info["docker"]["odoo_version"] == "19.0"
 
 
 def test_docker_diagnose_reports_odoo_version_from_sources(tmp_project, docker_cli):
-    """DockerBackend.diagnose reports the Odoo version from .osh/odoo sources."""
+    """DockerRuntime.diagnose reports the Odoo version from .osh/odoo sources."""
     release = tmp_project / ".osh" / "odoo" / "odoo" / "release.py"
     release.parent.mkdir(parents=True, exist_ok=True)
     release.write_text('version = "21.0"\n')
 
-    backend = DockerBackend()
-    d = backend.diagnose(tmp_project)
+    runtime = DockerRuntime()
+    d = runtime.diagnose(tmp_project)
     assert d.info["docker"]["odoo_version"] == "21.0"
 
 
@@ -660,7 +665,7 @@ def test_diagnose_reports_odoo_version_from_compose_image(tmp_project, docker_cl
     compose.parent.mkdir(parents=True, exist_ok=True)
     compose.write_text("services:\n  odoo:\n    image: odoo:17.0\n")
 
-    d = DockerBackend().diagnose(tmp_project)
+    d = DockerRuntime().diagnose(tmp_project)
 
     assert d.info["docker"]["odoo_version"] == "odoo 17.0"
 
@@ -689,11 +694,11 @@ def test_init_docker_missing_compose_file_raises(tmp_project, fake_docker, monke
 
 def test_init_docker_dry_run_does_not_write(tmp_project, docker_cli, monkeypatch):
     """A dry-run ``init`` only reports what it would generate."""
-    backend = DockerBackend()
+    runtime = DockerRuntime()
 
     from osh.commands.init_cmd import TodoPlan
 
-    ok = backend.init(
+    ok = runtime.init(
         tmp_project,
         version="19.0",
         edition="ce",
@@ -707,7 +712,7 @@ def test_init_docker_dry_run_does_not_write(tmp_project, docker_cli, monkeypatch
     assert not (tmp_project / ".osh" / "docker-compose.yml").exists()
 
 
-def test_docker_backend_diagnose(tmp_project, docker_cli):
+def test_docker_runtime_diagnose(tmp_project, docker_cli):
     """``diagnose`` returns diagnostics for the configured stack."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -715,15 +720,15 @@ def test_docker_backend_diagnose(tmp_project, docker_cli):
         "service = 'odoo'\ncommand = 'odoo'\ncompose_file = 'devel.yaml'\n"
     )
 
-    backend = DockerBackend()
-    d = backend.diagnose(tmp_project)
+    runtime = DockerRuntime()
+    d = runtime.diagnose(tmp_project)
 
     assert d.info["docker"]["compose_file"] == "devel.yaml"
     assert d.info["docker"]["service"] == "odoo"
     assert d.info["docker"]["command"] == "odoo"
 
 
-def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, docker_cli):
+def test_docker_runtime_diagnose_honors_custom_compose_file(tmp_project, docker_cli):
     """``diagnose`` resolves the effective compose file from config/options."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -732,8 +737,8 @@ def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, docker_
     )
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
 
-    backend = DockerBackend()
-    d = backend.diagnose(tmp_project, phase="run")
+    runtime = DockerRuntime()
+    d = runtime.diagnose(tmp_project, phase="run")
 
     assert d.ready
     assert not d.errors
@@ -741,7 +746,7 @@ def test_docker_backend_diagnose_honors_custom_compose_file(tmp_project, docker_
     assert str(tmp_project / "devel.yaml") in d.info["docker"]["resolved_compose_file"]
 
 
-def test_docker_backend_diagnose_ee_sources_missing_with_version(
+def test_docker_runtime_diagnose_ee_sources_missing_with_version(
     tmp_project, docker_cli
 ):
     """``diagnose`` allows missing source copies when a version is configured."""
@@ -752,25 +757,25 @@ def test_docker_backend_diagnose_ee_sources_missing_with_version(
     )
     (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
 
-    backend = DockerBackend()
-    d = backend.diagnose(tmp_project, phase="run")
+    runtime = DockerRuntime()
+    d = runtime.diagnose(tmp_project, phase="run")
 
     assert d.ready
     assert not d.errors
 
 
-def test_docker_backend_diagnose_reports_container_state(docker_project):
+def test_docker_runtime_diagnose_reports_container_state(docker_project):
     """``diagnose`` reports leftover container state so users notice it."""
-    backend = DockerBackend()
+    runtime = DockerRuntime()
 
     _compose(docker_project, "up", "-d")
-    container = backend.diagnose(docker_project, phase="run").info["docker"][
+    container = runtime.diagnose(docker_project, phase="run").info["docker"][
         "container"
     ]
     assert container.startswith("running, started")
 
     _compose(docker_project, "stop")
-    container = backend.diagnose(docker_project, phase="run").info["docker"][
+    container = runtime.diagnose(docker_project, phase="run").info["docker"][
         "container"
     ]
     assert container == "not running"
@@ -784,13 +789,13 @@ def test_docker_diagnose_warns_when_context_newer_than_image(
     The shared fixture's ``app`` image was just built, so nothing is stale
     until a file inside its ``odoo/`` build context is touched.
     """
-    backend = DockerBackend()
-    warnings = backend.diagnose(docker_shared_project, phase="run").warnings
+    runtime = DockerRuntime()
+    warnings = runtime.diagnose(docker_shared_project, phase="run").warnings
     assert not any("osh docker stop" in w for w in warnings)
 
     (docker_shared_project / "odoo" / "Dockerfile").touch()
 
-    warnings = backend.diagnose(docker_shared_project, phase="run").warnings
+    warnings = runtime.diagnose(docker_shared_project, phase="run").warnings
     assert any("osh docker stop" in w for w in warnings)
 
 
@@ -803,8 +808,8 @@ def test_docker_init_rebuilds_stale_image(docker_project):
     """
     from osh.commands.init_cmd import TodoPlan
 
-    backend = DockerBackend()
-    backend.init(
+    runtime = DockerRuntime()
+    runtime.init(
         docker_project,
         version="19.0",
         service="app",
@@ -816,7 +821,7 @@ def test_docker_init_rebuilds_stale_image(docker_project):
     dockerfile.write_text(
         dockerfile.read_text() + "RUN echo init-built > /init-marker\n"
     )
-    backend.init(
+    runtime.init(
         docker_project,
         version="19.0",
         service="app",
@@ -829,7 +834,7 @@ def test_docker_init_rebuilds_stale_image(docker_project):
     assert "init-built" in result.stdout
 
 
-def test_docker_backend_env_dry_run(tmp_project, capsys):
+def test_docker_runtime_env_dry_run(tmp_project, capsys):
     """``env`` builds and prints the docker compose command in dry-run mode."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -837,8 +842,8 @@ def test_docker_backend_env_dry_run(tmp_project, capsys):
         "service = 'app'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
     )
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert "Would run:" in err
@@ -848,7 +853,7 @@ def test_docker_backend_env_dry_run(tmp_project, capsys):
     assert "odoo" in err
 
 
-def test_docker_backend_env_runs_user_command(tmp_project, capsys):
+def test_docker_runtime_env_runs_user_command(tmp_project, capsys):
     """The command passed by the user is invoked inside the container."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -856,8 +861,8 @@ def test_docker_backend_env_runs_user_command(tmp_project, capsys):
         'service = "odoo"\ncommand = "python3 -m odoo"\ncompose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
-    backend.env(
+    runtime = DockerRuntime()
+    runtime.env(
         None,
         tmp_project,
         EnvSpec(argv=["python3", "-m", "odoo"]),
@@ -868,7 +873,7 @@ def test_docker_backend_env_runs_user_command(tmp_project, capsys):
     assert "python3 -m odoo" in err
 
 
-def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsys):
+def test_docker_runtime_env_exports_pg_env_for_other_commands(tmp_project, capsys):
     """Non-odoo commands run through a shell mapping image vars to libpq vars."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -876,8 +881,8 @@ def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsy
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=["psql", "-l"]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=["psql", "-l"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert 'PGHOST="${PGHOST:-$HOST}"' in err
@@ -888,7 +893,7 @@ def test_docker_backend_env_exports_pg_env_for_other_commands(tmp_project, capsy
     assert "-e LC_ALL=C.UTF-8" in err
 
 
-def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
+def test_docker_runtime_env_odoo_command_maps_db_env(tmp_project, capsys):
     """``odoo`` runs via a wrapper mapping HOST/USER/... to libpq variables.
 
     ``compose exec`` bypasses the image entrypoint, which would map them to
@@ -901,15 +906,15 @@ def test_docker_backend_env_odoo_command_maps_db_env(tmp_project, capsys):
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert 'PGHOST="${PGHOST:-$HOST}"' in err
     assert " osh odoo" in err
 
 
-def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
+def test_docker_runtime_env_dash_args_prepend_odoo_command(tmp_project, capsys):
     """Flags as argv[0] get the configured command prepended."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -917,15 +922,15 @@ def test_docker_backend_env_dash_args_prepend_odoo_command(tmp_project, capsys):
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert 'PGHOST="${PGHOST:-$HOST}"' in err
     assert " osh odoo -d mydb" in err
 
 
-def test_docker_backend_env_parses_quoted_command(tmp_project, capsys):
+def test_docker_runtime_env_parses_quoted_command(tmp_project, capsys):
     """A configured command with shell quoting is parsed with ``shlex``.
 
     ``docker.toml`` stores commands as shell strings; splitting on
@@ -941,8 +946,8 @@ def test_docker_backend_env_parses_quoted_command(tmp_project, capsys):
     )
     (tmp_project / ".osh" / "docker-compose.yml").write_text("services:\n  odoo:\n")
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert "python3 -c 'print(1)'" in err
@@ -958,11 +963,11 @@ def test_exec_script_maps_image_vars_to_libpq(docker_shared_project, monkeypatch
     """
     calls = []
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends.os.execvp",
+        "osh.plugins.osh_runtime_docker.runtimes.os.execvp",
         lambda exe, args: calls.append(args),
     )
 
-    DockerBackend().env(
+    DockerRuntime().env(
         None, docker_shared_project, EnvSpec(argv=["odoo", "--dev=all"])
     )
 
@@ -1004,7 +1009,7 @@ def test_conf_addons_path_resolves_symlinks_on_host(tmp_project):
         tmp_project / "odoo" / "odoo", target_is_directory=True
     )
 
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
 
     addons_path = next(
         line for line in conf.read_text().splitlines() if line.startswith("addons_path")
@@ -1029,16 +1034,16 @@ def test_docker_addons_paths_mount_out_of_project_sources(
         "services:\n  odoo:\n    image: busybox\n    command: sleep infinity\n"
     )
 
-    backend = DockerBackend()
+    runtime = DockerRuntime()
 
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
     container_path = (
         conf.read_text().split("addons_path = ", 1)[1].splitlines()[0].strip()
     )
     assert container_path.startswith("/mnt/osh-src/addons-")
 
     # The override is generated on ensure_service_up and carries the mount.
-    backend.ensure_service_up(tmp_project)
+    runtime.ensure_service_up(tmp_project)
 
     override = tmp_project / ".osh" / "docker-compose.osh.yml"
     assert override.is_file()
@@ -1060,10 +1065,10 @@ def test_ensure_service_up_waits_for_db_ready(docker_shared_project):
 
 def test_ensure_service_up_skips_wait_when_stack_running(docker_shared_project):
     """Bringing up an already-running stack leaves its containers alone."""
-    backend = DockerBackend()
+    runtime = DockerRuntime()
     started = _started_at(docker_shared_project, "app")
 
-    backend.ensure_service_up(docker_shared_project)
+    runtime.ensure_service_up(docker_shared_project)
 
     assert _started_at(docker_shared_project, "app") == started
 
@@ -1080,15 +1085,15 @@ def test_ensure_service_up_warns_on_db_timeout(
         "  db:\n    image: postgres:16-alpine\n    command: sleep infinity\n"
     )
     monkeypatch.setattr(
-        "osh.plugins.osh_backend_docker.backends._DB_READY_TIMEOUT_SECONDS", 0
+        "osh.plugins.osh_runtime_docker.runtimes._DB_READY_TIMEOUT_SECONDS", 0
     )
 
-    DockerBackend().ensure_service_up(tmp_project)
+    DockerRuntime().ensure_service_up(tmp_project)
 
     assert "not accepting connections" in capsys.readouterr().out
 
 
-def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys):
+def test_docker_runtime_env_interactive_shell_exports_pg_env(tmp_project, capsys):
     """An interactive ``osh shell`` session also gets the libpq variables."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -1096,8 +1101,8 @@ def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=[]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=[]), dry_run=True)
 
     err = capsys.readouterr().err
     assert 'PGHOST="${PGHOST:-$HOST}"' in err
@@ -1105,7 +1110,7 @@ def test_docker_backend_env_interactive_shell_exports_pg_env(tmp_project, capsys
     assert "else exec sh" in err
 
 
-def test_docker_backend_db_env_targets_db_service(tmp_project, capsys):
+def test_docker_runtime_db_env_targets_db_service(tmp_project, capsys):
     """``db_env`` execs into the db service with the POSTGRES_* var mapping.
 
     ``ODOO_RC`` is dropped: the db container does not mount the project.
@@ -1116,11 +1121,11 @@ def test_docker_backend_db_env_targets_db_service(tmp_project, capsys):
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
+    runtime = DockerRuntime()
     env_spec = EnvSpec(
         argv=["psql", "-l"], env={"ODOO_RC": "/p/.osh/x.conf", "PGDATABASE": "db1"}
     )
-    backend.db_env(None, tmp_project, env_spec, dry_run=True)
+    runtime.db_env(None, tmp_project, env_spec, dry_run=True)
 
     err = capsys.readouterr().err
     assert "Would run:" in err
@@ -1134,7 +1139,7 @@ def test_docker_backend_db_env_targets_db_service(tmp_project, capsys):
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
         'db_service = "postgres"\n'
     )
-    backend.db_env(None, tmp_project, env_spec, dry_run=True)
+    runtime.db_env(None, tmp_project, env_spec, dry_run=True)
     err = capsys.readouterr().err
     assert " postgres sh -c" in err
 
@@ -1216,14 +1221,14 @@ def test_docker_list_docker_unavailable(tmp_project, fake_docker):
     assert "Could not list Docker containers" in result.output
 
 
-def test_docker_backend_requires_service(tmp_project):
+def test_docker_runtime_requires_service(tmp_project):
     """``env`` fails when no service is configured."""
-    backend = DockerBackend()
+    runtime = DockerRuntime()
     with pytest.raises(click.ClickException):
-        backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+        runtime.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
 
-def test_docker_backend_env_forwards_stdin(docker_shared_project):
+def test_docker_runtime_env_forwards_stdin(docker_shared_project):
     """``EnvSpec.stdin`` reaches the container through ``compose exec -T``.
 
     This is how ``osh backup restore`` streams dumps into the container
@@ -1234,7 +1239,7 @@ def test_docker_backend_env_forwards_stdin(docker_shared_project):
     dump.write_text(payload)
 
     with dump.open("rb") as stream:
-        rc, out, _err = DockerBackend().env(
+        rc, out, _err = DockerRuntime().env(
             None,
             docker_shared_project,
             EnvSpec(argv=["cat"], stdin=stream),
@@ -1247,15 +1252,15 @@ def test_docker_backend_env_forwards_stdin(docker_shared_project):
 
 def test_conf_data_dir_only_when_declared(tmp_project):
     """``data_dir`` is written into the run conf only when declared."""
-    backend = DockerBackend()
+    runtime = DockerRuntime()
 
     # Nothing declared: no compose file, no docker.toml key.
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
     assert "data_dir" not in conf.read_text()
 
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.write_text('service = "odoo"\ndata_dir = "/opt/odoo/data"\n')
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
     assert "data_dir = /opt/odoo/data" in conf.read_text()
 
 
@@ -1271,7 +1276,7 @@ def test_conf_data_dir_from_compose_env(tmp_project, docker_cli):
         "    environment:\n      ODOO_DATA_DIR: /odoo/data\n"
     )
 
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerBackend())
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
 
     assert "data_dir = /odoo/data" in conf.read_text()
 
@@ -1284,14 +1289,14 @@ def test_conf_data_dir_from_volume_mount(tmp_project, docker_cli):
         'compose_file = "docker-compose.yml"\n'
     )
     compose = tmp_project / "docker-compose.yml"
-    backend = DockerBackend()
+    runtime = DockerRuntime()
 
     for target in ("/odoo/data", "/var/lib/odoo"):
         compose.write_text(
             "services:\n  odoo:\n    image: odoo:19.0\n"
             f"    volumes:\n      - data:{target}\nvolumes:\n  data:\n"
         )
-        conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+        conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
         assert f"data_dir = {target}" in conf.read_text()
 
     # Unrelated mounts leave Odoo's own default untouched.
@@ -1299,11 +1304,11 @@ def test_conf_data_dir_from_volume_mount(tmp_project, docker_cli):
         "services:\n  odoo:\n    image: odoo:19.0\n"
         "    volumes:\n      - .:/mnt/extra-addons\n"
     )
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", backend)
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
     assert "data_dir" not in conf.read_text()
 
 
-def test_docker_backend_compose_file_from_config(tmp_project, capsys):
+def test_docker_runtime_compose_file_from_config(tmp_project, capsys):
     """The compose file from docker.toml is passed with ``-f``."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -1312,8 +1317,8 @@ def test_docker_backend_compose_file_from_config(tmp_project, capsys):
         'compose_tool = "docker compose"\n'
     )
 
-    backend = DockerBackend()
-    backend.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
+    runtime = DockerRuntime()
+    runtime.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
     assert "docker compose" in err
@@ -1321,7 +1326,7 @@ def test_docker_backend_compose_file_from_config(tmp_project, capsys):
     assert " exec " in err
 
 
-def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
+def test_docker_runtime_compose_file_cli_override(tmp_project, capsys):
     """A compose file passed in the click context overrides config."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -1333,8 +1338,8 @@ def test_docker_backend_compose_file_cli_override(tmp_project, capsys):
     class FakeCtx:
         params = {"compose_file": "test.yaml"}
 
-    backend = DockerBackend()
-    backend.env(
+    runtime = DockerRuntime()
+    runtime.env(
         FakeCtx(),
         tmp_project,
         EnvSpec(argv=["odoo"]),
@@ -1379,7 +1384,7 @@ def test_osh_run_docker_uses_branch_database(
     tmp_project,
     monkeypatch,
 ):
-    """``osh odoo`` on the docker backend uses a branch-based database name."""
+    """``osh odoo`` on the docker runtime uses a branch-based database name."""
     subprocess.run(["git", "init"], cwd=tmp_project, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "x@y"], cwd=tmp_project, check=True)
     subprocess.run(["git", "config", "user.name", "x"], cwd=tmp_project, check=True)
@@ -1414,24 +1419,22 @@ def test_osh_run_docker_uses_branch_database(
     assert "--db-filter" not in result.output
 
 
-def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
-    """A backend name collision is reported instead of silently ignored."""
+def test_load_runtimes_warns_on_name_collision(monkeypatch, capsys):
+    """A runtime name collision is reported instead of silently ignored."""
     from osh.utils import plugin_loader, plugin_registry
 
-    class FakeBackend(Backend):
+    class FakeRuntime(Runtime):
         name = "docker"
-        backend_type = "backend"
 
-    class OtherBackend(Backend):
+    class OtherRuntime(Runtime):
         name = "docker"
-        backend_type = "backend"
 
     first = types.ModuleType("first")
-    first.FakeBackend = FakeBackend
+    first.FakeRuntime = FakeRuntime
     second = types.ModuleType("second")
-    second.OtherBackend = OtherBackend
+    second.OtherRuntime = OtherRuntime
 
-    # Isolate the registry so only the patched modules contribute backends.
+    # Isolate the registry so only the patched modules contribute runtimes.
     monkeypatch.setattr(plugin_registry, "_REGISTRY", plugin_registry.PluginRegistry())
     monkeypatch.setattr(
         plugin_loader,
@@ -1439,8 +1442,8 @@ def test_load_backends_warns_on_name_collision(monkeypatch, capsys):
         lambda: [("first", first), ("second", second)],
     )
 
-    backends = load_backends()
-    assert backends["docker"] is FakeBackend
+    runtimes = load_runtimes()
+    assert runtimes["docker"] is FakeRuntime
     err = capsys.readouterr().err
     assert "runtime 'docker' from 'second' conflicts" in err
 
