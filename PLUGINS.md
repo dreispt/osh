@@ -460,11 +460,6 @@ names `none`/`local` resolve to `host`, and a plugin backend declaring
 `name = "none"` conflicts with the built-in. `osh backend` remains a
 hidden, deprecated alias of `osh runtime`.
 
-**Production projects:** commands that destroy a database should call
-`osh.db.confirm_prod_db_action(base, db_name, action)` before acting — it
-asks to type the database name when the project has `init.prod = true`
-(`osh init --prod`), regardless of `--force`, and is a no-op otherwise.
-
 #### Backend class attributes
 
 ```python

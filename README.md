@@ -196,35 +196,7 @@ those modules are added to the generated Odoo config as `addons_path`.
 
 ### Configuration file
 
-The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init. When `.osh/odoo.conf` doesn't exist and the `ODOO_RC` environment variable points to an existing file (e.g. `/etc/odoo.conf`), init records that file (`init.odoo_rc`) and uses it in place instead — it is never copied or modified, and stays in use on later inits without `ODOO_RC`.
-
-### Production servers
-
-On a server where Odoo is already installed and configured, use the `host`
-runtime with `osh init --prod`:
-
-```bash
-export ODOO_RC=/etc/odoo.conf          # existing config stays the source of truth
-export OSH_PROJECT_DIR=/opt/odoo/project
-osh init --prod
-```
-
-`--prod`:
-
-- Implies `--no-dev` — the dev config (`limit_time_cpu = 0`,
-  `limit_time_real = 0`, ...) is never written — and `--yes`, so no prompts.
-- Detects the Odoo version from the installed `odoo --version` when VERSION
-  is omitted.
-- Records `init.prod = true`; a later `osh init` keeps production mode.
-- Switches the project to the `host` runtime, removes zero time limits a
-  previous dev init left in `.osh/odoo.conf`, and stops `osh odoo` from
-  adding `--dev=all` (unless `[odoo] dev` is set explicitly).
-- Makes `osh db drop` and `osh backup restore` require typing the database
-  name to confirm — even with `--force` (scripts can pipe it on stdin).
-
-`OSH_PROJECT_DIR` makes every command use that project directory (resolved
-to an absolute path) instead of searching from the current directory, so
-`osh` can run from cron jobs or any working directory.
+The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init.
 
 ### Removing Osh
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import configparser
 import contextlib
 import os
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -28,16 +27,12 @@ from ..common import (
 )
 from ..config import get_init_parent, load_user_init_config, save_user_preference
 from ..db import (
-    get_active_backend_name,
     get_project_config,
-    is_prod_project,
     set_active_backend_name,
     set_project_config,
     unset_project_config,
 )
 from ..handlers import CommandHandler
-from ..utils.odoo_layout import find_odoo_executable
-from ..utils.version import get_version_from_executable
 from .helpers import Diagnostics
 
 
@@ -47,8 +42,7 @@ class Init(CommandHandler):
     VERSION: Odoo version to use (e.g., '19.0', 'saas-19.4', 'master').
     Optional — defaults to $OSH_INIT_VERSION, then the version recorded by a
     previous ``osh init`` in the project, then the saved configuration.
-    DIRECTORY: Project directory to initialise (defaults to $OSH_PROJECT_DIR,
-    then the current directory)
+    DIRECTORY: Project directory to initialise (defaults to current directory)
 
     Creates `.osh/` and the project configuration, migrates `.odoorc` and
     installs the neutralize scripts. Backend setup — virtualenv, Odoo
@@ -63,18 +57,9 @@ class Init(CommandHandler):
       osh init 19.0 --ee
       osh init 19.0 --dry-run
       osh init            # re-init using the recorded version
-      osh init --prod     # server with Odoo already installed (host runtime)
 
     With VERSION omitted, DIRECTORY can only be given as a path containing
     a separator (e.g. './another-project') — a bare name is read as VERSION.
-
-    `--prod` is for servers where the Odoo environment already exists and
-    the host runtime is used: it implies `--no-dev` and `--yes`, detects
-    VERSION from `odoo --version` when omitted, uses the config file
-    `$ODOO_RC` points to (e.g. /etc/odoo.conf) in place, and records
-    `init.prod = true` so destructive database commands require typing the
-    database name to confirm. Once recorded, re-running `osh init` keeps the
-    production settings.
     """
 
     # Command state is on ``self``: the parsed params (``version``,
@@ -89,7 +74,6 @@ class Init(CommandHandler):
     assume_yes = False
     dry_run = False
     dev = True
-    prod = False
 
     @click.argument("version", required=False, type=str)
     @click.argument(
@@ -117,13 +101,6 @@ class Init(CommandHandler):
         "Use --no-dev to disable.",
     )
     @click.option(
-        "--prod",
-        is_flag=True,
-        help="Production/sysadmin mode for an existing Odoo environment: "
-        "implies --no-dev and --yes, detects the version from the installed "
-        "Odoo and marks the project as production (init.prod).",
-    )
-    @click.option(
         "--save",
         is_flag=True,
         help="Save the resolved edition to "
@@ -143,7 +120,7 @@ class Init(CommandHandler):
     )
     def run(self):
         version, directory = _split_version_arg(self.version, self.directory)
-        self.target = _init_target(directory)
+        self.target = (directory or Path.cwd()).expanduser().resolve()
         with _rollback_new_osh_dir(self.target):
             base_init(
                 self.ctx,
@@ -154,13 +131,9 @@ class Init(CommandHandler):
                 assume_yes=self.assume_yes,
                 dry_run=self.dry_run,
                 dev=self.dev,
-                prod=self.prod,
             )
         if self.dry_run:
             echo.info(f"Dry run for project directory at {self.target}")
-        elif self.prod:
-            echo.info(f"Initialised production project directory at {self.target}")
-            echo.friendly("Commands run on the host runtime ('osh runtime status').")
         else:
             echo.info(f"Initialised project directory at {self.target}")
             echo.friendly("Next steps:")
@@ -170,15 +143,6 @@ class Init(CommandHandler):
 
 
 init = handler_command("init", Init)
-
-
-def _init_target(directory):
-    """Return the absolute project directory for ``osh init``.
-
-    Defaults to ``$OSH_PROJECT_DIR``, then the current directory.
-    """
-    directory = directory or os.environ.get("OSH_PROJECT_DIR") or Path.cwd()
-    return Path(directory).expanduser().resolve()
 
 
 def _split_version_arg(version, directory):
@@ -235,7 +199,6 @@ def base_init(
     assume_yes,
     dry_run,
     dev,
-    prod=False,
 ):
     """Common project setup shared by ``osh init`` and ``osh <runtime> init``.
 
@@ -243,21 +206,7 @@ def base_init(
     edition, migrates ``.odoorc``, applies dev-friendly config, records the
     ``[init]`` settings and installs the neutralize scripts. Returns the
     resolved ``(edition, version)`` pair for the runtime init to reuse.
-
-    *prod* (also implied by a previously recorded ``init.prod``) disables
-    the dev config and the confirmation prompts, removes zero time limits
-    a previous dev init left in ``.osh/odoo.conf``, switches the project to
-    the ``host`` runtime and detects the version from the installed Odoo
-    when not given.
     """
-    if not prod and is_prod_project(target):
-        echo.info("Project is marked as production (init.prod); keeping that mode.")
-        prod = True
-    if prod:
-        dev = False
-        assume_yes = True
-        if not version:
-            version = _detect_installed_version(target)
     version = version or _resolve_version(
         target, assume_yes=assume_yes, dry_run=dry_run
     )
@@ -301,30 +250,16 @@ def base_init(
         config_path.touch()
 
     osh_conf = copy_odoo_rc_to_osh_conf(target)
-    if dev and osh_conf.parent != osh_dir:
-        echo.info(
-            f"Not adding development options to the external config {osh_conf}.",
-            err=True,
-        )
-    elif dev:
+    if dev:
         _write_dev_config(osh_conf)
-    elif prod and osh_conf.parent == osh_dir:
-        _remove_dev_limits(osh_conf)
 
     init_values = {"version": version, "edition": edition, "dev": dev}
-    if prod:
-        init_values["prod"] = True
     if enclosing is not None:
         # Acknowledge the nesting as intentional — diagnostics tools read
         # ``init.parent``. Stored relative so the config stays valid if the
         # checkout moves.
         init_values["parent"] = os.path.relpath(enclosing, target)
     set_project_config(target, "init", values=init_values)
-    if prod:
-        previous = get_active_backend_name(target, default=None)
-        if previous and previous != "host":
-            set_active_backend_name(target, "host")
-            echo.info(f"Switched from the '{previous}' runtime to 'host'.")
     if enclosing is None and get_project_config(target, "init", "parent"):
         unset_project_config(target, "init", "parent")
     setup_project_neutralize_scripts(target, version)
@@ -519,51 +454,6 @@ def _write_dev_config(osh_conf):
     odoo_cfg.set("options", "limit_time_real", "0")
     with osh_conf.open("w", encoding="utf-8") as f:
         odoo_cfg.write(f)
-
-
-def _remove_dev_limits(osh_conf):
-    """Remove the unlimited (``0``) timeouts ``_write_dev_config`` sets."""
-    if not osh_conf.exists():
-        return
-    odoo_cfg = configparser.ConfigParser()
-    odoo_cfg.read(osh_conf, encoding="utf-8")
-    removed = [
-        option
-        for option in ("limit_time_cpu", "limit_time_real")
-        if odoo_cfg.get("options", option, fallback=None) == "0"
-    ]
-    if not removed:
-        return
-    for option in removed:
-        odoo_cfg.remove_option("options", option)
-    with osh_conf.open("w", encoding="utf-8") as f:
-        odoo_cfg.write(f)
-    echo.info(f"Removed unlimited {', '.join(removed)} from {osh_conf}.", err=True)
-
-
-def _detect_installed_version(target):
-    """Return the Odoo version reported by the resolved executable, or None.
-
-    Runs ``odoo --version`` on the executable ``find_odoo_executable``
-    resolves (project venv, ``.osh/odoo`` sources, then ``PATH``) and maps
-    its output (``Odoo Server 17.0``, ``Odoo Server saas~17.4``) to an Osh
-    version string (``17.0``, ``saas-17.4``).
-    """
-    exe = find_odoo_executable(target)
-    output = get_version_from_executable(exe) if exe else None
-    version = _parse_odoo_version(output) if output else None
-    if version:
-        echo.info(f"Detected Odoo {version} from {exe}")
-    return version
-
-
-def _parse_odoo_version(text):
-    """Return the Osh version string in ``odoo --version`` *text*, or None."""
-    match = re.search(r"saas[~-](\d+\.\d+)", text)
-    if match:
-        return f"saas-{match.group(1)}"
-    match = re.search(r"\b(\d+\.\d+)", text)
-    return match.group(1) if match else None
 
 
 def _resolve_version(target, *, assume_yes, dry_run):

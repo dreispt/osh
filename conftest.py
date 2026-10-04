@@ -42,13 +42,7 @@ def _isolated_env(monkeypatch):
     ``PG*`` variables are kept: they may be required to reach the test
     PostgreSQL server.
     """
-    for var in (
-        "VIRTUAL_ENV",
-        "ODOO_RC",
-        "OSH_INIT_VERSION",
-        "OSH_INIT_EDITION",
-        "OSH_PROJECT_DIR",
-    ):
+    for var in ("VIRTUAL_ENV", "ODOO_RC", "OSH_INIT_VERSION", "OSH_INIT_EDITION"):
         monkeypatch.delenv(var, raising=False)
 
 

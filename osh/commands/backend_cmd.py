@@ -17,6 +17,8 @@ and ``list`` report what is active and available, ``activate`` and
 hidden, deprecated alias of ``osh runtime``.
 """
 
+from pathlib import Path
+
 import click
 
 from .. import echo
@@ -33,7 +35,6 @@ from ..utils.plugin_loader import backend_meta, get_backend_class
 from .helpers import check_run_diagnostics
 from .init_cmd import (
     Init,
-    _init_target,
     _rollback_new_osh_dir,
     _split_version_arg,
     base_init,
@@ -162,7 +163,7 @@ class BackendCommands(CommandHandler):
         ``run_backend_init`` for the runtime-specific setup.
         """
         version, directory = _split_version_arg(self.version, self.directory)
-        target = _init_target(directory)
+        target = (directory or Path.cwd()).expanduser().resolve()
         with _rollback_new_osh_dir(target):
             edition, version = base_init(
                 self.ctx,
@@ -173,7 +174,6 @@ class BackendCommands(CommandHandler):
                 assume_yes=self.assume_yes,
                 dry_run=self.dry_run,
                 dev=self.dev,
-                prod=self.prod,
             )
             run_backend_init(
                 self.ctx,
@@ -181,7 +181,7 @@ class BackendCommands(CommandHandler):
                 target,
                 version=version,
                 edition=edition,
-                assume_yes=self.assume_yes or self.prod,
+                assume_yes=self.assume_yes,
                 dry_run=self.dry_run,
                 **self.backend_options(self.backend_cls().get_init_options()),
             )
@@ -226,7 +226,6 @@ class BackendCommands(CommandHandler):
     assume_yes = False
     dry_run = False
     dev = True
-    prod = False
 
     @classmethod
     def backend_name(cls):

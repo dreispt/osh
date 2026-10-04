@@ -28,7 +28,6 @@ from .common import (
     file_newer_than,
     find_shell,
     format_cmd,
-    get_external_odoo_config_path,
     get_odoo_config_path,
     get_odoo_data_dir,
     get_odoo_port,
@@ -38,7 +37,6 @@ from .common import (
     run_command,
     run_subprocess,
 )
-from .config import get_project_config, set_project_config
 from .utils.odoo_layout import find_odoo_executable
 from .utils.version import get_version_from_executable
 
@@ -51,28 +49,12 @@ _PORT_POLL_INTERVAL_SECONDS = 0.1
 
 
 def copy_odoo_rc_to_osh_conf(base):
-    """Set up the project's Odoo config file and return its path.
+    """Copy .odoorc to .osh/odoo.conf if .odoorc exists and .osh/odoo.conf doesn't.
 
-    When ``.osh/odoo.conf`` does not exist and the ``ODOO_RC`` environment
-    variable points to an existing file (e.g. ``/etc/odoo.conf`` on a
-    server), that file is recorded as ``init.odoo_rc`` and used in place —
-    the production config stays the source of truth; a recorded file keeps
-    being used on later inits without ``ODOO_RC``. Otherwise ``.odoorc``
-    is copied to ``.osh/odoo.conf`` if it exists and ``.osh/odoo.conf``
-    doesn't, and the path to ``.osh/odoo.conf`` is returned.
+    Returns the path to ``.osh/odoo.conf`` regardless of whether a copy happened.
     """
     odoo_rc = base / ".odoorc"
-    osh_odoo_conf = base / ".osh" / "odoo.conf"
-    env_rc = os.environ.get("ODOO_RC")
-    if not osh_odoo_conf.exists() and env_rc and Path(env_rc).expanduser().is_file():
-        external = Path(env_rc).expanduser().resolve()
-        if get_project_config(base, "init", "odoo_rc") != str(external):
-            set_project_config(base, "init", "odoo_rc", str(external))
-            echo.info(f"Using Odoo config from ODOO_RC: {external}", err=True)
-        return external
-    external = None if osh_odoo_conf.exists() else get_external_odoo_config_path(base)
-    if external:
-        return external
+    osh_odoo_conf = get_osh_odoo_config_path(base)
     if odoo_rc.exists() and not osh_odoo_conf.exists():
         shutil.copy(odoo_rc, osh_odoo_conf)
         echo.info("Copied .odoorc to .osh/odoo.conf", err=True)

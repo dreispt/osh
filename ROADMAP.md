@@ -16,13 +16,6 @@ The user-facing "backend" concept is now "runtime" (`osh runtime`, `run.runtime`
 - The `init.target` record written by `osh <runtime> init`.
 - Drop the hidden `osh backend` alias, the `none`/`local` name aliases and `NoneBackend` after a deprecation period.
 
-## Production support
-
-`osh init --prod`, `ODOO_RC` in place and `OSH_PROJECT_DIR` cover servers where Odoo is already installed. Possible follow-ups:
-
-- Extend the typed-name confirmation to other destructive commands (e.g. `osh addon uninstall` from plugins, `osh db copy` over an existing database).
-- An `osh config` command to toggle `init.prod` explicitly.
-
 ## Plugin test discovery
 
 - Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_backend_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.

@@ -180,32 +180,6 @@ def set_active_backend_name(base, name):
         unset_project_config(base, "run", "target")
 
 
-def is_prod_project(base):
-    """Return True when the project was initialised with ``osh init --prod``."""
-    value = get_project_config(base, "init", "prod")
-    return str(value).strip().lower() in ("true", "1", "yes")
-
-
-def confirm_prod_db_action(base, db_name, action):
-    """Ask to type *db_name* before *action* on a production project.
-
-    No-op unless the project config has ``init.prod = true``. The typed
-    confirmation is required even with ``--force``; scripts can pipe the
-    database name on stdin.
-    """
-    if not is_prod_project(base):
-        return
-    echo.warning(
-        f"This is a production project (init.prod = true): about to {action} "
-        f"database '{db_name}'."
-    )
-    typed = click.prompt(
-        "Type the database name to confirm", default="", show_default=False
-    )
-    if typed.strip() != db_name:
-        raise click.ClickException("Database name did not match. Aborted.")
-
-
 def deactivate_backend(base):
     """Record ``host`` as the active runtime; return the previous name.
 
