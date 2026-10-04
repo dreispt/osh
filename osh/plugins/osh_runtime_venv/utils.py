@@ -157,6 +157,30 @@ def _setup_environment(
         _create_venv(venv_path, python["exe"])
 
     pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
+    marker = venv_path / ".osh-installed"
+
+    # Skip the pip installs when the recorded install is newer than every
+    # input it consumed — the same freshness check the stale-environment
+    # diagnostic uses. Directory mtimes do not reliably change when pip
+    # installs a package, hence the marker file.
+    inputs = [
+        path
+        for path in (
+            odoo_link / "requirements.txt",
+            target / "requirements.txt",
+            odoo_link / "setup.py",
+        )
+        if path.is_file()
+    ]
+    if marker.exists() and all(
+        path.stat().st_mtime <= marker.stat().st_mtime for path in inputs
+    ):
+        echo.info(
+            f"Odoo and requirements already installed in {venv_path}; "
+            "skipping reinstall\u2026",
+            err=True,
+        )
+        return True
 
     requirements_file = odoo_link / "requirements.txt"
     if requirements_file.exists():
