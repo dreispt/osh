@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-plugin"
+version = "1.2.3"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+my-plugin = "my_plugin"
+
+[tool.setuptools]
+package-dir = { "my_plugin" = "." }
+packages = ["my_plugin"]
+
+[tool.setuptools.package-data]
+my_plugin = ["pyproject.toml"]
+
+[tool.osh]
+description = "A test plugin."
+version = "1.2.3"

@@ -4,16 +4,7 @@ Importing this package provides the list `COMMANDS` that can be registered
 with the root click group in `cli.py`.
 """
 
-from . import (
-    addon_cmd,
-    config_cmd,
-    db_cmd,
-    init_cmd,
-    odoo_cmd,
-    plug_cmd,
-    runtime_cmd,
-    shell_cmd,
-)
+from . import addon_cmd, config_cmd, db_cmd, init_cmd, odoo_cmd, runtime_cmd, shell_cmd
 
 COMMANDS = [
     init_cmd.init,
@@ -24,7 +15,6 @@ COMMANDS = [
     runtime_cmd.runtime,
     runtime_cmd.backend,
     config_cmd.config,
-    plug_cmd.plug,
 ]
 
 __all__ = ["COMMANDS"]

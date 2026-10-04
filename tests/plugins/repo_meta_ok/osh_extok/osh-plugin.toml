@@ -1,2 +1,0 @@
-extends = ["thing"]
-depends = ["osh-prov"]

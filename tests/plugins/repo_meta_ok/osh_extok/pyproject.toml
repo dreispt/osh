@@ -1,0 +1,3 @@
+[tool.osh]
+extends = ["thing"]
+depends = ["osh-prov"]

@@ -1,2 +1,0 @@
-extends = ["no.such"]
-depends = ["osh-absent"]

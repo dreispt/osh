@@ -1,8 +1,9 @@
 """Plugin registry — stage 1 of the two-stage loading model.
 
 Stage 1 — discovery without import: ``PluginRegistry`` scans plugin
-*metadata* only — ``osh-plugin.toml`` files for built-in and directory
-plugins, entry-point names/values for installed distributions — and the
+*metadata* only — ``[tool.osh]`` in ``pyproject.toml`` for installed
+distributions (or the deprecated ``osh-plugin.toml`` marker), and
+``osh-plugin.toml`` files for built-in plugins — and the
 loaders register lazy Click stubs (see ``osh.cli_utils.LazyCommand``).
 Plugin modules are never evaluated while commands are listed or
 ``osh --help`` renders.
@@ -12,23 +13,25 @@ is imported the first time one of its contributions is needed — its
 command invoked, a handler it extends executed, its runtime selected, or
 its backup source scheme used.
 
-``osh-plugin.toml`` declares a plugin's surface for stage 1::
+``[tool.osh]`` in ``pyproject.toml`` declares a plugin's surface for
+stage 1 (the deprecated ``osh-plugin.toml`` marker holds the same keys)::
 
+    [tool.osh]
     description = "Short plugin description."
     extends = ["backup.restore"]          # handlers the plugin extends
     handlers = ["my_plugin.cmd"]          # named non-CLI handlers provided
     depends = ["osh-backup"]              # plugins imported before this one
 
-    [commands]                            # top-level commands
+    [tool.osh.commands]                   # top-level commands
     scan = "Scan things."
-    [group_commands.db]                   # subcommands of an existing group
+    [tool.osh.group_commands.db]          # subcommands of an existing group
     audit = "Audit the db."
     remote = { group = true, help = "Manage remotes." }
-    [group_commands.docker]               # ``osh docker`` lifecycle commands
+    [tool.osh.group_commands.docker]      # ``osh docker`` lifecycle commands
     init = "Initialise for the docker runtime."
-    [runtimes]                            # runtime classes provided
+    [tool.osh.runtimes]                   # runtime classes provided
     docker = "Run inside Docker."
-    [sources]                             # BackupSource schemes provided
+    [tool.osh.sources]                    # BackupSource schemes provided
     s3 = "S3 backups."
 
 Declaration values are short help strings, or tables with ``help`` and
@@ -40,26 +43,24 @@ subclasses and ``Runtime``/``BackupSource`` subclasses are discovered
 among module attributes — the toml only says *when* the module is worth
 importing.
 
-Compatibility: plugins without ``osh-plugin.toml`` — a bare root package
-(``__init__.py``/``osh_plugin.py``) in the user plugin dir, or an entry
-point without a ``:attr`` target — still load eagerly; their
+Compatibility: plugins without declarations — an entry point
+without a ``:attr`` target — still load eagerly; their
 self-describing classes are discovered on import. That eager import is
 the cost of the undeclared contract.
 """
 
+import functools
 import importlib
 import importlib.util
-import os
 import pkgutil
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
 
 from .. import echo
-from ..config import get_enabled_plugins
+from ..config import tomllib
 
 try:
     import importlib.metadata as _metadata
@@ -76,26 +77,25 @@ class PluginSpec:
     """Stage-1 metadata for a plugin — enough to register and decide.
 
     Everything needed to render help and place commands lives in *meta*
-    (the ``osh-plugin.toml`` contents) and the spec fields; the plugin's
+    (the ``[tool.osh]``/marker contents) and the spec fields; the plugin's
     module is only touched by ``load()``.
 
     *target_ref* is an importable module path (``"osh.plugins.osh_backup"``,
     ``"osh_aws.cli"``), optionally ``"module:attr"`` for entry-point
-    plugins, or a filesystem path for directory plugins. *lazy* is False
-    for unmarked plugins, which must import eagerly because nothing
-    declares their contributions beforehand.
+    plugins. *lazy* is False for unmarked plugins, which must import
+    eagerly because nothing declares their contributions beforehand.
     """
 
     name: str
     target_ref: str
-    kind: str = "user"  # "builtin" | "entry_point" | "user"
+    kind: str = "builtin"  # "builtin" | "entry_point"
     meta: dict = field(default_factory=dict)
-    path: Path = None
-    prefix: str = "osh_user_plugin"
+    path: Path | None = None
+    legacy_marker: bool = False
     lazy: bool = True
     help_text: str = ""
     version: str = ""
-    _module: object = None
+    _module: object | None = None
     _loaded: bool = False
     _loading: bool = False
 
@@ -137,9 +137,7 @@ class PluginSpec:
             for dep in deps:
                 spec = specs.get(dep)
                 if spec is None:
-                    raise RuntimeError(
-                        f"depends on '{dep}', which is not installed or enabled"
-                    )
+                    raise RuntimeError(f"depends on '{dep}', which is not installed")
                 if spec._loading:
                     raise RuntimeError(f"circular dependency on '{dep}'")
                 try:
@@ -154,8 +152,6 @@ class PluginSpec:
             self._loading = False
 
     def _import(self):
-        if self.kind == "user":
-            return _import_plugin_from_dir(self.path, prefix=self.prefix)
         module_name = self.target_ref.split(":", 1)[0]
         return importlib.import_module(module_name)
 
@@ -232,16 +228,14 @@ class PluginRegistry:
         self._meta_checked = False
 
     def discover(self):
-        """Populate ``specs`` from built-ins, entry points and user dirs.
+        """Populate ``specs`` from built-ins and entry points.
 
         No plugin module is imported: built-ins are listed with
-        ``pkgutil.iter_modules``, entry points read their
-        ``importlib.metadata`` entries (``ep.load()`` is never called), and
-        directory plugins are detected by marker files.
+        ``pkgutil.iter_modules`` and entry points read their
+        ``importlib.metadata`` entries (``ep.load()`` is never called).
         """
         self._discover_builtins()
         self._discover_entry_points()
-        self._discover_user_plugins()
         return self
 
     def _discover_builtins(self):
@@ -262,7 +256,7 @@ class PluginRegistry:
 
     def _discover_entry_points(self):
         for ep in _iter_entry_points():
-            meta = _ep_meta(ep.value.split(":", 1)[0])
+            meta, legacy = _ep_meta(ep.value.split(":", 1)[0])
             self._add_spec(
                 ep.name,
                 ep.value,
@@ -270,40 +264,8 @@ class PluginRegistry:
                 meta=meta,
                 help_text=_ep_summary(ep),
                 version=_ep_version(ep),
+                legacy_marker=legacy,
             )
-
-    def _discover_user_plugins(self):
-        plugin_dir = user_plugin_dir()
-        if not plugin_dir.is_dir():
-            return
-        for child in sorted(plugin_dir.iterdir()):
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            enabled = get_enabled_plugins(child.name)
-            # The dir itself may be a plugin package…
-            if (child / "__init__.py").is_file() or (child / "osh_plugin.py").is_file():
-                if enabled is None or plugin_source_name(child.name) in enabled:
-                    self._add_spec(
-                        plugin_source_name(child.name),
-                        str(child),
-                        kind="user",
-                        path=child,
-                    )
-            # …or a repository of marked plugin packages (see _is_plugin_dir).
-            prefix = f"osh_user_plugin_{_plugin_name_from_path(child)}"
-            for subdir in plugin_subdirs(child):
-                if not _is_plugin_dir(subdir):
-                    continue
-                source = plugin_source_name(subdir.name)
-                if enabled is not None and source not in enabled:
-                    continue
-                self._add_spec(
-                    source,
-                    str(subdir),
-                    kind="user",
-                    path=subdir,
-                    prefix=prefix,
-                )
 
     def _add_spec(
         self,
@@ -312,10 +274,10 @@ class PluginRegistry:
         *,
         kind,
         path=None,
-        prefix="osh_user_plugin",
         meta=None,
         help_text="",
         version="",
+        legacy_marker=False,
     ):
         if name in self.specs:
             echo.error(f"duplicate plugin source '{name}' ignored: {target_ref}")
@@ -341,7 +303,7 @@ class PluginRegistry:
             kind=kind,
             meta=meta,
             path=path,
-            prefix=prefix,
+            legacy_marker=legacy_marker,
             lazy=lazy,
             help_text=help_text or str(meta.get("description", "")),
             version=version,
@@ -369,8 +331,8 @@ def _iter_entry_points(group="osh.plugins"):
     """Yield ``importlib.metadata.EntryPoint`` objects — never ``ep.load()``.
 
     ``ep.name`` is the plugin's source name and ``ep.value`` its target
-    (``"pkg.module"`` or ``"pkg.module:attr"``); a plugin whose package
-    ships ``osh-plugin.toml`` at its root gets the full lazy treatment.
+    (``"pkg.module"`` or ``"pkg.module:attr"``); a plugin declaring
+    ``[tool.osh]`` gets the full lazy treatment.
     """
     if _metadata is None:
         return
@@ -387,18 +349,46 @@ def _iter_entry_points(group="osh.plugins"):
 
 
 def _ep_meta(module_name):
-    """Return the ``osh-plugin.toml`` metadata of an installed package.
+    """Return the declared plugin metadata of an installed package.
 
-    Uses ``importlib.util.find_spec`` on the top-level package only, so the
+    Returns ``(meta, legacy)`` — *legacy* marks metadata coming from the
+    deprecated ``osh-plugin.toml`` marker; ``[tool.osh]`` in the package's
+    ``pyproject.toml`` is the canonical location. Uses
+    ``importlib.util.find_spec`` on the top-level package only, so the
     plugin's module is never imported.
     """
     try:
         spec = importlib.util.find_spec(module_name.split(".", 1)[0])
     except (ImportError, ValueError, AttributeError):
-        return {}
+        return {}, False
     if spec is None or not spec.origin:
-        return {}
-    return plugin_meta(Path(spec.origin).parent)
+        return {}, False
+    package_dir = Path(spec.origin).parent
+    meta = _pyproject_meta(package_dir)
+    if meta:
+        return meta, False
+    marker_meta = plugin_meta(package_dir)
+    return marker_meta, bool(marker_meta)
+
+
+def _pyproject_meta(package_dir):
+    """Return ``[tool.osh]`` from a ``pyproject.toml`` near *package_dir*.
+
+    Checked at the package dir and two levels up — covering a
+    ``pyproject.toml`` shipped inside the package as well as flat and
+    ``src/`` layouts in editable installs. The first file declaring
+    ``[tool.osh]`` wins.
+    """
+
+    for directory in (package_dir, *package_dir.parents[:2]):
+        pyproject = directory / "pyproject.toml"
+        if not pyproject.is_file():
+            continue
+        tool = _read_toml(pyproject).get("tool")
+        meta = tool.get("osh") if isinstance(tool, dict) else None
+        if isinstance(meta, dict):
+            return _normalize_meta(meta)
+    return {}
 
 
 def _ep_summary(ep):
@@ -423,64 +413,6 @@ def _ep_version(ep):
     return ""
 
 
-def user_plugin_dir():
-    """Return the directory where user plugins are installed."""
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    if config_home:
-        base = Path(config_home)
-    else:
-        base = Path.home() / ".config"
-    return base / "osh" / "plugins"
-
-
-def _plugin_name_from_path(path):
-    """Return a valid Python module name for a plugin directory."""
-    name = path.name
-    name = re.sub(r"[^a-zA-Z0-9_]+", "_", name)
-    name = name.strip("_")
-    if name and name[0].isdigit():
-        name = f"plugin_{name}"
-    return name or "plugin"
-
-
-def _import_plugin_from_dir(plugin_dir, prefix="osh_user_plugin"):
-    """Import a plugin package or `osh_plugin.py` from a directory."""
-    if not plugin_dir.is_dir():
-        return None
-
-    init_file = plugin_dir / "__init__.py"
-    module_file = plugin_dir / "osh_plugin.py"
-    module_name = f"{prefix}_{_plugin_name_from_path(plugin_dir)}"
-
-    if init_file.is_file():
-        spec = importlib.util.spec_from_file_location(
-            module_name, init_file, submodule_search_locations=[str(plugin_dir)]
-        )
-    elif module_file.is_file():
-        spec = importlib.util.spec_from_file_location(module_name, module_file)
-    else:
-        return None
-
-    if spec is None or spec.loader is None:
-        return None
-
-    cached = sys.modules.get(module_name)
-    if cached is not None and getattr(cached, "__file__", None) in (
-        str(init_file),
-        str(module_file),
-    ):
-        return cached
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(module_name, None)
-        raise
-    return module
-
-
 def plugin_source_name(name):
     """Return a CLI-friendly source identifier from a plugin module/directory name."""
     name = re.sub(r"^osh\.plugins\.", "", name)
@@ -488,52 +420,43 @@ def plugin_source_name(name):
     return name.strip("-") or "plugin"
 
 
-def plugin_subdirs(directory):
-    """Yield direct subdirectories of *directory* that are Python packages."""
-    try:
-        children = sorted(directory.iterdir())
-    except OSError:
-        return
-    for child in children:
-        if (
-            child.is_dir()
-            and not child.name.startswith(".")
-            and child.name.isidentifier()
-            and (child / "__init__.py").is_file()
-        ):
-            yield child
-
-
-def _is_plugin_dir(path):
-    """Whether *path* is marked as a plugin package by ``osh-plugin.toml``.
-
-    Checked without importing the package, so unmarked code never
-    executes.
-    """
-    return (path / PLUGIN_MARKER).is_file()
-
-
 def plugin_meta(path):
-    """Return the metadata dict from a plugin dir's ``osh-plugin.toml``.
-
-    The legacy ``[backends]`` section is merged into ``[runtimes]`` — the
-    old name is deprecated and scheduled for removal in a later release.
-    """
+    """Return the metadata dict from a plugin package's ``osh-plugin.toml``."""
     marker = path / PLUGIN_MARKER
     if not marker.is_file():
         return {}
-    try:
-        from ..config import tomllib
+    return _normalize_meta(_read_toml(marker))
 
-        meta = tomllib.loads(marker.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+
+@functools.lru_cache(maxsize=256)
+def _read_toml(path):
+    """Return the parsed TOML dict of *path*; warn and return ``{}`` on failure.
+
+    Results are cached — discovery reads each ``pyproject.toml`` once per
+    entry point in a multi-plugin distribution, and the warning fires once
+    per file rather than per lookup.
+    """
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        echo.warning(f"Could not parse {path}: {exc}", err=True)
         return {}
-    if isinstance(meta.get("backends"), dict):
-        runtimes = meta.setdefault("runtimes", {})
-        if isinstance(runtimes, dict):
-            runtimes.update(meta.pop("backends"))
-        else:
-            meta["runtimes"] = meta.pop("backends")
+
+
+def _normalize_meta(meta):
+    """Return *meta* with the legacy ``[backends]`` table merged into ``[runtimes]``.
+
+    The old section name is deprecated and scheduled for removal in a
+    later release. Returns a new dict; the parsed TOML is never mutated —
+    it may be shared through the ``_read_toml`` cache.
+    """
+    backends = meta.get("backends")
+    if not isinstance(backends, dict):
+        return meta
+    meta = dict(meta)
+    runtimes = meta.get("runtimes")
+    meta["runtimes"] = {**(runtimes if isinstance(runtimes, dict) else {}), **backends}
+    del meta["backends"]
     return meta
 
 

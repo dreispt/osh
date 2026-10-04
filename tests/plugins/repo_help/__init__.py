@@ -1,1 +1,1 @@
-"""Repo package."""
+"""Helped plugin."""

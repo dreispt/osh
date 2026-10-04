@@ -1,41 +1,24 @@
-"""Tests for user plugin loading and subplugin discovery.
+"""Tests for plugin loading via installed Python distributions.
 
-A user plugin directory can be a multi-plugin repository: each direct
-subpackage marked with ``osh-plugin.toml`` registers as a plugin of its
-own, so repos like osh-contrib need no aggregation code.
-
-Fake plugin trees are static fixtures under ``tests/plugins/`` — each
-test copies the ones it needs into a temporary user plugin dir.
+Plugins are ordinary Python packages: ``pip install`` places the package
+and a ``.dist-info`` directory on ``sys.path``, and the distribution
+declares its plugins as ``osh.plugins`` entry points. These tests run
+the real thing — fixture projects under ``tests/plugins/`` are built
+into wheels and ``pip install``ed into the test's site dir — so the
+``importlib.metadata`` discovery path is exercised end to end.
 """
-
-import shutil
-from pathlib import Path
 
 import pytest
 
 from osh.backup_sources import BackupSource
 from osh.utils import plugin_loader, plugin_registry
 
-PLUGINS_DATA = Path(__file__).parent / "plugins"
+from .helpers import PLUGINS_DATA
 
 
-def _copy_plugin(plugin_dir, name, dest=None):
-    """Copy the static *name* plugin tree into the fake user plugin dir."""
-    shutil.copytree(PLUGINS_DATA / name, plugin_dir / (dest or name))
-
-
-@pytest.fixture
-def plugin_dir(tmp_path, monkeypatch):
-    """A fake user plugin directory used by the plugin loader."""
-    directory = tmp_path / "plugins"
-    directory.mkdir()
-    monkeypatch.setattr(plugin_registry, "user_plugin_dir", lambda: directory)
-    return directory
-
-
-def test_subpackages_load_as_plugins(plugin_dir):
-    """Each marked subpackage is a plugin; no root marker needed."""
-    _copy_plugin(plugin_dir, "repo_a")
+def test_each_entry_point_is_a_plugin(pip_install):
+    """One distribution can ship several plugins — one per entry point."""
+    pip_install("repo_a")
 
     specs = plugin_registry.plugin_registry().specs
     assert specs["osh-one"].lazy and specs["osh-two"].lazy
@@ -43,15 +26,7 @@ def test_subpackages_load_as_plugins(plugin_dir):
     assert commands["one_cmd"] == "osh-one"
 
 
-def test_root_plugin_and_subplugins_both_load(plugin_dir):
-    """A root package marked with its own toml still registers."""
-    _copy_plugin(plugin_dir, "repo_b")
-
-    specs = plugin_registry.plugin_registry().specs
-    assert specs["repo-b"].lazy and specs["osh-sub"].lazy
-
-
-def test_builtin_plugins_inherit_osh_version(plugin_dir):
+def test_builtin_plugins_inherit_osh_version():
     """Builtin specs inherit the osh package version — no toml needed."""
     import osh
 
@@ -60,34 +35,34 @@ def test_builtin_plugins_inherit_osh_version(plugin_dir):
     assert spec.version == osh.__version__
 
 
-def test_user_plugin_version_comes_from_marker(plugin_dir):
-    """A user plugin's ``version`` marker key lands on its spec."""
-    _copy_plugin(plugin_dir, "plug_src")
+def test_plugin_version_comes_from_distribution(pip_install):
+    """A plugin's spec version is the installed distribution's version."""
+    pip_install("plug_src")
 
     spec = plugin_registry.plugin_registry().specs["my-plugin"]
     assert spec.version == "1.2.3"
 
 
-def test_min_osh_blocks_incompatible_plugin(plugin_dir):
+def test_min_osh_blocks_incompatible_plugin(pip_install):
     """A plugin declaring ``min_osh`` newer than osh fails to load."""
-    _copy_plugin(plugin_dir, "repo_min")
+    pip_install("repo_min")
 
     spec = plugin_registry.plugin_registry().specs["osh-future"]
     with pytest.raises(RuntimeError, match="requires osh >= 99.0"):
         spec.load()
 
 
-def test_min_osh_satisfied_plugin_loads(plugin_dir):
+def test_min_osh_satisfied_plugin_loads(pip_install):
     """A plugin whose ``min_osh`` is met loads and resolves commands."""
-    _copy_plugin(plugin_dir, "repo_min")
+    pip_install("repo_min")
 
     spec = plugin_registry.plugin_registry().specs["osh-okmin"]
     assert spec.resolve_command(None, "okmin_cmd") is not None
 
 
-def test_min_osh_warns_once(plugin_dir, capsys):
+def test_min_osh_warns_once(pip_install, capsys):
     """An unmet ``min_osh`` warns at startup without importing the plugin."""
-    _copy_plugin(plugin_dir, "repo_min")
+    pip_install("repo_min")
 
     plugin_loader.warn_unresolved_meta()
     err = capsys.readouterr().err
@@ -96,42 +71,30 @@ def test_min_osh_warns_once(plugin_dir, capsys):
     assert not plugin_registry.plugin_registry().specs["osh-future"].loaded
 
 
-def test_min_osh_unparsable_warns_not_blocks(plugin_dir, capsys):
+def test_min_osh_unparsable_warns_not_blocks(pip_install, capsys):
     """An unparsable ``min_osh`` warns but does not block the plugin."""
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-    pkg = plugin_dir / "repo_bad" / "osh_bad"
-    pkg.mkdir(parents=True)
-    (pkg / "osh-plugin.toml").write_text(
-        'min_osh = "banana"\n[commands]\nbad_cmd = "Bad."\n'
-    )
-    (pkg / "__init__.py").write_text(
-        "from osh.handlers import CommandHandler\n\n\n"
-        "class Bad(CommandHandler):\n"
-        '    _cli_name = "bad_cmd"\n'
-        "    def run(self):\n"
-        "        pass\n"
-    )
+    pip_install("repo_badmin")
 
     plugin_loader.warn_unresolved_meta()
     err = capsys.readouterr().err
-    assert "plugin 'osh-bad' declares min_osh='banana'" in err
-    spec = plugin_registry.plugin_registry().specs["osh-bad"]
+    assert "plugin 'osh-badmin' declares min_osh='banana'" in err
+    spec = plugin_registry.plugin_registry().specs["osh-badmin"]
     assert spec.resolve_command(None, "bad_cmd") is not None
 
 
-def test_subplugin_relative_imports_work(plugin_dir):
-    """Subplugin packages are real packages, so relative imports resolve."""
-    _copy_plugin(plugin_dir, "repo_c")
+def test_relative_imports_resolve_in_installed_packages(pip_install):
+    """Installed plugins are real packages, so relative imports resolve."""
+    pip_install("repo_c")
 
     module = plugin_registry.plugin_registry().specs["osh-rel"].load()
     assert module.Ext.v == 42
 
 
-def test_broken_subplugin_errors_and_others_load(plugin_dir):
-    """A marked subpackage failing to import errors on use; the rest load."""
+def test_broken_plugin_errors_and_others_load(pip_install):
+    """A plugin failing to import errors on use; the rest still load."""
     from click.testing import CliRunner
 
-    _copy_plugin(plugin_dir, "repo_d")
+    pip_install("repo_d")
 
     commands = {cmd.name: cmd for _src, cmd in plugin_loader.load_plugins()}
     result = CliRunner().invoke(commands["bad"], [])
@@ -142,90 +105,66 @@ def test_broken_subplugin_errors_and_others_load(plugin_dir):
     assert spec.resolve_command(None, "fine") is not None
 
 
-def test_non_package_dirs_ignored(plugin_dir, capsys):
-    """Dirs without ``__init__.py`` or a marker are skipped silently."""
-    _copy_plugin(plugin_dir, "repo_e")
-
-    specs = plugin_registry.plugin_registry().specs
-    assert "osh-ok" in specs
-    assert "docs" not in specs
-    assert "not-python-dir" not in specs
-    assert capsys.readouterr().err == ""
-
-
-def test_single_file_plugin_still_loads(plugin_dir):
-    """A bare ``osh_plugin.py`` file plugin loads eagerly, unmarked."""
-    _copy_plugin(plugin_dir, "repo_f")
+def test_unmarked_plugin_loads_eagerly(pip_install):
+    """An entry point with no declarations and no ``:attr`` imports eagerly."""
+    pip_install("fake_unique")
 
     commands = {cmd.name: src for src, cmd in plugin_loader.load_plugins()}
-    assert commands["single-cmd"] == "repo-f"
+    assert commands["unique"] == "fake"
 
 
-def test_bare_repo_dir_loads_subplugins(plugin_dir):
-    """A dir without ``__init__.py`` is an addons-style repo of plugins."""
-    _copy_plugin(plugin_dir, "repo_g")
+def test_tool_osh_in_pyproject_declares_commands(pip_install):
+    """``[tool.osh]`` in the package's ``pyproject.toml`` declares lazily."""
+    pip_install("repo_scan")
 
-    commands = {cmd.name: src for src, cmd in plugin_loader.load_plugins()}
-    assert commands["sub_cmd"] == "osh-sub"
+    commands = {cmd.name: cmd for _src, cmd in plugin_loader.load_plugins()}
 
-    # Composing `osh db list`'s handler imports the `extends` declarer.
-    from osh.commands.db_cmd import db
+    from osh.cli_utils import LazyCommand
 
-    effective = db.commands["list"]._handler_cls()
-    assert "Ext" in [c.__name__ for c in effective.__mro__]
-
-
-def test_bare_repo_ignores_non_packages(plugin_dir, capsys):
-    """Non-package dirs inside a bare repo are skipped without warnings."""
-    _copy_plugin(plugin_dir, "repo_h")
-
-    specs = plugin_registry.plugin_registry().specs
-    assert "osh-ok" in specs
-    assert "my-addon" not in specs and "my_addon" not in specs
-    assert capsys.readouterr().err == ""
+    assert isinstance(commands["scan"], LazyCommand)
+    spec = plugin_loader.plugin_registry().specs["osh-scan"]
+    assert spec.lazy
+    assert not spec.loaded
 
 
-def test_bare_repo_without_plugins_loads_nothing(plugin_dir, capsys):
-    """A dir that is neither a plugin nor a repo of plugins is ignored."""
-    _copy_plugin(plugin_dir, "repo_i")
+def test_tool_osh_takes_precedence_over_marker(pip_install):
+    """``[tool.osh]`` wins over a legacy ``osh-plugin.toml`` marker."""
+    pip_install("repo_prec")
 
-    plugin_loader.load_plugins()
-    assert "repo-i" not in plugin_registry.plugin_registry().specs
-    assert capsys.readouterr().err == ""
-
-
-def test_disabled_subplugins_are_not_imported(plugin_dir, monkeypatch):
-    """Disabled subplugins are filtered at discovery — code never runs."""
-    _copy_plugin(plugin_dir, "repo_j")
-    monkeypatch.setattr(
-        plugin_registry,
-        "get_enabled_plugins",
-        lambda source: ["repo-j", "osh-on"] if source == "repo_j" else None,
-    )
-
-    specs = plugin_registry.plugin_registry().specs
-    assert "repo-j" in specs and "osh-on" in specs
-    assert "osh-off" not in specs
-
-    specs["repo-j"].load()
-    specs["osh-on"].load()
-    assert not (plugin_dir / "repo_j" / "osh_off" / "imported").exists()
+    spec = plugin_registry.plugin_registry().specs["osh-prec"]
+    assert spec.declared_commands() == {"helped": "From pyproject."}
 
 
-def test_broken_plugin_leaves_no_sys_modules_entry(plugin_dir, capsys):
-    """A plugin that fails to import is removed from ``sys.modules``."""
-    import sys
+def test_tool_osh_found_in_project_root(pip_install, monkeypatch):
+    """Editable installs: ``pyproject.toml`` stays beside the package.
 
-    _copy_plugin(plugin_dir, "repo_k")
+    ``pip install -e`` leaves the source tree on ``sys.path`` — only
+    ``.dist-info`` lands in site-packages — so the project file sits one
+    level up from the package. That is a wheel install for the
+    ``.dist-info`` plus the fixture checkout prepended to ``sys.path``.
+    """
+    pip_install("repo_flat")
+    monkeypatch.syspath_prepend(str(PLUGINS_DATA / "repo_flat"))
 
-    plugin_loader.load_plugins()
-    assert "Could not load plugin 'repo-k'" in capsys.readouterr().err
-    assert "osh_user_plugin_repo_k" not in sys.modules
+    spec = plugin_loader.plugin_registry().specs["osh-marked"]
+    assert spec.lazy
+    assert spec.declared_commands() == {"marked": "A marked command."}
 
 
-def test_user_plugin_runtimes_and_sources(plugin_dir, capsys):
-    """User plugins can contribute runtimes, sources and group commands."""
-    _copy_plugin(plugin_dir, "repo_l")
+def test_marker_fallback_loads_with_deprecation_warning(pip_install, capsys):
+    """A marker-only plugin still loads, but startup warns it is deprecated."""
+    pip_install("repo_legacy")
+
+    spec = plugin_registry.plugin_registry().specs["osh-old"]
+    assert spec.declared_commands() == {"old_cmd": "Old school."}
+
+    plugin_loader.warn_unresolved_meta()
+    assert "osh-plugin.toml" in capsys.readouterr().err
+
+
+def test_installed_plugin_runtimes_and_sources(pip_install, capsys):
+    """Plugins can contribute runtimes, sources and group commands."""
+    pip_install("repo_l")
 
     assert "mybackend" in plugin_loader.load_runtimes()
     entries = plugin_loader.iter_plugin_subclasses(BackupSource)
@@ -248,9 +187,9 @@ def test_user_plugin_runtimes_and_sources(plugin_dir, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_runtime_name_collision_is_skipped(plugin_dir, capsys):
-    """A runtime named like the built-in host runtime (legacy ``none``) is skipped."""
-    _copy_plugin(plugin_dir, "repo_m")
+def test_runtime_name_collision_is_skipped(pip_install, capsys):
+    """A runtime named like the built-in host runtime is skipped."""
+    pip_install("repo_m")
 
     runtimes = plugin_loader.load_runtimes()
     assert runtimes["host"].__module__ == "osh.runtimes"
@@ -258,9 +197,9 @@ def test_runtime_name_collision_is_skipped(plugin_dir, capsys):
     assert "conflicts" in capsys.readouterr().err
 
 
-def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
+def test_backup_source_scheme_collision_is_skipped(pip_install, capsys):
     """A second backup source with the same scheme is skipped with an error."""
-    _copy_plugin(plugin_dir, "repo_n")
+    pip_install("repo_n")
 
     from osh.plugins.osh_backup import registry
 
@@ -277,9 +216,9 @@ def test_backup_source_scheme_collision_is_skipped(plugin_dir, capsys):
 # Two-stage lazy loading ----------------------------------------------------
 
 
-def test_load_plugins_registers_lazy_stubs_without_import(plugin_dir):
+def test_load_plugins_registers_lazy_stubs_without_import(pip_install):
     """Declared commands register as stubs — the module is never imported."""
-    _copy_plugin(plugin_dir, "repo_lazy")
+    pip_install("repo_lazy")
 
     commands = {cmd.name: cmd for _src, cmd in plugin_loader.load_plugins()}
 
@@ -291,9 +230,9 @@ def test_load_plugins_registers_lazy_stubs_without_import(plugin_dir):
     assert not spec.loaded
 
 
-def test_lazy_command_loads_and_delegates_args(plugin_dir):
+def test_lazy_command_loads_and_delegates_args(site_dir, pip_install):
     """Invoking a lazy command imports the plugin and runs it with the args."""
-    _copy_plugin(plugin_dir, "repo_echo")
+    pip_install("repo_echo")
 
     from click.testing import CliRunner
 
@@ -304,21 +243,19 @@ def test_lazy_command_loads_and_delegates_args(plugin_dir):
     result = CliRunner().invoke(commands["echo"], ["hello"])
 
     assert result.exit_code == 0, result.output
-    ran = plugin_dir / "repo_echo" / "osh_echo" / "ran.txt"
+    ran = site_dir / "osh_echo" / "ran.txt"
     assert ran.read_text() == "hello"
     assert spec.loaded
 
 
-def test_spec_load_not_called_for_help(plugin_dir, monkeypatch):
-    """Rendering help lists the command without calling ``spec.load()``."""
-    _copy_plugin(plugin_dir, "repo_help")
+def test_spec_load_not_called_for_help(pip_install):
+    """Rendering help lists the command without importing the plugin."""
+    pip_install("repo_help")
 
     import click
     from click.testing import CliRunner
 
     spec = plugin_loader.plugin_registry().specs["osh-helped"]
-    calls = []
-    monkeypatch.setattr(spec, "load", lambda: calls.append(1))
 
     group = click.Group()
     for _src, cmd in plugin_loader.load_plugins():
@@ -328,13 +265,12 @@ def test_spec_load_not_called_for_help(plugin_dir, monkeypatch):
 
     assert "helped" in result.output
     assert "Helpy command." in result.output
-    assert calls == []
     assert not spec.loaded
 
 
-def test_hidden_declared_command_is_not_listed(plugin_dir):
+def test_hidden_declared_command_is_not_listed(pip_install):
     """``hidden = true`` declarations register hidden lazy stubs."""
-    _copy_plugin(plugin_dir, "repo_help")
+    pip_install("repo_help")
 
     from click.testing import CliRunner
 
@@ -353,9 +289,9 @@ def test_hidden_declared_command_is_not_listed(plugin_dir):
     assert "secret" not in result.output
 
 
-def test_lazy_command_import_error_is_reported(plugin_dir):
+def test_lazy_command_import_error_is_reported(pip_install):
     """A plugin failing to import reports a clean error at invocation time."""
-    _copy_plugin(plugin_dir, "repo_bad")
+    pip_install("repo_bad")
 
     from click.testing import CliRunner
 
@@ -367,9 +303,9 @@ def test_lazy_command_import_error_is_reported(plugin_dir):
     assert "nonexistent_package_xyz" in result.output
 
 
-def test_lazy_runtime_imports_only_its_plugin(plugin_dir):
+def test_lazy_runtime_imports_only_its_plugin(pip_install):
     """``get_runtime_class`` imports only the plugin declaring the runtime."""
-    _copy_plugin(plugin_dir, "repo_backends")
+    pip_install("repo_backends")
 
     cls = plugin_loader.get_runtime_class("a-backend")
 
@@ -379,24 +315,13 @@ def test_lazy_runtime_imports_only_its_plugin(plugin_dir):
     assert not specs["osh-backend-b"].loaded
 
 
-def test_entry_point_spec_registers_without_load(plugin_dir, monkeypatch):
-    """Entry-point plugins register specs from metadata — no ``ep.load()``."""
-    import sys
-    import types
+def test_entry_point_attr_target_registers_without_load(pip_install):
+    """A ``module:attr`` entry point resolves lazily — no import at listing."""
+    pip_install("repo_attr")
 
-    import click
-
-    fake_module = types.ModuleType("fake_lazy_plugin")
-    seen = []
-    fake_module.main = click.Command("echo", callback=lambda: seen.append("called"))
-    monkeypatch.setitem(sys.modules, "fake_lazy_plugin", fake_module)
-
-    ep = types.SimpleNamespace(name="echo", value="fake_lazy_plugin:main")
-    monkeypatch.setattr(plugin_registry, "_iter_entry_points", lambda *a, **kw: [ep])
-
-    spec = plugin_loader.plugin_registry().specs["echo"]
+    spec = plugin_registry.plugin_registry().specs["echo"]
     assert spec.lazy
-    assert spec.target_ref == "fake_lazy_plugin:main"
+    assert spec.target_ref == "osh_attr:main"
     assert spec.declared_commands() == {"echo": ""}
     assert not spec.loaded
 
@@ -407,35 +332,27 @@ def test_entry_point_spec_registers_without_load(plugin_dir, monkeypatch):
     result = CliRunner().invoke(commands["echo"], [])
 
     assert result.exit_code == 0, result.output
-    assert seen == ["called"]
-
-
-def test_entry_point_with_marker_declares_no_implicit_command(plugin_dir, monkeypatch):
-    """A marked entry-point plugin without ``[commands]`` gets no stub."""
     import sys
-    import types
 
-    fake_module = types.ModuleType("fake_marked_plugin")
-    monkeypatch.setitem(sys.modules, "fake_marked_plugin", fake_module)
-    monkeypatch.setattr(
-        plugin_registry, "_ep_meta", lambda _name: {"extends": ["odoo"]}
-    )
+    assert sys.modules["osh_attr"].seen == ["called"]
 
-    ep = types.SimpleNamespace(name="echo", value="fake_marked_plugin")
-    monkeypatch.setattr(plugin_registry, "_iter_entry_points", lambda *a, **kw: [ep])
 
-    spec = plugin_loader.plugin_registry().specs["echo"]
+def test_entry_point_with_tool_osh_declares_no_implicit_command(pip_install):
+    """An entry-point plugin declaring only ``extends`` gets no stub."""
+    pip_install("repo_extonly")
+
+    spec = plugin_registry.plugin_registry().specs["osh-extonly"]
     assert spec.lazy
     assert spec.declared_commands() == {}
 
 
-def test_lazy_subclass_extends_parent_handler(plugin_dir):
+def test_lazy_subclass_extends_parent_handler(pip_install):
     """A subclass without ``_cli_name`` extends its nearest named ancestor.
 
     The ``extends = ["db.list"]`` declaration is the lazy trigger —
     composing the ``db list`` command's handler imports the plugin.
     """
-    _copy_plugin(plugin_dir, "repo_sub")
+    pip_install("repo_sub")
 
     from osh.commands.db_cmd import db
 
@@ -447,9 +364,9 @@ def test_lazy_subclass_extends_parent_handler(plugin_dir):
     assert not specs["osh-unrelated"].loaded
 
 
-def test_lazy_handlers_key_resolves_named_handler(plugin_dir):
+def test_lazy_handlers_key_resolves_named_handler(pip_install):
     """``handlers`` in toml lets ``resolve()`` find non-CLI named handlers."""
-    _copy_plugin(plugin_dir, "repo_handlers")
+    pip_install("repo_handlers")
 
     from osh.handlers import resolve
 
@@ -458,9 +375,9 @@ def test_lazy_handlers_key_resolves_named_handler(plugin_dir):
     assert plugin_registry.plugin_registry().specs["osh-helper"].loaded
 
 
-def test_derived_handler_is_a_new_command(plugin_dir):
+def test_derived_handler_is_a_new_command(pip_install):
     """A subclass with its own ``_cli_name`` is a command, not an extender."""
-    _copy_plugin(plugin_dir, "repo_derived")
+    pip_install("repo_derived")
 
     from osh.commands.db_cmd import Db
     from osh.handlers import resolve
@@ -472,9 +389,9 @@ def test_derived_handler_is_a_new_command(plugin_dir):
     assert not issubclass(Db.effective(), cls)
 
 
-def test_depends_imports_dependency_first(plugin_dir):
+def test_depends_imports_dependency_first(pip_install):
     """``depends`` plugins are imported before the dependent's module."""
-    _copy_plugin(plugin_dir, "repo_deps")
+    pip_install("repo_deps")
 
     spec = plugin_registry.plugin_registry().specs["osh-needy"]
     spec.load()
@@ -484,9 +401,9 @@ def test_depends_imports_dependency_first(plugin_dir):
     assert specs["osh-needy"].loaded
 
 
-def test_depends_missing_plugin_fails_load(plugin_dir):
+def test_depends_missing_plugin_fails_load(pip_install):
     """A ``depends`` entry naming an unknown plugin fails the load clearly."""
-    _copy_plugin(plugin_dir, "repo_dep_missing")
+    pip_install("repo_dep_missing")
 
     spec = plugin_registry.plugin_registry().specs["osh-needy"]
     with pytest.raises(RuntimeError, match="osh-absent"):
@@ -494,18 +411,18 @@ def test_depends_missing_plugin_fails_load(plugin_dir):
     assert spec.loaded
 
 
-def test_depends_cycle_is_reported(plugin_dir):
+def test_depends_cycle_is_reported(pip_install):
     """Circular ``depends`` declarations fail instead of recursing forever."""
-    _copy_plugin(plugin_dir, "repo_dep_cycle")
+    pip_install("repo_dep_cycle")
 
     spec = plugin_registry.plugin_registry().specs["osh-cyc-a"]
     with pytest.raises(RuntimeError, match="circular"):
         spec.load()
 
 
-def test_warn_unresolved_meta_reports_missing_refs(plugin_dir, capsys):
+def test_warn_unresolved_meta_reports_missing_refs(pip_install, capsys):
     """Startup validation warns about extends/depends nothing provides."""
-    _copy_plugin(plugin_dir, "repo_meta_bad")
+    pip_install("repo_meta_bad")
 
     plugin_loader.warn_unresolved_meta()
 
@@ -518,9 +435,9 @@ def test_warn_unresolved_meta_reports_missing_refs(plugin_dir, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_warn_unresolved_meta_quiet_when_refs_exist(plugin_dir, capsys):
-    """Declared commands satisfy ``extends``; registered plugins ``depends``."""
-    _copy_plugin(plugin_dir, "repo_meta_ok")
+def test_warn_unresolved_meta_quiet_when_refs_exist(pip_install, capsys):
+    """Declared commands satisfy ``extends``; installed plugins ``depends``."""
+    pip_install("repo_meta_ok")
 
     plugin_loader.warn_unresolved_meta()
 

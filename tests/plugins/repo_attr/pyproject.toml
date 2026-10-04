@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-attr"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+echo = "osh_attr:main"
+
+[tool.setuptools]
+package-dir = { "osh_attr" = "." }
+packages = ["osh_attr"]
+
+[tool.setuptools.package-data]
+osh_attr = ["pyproject.toml"]

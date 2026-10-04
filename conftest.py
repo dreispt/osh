@@ -50,10 +50,9 @@ def _isolated_env(monkeypatch):
 def _reset_plugin_registry():
     """Rebuild the plugin registry for each test.
 
-    The registry caches plugin specs discovered from user dirs and entry
-    points; tests that create plugins monkeypatch ``user_plugin_dir`` and
-    must see a fresh registry, and fake specs must not leak into the next
-    test.
+    The registry caches plugin specs discovered from entry points;
+    tests that install fake plugin distributions must see a fresh
+    registry, and fake specs must not leak into the next test.
     """
     from osh.utils import plugin_loader
 

@@ -1,0 +1,2 @@
+[tool.osh.commands]
+custom = "Second custom."

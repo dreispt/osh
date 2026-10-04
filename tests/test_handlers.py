@@ -7,7 +7,6 @@ below exercise that path through real command invocations.
 
 import types
 
-import click
 import pytest
 from click.testing import CliRunner
 
@@ -18,14 +17,7 @@ from osh.utils import plugin_loader
 
 def test_core_commands_resolve_to_their_handlers():
     """Every built-in command name resolves to its handler class."""
-    from osh.commands import (
-        config_cmd,
-        db_cmd,
-        init_cmd,
-        plug_cmd,
-        runtime_cmd,
-        shell_cmd,
-    )
+    from osh.commands import config_cmd, db_cmd, init_cmd, runtime_cmd, shell_cmd
     from osh.plugins.osh_switch import switch_cmd
 
     expected = {
@@ -51,14 +43,6 @@ def test_core_commands_resolve_to_their_handlers():
         "config.user.verbosity": config_cmd.ConfigUser,
         "config.odoo": config_cmd.ConfigOdoo,
         "config.odoo.dev": config_cmd.ConfigOdoo,
-        "plug": plug_cmd.Plug,
-        "plug.install": plug_cmd.Plug,
-        "plug.list": plug_cmd.Plug,
-        "plug.uninstall": plug_cmd.Plug,
-        "plug.enable": plug_cmd.Plug,
-        "plug.disable": plug_cmd.Plug,
-        "plug.alias": plug_cmd.Plug,
-        "plug.unalias": plug_cmd.Plug,
     }
     for name, cls in expected.items():
         assert resolve(name) is cls, name
@@ -236,81 +220,52 @@ def _odoo_extensions(monkeypatch, *extensions):
     _patch_plugin_modules(monkeypatch, modules)
 
 
-class _OpenOption:
-    """Extension mixin adding an ``--open`` flag to ``osh odoo``."""
-
-    @classmethod
-    def get_options(cls):
-        return [
-            *super().get_options(),
-            click.Option(["--open", "open_browser"], is_flag=True),
-        ]
-
-
 def test_odoo_runs_pre_env_extensions(
     tmp_project,
     monkeypatch,
+    pip_install,
     fake_odoo_executable,
     osh_source_dirs,
     capture_execvp,
 ):
     """``pre_env`` extensions run with the assembled state before exec."""
-    calls = []
-
-    class Recorder(OdooRun):
-        def pre_env(self):
-            super().pre_env()
-            calls.append(self)
-
-    _odoo_extensions(monkeypatch, Recorder)
+    pip_install("repo_odoox")
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(odoo, ["-d", "mydb"])
 
     assert result.exit_code == 0, result.output
-    assert len(calls) == 1
-    op = calls[0]
-    assert op.base == tmp_project
-    assert op.env_spec.argv[0].endswith("odoo")
-    assert "mydb" in op.env_spec.argv
-    assert capture_execvp  # exec still happened after the extension
+    assert "odoox open_browser=" in result.output
+    exe, args, _env = capture_execvp[0]
+    assert exe.endswith("odoo")
+    assert "mydb" in args
 
 
 def test_odoo_get_options_adds_cli_options(
     tmp_project,
     monkeypatch,
+    pip_install,
     fake_odoo_executable,
     osh_source_dirs,
     capture_execvp,
 ):
     """``get_options`` params parse and land in ``ctx.params``."""
-    seen_params = {}
-
-    class Recorder(_OpenOption, OdooRun):
-        def pre_env(self):
-            super().pre_env()
-            seen_params.update(self.ctx.params)
-
-    _odoo_extensions(monkeypatch, Recorder)
+    pip_install("repo_odoox")
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(odoo, ["--open", "-d", "mydb"])
 
     assert result.exit_code == 0, result.output
-    assert seen_params["open_browser"] is True
+    assert "odoox open_browser=True" in result.output
 
 
-def test_odoo_help_lists_extension_options(monkeypatch):
+def test_odoo_help_lists_extension_options(pip_install):
     """Extension-provided options appear in ``osh odoo --help``."""
+    pip_install("repo_odoox")
 
-    class Recorder(_OpenOption, OdooRun):
-        pass
-
-    _odoo_extensions(monkeypatch, Recorder)
-    runner = CliRunner()
-    result = runner.invoke(odoo, ["--help"])
+    result = CliRunner().invoke(odoo, ["--help"])
 
     assert result.exit_code == 0
     assert "--open" in result.output
@@ -319,18 +274,13 @@ def test_odoo_help_lists_extension_options(monkeypatch):
 def test_odoo_pre_env_extension_can_abort(
     tmp_project,
     monkeypatch,
+    pip_install,
     fake_odoo_executable,
     osh_source_dirs,
     capture_execvp,
 ):
     """A ``ClickException`` raised in ``pre_env`` aborts before exec."""
-
-    class Abort(OdooRun):
-        def pre_env(self):
-            super().pre_env()
-            raise click.ClickException("extension says no")
-
-    _odoo_extensions(monkeypatch, Abort)
+    pip_install("repo_odoox_abort")
 
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
@@ -379,8 +329,6 @@ def test_odoo_without_extensions_is_unchanged(
     capture_execvp,
 ):
     """With no plugins declaring extensions, ``osh odoo`` behaves as before."""
-    _odoo_extensions(monkeypatch)
-
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
     result = runner.invoke(odoo, ["-d", "mydb"])
@@ -389,26 +337,17 @@ def test_odoo_without_extensions_is_unchanged(
     assert capture_execvp
 
 
-def test_core_command_extensions_run_through_the_command(monkeypatch, tmp_path):
+def test_core_command_extensions_run_through_the_command(pip_install):
     """Subclassing a group handler hooks its subcommand invocation."""
-    from osh.commands.plug_cmd import Plug, plug
+    from osh.commands.runtime_cmd import runtime
 
-    calls = []
+    pip_install("repo_runtimex")
 
-    class Recorder(Plug):
-        def list(self):
-            calls.append("extension")
-            super().list()
-
-    _patch_plugin_modules(monkeypatch, [_module_with_extensions(Recorder)])
-    monkeypatch.setenv("OSH_PLUGINS_DIR", str(tmp_path))
-    monkeypatch.setattr("osh.commands.plug_cmd.user_plugin_dir", lambda: tmp_path)
-
-    result = CliRunner().invoke(plug, ["list"])
+    result = CliRunner().invoke(runtime, ["list"])
 
     assert result.exit_code == 0, result.output
-    assert calls == ["extension"]
-    assert "No plugins installed." in result.output
+    assert "extension" in result.output
+    assert "host" in result.output
 
 
 def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):

@@ -22,7 +22,7 @@ A named handler whose methods are marked ``@subcommand`` is a command
 docstring and its parameters the method's click decorators (plus a
 ``<method>_options()`` hook for dynamic params). Extending a group
 subcommand is subclassing the group class and overriding the method —
-``extends = ["db.list"]`` in ``osh-plugin.toml`` keeps the lazy trigger
+``extends = ["db.list"]`` in ``[tool.osh]`` keeps the lazy trigger
 at subcommand granularity.
 
 Instantiating a named handler returns an instance of its *effective*
@@ -90,7 +90,7 @@ class CommandHandler:
     ``restore`` command of the ``backup`` group; a plain name registers a
     top-level command. A name with a ``_``-prefixed segment (``_util.fmt``,
     ``db._fmt``) is programmatic-only — no command is generated; declare
-    it under ``handlers`` in ``osh-plugin.toml`` so ``resolve()`` finds
+    it under ``handlers`` in ``[tool.osh]`` so ``resolve()`` finds
     it. The ``_cli_*`` class attributes customize that wiring:
 
     - ``_cli_name``: qualified name — identity, extension target and CLI
@@ -100,7 +100,7 @@ class CommandHandler:
     - ``_cli_hidden``: truthy hides the command from ``--help`` listings.
 
     Help text has two sources with disjoint roles: the plugin's
-    ``osh-plugin.toml`` declaration is the short description shown in
+    ``[tool.osh]`` declaration is the short description shown in
     command listings, and the class docstring is the command's
     ``--help`` body.
 
@@ -164,7 +164,7 @@ class CommandHandler:
         """Return the effective handler class — *cls* plus its extensions.
 
         Plugins declaring the handler's name under ``extends`` in
-        ``osh-plugin.toml`` are imported first. Every loaded
+        ``[tool.osh]`` are imported first. Every loaded
         ``CommandHandler`` subclass without its own ``_cli_name`` extends
         its nearest named ancestor, in plugin discovery order. Returns
         *cls* itself when nothing extends it.

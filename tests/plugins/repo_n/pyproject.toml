@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-n"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+repo-n = "repo_n"
+
+[tool.setuptools]
+package-dir = { "repo_n" = "." }
+packages = ["repo_n"]
+
+[tool.setuptools.package-data]
+repo_n = ["pyproject.toml"]
+
+[tool.osh]
+
+[tool.osh.sources]
+db = "Db again."

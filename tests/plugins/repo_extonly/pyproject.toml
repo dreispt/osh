@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-extonly"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-extonly = "osh_extonly"
+
+[tool.setuptools]
+package-dir = { "osh_extonly" = "." }
+packages = ["osh_extonly"]
+
+[tool.setuptools.package-data]
+osh_extonly = ["pyproject.toml"]
+[tool.osh]
+extends = ["odoo"]

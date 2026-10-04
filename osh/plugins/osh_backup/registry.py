@@ -3,7 +3,7 @@
 Sources are discovered by subclassing: any ``BackupSource`` subclass
 importable from a plugin registers automatically — including
 ``osh_backup`` itself, which registers the bundled schemes the same way.
-Plugins declare their schemes under ``[sources]`` in ``osh-plugin.toml``,
+Plugins declare their schemes under ``[tool.osh.sources]``,
 so a source's plugin is only imported when the scheme is actually used
 (see ``utils.plugin_loader.get_source_class``).
 """

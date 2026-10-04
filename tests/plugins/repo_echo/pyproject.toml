@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-echo"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-echo = "osh_echo"
+
+[tool.setuptools]
+package-dir = { "osh_echo" = "." }
+packages = ["osh_echo"]
+
+[tool.setuptools.package-data]
+osh_echo = ["pyproject.toml"]
+
+[tool.osh]
+
+[tool.osh.commands]
+echo = "Echo a word."

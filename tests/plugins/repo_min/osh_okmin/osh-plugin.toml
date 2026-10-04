@@ -1,5 +1,0 @@
-description = "Satisfiable minimum."
-min_osh = "0.5"
-
-[commands]
-okmin_cmd = "Satisfied."

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osh-audit"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+osh-audit = "osh_audit"
+
+[tool.setuptools]
+package-dir = { "osh_audit" = "." }
+packages = ["osh_audit"]
+
+[tool.setuptools.package-data]
+osh_audit = ["pyproject.toml"]
+
+[tool.osh.group_commands.db]
+audit = "Audit the db."

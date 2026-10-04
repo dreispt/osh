@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fake"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."osh.plugins"]
+fake = "fake"
+
+[tool.setuptools]
+package-dir = { "fake" = "." }
+packages = ["fake"]
+
+[tool.setuptools.package-data]
+fake = ["pyproject.toml"]
+

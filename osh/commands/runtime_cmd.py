@@ -5,8 +5,8 @@ default), ``venv``, ``docker``, ... Runtimes are implemented as
 ``Runtime`` classes. ``RuntimeCommands`` is the shared base runtime
 plugins subclass to expose ``osh <runtime> init``, ``activate`` and
 ``stop`` — ordinary ``@subcommand`` methods declared under
-``[group_commands.<runtime>]`` in ``osh-plugin.toml`` alongside the
-runtime's ``[runtimes]`` entry. The runtime a group manages is named by
+``[tool.osh.group_commands.<runtime>]`` alongside the
+runtime's ``[tool.osh.runtimes]`` entry. The runtime a group manages is named by
 ``_cli_name``: a ``Docker`` handler named ``docker`` binds the ``docker``
 runtime.
 
@@ -143,8 +143,7 @@ class RuntimeCommands(CommandHandler):
     """Base for ``osh <runtime>`` command groups — lifecycle as methods.
 
     A runtime plugin subclasses this, sets ``_cli_name`` to the runtime
-    name and declares the commands under ``[group_commands.<runtime>]``
-    in ``osh-plugin.toml``. Its own ``@subcommand`` methods add
+    name and declares the commands under ``[tool.osh.group_commands.<runtime>]``. Its own ``@subcommand`` methods add
     runtime-specific commands; overriding a lifecycle method (calling
     ``super()``) customizes it.
 

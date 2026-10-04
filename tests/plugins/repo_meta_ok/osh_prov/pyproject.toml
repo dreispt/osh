@@ -1,0 +1,4 @@
+[tool.osh]
+
+[tool.osh.commands]
+thing = "A thing."

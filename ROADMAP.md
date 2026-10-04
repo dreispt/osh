@@ -5,7 +5,6 @@ This document tracks planned improvements and future development work for the Os
 ## Plugin API improvements
 
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
-- Extend `osh-plugin.toml` with optional metadata (e.g. a minimum `osh` version) and surface it in `osh plug list`; `description` and `depends` (plugin load ordering) are already handled.
 - Graduate the built-in `osh_backup` plugin (`osh backup get`, `osh backup restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
 
 ## Deprecated compatibility aliases
@@ -15,6 +14,7 @@ To be removed in a later release, once the plugin ecosystem has had time to migr
 - `osh.backends` (`Backend`/`HostBackend`/`NoneBackend`), `osh.commands.backend_cmd` (`BackendCommands`), the `osh.db` `*_backend` helpers, `plugin_loader`'s `get_backend_class`/`load_backends`/`backend_meta`, and the `[backends]` table.
 - The hidden `osh backend` CLI alias and the `none`/`local` runtime name aliases.
 - The `init.target` record written by `osh <runtime> init`.
+- The `osh-plugin.toml` marker — deprecated: `[tool.osh]` in `pyproject.toml` is the canonical declaration. Removal needs a replacement channel for the built-in plugins under `osh/plugins/`, which have no `pyproject.toml` of their own today.
 
 ## `osh runtime` as the entry point to the active runtime
 
@@ -26,6 +26,10 @@ To be removed in a later release, once the plugin ecosystem has had time to migr
 ## `host` command group
 
 `host` is the only runtime without an `osh <runtime>` group — a core `HostCommands(RuntimeCommands)` gives it `init`/`activate`/`status`/`stop` for symmetry (`osh host init` ≈ `osh init`). `HostRuntime` itself stays in core: it is the unconditional default `resolve_runtime` must return and the `VenvRuntime` base class, so a plugin package would add coupling rather than remove it.
+
+## Rethink `osh switch`
+
+`osh switch` (the `osh_switch` built-in plugin) does two jobs: multi-repo `git switch` and — on git-less projects — recording a named "environment" in `.osh/local.toml`. It may become `osh branch switch`, giving the verb a noun home (`osh branch`) consistent with the "one noun, one home" principle; sibling subcommands could follow (`osh branch` = current branches, the git-less environment naming needs a home there too).
 
 ## Plugin test discovery
 
