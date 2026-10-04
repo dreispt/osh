@@ -6,7 +6,7 @@ authors = [
     {name = "Odoo Community Association", email="info@odoo-community.org"}
 ]
 readme = "README.md"
-license = {text = "AGPL-3.0-only"}
+license = {text = "LGPL-3.0-only"}
 requires-python = ">=3.10"
 keywords = ["odoo", "cli", "shell", "development"]
 classifiers = [
@@ -14,7 +14,7 @@ classifiers = [
     "Environment :: Console",
     "Framework :: Odoo",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

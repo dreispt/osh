@@ -246,4 +246,4 @@ available in your setup.
 
 Copyright © 2026 Daniel Reis
 
-Distributed under the GNU AGPL-3.0-only license.
+Distributed under the GNU LGPL-3.0-only license.
