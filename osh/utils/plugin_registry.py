@@ -95,6 +95,7 @@ class PluginSpec:
     lazy: bool = True
     help_text: str = ""
     version: str = ""
+    package: str = ""  # pip distribution providing an entry-point plugin
     _module: object | None = None
     _loaded: bool = False
     _loading: bool = False
@@ -264,6 +265,7 @@ class PluginRegistry:
                 meta=meta,
                 help_text=_ep_summary(ep),
                 version=_ep_version(ep),
+                package=_ep_package(ep),
                 legacy_marker=legacy,
             )
 
@@ -277,6 +279,7 @@ class PluginRegistry:
         meta=None,
         help_text="",
         version="",
+        package="",
         legacy_marker=False,
     ):
         if name in self.specs:
@@ -307,6 +310,7 @@ class PluginRegistry:
             lazy=lazy,
             help_text=help_text or str(meta.get("description", "")),
             version=version,
+            package=package,
         )
 
 
@@ -408,6 +412,17 @@ def _ep_version(ep):
         dist = getattr(ep, "dist", None)
         if dist is not None:
             return dist.version or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _ep_package(ep):
+    """Return the distribution's Name for an entry point."""
+    try:
+        dist = getattr(ep, "dist", None)
+        if dist is not None:
+            return dist.metadata.get("Name", "") or ""
     except Exception:
         pass
     return ""

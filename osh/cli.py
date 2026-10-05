@@ -13,6 +13,7 @@ from .utils.plugin_loader import (
     declared_meta,
     load_group_commands,
     load_plugins,
+    plugin_registry,
     warn_unresolved_meta,
 )
 
@@ -26,7 +27,54 @@ def _print_version(ctx, param, value):
     if not value or ctx.resilient_parsing:
         return
     click.echo(f"osh, version {__version__}")
+    for line in _plugin_reports():
+        click.echo(line)
     ctx.exit()
+
+
+def _plugin_reports():
+    """Return formatted lines listing each pip-installed plugin and what it provides.
+
+    Command names come from the assembled CLI — lazy stubs and collision
+    renames included; runtime, source and handler-extension contributions
+    come from plugin metadata, so no plugin module is imported here.
+    Built-in plugins are not listed — only pip-installed (entry-point)
+    ones, with their version and package name.
+    """
+    provided = {}
+    for name, source in main.plugin_commands.items():
+        provided.setdefault(source, ([], []))[0].append(name)
+    for group_name, group in main.commands.items():
+        for name, source in getattr(group, "plugin_commands", {}).items():
+            provided.setdefault(source, ([], []))[1].append(f"{group_name}.{name}")
+
+    installed = []
+    for spec in plugin_registry().specs.values():
+        if spec.kind != "entry_point":
+            continue
+        top, grouped = provided.get(spec.name, ([], []))
+        group_names = {name.split(".")[0] for name in grouped}
+        contributions = sorted(grouped + [n for n in top if n not in group_names])
+        contributions += [
+            f"{r} runtime" for r in sorted(spec.meta.get("runtimes") or {})
+        ]
+        if schemes := sorted(spec.meta.get("sources") or {}):
+            contributions.append(f"sources: {', '.join(schemes)}")
+        contributions += [f"extends {t}" for t in sorted(spec.declared_extends())]
+        installed.append(
+            (spec.name, spec.version, spec.package, ", ".join(contributions))
+        )
+
+    if not installed:
+        return []
+    w_name, w_version, w_package = (
+        max(len(col) for col in cols) for cols in zip(*(r[:3] for r in installed))
+    )
+    lines = ["", "Installed plugins:"]
+    for name, version, package, detail in installed:
+        row = f"{name:<{w_name}}  {version or '-':<{w_version}}  {package or '-':<{w_package}}"
+        lines.append(f"  {row}  {detail}".rstrip())
+    return lines
 
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])

@@ -6,6 +6,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from osh.cli import main
+from osh.utils.plugin_registry import PluginSpec, plugin_registry
 
 
 def test_version_flag_prints_version():
@@ -25,6 +26,37 @@ def test_version_flag_includes_git_hash_in_checkout():
     assert result.exit_code == 0, result.output
     if (osh_repo / ".git").exists():
         assert re.search(r"\+g?[0-9a-f]{7,}", result.output)
+
+
+def test_version_flag_hides_builtin_plugins():
+    """``osh --version`` does not list the bundled plugins."""
+    result = CliRunner().invoke(main, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert "plugins:" not in result.output
+    assert "osh-backup" not in result.output
+
+
+def test_version_flag_lists_installed_plugins():
+    """``osh --version`` lists pip-installed plugins with package and version."""
+    spec = PluginSpec(
+        name="demo",
+        target_ref="osh_demo.cli",
+        kind="entry_point",
+        version="0.4.0",
+        package="osh-demo",
+    )
+    plugin_registry().specs["demo"] = spec
+    try:
+        result = CliRunner().invoke(main, ["--version"])
+    finally:
+        del plugin_registry().specs["demo"]
+
+    assert result.exit_code == 0, result.output
+    assert "Installed plugins:" in result.output
+    assert "demo" in result.output
+    assert "0.4.0" in result.output
+    assert "osh-demo" in result.output
 
 
 def test_version_subcommand_removed():
