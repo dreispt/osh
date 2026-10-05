@@ -18,13 +18,11 @@ from osh.utils import plugin_loader
 def test_core_commands_resolve_to_their_handlers():
     """Every built-in command name resolves to its handler class."""
     from osh.commands import config_cmd, db_cmd, init_cmd, shell_cmd, stop_cmd
-    from osh.plugins.osh_switch import switch_cmd
 
     expected = {
         "shell": shell_cmd.ShellRun,
         "init": init_cmd.Init,
         "stop": stop_cmd.Stop,
-        "switch": switch_cmd.Switch,
         "db": db_cmd.Db,
         "db.show": db_cmd.Db,
         "db.list": db_cmd.Db,

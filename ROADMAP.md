@@ -16,10 +16,6 @@ To be removed in a later release, once the plugin ecosystem has had time to migr
 - The `init.target` record written by `osh init --runtime=<name>`.
 - The `osh-plugin.toml` marker — deprecated: `[tool.osh]` in `pyproject.toml` is the canonical declaration. Removal needs a replacement channel for the built-in plugins under `osh/plugins/`, which have no `pyproject.toml` of their own today.
 
-## Rethink `osh switch`
-
-`osh switch` (the `osh_switch` built-in plugin) does two jobs: multi-repo `git switch` and — on git-less projects — recording a named "environment" in `.osh/local.toml`. It may become `osh branch switch`, giving the verb a noun home (`osh branch`) consistent with the "one noun, one home" principle; sibling subcommands could follow (`osh branch` = current branches, the git-less environment naming needs a home there too).
-
 ## Plugin test discovery
 
 - Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_runtime_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.

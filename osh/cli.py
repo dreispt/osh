@@ -187,7 +187,6 @@ _COMMAND_ORDER = [
     "init",
     "stop",
     "odoo",
-    "switch",
     "shell",
     "test",
     "db",

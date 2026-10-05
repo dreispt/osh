@@ -70,8 +70,6 @@ Commands:
   config   Manage Osh project settings stored in `.osh/config.toml`.
 
 Plugin Commands:
-  switch  Switch branch/environment (git or git-less) and report its database.
-          [osh-switch]
   test    Run Odoo tests for the project's modules. [osh-test]
   backup  [osh-backup]
 ```
@@ -139,7 +137,6 @@ Run `osh <command> --help` for full usage details.
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); runtime init adds the rest; version optional on re-init           |
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
-| `osh switch <name>`        | Switch branch/environment (git or git-less), report its database                                                     |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
 | `osh db`                   | List, show, set, copy, drop, shell, or unset project databases                                                       |
@@ -252,31 +249,18 @@ On the Docker runtime, `osh db shell` runs inside the Compose `db` service
 runtimes it is the same environment as `osh shell`.
 
 The generated name is based on the project directory name and the git branch
-(or `default` in detached `HEAD` state). Special characters are sanitized to
-keep the name safe for PostgreSQL and for Odoo's `--db-filter`.
+(or `default` when no branch is found — detached `HEAD` or no repository at
+all). Special characters are sanitized to keep the name safe for PostgreSQL
+and for Odoo's `--db-filter`.
 
 ### Multi-repository projects
 
-In a git-rooted project, `osh switch <branch>` also looks below the root:
-nested clones that are not submodules — source checkouts like `odoo/`,
-`enterprise/` or the managed `.osh/` clones — switch to the same branch when
-they have it, and submodules are synced with `git submodule update --init
---recursive` after the switch.
-
 The project root does not need to be a git repository itself. When `osh` finds
 a `.osh` directory but no `.git`, it treats every git repository found below
-the project root as part of the project:
-
-- `osh switch <branch>` runs `git switch <branch>` in each repository
-  (`-c/--create` creates the branch where it does not exist yet).
-- `osh switch` without arguments prints the current branch of each repository.
-- The branch-aware database name resolves from the branch all repositories
-  share; when they are on different branches, the last switched environment
-  name is used (falling back to `default`).
-
-When no git repositories are found at all, `osh switch <name>` records _name_
-as the active environment — per-machine state in `.osh/local.toml` that
-resolves to a database through the same branch mappings.
+the project root as part of the project: the branch-aware database name
+resolves from the branch all repositories share. When the repositories are on
+different branches — or no repository exists at all — the branch name resolves
+to `default`, which `osh db set`/`unset` can map like any other branch.
 
 ### Addons path discovery
 

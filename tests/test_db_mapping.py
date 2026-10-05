@@ -1,14 +1,35 @@
 """Tests for branch-to-database mapping resolution."""
 
 import importlib
+import shutil
+import subprocess
 
 import click
 import pytest
 from click.testing import CliRunner
 
 from osh.commands.db_cmd import db
-from osh.config import set_project_config
-from osh.db import resolve_db_name, sanitize_db_name
+from osh.config import get_project_config, set_project_config
+from osh.db import resolve_branch, resolve_db_name, sanitize_db_name
+
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available"
+)
+
+
+def _init_git(project):
+    """Turn the tmp_project fixture into a real git repository."""
+    for args in (
+        ["init"],
+        ["config", "user.email", "x@y"],
+        ["config", "user.name", "x"],
+    ):
+        subprocess.run(["git", *args], cwd=project, check=True, capture_output=True)
+    (project / "README").write_text("x")
+    subprocess.run(["git", "add", "README"], cwd=project, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"], cwd=project, check=True, capture_output=True
+    )
 
 
 def test_exact_branch_wins_over_pattern(tmp_project):
@@ -121,6 +142,13 @@ def test_db_group_command_surface():
     assert "pin" not in db.commands
     assert "unpin" not in db.commands
     assert "create" not in db.commands
+
+
+def test_switch_command_removed():
+    """The retired `osh switch` command is gone from the command surface."""
+    from osh.cli import main
+
+    assert "switch" not in main.commands
 
 
 def test_backup_commands_come_from_plugin():
@@ -417,3 +445,113 @@ def test_resolve_db_name_for_run_tty_prompt_abort(tmp_project, pg_db, monkeypatc
     with pytest.raises(click.Abort):
         resolve_db_name_for_run(tmp_project, verbose=False)
     assert not pg_db.exists(missing)
+
+
+# Git-less and multi-repository projects ------------------------------------
+
+
+def test_gitless_branch_is_default(tmp_project):
+    """A project without a usable git repository resolves to ``default``."""
+    # tmp_project's .git is an empty directory: not a usable repository.
+    assert resolve_branch(tmp_project, None) == "default"
+    assert resolve_db_name(tmp_project) == "project-default"
+
+
+def test_db_set_gitless_uses_default_branch(tmp_project, monkeypatch):
+    """`osh db set` in a git-less project maps the ``default`` branch."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(db, ["set", "mydb"])
+    assert result.exit_code == 0, result.output
+    assert "Branch 'default' will use database 'mydb'" in result.output
+    assert get_project_config(tmp_project, "db", "default") == "mydb"
+
+
+def test_db_show_gitless_reports_default(tmp_project, monkeypatch):
+    """`osh db show` in a git-less project reports the ``default`` branch."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(db, ["show"])
+    assert result.exit_code == 0, result.output
+    assert "Branch:   default" in result.output
+    assert "Database: project-default" in result.output
+
+
+@requires_git
+def test_git_branch_resolves(tmp_project):
+    """A real git repository resolves the checked out branch name."""
+    _init_git(tmp_project)
+    subprocess.run(
+        ["git", "switch", "-c", "feature-x"],
+        cwd=tmp_project,
+        check=True,
+        capture_output=True,
+    )
+    assert resolve_branch(tmp_project, None) == "feature-x"
+    assert resolve_db_name(tmp_project) == "project-feature-x"
+
+
+@pytest.fixture
+def multi_repo_project(tmp_path, monkeypatch):
+    """A project root without ``.git``, containing nested child repositories."""
+    project = tmp_path / "project"
+    (project / ".osh").mkdir(parents=True)
+    (project / "not-a-repo").mkdir()
+    for rel in ("odoo", "addons/custom"):
+        repo = project / rel
+        repo.mkdir(parents=True)
+        _init_git(repo)
+        subprocess.run(
+            ["git", "switch", "-c", "19.0"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+    monkeypatch.chdir(project)
+    return project
+
+
+@requires_git
+def test_find_project_repos_discovers_nested(multi_repo_project):
+    """Repositories nested under non-repo directories are discovered."""
+    from osh.common import find_project_repos
+
+    assert find_project_repos(multi_repo_project) == [
+        multi_repo_project / "addons" / "custom",
+        multi_repo_project / "odoo",
+    ]
+
+
+def test_find_project_repos_empty(tmp_project):
+    """A project with no valid repository reports an empty list."""
+    from osh.common import find_project_repos
+
+    # tmp_project's .git is an empty directory: not a usable repository.
+    assert find_project_repos(tmp_project) == []
+
+
+@requires_git
+def test_get_current_branch_unanimous(multi_repo_project):
+    """The shared branch is returned when all repositories agree."""
+    from osh.db import get_current_branch
+
+    assert get_current_branch(multi_repo_project) == "19.0"
+
+
+@requires_git
+def test_get_current_branch_diverged(multi_repo_project):
+    """Diverged repositories fall back to the ``default`` branch name."""
+    from osh.db import get_current_branch
+
+    subprocess.run(
+        ["git", "switch", "-c", "fix"],
+        cwd=multi_repo_project / "odoo",
+        check=True,
+        capture_output=True,
+    )
+    assert get_current_branch(multi_repo_project) is None
+    assert resolve_branch(multi_repo_project, None) == "default"
+
+
+@requires_git
+def test_multi_repo_shared_branch_resolves_db(multi_repo_project):
+    """The generated database name uses the shared multi-repo branch."""
+    assert resolve_db_name(multi_repo_project) == "project-19.0"

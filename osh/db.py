@@ -91,29 +91,15 @@ def get_current_branch(base):
     return branches.pop() if len(branches) == 1 else None
 
 
-def get_active_env(base):
-    """Return the active environment name of a git-less project, or None.
-
-    Stored in ``.osh/local.toml`` — per-machine state, not the shared
-    project config — by ``osh switch`` when there is no git repository.
-    """
-    return _config.get_local_config(base, "env", "active")
-
-
-def set_active_env(base, name):
-    """Record *name* as the active environment of a git-less project."""
-    _config.set_local_config(base, "env", "active", name)
-
-
 def resolve_branch(base, branch):
-    """Return *branch*, or the current branch/environment, or ``default``.
+    """Return *branch*, or the current git branch, or ``default``.
 
-    The environment is the git branch when inside a repository, or the
-    git-less active environment name recorded by ``osh switch``.
+    Git-less projects — no repository root and no repositories found below
+    it, or repositories on diverging branches — resolve to ``default``.
     """
     if branch is not None:
         return branch
-    return get_current_branch(base) or get_active_env(base) or "default"
+    return get_current_branch(base) or "default"
 
 
 def get_pg_env(base):
