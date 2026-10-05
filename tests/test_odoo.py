@@ -9,6 +9,7 @@ from osh.cli import main
 from osh.commands.odoo_cmd import odoo
 from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.common import discover_addons_paths, discover_module_names
+from osh.db import set_project_config
 from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 from osh.utils.odoo_layout import build_addons_paths
 
@@ -51,7 +52,8 @@ def test_odoo_informs_when_database_missing(
 ):
     """A missing branch db is reported, not prompted — Odoo creates it."""
     monkeypatch.chdir(tmp_project)
-    monkeypatch.setattr("osh.commands.odoo_cmd.db_exists", lambda *a, **kw: False)
+    # The configured db name does not exist — the real probe reports missing.
+    set_project_config(tmp_project, "db", "default", "osh-missing-testdb")
 
     result = CliRunner().invoke(odoo, [])
 
@@ -257,24 +259,19 @@ def test_odoo_osh_wait_env_var_waits_for_process(
     monkeypatch.setenv("OSH_WAIT", "1")
     monkeypatch.chdir(tmp_project)
 
-    calls = []
-    monkeypatch.setattr(
-        "osh.runtimes.run_command",
-        lambda args, **kwargs: calls.append(list(args)),
-    )
-
     runner = CliRunner()
     result = runner.invoke(odoo, [])
 
     assert result.exit_code == 0
-    assert len(calls) == 1
-    assert calls[0][0] == str(fake_odoo_executable)
+    # The odoo executable really ran as a subprocess — not exec'd.
+    assert "odoo 19.0" in result.output
     assert not capture_execvp
 
 
 def test_odoo_compose_file_from_env_var(
     tmp_project,
     monkeypatch,
+    fake_docker,
     test_db,
 ):
     """OSH_COMPOSE_FILE is honored like --compose-file for the docker target."""
@@ -284,13 +281,8 @@ def test_odoo_compose_file_from_env_var(
     )
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
     monkeypatch.setenv("OSH_COMPOSE_FILE", "devel.yaml")
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
-    from osh.db import set_project_config
 
-    set_project_config(tmp_project, "run", "target", "docker")
+    set_project_config(tmp_project, "run", "runtime", "docker")
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
@@ -480,6 +472,53 @@ def test_config_odoo_dev_writes_project_config(in_project):
 
     assert result.exit_code == 0, result.output
     assert get_project_config(in_project, "odoo", "dev") == "off"
+
+
+def test_odoo_runs_the_configured_host_command(
+    tmp_project,
+    monkeypatch,
+    capture_execvp,
+):
+    """A recorded ``--odoo-command`` replaces executable discovery.
+
+    ``osh init --runtime=host --odoo-command`` stores the run command a
+    system init file would use — arguments included — and ``osh odoo``
+    execs it as the argv prefix.
+    """
+    odoo_exe = tmp_project / "odoo-server"
+    odoo_exe.write_text("#!/bin/sh\nexec true\n")
+    odoo_exe.chmod(0o755)
+    set_project_config(tmp_project, "init", "odoo_command", f"{odoo_exe} --workers=2")
+    set_project_config(tmp_project, "db", "default", "osh-missing-testdb")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    exe, final_args, _ = capture_execvp[0]
+    assert exe == str(odoo_exe)
+    assert final_args[:2] == [str(odoo_exe), "--workers=2"]
+    assert "--dev=all" in final_args
+
+
+def test_odoo_venv_ignores_the_host_odoo_command(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    capture_execvp,
+):
+    """A recorded host ``--odoo-command`` never applies to the venv runtime."""
+    set_project_config(tmp_project, "init", "odoo_command", "/usr/bin/odoo")
+    set_project_config(tmp_project, "run", "runtime", "venv")
+    set_project_config(tmp_project, "db", "default", "osh-missing-testdb")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    exe, _args, exec_env = capture_execvp[0]
+    assert exe == str(fake_odoo_executable)
+    assert exec_env["VIRTUAL_ENV"] == str(tmp_project / ".venv")
 
 
 def test_host_runtime_diagnose_reports_installed_odoo_version(

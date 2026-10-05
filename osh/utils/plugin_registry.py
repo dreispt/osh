@@ -27,8 +27,8 @@ stage 1 (the deprecated ``osh-plugin.toml`` marker holds the same keys)::
     [tool.osh.group_commands.db]          # subcommands of an existing group
     audit = "Audit the db."
     remote = { group = true, help = "Manage remotes." }
-    [tool.osh.group_commands.docker]      # ``osh docker`` lifecycle commands
-    init = "Initialise for the docker runtime."
+    [tool.osh.group_commands.backup]      # subcommands of a new group
+    prune = "Prune old backups."
     [tool.osh.runtimes]                   # runtime classes provided
     docker = "Run inside Docker."
     [tool.osh.sources]                    # BackupSource schemes provided

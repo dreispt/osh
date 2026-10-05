@@ -11,7 +11,7 @@ def test_cli_echo_output_colored_in_terminal(tmp_project, monkeypatch):
     set_project_config(tmp_project, "run", "target", "nosuchruntime")
     monkeypatch.chdir(tmp_project)
 
-    result = CliRunner().invoke(main, ["runtime", "status"], color=True)
+    result = CliRunner().invoke(main, ["init"], color=True)
 
     assert "\x1b[" in result.output
     assert "nosuchruntime" in result.output

@@ -2,9 +2,10 @@
 
 Runtimes allow plugins to replace the default host-venv execution model with
 other targets, such as Docker or remote containers, while keeping the same
-``osh shell``/``osh odoo`` user interface. Runtime plugins expose
-``osh <name>`` lifecycle commands (``init``, ``activate``, ``stop``) by
-subclassing the handlers in ``osh.commands.runtime_cmd``.
+``osh shell``/``osh odoo`` user interface. Runtime lifecycle plugs into the
+core commands: ``osh init --runtime=<name>`` drives ``init`` and records the
+runtime as active, and ``osh stop`` drives ``stop``/``stop_by_name``/
+``stop_all``.
 
 ``HostRuntime`` (the ``host`` runtime) is the built-in default, used when
 no other runtime is configured: it runs commands directly on the host. The
@@ -40,6 +41,7 @@ from .common import (
     run_command,
     run_subprocess,
 )
+from .config import get_project_config
 from .utils.odoo_layout import find_odoo_executable
 from .utils.version import get_version_from_executable
 
@@ -103,8 +105,26 @@ class Runtime(ABC):
 
     @classmethod
     def get_init_options(cls):
-        """Return runtime-specific options for the ``osh <name> init`` command."""
+        """Return runtime-specific options merged into ``osh init``."""
         return []
+
+    def odoo_command(self, base):
+        """Return the configured Odoo run command as an argv list, or None.
+
+        The ``host`` runtime is a "bring your own Odoo" runtime: it can be
+        given the run command a system init file would use (e.g.
+        ``/usr/bin/odoo -c /etc/odoo/odoo.conf``). The default returns
+        ``None`` — ``osh odoo`` resolves the executable itself.
+        """
+        return None
+
+    def base_odoo_conf(self, base):
+        """Return a configured base Odoo config file for *base*, or None.
+
+        When set, the generated per-branch config seeds from this file and
+        the project's ``.osh/odoo.conf``/``.odoorc`` layers on top of it.
+        """
+        return None
 
     def detect_odoo_version(self, base):
         """Return the installed Odoo version for *base*, or None if unknown.
@@ -119,7 +139,7 @@ class Runtime(ABC):
     def diagnose_sections_for_phase(self, phase):
         """Return the diagnose sections to run for *phase*.
 
-        ``None`` means "all sections". This is used by ``osh <runtime> init``
+        ``None`` means "all sections". This is used by ``osh init --runtime``
         and ``osh odoo`` to skip expensive checks that are only useful for a
         full diagnostics report.
         """
@@ -165,7 +185,7 @@ class Runtime(ABC):
 
     def _stale_environment_hint(self):
         """Remediation text appended to the stale-environment warning."""
-        return f"Run 'osh {self.name} init' to refresh the environment."
+        return f"Run 'osh init --runtime={self.name}' to refresh the environment."
 
     def _check_stale_environment(self, base, d):
         """Warn when files the environment was built from postdate the build."""
@@ -192,11 +212,11 @@ class Runtime(ABC):
         """Inspect the project and system for the active target.
 
         *sections* is an optional list of section names to detect. When omitted,
-        runtimes should detect everything. Callers such as ``osh <runtime> init``
+        runtimes should detect everything. Callers such as ``osh init --runtime``
         and ``osh odoo`` can use it to avoid expensive checks that are not needed
         for their phase.
 
-        Returns a ``Diagnostics`` object that ``osh <runtime> init`` uses to
+        Returns a ``Diagnostics`` object that ``osh init --runtime`` uses to
         plan actions and ask for confirmation, and ``osh odoo`` uses to check
         prerequisites.
         """
@@ -214,7 +234,7 @@ class Runtime(ABC):
     ):
         """Set up the environment. Return ``True`` if ready for use.
 
-        *todo* is the ``TodoPlan`` progress tracker ``osh <runtime> init``
+        *todo* is the ``TodoPlan`` progress tracker ``osh init --runtime``
         passes so runtimes can announce steps via ``todo.start()`` while running.
         """
         raise NotImplementedError
@@ -269,25 +289,58 @@ class Runtime(ABC):
 
     @classmethod
     def get_stop_options(cls):
-        """Additional ``click.Option`` objects for ``osh <name> stop``."""
+        """Additional ``click.Option`` objects for ``osh stop``."""
         return []
+
+    def status(self, ctx, base):
+        """Print what this runtime has running for *base*, if anything.
+
+        Called by ``osh init``'s status report on an already-initialised
+        project. The default prints nothing — runtimes without persistent
+        state have nothing to report.
+        """
 
     def stop(self, ctx, base, **options):
         """Stop resources the runtime may have left running.
 
         The default is a no-op for runtimes without persistent state, so
-        ``osh <runtime> stop`` is always safe to run.
+        ``osh stop`` is always safe to run.
         """
         echo.info(f"Nothing to stop for the '{self.name}' runtime.", err=True)
+
+    def stop_by_name(self, ctx, name, **options):
+        """Stop resources belonging to the Osh project named *name*.
+
+        Backs ``osh stop <name>`` for runtimes whose resources are
+        discoverable outside the project directory (e.g. Compose stacks
+        identified by container labels). The default rejects — the runtime
+        manages nothing that a name could resolve.
+        """
+        raise click.ClickException(
+            f"The '{self.name}' runtime manages no named resources "
+            f"— no stack found for '{name}'."
+        )
+
+    def stop_all(self, ctx, **options):
+        """Stop every Osh-managed resource of this runtime, host-wide.
+
+        Backs ``osh stop --all``: runtimes whose resources outlive the
+        project directory (containers, stray processes) enumerate and stop
+        them here. The default is a no-op.
+        """
 
 
 class HostRuntime(Runtime):
     """Default runtime: run commands directly on the host.
 
-    The ``host`` runtime manages no environment — it execs the resolved
-    Odoo executable (``.venv/bin/odoo``, a source checkout, or whatever is
-    on ``PATH``) with the project environment applied. Managed targets such
-    as ``venv`` subclass it and layer their environment on top.
+    The ``host`` runtime manages no environment — it is the "bring your own
+    Odoo" runtime: it execs the resolved Odoo executable with the project
+    environment applied. ``osh init --runtime=host --odoo-command`` pins the
+    run command a system init file would use (e.g. ``/usr/bin/odoo``);
+    without it Odoo resolves from ``.venv/bin``, ``.osh/odoo`` sources, or
+    ``PATH``. ``--odoo-conf`` seeds the generated config from a base file.
+    Managed targets such as ``venv`` subclass it and layer their
+    environment on top.
     """
 
     name = "host"
@@ -301,6 +354,47 @@ class HostRuntime(Runtime):
         "managed; use it on servers where the environment already exists. Odoo itself is resolved from ``.venv/bin``, ``.osh/odoo`` "
         "sources, or ``PATH``."
     )
+
+    @classmethod
+    def get_init_options(cls):
+        """``--odoo-command``/``--odoo-conf`` for a bring-your-own Odoo."""
+        return [
+            click.Option(
+                ["--odoo-command"],
+                metavar="CMD",
+                help="Odoo run command to use, as a system init file would "
+                "run it (e.g. '/usr/bin/odoo' or 'odoo-bin').",
+            ),
+            click.Option(
+                ["--odoo-conf"],
+                metavar="FILE",
+                type=click.Path(),
+                help="Base Odoo config file to seed the generated config "
+                "from (e.g. '/etc/odoo/odoo.conf'); the project's own "
+                "config still overrides it.",
+            ),
+        ]
+
+    def odoo_command(self, base):
+        """Return the ``--odoo-command`` recorded at init as an argv list."""
+        command = get_project_config(base, "init", "odoo_command")
+        return shlex.split(command) if command else None
+
+    def base_odoo_conf(self, base):
+        """Return the ``--odoo-conf`` recorded at init, or None.
+
+        Relative paths resolve inside the project directory.
+        """
+        conf = get_project_config(base, "init", "odoo_conf")
+        if not conf:
+            return None
+        path = Path(conf).expanduser()
+        return path if path.is_absolute() else Path(base) / path
+
+    def _configured_exe(self, base):
+        """Return the configured command's executable token, or None."""
+        command = self.odoo_command(base)
+        return command[0] if command else None
 
     _DIAGNOSE_SECTIONS = (
         "odoo_executable",
@@ -317,7 +411,7 @@ class HostRuntime(Runtime):
 
     def detect_odoo_version(self, base):
         """Return the Odoo version from the local executable or sources."""
-        exe = find_odoo_executable(base)
+        exe = self._configured_exe(base) or find_odoo_executable(base)
         if exe:
             version = get_version_from_executable(exe)
             if version:
@@ -344,9 +438,21 @@ class HostRuntime(Runtime):
         sections = set(sections)
 
         if "odoo_executable" in sections or "odoo_version" in sections:
-            exe = find_odoo_executable(base)
+            configured = self.odoo_command(base)
+            exe = configured[0] if configured else find_odoo_executable(base)
             if "odoo_executable" in sections and exe:
                 d.add_info("odoo_executable", str(exe))
+                if configured:
+                    d.add_info("odoo_command", " ".join(configured))
+                    if phase != "init" and not (
+                        Path(exe).is_file() or shutil.which(exe)
+                    ):
+                        d.add_warning(
+                            f"Configured Odoo executable '{exe}' "
+                            "does not resolve on PATH or disk."
+                        )
+            if phase == "init":
+                self._diagnose_byo_options(d, base, options)
 
             if "odoo_version" in sections:
                 odoo_version = self.detect_odoo_version(base)
@@ -364,6 +470,13 @@ class HostRuntime(Runtime):
                         d.add_error("Odoo executable not found. Run 'osh init' first.")
 
         if "config" in sections:
+            if base_conf := self.base_odoo_conf(base):
+                if base_conf.is_file():
+                    d.add_info("odoo_base_conf", str(base_conf))
+                else:
+                    d.add_warning(
+                        f"Configured base Odoo config '{base_conf}' " "does not exist."
+                    )
             odoo_rc = get_odoo_config_path(base)
             osh_conf = get_osh_odoo_config_path(base)
             config = osh_conf if osh_conf.exists() else odoo_rc
@@ -383,6 +496,30 @@ class HostRuntime(Runtime):
             d.add_info("addons_directories", len(addons_paths))
 
         return d
+
+    def _diagnose_byo_options(self, d, base, options):
+        """Validate the ``--odoo-command``/``--odoo-conf`` init options."""
+        if command := options.get("odoo_command"):
+            tokens = shlex.split(command)
+            exe = tokens[0] if tokens else ""
+            if not exe or not (Path(exe).is_file() or shutil.which(exe)):
+                d.add_error(
+                    f"Odoo command '{command}' resolves to " "nothing on PATH or disk."
+                )
+            elif "-c" in tokens or any(
+                token.startswith("--config") for token in tokens
+            ):
+                d.add_warning(
+                    "The '-c'/'--config' option inside the Odoo "
+                    "command overrides the config Osh generates — "
+                    "pass the base file via --odoo-conf instead."
+                )
+        if conf_option := options.get("odoo_conf"):
+            conf_path = Path(conf_option).expanduser()
+            if not conf_path.is_absolute():
+                conf_path = Path(base) / conf_path
+            if not conf_path.is_file():
+                d.add_error(f"Odoo config file '{conf_option}' does not exist.")
 
     def _add_init_plans(self, todo):
         """The ``host`` runtime manages no environment — nothing to install."""
@@ -433,7 +570,8 @@ class HostRuntime(Runtime):
             # Subcommands such as ``odoo shell`` or ``odoo neutralize`` do not
             # use the generated config, so inject the addons path explicitly.
             odoo_exe = Path(args[0]).name
-            if odoo_exe in ("odoo-bin", "odoo"):
+            configured = Path(self._configured_exe(base) or "").name
+            if odoo_exe in ("odoo-bin", "odoo", configured):
                 addons_paths = self.build_addons_paths(base, include_themes=True)
                 if addons_paths:
                     args.insert(
@@ -471,16 +609,88 @@ class HostRuntime(Runtime):
         except OSError as exc:
             raise click.ClickException(f"Could not run {args[0]}: {exc}") from exc
 
+    def _odoo_process_names(self, base):
+        """Extra executable names ``_looks_like_odoo`` should accept.
+
+        A configured ``--odoo-command`` may run a binary that does not
+        carry an Odoo-looking name (a wrapper such as ``odoo-server``);
+        without it ``osh stop`` would refuse to kill its own process.
+        """
+        command = self.odoo_command(base)
+        return [Path(command[0]).name] if command else []
+
+    def _odoo_port(self, base):
+        """HTTP port from the project configs, then the configured base conf."""
+        extra = [conf] if (conf := self.base_odoo_conf(base)) else []
+        return get_odoo_port(base, extra_confs=extra)
+
+    def status(self, ctx, base):
+        """Report the process listening on the project's HTTP port, if any."""
+        if command := self.odoo_command(base):
+            echo.info(f"Odoo command: {' '.join(command)}")
+        port = self._odoo_port(base)
+        listeners = _port_listeners(port)
+        if not listeners:
+            echo.info(f"No process listening on port {port}.")
+            return
+        for pid in listeners:
+            echo.info(
+                f"Listening on port {port}: {_pid_command(pid) or 'unknown'} "
+                f"(pid {pid})"
+            )
+
+    def stop_all(self, ctx, **options):
+        """Stop every Osh-managed Odoo process found on this host.
+
+        Osh exports ``ODOO_RC=<project>/.osh/odoo.conf`` into every command
+        it runs, so an Odoo-looking process whose environment points at a
+        ``.osh`` config is unambiguously Osh-managed. Discovery reads
+        ``/proc`` and silently does nothing where it does not exist.
+        """
+        targets = _osh_managed_odoo_pids()
+        if not targets:
+            echo.info("No Osh-managed Odoo processes found.", err=True)
+            return
+        pending = []
+        for pid, cmdline, extra_names in targets:
+            echo.info(f"Stopping Odoo process {pid} ({cmdline})...", err=True)
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError as exc:
+                echo.warning(f"Could not stop pid {pid}: {exc}")
+                continue
+            pending.append((pid, extra_names))
+        deadline = time.monotonic() + _SIGTERM_GRACE_SECONDS
+        pending = [(p, n) for p, n in pending if _pid_running(p)]
+        while pending and time.monotonic() < deadline:
+            time.sleep(_PORT_POLL_INTERVAL_SECONDS)
+            pending = [(p, n) for p, n in pending if _pid_running(p)]
+        for pid, extra_names in pending:
+            # Re-check identity before escalating: a process that exited may
+            # have had its pid reused for something unrelated.
+            if not _looks_like_odoo(_pid_command(pid), extra_names=extra_names):
+                echo.warning(
+                    f"Process {pid} no longer looks like Odoo (pid reused?) — "
+                    "not sending SIGKILL."
+                )
+                continue
+            echo.info(f"Process {pid} ignored SIGTERM; sending SIGKILL.", err=True)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError as exc:
+                echo.warning(f"Could not kill pid {pid}: {exc}")
+
     def stop(self, ctx, base, **options):
         """Stop an Odoo process left listening on the project's HTTP port."""
-        port = get_odoo_port(base)
+        port = self._odoo_port(base)
+        extra_names = self._odoo_process_names(base)
         listeners = _port_listeners(port)
         if not listeners:
             echo.info(f"Nothing to stop: no process listening on port {port}.")
             return
         for pid in listeners:
             cmdline = _pid_command(pid)
-            if not _looks_like_odoo(cmdline):
+            if not _looks_like_odoo(cmdline, extra_names=extra_names):
                 echo.warning(
                     f"Port {port} is held by '{cmdline or 'unknown'}' "
                     f"(pid {pid}), which does not look like Odoo — "
@@ -498,7 +708,7 @@ class HostRuntime(Runtime):
             # Re-check identity before escalating: during the grace period the
             # original process may have exited and the kernel may have reused
             # its pid for something unrelated, which must not be killed.
-            if not _looks_like_odoo(_pid_command(pid)):
+            if not _looks_like_odoo(_pid_command(pid), extra_names=extra_names):
                 echo.warning(
                     f"Process {pid} no longer looks like Odoo (pid reused?) — "
                     "not sending SIGKILL."
@@ -521,6 +731,74 @@ class HostRuntime(Runtime):
 Backend = Runtime
 HostBackend = HostRuntime
 NoneBackend = HostRuntime
+
+
+def _osh_managed_odoo_pids():
+    """Return ``(pid, cmdline, extra_names)`` of Odoo processes run under Osh.
+
+    Reads ``/proc`` (Linux only): a process qualifies when its environment
+    carries ``ODOO_RC`` pointing inside a ``.osh`` directory — which ``osh
+    odoo``/``osh shell`` export — and its command line passes
+    :func:`_looks_like_odoo`. *extra_names* is the basename of the
+    project's configured ``--odoo-command``, so bring-your-own binaries
+    (``odoo-server``, wrappers) are found too. Returns ``[]`` where
+    ``/proc`` is unavailable.
+    """
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return []
+    found = []
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            environ = (entry / "environ").read_bytes()
+        except OSError:
+            continue
+        odoo_rc = next(
+            (
+                var[len(b"ODOO_RC=") :].decode(errors="replace")
+                for var in environ.split(b"\0")
+                if var.startswith(b"ODOO_RC=")
+            ),
+            None,
+        )
+        if not odoo_rc:
+            continue
+        parts = Path(odoo_rc).parts
+        if ".osh" not in parts:
+            continue
+        extra_names = _configured_command_names(parts)
+        cmdline = _pid_command(int(entry.name))
+        if _looks_like_odoo(cmdline, extra_names=extra_names):
+            found.append((int(entry.name), cmdline, extra_names))
+    return found
+
+
+def _configured_command_names(odoo_rc_parts):
+    """Return the ``--odoo-command`` executable name recorded by the project.
+
+    *odoo_rc_parts* is an ``ODOO_RC`` path split on ``/`` — the segments
+    before ``.osh`` are the project, whose ``init.odoo_command`` may name
+    a binary (e.g. ``odoo-server``) that does not look like Odoo by name.
+    """
+    project = Path(*odoo_rc_parts[: odoo_rc_parts.index(".osh")])
+    command = get_project_config(project, "init", "odoo_command")
+    tokens = shlex.split(command) if command else []
+    return (Path(tokens[0]).name,) if tokens else ()
+
+
+def _pid_running(pid):
+    """Return True while *pid* is alive and not a zombie."""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        return bool(Path(f"/proc/{pid}/cmdline").read_bytes())
+    except OSError:
+        # No readable /proc entry: the kill probe answered already.
+        return True
 
 
 def _wait_for_port_release(port, pid, timeout=_SIGTERM_GRACE_SECONDS):
@@ -631,14 +909,16 @@ _ODOO_EXECUTABLES = ("odoo", "odoo-bin", "odoo.py", "odoo.sh")
 _PYTHON_EXECUTABLES = ("python", "python3")
 
 
-def _looks_like_odoo(cmdline):
+def _looks_like_odoo(cmdline, extra_names=()):
     """Return True when *cmdline* invokes Odoo.
 
     Matches a direct ``odoo``/``odoo-bin``/``odoo.py``/``odoo.sh``
     executable as well as ``python -m odoo``, where ``odoo`` is a module
-    argument rather than the executable. Deliberately conservative: a
-    false negative only leaves a process running, while a false positive
-    would kill something that merely happens to hold the port.
+    argument rather than the executable; *extra_names* accepts additional
+    executable names (e.g. the basename of a configured run command).
+    Deliberately conservative: a false negative only leaves a process
+    running, while a false positive would kill something that merely
+    happens to hold the port.
     """
     try:
         tokens = shlex.split(cmdline or "")
@@ -646,7 +926,7 @@ def _looks_like_odoo(cmdline):
         tokens = (cmdline or "").split()
     for index, token in enumerate(tokens):
         name = Path(token).name
-        if name in _ODOO_EXECUTABLES:
+        if name in _ODOO_EXECUTABLES + tuple(extra_names):
             return True
         if name in _PYTHON_EXECUTABLES and tokens[index + 1 : index + 3] == [
             "-m",

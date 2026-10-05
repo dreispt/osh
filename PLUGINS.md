@@ -131,8 +131,8 @@ _sidecar = { hidden = true, help = "Internal helper." }  # not listed in --help
 [tool.osh.group_commands.db]   # subcommands of an existing group
 restore = "Restore a backup."
 
-[tool.osh.group_commands.docker]  # `osh docker` subcommands (runtime lifecycle)
-init = "Initialise the project for the docker runtime."
+[tool.osh.group_commands.backup]  # subcommands of a plugin-added group
+prune = "Prune old backups."
 
 [tool.osh.runtimes]            # Runtime subclasses provided
 docker = "Run Odoo inside a Docker Compose stack."
@@ -266,8 +266,8 @@ A fallback name that itself collides is an error, and the command is
 skipped — the fix is to rename the command in the plugin's
 `[tool.osh]` declarations.
 
-Runtime and backup source names are functional identifiers (`osh <name>`
-command groups and `<scheme>://` prefixes), so they cannot be renamed —
+Runtime and backup source names are functional identifiers (`--runtime
+<name>` values and `<scheme>://` prefixes), so they cannot be renamed —
 a collision is an error and the contribution is skipped.
 
 ### Built-in plugins
@@ -402,76 +402,58 @@ of the group.
 
 ### Runtime plugins
 
-A runtime plugin subclasses `Runtime`, declares the runtime under
-`[runtimes]` and exposes its lifecycle commands as `CommandHandler`
-subclasses under `[group_commands.<runtime>]`:
+A runtime plugin subclasses `Runtime` and declares the runtime under
+`[runtimes]`:
 
 ```toml
 [runtimes]
 myruntime = "Run Odoo on my custom target."
-
-[group_commands.myruntime]
-init = "Initialise the project for the myruntime runtime."
-activate = "Make myruntime the project's active run runtime."
-stop = "Stop resources left running by the myruntime runtime."
 ```
 
 ```python
 from osh.runtimes import Runtime
-from osh.commands.runtime_cmd import RuntimeCommands
 
 
 class MyRuntime(Runtime):
     runtime_type = "runtime"
     name = "myruntime"
     ...
-
-
-class MyRuntimeCommands(RuntimeCommands):
-    _cli_name = "myruntime"
 ```
 
-`RuntimeCommands` (from `osh.commands.runtime_cmd`) provides the
-standard lifecycle as `@subcommand` methods: `osh <name> init` runs the
-common base setup and then calls `cls.init(...)` with the parsed
-`get_init_options()`; `osh <name> activate` is the lightweight way to
-switch the project to an already-initialized runtime; `osh <name> stop`
-calls `cls.stop(...)` with `get_stop_options()`. The `osh <name>` group
-is created automatically — `osh <name> --help` lists the declared
-subcommands without importing the plugin, and the group shows under
-"Runtime Commands" in `osh --help`.
+Two core commands drive a runtime's lifecycle:
 
-The lifecycle methods are ordinary `@subcommand` methods: extra
-subcommands are more methods on the same class (like the docker
-plugin's `osh docker list`), and a verb's behaviour is customized by
-overriding the method and calling `super()`, adding parameters through
-a `<method>_options()` hook — or by another plugin `extends`-ing the
-handler.
+- `osh init --runtime=<name>` runs the common base setup, then the
+  runtime's `init()` (its `get_init_options()` are merged onto
+  `osh init`), and records `run.runtime = <name>` in
+  `.osh/config.toml` — the active runtime `osh odoo`/`osh shell`/`osh db`
+  run through. `osh init --runtime=host` is the way back to host
+  execution.
+- `osh init` on an initialized project reports status and calls the
+  active runtime's `status()` hook.
+- `osh stop` calls the active runtime's `stop()` (its
+  `get_stop_options()` are merged onto `osh stop`), `osh stop <name>`
+  its `stop_by_name()` and `osh stop --all` its `stop_all()`.
 
-The runtime class is imported only when the runtime is selected
-(`run.runtime = myruntime`) or one of its commands is invoked — listing
-runtimes in `--help` and `osh runtime list` reads the declared
-descriptions instead.
+The runtime class is imported only when the runtime is selected or one
+of these hooks runs — listing runtimes in `--help` and `osh init`'s
+status report reads the declared descriptions instead.
 
-Activation records `run.runtime = <name>` in `.osh/config.toml` (the
-legacy `run.target` key is still read, and removed on the next
-activation), and `osh odoo`/`osh shell`/`osh db` then run through the
-runtime. Plugins should use `get_active_runtime_name`,
+Plugins should use `get_active_runtime_name`,
 `set_active_runtime_name` and `resolve_runtime` from `osh.db` rather than
 reading the keys directly. Built-in examples:
 `osh/plugins/osh_runtime_docker/` (Docker Compose) and
 `osh/plugins/osh_runtime_venv/` (managed virtualenv). The core `host`
-runtime (`HostRuntime`) — plain host execution, the default when nothing
-is activated — has no command group: `osh init` is its setup,
-`osh runtime stop` its teardown and `osh runtime deactivate` the way back
-to it.
+runtime (`HostRuntime`) is the "bring your own Odoo" default — it runs
+the machine's Odoo, optionally pinned by `osh init --runtime=host
+--odoo-command`/`--odoo-conf` — and stops a host Odoo process listening
+on the project's HTTP port.
 
 #### Runtime class attributes
 
 ```python
 class MyRuntime(Runtime):
     runtime_type = "runtime"
-    name = "my-target"              # Activated via `osh my-target init`/`activate`
+    name = "my-target"              # Selected via `osh init --runtime=my-target`
     label = "My Target"             # Short label shown to users
     description = "Runs Odoo on my custom target."
     help_text = "Long help text for --help."
@@ -480,13 +462,27 @@ class MyRuntime(Runtime):
 #### Runtime class methods
 
 - `get_init_options(cls)`: return a list of `click.Option` instances that
-  `osh <name> init` should accept, on top of the common init options
-  (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...). The parsed
-  values are passed to `init()` as `**options`.
+  `osh init --runtime=<name>` should accept, on top of the common init
+  options (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
+  They are merged onto `osh init` itself — a user passing one without
+  selecting the runtime gets a warning. The parsed values are passed to
+  `init()` as `**options`.
 
 - `get_stop_options(cls)`: return a list of `click.Option` instances that
-  `osh <name> stop` should accept; the parsed values are passed to
+  `osh stop` should accept; the parsed values are passed to
   `stop()` as `**options`.
+
+- `odoo_command(self, base)`: return the run command `osh odoo` should
+  use as its argv prefix (it may carry arguments), or `None` to let the
+  executable be resolved normally. `HostRuntime` answers the recorded
+  `init.odoo_command` — its `--odoo-command` init option.
+
+- `base_odoo_conf(self, base)`: return a base Odoo config file the
+  generated per-database config (`.osh/cache/env/*.conf`) should seed
+  from — the project's `.osh/odoo.conf`/`.odoorc` overrides it, and
+  generated values (`addons_path`, `db_name`, `dbfilter`) layer on top.
+  `HostRuntime` answers the recorded `init.odoo_conf` — its
+  `--odoo-conf` init option.
 
 - `detect_odoo_version(self, base)`: return the installed Odoo version for
   _base_, or `None` if it cannot be determined. The base implementation reads
@@ -495,17 +491,28 @@ class MyRuntime(Runtime):
   tag).
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
-  Return a `Diagnostics` object. `osh <name> init` and
+  Return a `Diagnostics` object. `osh init --runtime=<name>` and
   `osh odoo` both use this. `options` may include `phase` (`"init"`
   or `"run"`) and any CLI options passed by the command.
 
 - `init(self, target, *, version="", edition="ce", dry_run=False, **options)`:
   prepare `target` for use and return `True` when ready. This is called by
-  `osh <name> init` after the common base setup.
+  `osh init --runtime=<name>` after the common base setup.
+
+- `status(self, ctx, base)`: report what the runtime has running for
+  _base_ — called by `osh init`'s status report on an initialized
+  project. The default prints nothing.
 
 - `stop(self, ctx, base, **options)`: stop anything the runtime
-  leaves running. Called by `osh <name> stop`; the default implementation
-  kills a rogue Odoo process listening on the configured HTTP port.
+  leaves running. Called by `osh stop` in the project; the host runtimes
+  kill a rogue Odoo process listening on the configured HTTP port.
+
+- `stop_by_name(self, ctx, name, **options)`: stop resources belonging
+  to another Osh project identified by _name_ — backs `osh stop <name>`.
+  The default rejects with an error.
+
+- `stop_all(self, ctx, **options)`: stop every Osh-managed resource of
+  this runtime — backs `osh stop --all`. The default is a no-op.
 
 - `env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
   execute a command inside the target environment. `env_spec` is an `EnvSpec`
@@ -588,17 +595,17 @@ decompose their work into methods so any step is an extension point.
 Every built-in command is a named handler — the `_cli_name` is the
 extension target to declare under `extends`:
 
-| `_cli_name`              | Commands                                                   | Handler                      |
-| ------------------------ | ---------------------------------------------------------- | ---------------------------- |
-| `init`                   | `osh init`                                                 | `Init` (`init_cmd`)          |
-| `odoo`                   | `osh odoo`                                                 | `OdooRun` (`odoo_cmd`)       |
-| `switch`                 | `osh switch`                                               | `Switch` (`switch_cmd`)      |
-| `shell`                  | `osh shell`                                                | `ShellRun` (`shell_cmd`)     |
-| `db`, `db.<sub>`         | `osh db show`/`list`/`set`/`copy`/`shell`/`unset`          | `Db` (`db_cmd`)              |
-| `runtime`, `runtime.<s>` | `osh runtime status`/`list`/`activate`/`deactivate`/`stop` | `RuntimeCtl` (`runtime_cmd`) |
-| `config`, `config.show`  | `osh config show`                                          | `Config` (`config_cmd`)      |
-| `config.user.<sub>`      | `osh config user verbosity`                                | `ConfigUser` (`config_cmd`)  |
-| `config.odoo.<sub>`      | `osh config odoo dev`                                      | `ConfigOdoo` (`config_cmd`)  |
+| `_cli_name`             | Commands                                          | Handler                     |
+| ----------------------- | ------------------------------------------------- | --------------------------- |
+| `init`                  | `osh init`                                        | `Init` (`init_cmd`)         |
+| `odoo`                  | `osh odoo`                                        | `OdooRun` (`odoo_cmd`)      |
+| `switch`                | `osh switch`                                      | `Switch` (`switch_cmd`)     |
+| `shell`                 | `osh shell`                                       | `ShellRun` (`shell_cmd`)    |
+| `db`, `db.<sub>`        | `osh db show`/`list`/`set`/`copy`/`shell`/`unset` | `Db` (`db_cmd`)             |
+| `stop`                  | `osh stop`                                        | `Stop` (`stop_cmd`)         |
+| `config`, `config.show` | `osh config show`                                 | `Config` (`config_cmd`)     |
+| `config.user.<sub>`     | `osh config user verbosity`                       | `ConfigUser` (`config_cmd`) |
+| `config.odoo.<sub>`     | `osh config odoo dev`                             | `ConfigOdoo` (`config_cmd`) |
 
 All modules live in `osh/commands/`. A _group_ handler like `Db` owns
 each `db.<sub>` name — subcommands are `@subcommand` methods on the
@@ -773,8 +780,8 @@ Runtimes return diagnostics via the `Diagnostics` dataclass in
 - `add_error(msg)`, `add_warning(msg)`, `add_info(key, value)`,
   `add_plan(item)`: helper methods.
 
-`osh odoo` aborts on `errors`; `osh <name> init` uses `plan` to show the
-user what will happen.
+`osh odoo` aborts on `errors`; `osh init --runtime=<name>` uses `plan`
+to show the user what will happen.
 
 ### Minimal runtime plugin example
 
@@ -785,18 +792,12 @@ description = "Echo runtime plugin."
 
 [tool.osh.runtimes]
 echo = "Print the Odoo command instead of running it."
-
-[tool.osh.group_commands.echo]
-init = "Initialise the project for the echo runtime."
-activate = "Make echo the project's active run runtime."
-stop = "Stop resources left running by the echo runtime."
 ```
 
 ```python
 # my_runtime/__init__.py
 import click
 from osh.runtimes import Runtime, EnvSpec
-from osh.commands.runtime_cmd import RuntimeCommands
 from osh.commands.helpers import Diagnostics
 
 
@@ -816,13 +817,14 @@ class EchoRuntime(Runtime):
         d.add_plan("Print the assembled Odoo command.")
         return d
 
+    def init(self, target, *, version="", edition="ce", dry_run=False, **options):
+        return True
+
     def env(self, ctx, base, env_spec, *, dry_run=False, **options):
         click.echo(" ".join(env_spec.argv))
         return 0
-
-
-class EchoCommands(RuntimeCommands):
-    """``osh echo`` group — init/activate/stop inherited."""
-
-    _cli_name = "echo"
 ```
+
+`osh init --runtime=echo` then runs the base setup plus `init()`,
+`osh stop` and `osh stop --all` the teardown hooks — no command
+declarations needed.

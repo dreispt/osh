@@ -6,7 +6,7 @@ Provides the `docker` runtime: Odoo and its tools (`psql`, `pg_dump`,
 ## Init
 
 ```bash
-osh docker init 19.0 [--service odoo] [--command odoo] \
+osh init 19.0 --runtime=docker [--service odoo] [--command odoo] \
     [--compose-file devel.yaml] [--dockerfile Dockerfile] [--port 8069]
 ```
 
@@ -29,7 +29,7 @@ variables are mapped to the usual `PG*` ones.
 
 ## Compose file and image resolution
 
-`osh docker init` picks the Odoo container in this order:
+`osh init --runtime=docker` picks the Odoo container in this order:
 
 - **`--compose-file <path>`** (or `$OSH_COMPOSE_FILE`, or `compose_file` in
   `.osh/docker.toml`): the file is used as-is — for example a Doodba
@@ -54,8 +54,8 @@ up --build` keeps the image current on each cold start.
 
 - A project-provided compose file runs under its **natural Compose project
   name** — the same containers `docker compose up` at the project root
-  creates. `docker compose ps` shows what Osh manages, and `osh docker
-stop` downs the project's real stack.
+  creates. `docker compose ps` shows what Osh manages, and `osh stop`
+  downs the project's real stack.
 - The generated `.osh/docker-compose.yml` runs under an isolated
   `osh-<dirname>-<hash>` project name instead — its `.osh` directory would
   otherwise give every Osh project the same default name.
@@ -90,7 +90,7 @@ arguments itself:
   variables re-exported as the standard `PG*` names.
 
 Containers are intentionally **left running** after commands exit.
-`osh docker stop` runs `docker compose down` for the project stack.
+`osh stop` runs `docker compose down` for the project stack.
 
 ## Rebuilding images
 
@@ -103,14 +103,14 @@ To refresh the image build, re-run init — it runs `compose build` before
 its smoke test on stacks that declare `build:` services:
 
 ```bash
-osh docker init   # rebuild the service images
+osh init --runtime=docker   # rebuild the service images
 ```
 
 Init updates the image but does not recreate a running container, so a
 live stack still needs a restart to run on it:
 
 ```bash
-osh docker stop   # down the stack
+osh stop          # down the stack
 osh odoo          # cold start rebuilds the image, then runs Odoo
 ```
 
@@ -140,7 +140,7 @@ Before `up -d`, Osh checks whether the published port is already bound —
 the configured/`--port` one on the generated stack, or the `osh odoo -p`
 override elsewhere; a foreign compose file's own mapping is left to it. If
 the holder is another Osh-managed project (identified via Compose labels),
-the error names that project and suggests `osh docker stop` there or
-`osh docker init --port <n>` here; otherwise it prints a generic
-actionable message. In both cases `osh docker stop` is the first suggested
+the error names that project and suggests `osh stop <name>` there or
+`osh init --runtime=docker --port <n>` here; otherwise it prints a generic
+actionable message. In both cases `osh stop` is the first suggested
 remedy.

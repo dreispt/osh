@@ -36,14 +36,21 @@ Docker) so `osh odoo` just works.
 
 ## Why osh?
 
-**Without osh:**
+**Without osh** — on the host:
 
 ```bash
 odoo-bin -c .osh/odoo.conf -d myproject-feature-x \
   --addons-path=enterprise,odoo/addons,custom_addons
 ```
 
-**With osh:**
+or in a Docker Compose stack:
+
+```bash
+docker compose build
+docker compose up
+```
+
+**With osh** — either way:
 
 ```bash
 osh odoo
@@ -54,17 +61,13 @@ bundled plugins, and pip-installed plugins listed together:
 
 ```text
 Commands:
-  init     Initialise an Osh project directory (base setup only).
+  init     Initialise an Osh project directory, or report its status.
+  stop     Stop resources the project's runtime left running.
   odoo     Run the project's Odoo executable.
   shell    Enter the project's runtime environment or run a command in it.
   db       Manage databases and branch-to-database mappings.
   addon    Manage Odoo modules — commands are provided by plugins.
-  runtime  Inspect and change the project's active runtime.
   config   Manage Osh project settings stored in `.osh/config.toml`.
-
-Runtime Commands:
-  docker  Run Odoo inside a Docker Compose stack. [osh-runtime-docker]
-  venv    Clone Odoo sources, create a Python... [osh-runtime-venv]
 
 Plugin Commands:
   switch  Switch branch/environment (git or git-less) and report its database.
@@ -92,9 +95,9 @@ and then start Odoo:
 # Create a project directory
 cd my-odoo-project
 
-# Initialise it for Odoo 19.0, using venv or docker
-osh venv init 19.0
-osh docker init 19.0
+# Initialise it for Odoo 19.0 — on the first run you'll be asked which
+# runtime to use (the answer is remembered in ~/.config/osh/config.toml)
+osh init 19.0
 
 # Run Odoo
 osh odoo
@@ -107,6 +110,14 @@ The init step:
   (for example, for Odoo.sh project that don't include these sources).
 - Sets up the necessary run environment for Odoo.
 - All support files are stored in a `.osh` directory.
+
+`osh init` is safe to re-run at any time — it is idempotent. A bare `osh
+init` in an initialized project only reports status and changes nothing;
+`osh init <version>` or `osh init --runtime <name>` re-applies setup and
+repairs or updates what changed: a modified `requirements.txt` is
+reinstalled into the venv, the generated Compose stack is regenerated for
+a new Odoo target version and rebuilt when it declares a `build:`, and a
+project's own compose file is left untouched.
 
 When running Odoo there is no need to remember the target database or config file:
 
@@ -137,34 +148,43 @@ Run `osh <command> --help` for full usage details.
 
 A _runtime_ is where Osh runs Odoo and its tools: `host` (the default —
 Odoo and its dependencies already installed on the machine), `venv` or
-`docker`. Each managed runtime contributes its own command group for
-runtime-specific setup and lifecycle:
+`docker`. The whole runtime lifecycle hangs off two commands:
 
-| Runtime commands  | What it does                                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `osh runtime ...` | Active-runtime state: `status`, `list`, `activate NAME`, `deactivate` (back to host), `stop` (its resources) |
-| `osh config`      | View or change osh settings for this project                                                                 |
-| `osh venv ...`    | Managed virtualenv + Odoo sources: `init`, `activate`, `stop`                                                |
-| `osh docker ...`  | Docker Compose stack: `init`, `activate`, `list`, `stop`                                                     |
+| Command      | What it does                                                                        |
+| ------------ | ----------------------------------------------------------------------------------- |
+| `osh init`   | Idempotent project setup; repairs changed pieces on re-run; bare run reports status |
+| `osh stop`   | Stop whatever the active runtime left running                                       |
+| `osh config` | View or change osh settings for this project                                        |
 
-- `osh <runtime> init` — base project setup, then the runtime's own steps
-  (`osh docker init` writes `docker.toml` and honors a project compose
-  file or Dockerfile when present, generating the Compose file otherwise).
-- `osh <runtime> activate` (or `osh runtime activate <runtime>`) — switch
-  the project to an already-initialized runtime, recorded as `run.runtime`
-  in `.osh/config.toml`. The active runtime is what `osh odoo`, `osh shell`
-  and `osh db` run through.
-- `osh runtime deactivate` — switch back to the `host` runtime.
-- `osh runtime status` / `list` — which runtime is active / what's available.
-- `osh runtime stop` — stop whatever the active runtime left running;
-  `osh <runtime> stop` does the same for a specific runtime (with its
-  options, e.g. `osh docker stop --compose-file`).
-- `osh docker list` — all running containers and the Osh project each
-  belongs to.
-- `osh docker stop <name>` — stop another project's stack by directory
-  name, handy when a leftover stack still holds port 8069.
+- `osh init --runtime <name>` — base project setup, then the runtime's own
+  steps, and records it as the active `run.runtime` in `.osh/config.toml`
+  (`osh init --runtime docker` writes `docker.toml` and honors a project
+  compose file or Dockerfile when present, generating one otherwise;
+  runtime options like `--service`/`--port` are accepted on `osh init`
+  itself). The chosen runtime is also remembered in the user config
+  (`~/.config/osh/config.toml`) as the default for future `osh init`
+  runs — on a first run without one, the runtime is asked once;
+  `--runtime=ask` forces the prompt again. The active runtime is what
+  `osh odoo`, `osh shell` and `osh db` run through.
+- `osh init` — in an initialized project, reports the recorded version,
+  the active runtime and the available runtimes.
+- `osh init --runtime host` — the "bring your own Odoo" runtime: nothing is
+  installed, `osh odoo` runs whatever Odoo the machine already has (also
+  the way back to host execution from another runtime). Two options make
+  a system setup first-class: `--odoo-command 'odoo-bin --workers=2'`
+  pins the run command — copy the one a systemd `ExecStart` uses,
+  arguments included — and `--odoo-conf /etc/odoo/odoo.conf` seeds the
+  generated config from a base file (the project's own `.osh/odoo.conf`
+  still overrides it). Both are recorded and reused by `osh odoo`,
+  `osh shell` and `osh stop`.
+- `osh stop` — stop whatever the active runtime left running (with its
+  options, e.g. `osh stop --compose-file`).
+- `osh stop <name>` — stop another project's resources by directory name
+  or path, handy when a leftover stack still holds port 8069.
+- `osh stop --all` — list and stop every Osh-managed stack and host Odoo
+  process on the machine.
 - `osh odoo -p <n>` — republish the stack on that host port for the run
-  (equivalent to `osh docker init --port <n>` without re-init).
+  (equivalent to `osh init --runtime docker --port <n>` without re-init).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 

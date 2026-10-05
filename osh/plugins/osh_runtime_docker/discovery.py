@@ -1,7 +1,7 @@
 """Docker label/container discovery helpers.
 
 Helpers that query the Docker daemon for containers and Compose labels,
-used by ``osh docker list``, ``osh docker stop <name>``, port-collision
+used by ``osh stop --all``, ``osh stop <name>``, port-collision
 diagnostics and status reporting. Kept separate from the Compose
 invocation helpers in ``utils.py``.
 """
@@ -90,18 +90,16 @@ def _list_containers(show_all=False):
     return containers
 
 
-def _find_project_stack(name):
-    """Locate the Compose stack of the Osh project named *name*.
+def _project_stacks():
+    """Return every Osh-managed Compose stack found via container labels.
 
-    *name* is the project directory name shown by ``osh docker list``; a
-    full project path or an ``osh-*`` Compose project name also match.
-    Returns ``{path, osh, compose_project, config_file, ids}`` — ``path``
-    is the verified Osh project (``osh`` True) or the best-guess path from
-    the working-dir label of a container whose ``osh-*`` Compose project
-    survived its deleted directory. Raises ``ClickException`` when nothing
-    matches or the name is ambiguous.
+    Stacks are keyed by ``{path, osh, compose_projects, config_files, ids}`` —
+    ``path`` is the verified Osh project (``osh`` True) or the best-guess
+    path from the working-dir label of a container whose ``osh-*`` Compose
+    project survived its deleted directory. A single project may run
+    containers under several Compose project names (stacks started by
+    older Osh versions or outside ``osh odoo``).
     """
-    resolved_name = Path(name).expanduser().resolve()
     stacks = {}
     for c in _list_containers(show_all=True):
         project = c["project"]
@@ -114,35 +112,49 @@ def _find_project_stack(name):
             key = f"compose:{c['compose_project']}"
         else:
             continue
-        if (
-            name
-            not in (
-                path.name,
-                str(path),
-                c["compose_project"],
-            )
-            and path.resolve() != resolved_name
-        ):
-            continue
         stack = stacks.setdefault(
             key,
             {
                 "path": path,
                 "osh": False,
-                "compose_project": c["compose_project"],
-                "config_file": c["config_file"],
+                "compose_projects": set(),
+                "config_files": [],
                 "ids": [],
             },
         )
+        if c["compose_project"]:
+            stack["compose_projects"].add(c["compose_project"])
+        for file in (c["config_file"] or "").split(","):
+            if file and file not in stack["config_files"]:
+                stack["config_files"].append(file)
         stack["ids"].append(c["id"])
         if project is not None:
             stack["osh"] = True
             stack["path"] = project
+    return stacks
+
+
+def _find_project_stack(name):
+    """Locate the Compose stack of the Osh project named *name*.
+
+    *name* is the project directory name shown by ``osh stop --all``; a
+    full project path or an ``osh-*`` Compose project name also match.
+    Returns the matching ``_project_stacks`` entry. Raises
+    ``ClickException`` when nothing matches or the name is ambiguous.
+    """
+    resolved_name = Path(name).expanduser().resolve()
+    stacks = {
+        key: stack
+        for key, stack in _project_stacks().items()
+        if name in (stack["path"].name, str(stack["path"]))
+        or name in stack["compose_projects"]
+        or stack["path"].resolve() == resolved_name
+    }
 
     if not stacks:
         raise click.ClickException(
             f"No Docker stack found for project '{name}'. "
-            "See 'osh docker list' for running projects."
+            "See 'osh stop --all' for running projects."
         )
     if len(stacks) > 1:
         choices = "\n".join(
@@ -160,8 +172,8 @@ def _port_process_hint(port):
     """Identify a host process listening on *port*, for error messages.
 
     Returns e.g. ``"'/p/.venv/bin/odoo --dev=all' (pid 123) in /p"`` — the
-    process's working directory points at the project where ``osh runtime
-    stop`` would free the port.
+    process's working directory points at the project where ``osh stop``
+    would free the port.
     """
     from ...runtimes import _looks_like_odoo, _pid_command, _port_listeners
 

@@ -1,9 +1,10 @@
 """Plugin contributing a backend, a backup source and group commands."""
 
+import click
+
 from osh.backends import Backend
 from osh.backup_sources import BackupSource
-from osh.commands.backend_cmd import BackendCommands
-from osh.handlers import CommandHandler
+from osh.handlers import CommandHandler, subcommand
 
 
 class MyBackend(Backend):
@@ -11,10 +12,15 @@ class MyBackend(Backend):
     backend_type = "backend"
 
 
-class MyBackendCommands(BackendCommands):
-    """``osh mybackend`` group — ``init``/``activate``/``stop`` inherited."""
+class MyBackendCommands(CommandHandler):
+    """``osh mybackend`` group — the plugin's own command group."""
 
     _cli_name = "mybackend"
+
+    @subcommand
+    @click.argument("project", required=False)
+    def stop(self):
+        """Stop my backend's resources."""
 
 
 class MySource(BackupSource):

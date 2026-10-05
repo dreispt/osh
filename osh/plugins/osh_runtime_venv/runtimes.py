@@ -163,6 +163,14 @@ class VenvRuntime(HostRuntime):
         )
         return True
 
+    def odoo_command(self, base):
+        """The venv always runs its own ``.venv/bin/odoo``."""
+        return None
+
+    def base_odoo_conf(self, base):
+        """Host ``--odoo-conf`` settings never apply to the venv."""
+        return None
+
     def _base_env(self, base, capture):
         """Return the virtualenv activation environment for *base*."""
         try:

@@ -51,10 +51,10 @@ described in `README.md`.
 ## Command naming convention
 
 Commands follow a noun/verb rule: anything that operates on a persistent
-resource is `osh <noun> <verb>` (`osh db set`, `osh runtime stop`,
+resource is `osh <noun> <verb>` (`osh db set`, `osh backup restore`,
 `osh addon update`), while bare top-level verbs are
 reserved for the primary day-to-day workflow actions (`osh init`,
-`osh odoo`, `osh switch`, `osh shell`, `osh test`). Verbs may
+`osh stop`, `osh odoo`, `osh switch`, `osh shell`, `osh test`). Verbs may
 deliberately diverge between groups when the underlying concepts differ —
 `osh addon uninstall` removes an Odoo module while `pip uninstall`
 removes an osh plugin, and `osh db set`/`unset` moves a mutable pointer
@@ -70,7 +70,7 @@ subproject that needs a different Odoo version. The innermost `.osh` always
 wins: commands run inside a nested project use its environment, and the
 parent project no longer applies there.
 
-Creating one is deliberate: `osh init` (and `osh <runtime> init`) detects
+Creating one is deliberate: `osh init` (and `osh init --runtime=<name>`) detects
 when the target is inside an existing project and asks for confirmation,
 recording the enclosing project as `parent` under `[init]` in the nested
 `.osh/config.toml`. Initialising inside the parent's `.osh/` directory

@@ -41,7 +41,7 @@ def venv_env(base):
     venv_bin = get_venv_bin(base)
     if not venv_bin.is_dir():
         raise click.ClickException(
-            "No virtualenv found. Run `osh venv init` to create one."
+            "No virtualenv found. Run `osh init --runtime=venv` to create one."
         )
     venv_path = str(venv_bin)
     path = os.environ.get("PATH", "")
@@ -125,7 +125,8 @@ def _not_in_project():
     """Print a helpful message and exit when no Osh project is found."""
     echo.info(
         "Not inside an Osh project. "
-        "Run 'osh venv init <version>' or 'osh docker init <version>' to create one."
+        "Run 'osh init --runtime=venv <version>' or "
+        "'osh init --runtime=docker <version>' to create one."
     )
     raise SystemExit(0)
 
@@ -331,13 +332,15 @@ def get_osh_odoo_config_path(base):
     return base / ".osh" / "odoo.conf"
 
 
-def get_odoo_port(base):
+def get_odoo_port(base, extra_confs=()):
     """Return the Odoo HTTP port configured for *base* (default ``8069``).
 
     Reads ``http_port`` (or the legacy ``xmlrpc_port``) from the first
-    existing of ``.osh/odoo.conf`` and ``.odoorc``.
+    config defining it: ``.osh/odoo.conf``, ``.odoorc``, then
+    *extra_confs* (e.g. a runtime's configured base config).
     """
-    for conf in (get_osh_odoo_config_path(base), get_odoo_config_path(base)):
+    confs = (get_osh_odoo_config_path(base), get_odoo_config_path(base), *extra_confs)
+    for conf in confs:
         if not conf.exists():
             continue
         cfg = configparser.ConfigParser()

@@ -248,14 +248,13 @@ class NaturalOrderGroup(click.Group):
     Also allows group-level options (e.g. ``-v``) to appear after the
     subcommand name, so they do not have to be redeclared on every command.
 
-    Commands whose names are in ``plugin_commands`` or ``runtime_commands``
-    — ``{name: source}`` mappings assigned by ``cli.py`` after plugin
-    registration — are listed in separate help sections, annotated with
+    Commands whose names are in ``plugin_commands`` — the
+    ``{name: source}`` mapping assigned by ``cli.py`` after plugin
+    registration — are listed in a separate help section, annotated with
     their source.
     """
 
     plugin_commands = {}
-    runtime_commands = {}
 
     def list_commands(self, ctx):  # noqa: D401
         return list(self.commands)  # retain insertion order
@@ -272,27 +271,21 @@ class NaturalOrderGroup(click.Group):
             return
         limit = formatter.width - 6 - max(len(name) for name, _ in commands)
         core_rows = []
-        runtime_rows = []
         plugin_rows = []
         for name, cmd in commands:
-            source = self.runtime_commands.get(name, self.plugin_commands.get(name))
+            source = self.plugin_commands.get(name)
             help_text = cmd.get_short_help_str(
                 limit - len(f" [{source}]") if source else limit
             )
             if source:
                 help_text = f"{help_text} [{source}]".strip()
-            if name in self.runtime_commands:
-                runtime_rows.append((name, help_text))
-            elif name in self.plugin_commands:
+            if name in self.plugin_commands:
                 plugin_rows.append((name, help_text))
             else:
                 core_rows.append((name, help_text))
         if core_rows:
             with formatter.section("Commands"):
                 formatter.write_dl(core_rows)
-        if runtime_rows:
-            with formatter.section("Runtime Commands"):
-                formatter.write_dl(runtime_rows)
         if plugin_rows:
             with formatter.section("Plugin Commands"):
                 formatter.write_dl(plugin_rows)
@@ -329,6 +322,31 @@ class NaturalOrderGroup(click.Group):
                 continue
             i += 1
         return super().parse_args(ctx, head + tail)
+
+
+def merge_options(options, extra):
+    """Append click params from *extra* absent from *options* (by name).
+
+    Commands such as ``osh init``/``osh stop`` merge runtime-provided
+    options over their own; options shared by several runtimes (e.g.
+    ``-e/--enterprise-source``) merge into one — the first wins.
+    """
+    seen = {param.name for param in options}
+    for param in extra:
+        if param.name not in seen:
+            seen.add(param.name)
+            options.append(param)
+    return options
+
+
+def param_values(handler, params):
+    """Return ``{name: value}`` for click *params* bound on *handler*."""
+    return {param.name: getattr(handler, param.name) for param in params}
+
+
+def long_flag(param):
+    """Return the ``--long`` spelling of a click *param*."""
+    return next((o for o in param.opts if o.startswith("--")), param.opts[0])
 
 
 def format_runtimes_section(formatter, runtimes):

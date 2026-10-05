@@ -55,8 +55,7 @@ class OdooRun(CommandHandler):
     ``osh config odoo dev <value>`` (``off`` disables the injection).
 
     The execution runtime is the one activated for the project — see
-    ``osh <runtime> init``/``osh <runtime> activate`` (e.g. ``osh docker
-    activate``).
+    ``osh init --runtime=<name>`` (e.g. ``osh init --runtime=docker``).
 
     Environment variables:
 
@@ -205,8 +204,9 @@ class OdooRun(CommandHandler):
             echo.info(f"Using config: {conf_path}")
         if resolved_db:
             echo.info(f"Using database: {resolved_db}")
+        command = self.runtime.odoo_command(self.base) or [self.executable]
         return EnvSpec(
-            argv=[self.executable, *self.extra_args],
+            argv=[*command, *self.extra_args],
             env=env_vars,
             db_name=resolved_db,
             config_path=str(conf_path) if conf_path else None,

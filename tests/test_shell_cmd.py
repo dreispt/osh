@@ -10,6 +10,8 @@ from osh.commands.shell_cmd import build_dynamic_odoo_config, shell
 from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 from osh.runtimes import HostRuntime
 
+from .conftest import _free_port
+
 
 def _setup_venv(project):
     """Create a minimal ``.venv/bin`` directory for *project*."""
@@ -25,7 +27,7 @@ def _use_runtime(project, name):
     """Record *name* as the project's active run runtime."""
     from osh.db import set_project_config
 
-    set_project_config(project, "run", "target", name)
+    set_project_config(project, "run", "runtime", name)
 
 
 def test_shell_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
@@ -182,39 +184,25 @@ def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     assert calls[0][1] == ["odoo-bin", "--config", "/other/odoo.conf"]
 
 
-def test_shell_docker_runs_container_with_env_vars(tmp_project, branch_db, monkeypatch):
+def test_shell_docker_runs_container_with_env_vars(
+    tmp_project, branch_db, monkeypatch, fake_docker
+):
     """``osh shell`` on the docker runtime builds a compose invocation with env vars."""
     osh_dir = tmp_project / ".osh"
     docker_toml = osh_dir / "docker.toml"
     docker_toml.write_text(
         "service = 'odoo'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
+        f"port = {_free_port()}\n"
     )
     (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
     _use_runtime(tmp_project, "docker")
 
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.utils._find_compose_tool",
-        lambda: ["docker", "compose"],
-    )
     monkeypatch.chdir(tmp_project)
 
     calls = []
     monkeypatch.setattr(
         "osh.plugins.osh_runtime_docker.runtimes.os.execvp",
         lambda exe, args: calls.append((exe, list(args))),
-    )
-    # Service lifecycle: stack reports stopped, `up -d` is a no-op, no collision.
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.runtimes.run_subprocess",
-        lambda *a, **kw: (0, "", ""),
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.runtimes.run_command",
-        lambda *a, **kw: None,
-    )
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.runtimes.port_in_use",
-        lambda *a, **kw: False,
     )
 
     runner = CliRunner()
@@ -248,21 +236,23 @@ def test_build_dynamic_odoo_config_uses_container_paths_for_docker(
     assert "dbfilter = ^mydb$" in text
 
 
-def test_build_dynamic_odoo_config_data_dir(tmp_project, monkeypatch):
+def test_build_dynamic_odoo_config_data_dir(tmp_project, fake_docker):
     """The generated config carries the data dir the project declares."""
     (tmp_project / ".osh" / "docker.toml").write_text(
         "service = 'odoo'\ncompose_tool = 'docker compose'\n"
         "compose_file = 'docker-compose.yml'\n"
     )
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.runtimes.run_subprocess",
-        lambda *a, **kw: (
-            0,
-            '{"services": {"odoo": {"volumes": '
-            '[{"type": "volume", "source": "data", "target": "/odoo/data"}]}}}',
-            "",
-        ),
+    (tmp_project / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    image: odoo:19.0\n"
+        "    volumes:\n      - data:/odoo/data\nvolumes:\n  data:\n"
     )
+    # Fallback for hosts without a real Docker binary (fakebin delegates
+    # ``config`` to the real one when present).
+    (fake_docker / "config.json").write_text(
+        '{"services": {"odoo": {"volumes": '
+        '[{"type": "volume", "source": "data", "target": "/odoo/data"}]}}}'
+    )
+
     conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
     assert "data_dir = /odoo/data" in conf.read_text()
 
@@ -274,6 +264,31 @@ def test_build_dynamic_odoo_config_data_dir(tmp_project, monkeypatch):
     text = conf.read_text()
     assert "data_dir = /custom/data" in text
     assert "/odoo/data" not in text
+
+
+def test_build_dynamic_odoo_config_seeds_from_base_conf(tmp_project):
+    """A configured ``--odoo-conf`` seeds the generated config; the project wins.
+
+    The host runtime's base config supplies defaults (e.g. from a system
+    ``/etc/odoo.conf``); the project's own ``.osh/odoo.conf`` still
+    overrides it, and generated values layer on top.
+    """
+    from osh.db import set_project_config
+
+    base_conf = tmp_project / "etc" / "odoo.conf"
+    base_conf.parent.mkdir(parents=True)
+    base_conf.write_text("[options]\nhttp_port = 9871\nworkers = 4\n")
+    # Recorded relative — it resolves inside the project directory.
+    set_project_config(tmp_project, "init", "odoo_conf", "etc/odoo.conf")
+    (tmp_project / ".osh" / "odoo.conf").write_text("[options]\nworkers = 1\n")
+
+    conf = build_dynamic_odoo_config(tmp_project, "mydb", HostRuntime())
+
+    text = conf.read_text()
+    assert "http_port = 9871" in text
+    # The project's own config overrides the BYO base config.
+    assert "workers = 1" in text
+    assert "db_name = mydb" in text
 
 
 def test_build_dynamic_odoo_config_escapes_dbfilter(tmp_project):
