@@ -80,10 +80,12 @@ Requirements: Python ≥ 3.10 and `git` (plus Docker for the `docker`
 runtime and `psql`/`createdb` for database commands).
 
 Install `osh` with [pipx](https://pipx.pypa.io/) (it keeps the tool in an
-isolated environment; `osh` is not on PyPI, so install from the repo):
+isolated environment; `osh` is not on PyPI, so install from the repo).
+`@latest` installs the most recent released version — omit it to install
+the unreleased tip of `master`:
 
 ```bash
-pipx install git+https://github.com/dreispt/osh
+pipx install git+https://github.com/dreispt/osh@latest
 ```
 
 On an existing project directory initialize the osh run environment

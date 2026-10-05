@@ -115,3 +115,11 @@ run the hooks locally before committing:
 pip install pre-commit
 pre-commit run --all-files
 ```
+
+## Releasing
+
+Releases are automatic: bump `version` in `pyproject.toml` and merge to
+`master`. The `release` workflow tags the merge commit `vX.Y.Z`, creates a
+GitHub release with generated notes, and re-points the `latest` tag — the
+ref that `pipx install git+https://github.com/dreispt/osh@latest` installs.
+To install unreleased code, use the bare repo URL (tip of `master`).
