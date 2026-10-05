@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import format_cmd, run_subprocess
+from ...common import format_cmd, run_command, run_subprocess
 from ...runtimes import copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 from .python_versions import resolve_python_for_odoo
@@ -157,6 +157,30 @@ def _setup_environment(
         _create_venv(venv_path, python["exe"])
 
     pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
+    marker = venv_path / ".osh-installed"
+
+    # Skip the pip installs when the recorded install is newer than every
+    # input it consumed — the same freshness check the stale-environment
+    # diagnostic uses. Directory mtimes do not reliably change when pip
+    # installs a package, hence the marker file.
+    inputs = [
+        path
+        for path in (
+            odoo_link / "requirements.txt",
+            target / "requirements.txt",
+            odoo_link / "setup.py",
+        )
+        if path.is_file()
+    ]
+    if marker.exists() and all(
+        path.stat().st_mtime <= marker.stat().st_mtime for path in inputs
+    ):
+        echo.info(
+            f"Odoo and requirements already installed in {venv_path}; "
+            "skipping reinstall\u2026",
+            err=True,
+        )
+        return True
 
     requirements_file = odoo_link / "requirements.txt"
     if requirements_file.exists():
@@ -181,33 +205,25 @@ def _setup_environment(
         return False
     # Anchor for the stale-environment check — directory mtimes do not
     # reliably change when pip installs a package.
-    marker = venv_path / ".osh-installed"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
     return True
 
 
 def _pip_install(pip_exe, *args):
-    """Run pip with *args* and report failures; return True on success."""
+    """Run pip with *args*, streaming output; return True on success."""
     command = [str(pip_exe), *args]
-    returncode, stdout, stderr = run_subprocess(command)
-    if returncode is None or returncode != 0:
+    try:
+        result = run_command(command, stream=True)
+    except click.ClickException:
+        result = None  # executable not found
+    if result is None or result.returncode != 0:
         command_str = format_cmd(command)
-        status = "not found" if returncode is None else returncode
-        output = "\n".join(
-            part for part in [stdout or "", stderr or ""] if part
-        ).strip()
-        tail = ""
-        if output:
-            lines = output.splitlines()
-            tail = "\n".join(lines[-40:]) if len(lines) > 40 else output
-        message = (
+        status = "not found" if result is None else result.returncode
+        echo.warning(
             f"pip install failed (exit status {status}).\n\n"
             f"You can retry the command manually:\n\n  {command_str}\n"
         )
-        if tail:
-            message += f"\nOutput (last 40 lines):\n{tail}\n"
-        echo.warning(message)
         return False
     return True
 

@@ -1,40 +1,82 @@
-# Osh – Odoo Shell
+<h1 align="center">Osh – Odoo Shell</h1>
 
-_An exoskeleton for Odoo development_
+<p align="center"><i>An exoskeleton for Odoo development</i></p>
 
-`osh` provides a command-line interface for working with Odoo development
-environments, databases, and project infrastructure. It brings common
-development operations into a consistent interface while keeping the
-underlying Odoo, Docker, PostgreSQL, and other tools accessible.
+<p align="center">
+  <a href="https://github.com/dreispt/osh/actions/workflows/tests.yml"><img src="https://github.com/dreispt/osh/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/license-LGPL--3.0-blue.svg" alt="License: LGPL-3.0">
+  <img src="https://img.shields.io/badge/python-%E2%89%A53.10-blue.svg" alt="Python ≥3.10">
+  <a href="https://pre-commit.com"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a>
+</p>
 
-It is like a virtual environment manager for Odoo projects:
-it discovers your addons, remembers the database to use,
-and runs the right command to start Odoo in your project.
+<p align="center"><img src="docs/demo.gif" alt="osh demo — init, help, odoo --dry-run"></p>
 
-> **Note:** `osh` is not affiliated with Odoo's `odoo.sh` service.
+`osh` is a CLI that runs Odoo _your_ way — it discovers your addons, maps
+git branches to databases, and picks the right runtime (host, venv, or
+Docker) so `osh odoo` just works.
 
-## Design principles
+- **Branch-aware databases** — each git branch gets its own
+  `<project>-<branch>` database; switching never reuses the wrong one
+- **Zero boilerplate** — addons paths and Odoo configuration are
+  auto-discovered and generated
+- **Runtimes** — run on the host, in a managed virtualenv, or in a Docker
+  Compose stack
+- **Backups that travel** — `osh backup restore` from odoo.sh, a live
+  server, an Odoo database manager, or a file
+- **Transparent** — `--dry-run` prints the exact command it would run
+- **Pluggable** — pip-installed plugins add commands, runtimes, and backup
+  source schemes
 
-- **Say what you do** – `osh odoo` runs Odoo, just like `odoo-bin` would,
-  with the project's env pre-configured. `osh shell` gives you a shell.
-  No command's name and behavior disagree.
-- **Mirror the tool underneath** – anything you'd pass to `odoo-bin` (`shell`,
-  `-u mymodule`, `scaffold`, ...) works the same way after `osh odoo`. You're
-  not learning a second CLI vocabulary.
-- **One noun, one home** – osh subcommands represent a domain or resource
-  to operate on. For example, everything that manages project databases
-  (list, copy, mapping to branches, ...) lives under `osh db`.
-- **Unintrusive** – a thin layer on top of Odoo for common dev workflows;
-  it won't modify your project or force a particular deployment or
-  organization mode.
-- **Transparent** – see what's actually running at any time. `--dry-run`
-  prints the assembled command instead of executing it, on every command
-  that runs one. Defaults you didn't ask for (like Odoo dev mode) always
-  show up in that output.
-- **Pluggable** – grow the toolbelt with plugins; `pipx inject osh <dist>`
-  and new commands show up alongside the built-ins.
+> **Note:** `osh` is not related to or affiliated with Odoo S.A. or its `odoo.sh` service.
+
+**Contents:** [Why osh?](#why-osh) · [Quick start](#quick-start) ·
+[Commands](#commands) · [Design principles](#design-principles) ·
+[Configuration](#configuration) · [Plugins](#plugins) ·
+[Contributing](#contributing) · [License](#license)
+
+## Why osh?
+
+**Without osh:**
+
+```bash
+odoo-bin -c .osh/odoo.conf -d myproject-feature-x \
+  --addons-path=enterprise,odoo/addons,custom_addons
+```
+
+**With osh:**
+
+```bash
+osh odoo
+```
+
+And `osh --help` always reflects what's actually installed — core commands,
+bundled plugins, and pip-installed plugins listed together:
+
+```text
+Commands:
+  init     Initialise an Osh project directory (base setup only).
+  odoo     Run the project's Odoo executable.
+  shell    Enter the project's runtime environment or run a command in it.
+  db       Manage databases and branch-to-database mappings.
+  addon    Manage Odoo modules — commands are provided by plugins.
+  runtime  Inspect and change the project's active runtime.
+  config   Manage Osh project settings stored in `.osh/config.toml`.
+
+Runtime Commands:
+  docker  Run Odoo inside a Docker Compose stack. [osh-runtime-docker]
+  venv    Clone Odoo sources, create a Python... [osh-runtime-venv]
+
+Plugin Commands:
+  switch  Switch branch/environment (git or git-less) and report its database.
+          [osh-switch]
+  test    Run Odoo tests for the project's modules. [osh-test]
+  backup  [osh-backup]
+```
 
 ## Quick start
+
+Requirements: Python ≥ 3.10 and `git` (plus Docker for the `docker`
+runtime and `psql`/`createdb` for database commands).
 
 Install `osh` with [pipx](https://pipx.pypa.io/) (it keeps the tool in an
 isolated environment; `osh` is not on PyPI, so install from the repo):
@@ -64,7 +106,7 @@ The init step:
 - Downloads the required Odoo sources, including Enterprise or Design Themes
   (for example, for Odoo.sh project that don't include these sources).
 - Sets up the necessary run environment for Odoo.
-- All support files are stores in a `.osh` directory.
+- All support files are stored in a `.osh` directory.
 
 When running Odoo there is no need to remember the target database or config file:
 
@@ -105,23 +147,24 @@ runtime-specific setup and lifecycle:
 | `osh venv ...`    | Managed virtualenv + Odoo sources: `init`, `activate`, `stop`                                                |
 | `osh docker ...`  | Docker Compose stack: `init`, `activate`, `list`, `stop`                                                     |
 
-`osh <runtime> init` runs the base setup first, then the runtime's own
-steps (e.g. `osh docker init` writes `docker.toml` and honors a project
-compose file or Dockerfile when present, generating the Compose file
-otherwise). `osh <runtime> activate` (or `osh runtime activate <runtime>`)
-switches the project to an already-initialized runtime, recorded as
-`run.runtime` in `.osh/config.toml` — the active runtime is what
-`osh odoo`, `osh shell` and `osh db` run through, and
-`osh runtime deactivate` switches back to the `host` runtime.
-`osh runtime status` shows which runtime is active and `osh runtime list`
-what's available. `osh runtime stop` stops whatever
-the active runtime left running — `osh <runtime> stop` does the same for a
-specific runtime (and carries its options, e.g. `osh docker stop
---compose-file`). `osh docker list` shows all running containers and the
-Osh project each belongs to, and `osh docker stop <name>` stops another
-project's stack by its directory name — handy when a leftover stack still
-holds port 8069. `osh odoo -p <n>` republishes the stack on that host port
-for the run (equivalent to `osh docker init --port <n>` without re-init).
+- `osh <runtime> init` — base project setup, then the runtime's own steps
+  (`osh docker init` writes `docker.toml` and honors a project compose
+  file or Dockerfile when present, generating the Compose file otherwise).
+- `osh <runtime> activate` (or `osh runtime activate <runtime>`) — switch
+  the project to an already-initialized runtime, recorded as `run.runtime`
+  in `.osh/config.toml`. The active runtime is what `osh odoo`, `osh shell`
+  and `osh db` run through.
+- `osh runtime deactivate` — switch back to the `host` runtime.
+- `osh runtime status` / `list` — which runtime is active / what's available.
+- `osh runtime stop` — stop whatever the active runtime left running;
+  `osh <runtime> stop` does the same for a specific runtime (with its
+  options, e.g. `osh docker stop --compose-file`).
+- `osh docker list` — all running containers and the Osh project each
+  belongs to.
+- `osh docker stop <name>` — stop another project's stack by directory
+  name, handy when a leftover stack still holds port 8069.
+- `osh odoo -p <n>` — republish the stack on that host port for the run
+  (equivalent to `osh docker init --port <n>` without re-init).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 
@@ -132,6 +175,27 @@ cached backup (`osh backup list` shows them) to your current branch's database �
 (git-remote style) so you can `osh backup get prod` / `osh backup restore prod`
 instead of retyping the full URL. `osh db` owns everything about _which_
 database a branch uses and what's in it.
+
+## Design principles
+
+- **Say what you do** – `osh odoo` runs Odoo, just like `odoo-bin` would,
+  with the project's env pre-configured. `osh shell` gives you a shell.
+  No command's name and behavior disagree.
+- **Mirror the tool underneath** – anything you'd pass to `odoo-bin` (`shell`,
+  `-u mymodule`, `scaffold`, ...) works the same way after `osh odoo`. You're
+  not learning a second CLI vocabulary.
+- **One noun, one home** – osh subcommands represent a domain or resource
+  to operate on. For example, everything that manages project databases
+  (list, copy, mapping to branches, ...) lives under `osh db`.
+- **Unintrusive** – a thin layer on top of Odoo for common dev workflows;
+  it won't modify your project or force a particular deployment or
+  organization mode.
+- **Transparent** – see what's actually running at any time. `--dry-run`
+  prints the assembled command instead of executing it, on every command
+  that runs one. Defaults you didn't ask for (like Odoo dev mode) always
+  show up in that output.
+- **Pluggable** – grow the toolbelt with plugins; `pipx inject osh <dist>`
+  and new commands show up alongside the built-ins.
 
 ## Configuration
 
@@ -251,6 +315,12 @@ Run `osh --help` or `osh <command> --help` for detailed usage information.
 The command list is generated automatically from the core commands plus bundled
 and installed plugins, so `osh --help` always reflects what is actually
 available in your setup.
+
+## Contributing
+
+Contributions are welcome. See [DEVELOP.md](DEVELOP.md) for the development
+setup, test suite, and conventions, and [PLUGINS.md](PLUGINS.md) for the
+plugin API.
 
 ## License
 

@@ -223,6 +223,41 @@ class TestInitCommand:
         project_req_arg = [str(tmp_project / "requirements.txt")]
         assert any(call[2:5] == ["-r", *project_req_arg] for call in calls)
 
+    def test_reinit_skips_package_installs(self, tmp_project, monkeypatch):
+        """A repeated `osh venv init` does not reinstall packages.
+
+        The user runs `osh venv init` on an already-initialised project —
+        with unchanged requirements the slow pip installs are skipped;
+        editing requirements.txt makes them run again.
+        """
+        odoo_src = tmp_project / "odoo"
+        odoo_src.mkdir(parents=True)
+        (odoo_src / "odoo-bin").touch()
+        (odoo_src / "requirements.txt").touch()
+        (odoo_src / "setup.py").touch()
+        requirements = tmp_project / "requirements.txt"
+        requirements.write_text("requests\n")
+
+        calls = real_commands(monkeypatch)
+        runner = CliRunner()
+        init = ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert any("install" in call for call in calls)
+
+        calls.clear()
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert "skipping reinstall" in result.output
+        assert not any("install" in call for call in calls)
+
+        requirements.write_text("requests\nhttpx\n")
+        calls.clear()
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert any("install" in call for call in calls)
+
     def test_smoke_test_succeeds_when_odoo_executable_works(
         self, tmp_project, monkeypatch, fake_odoo_executable
     ):
