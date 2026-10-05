@@ -10,8 +10,6 @@
   <a href="https://pre-commit.com"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a>
 </p>
 
-<p align="center"><img src="docs/demo.gif" alt="osh demo — init, help, odoo --dry-run"></p>
-
 `osh` is a CLI that runs Odoo _your_ way — it discovers your addons, maps
 git branches to databases, and picks the right runtime (host, venv, or
 Docker) so `osh odoo` just works.
@@ -27,6 +25,8 @@ Docker) so `osh odoo` just works.
 - **Transparent** — `--dry-run` prints the exact command it would run
 - **Pluggable** — pip-installed plugins add commands, runtimes, and backup
   source schemes
+
+<p align="center"><img src="docs/demo.gif" alt="osh demo — init, help, odoo --dry-run"></p>
 
 > **Note:** `osh` is not related to or affiliated with Odoo S.A. or its `odoo.sh` service.
 
@@ -136,15 +136,15 @@ When initializing an Odoo project you usually want to restore a database copy:
 
 Run `osh <command> --help` for full usage details.
 
-| Command                    | What it does                                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); runtime init adds the rest; version optional on re-init           |
-| `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
-| `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
-| `osh test`                 | Run Odoo tests for project modules                                                                                   |
-| `osh db`                   | List, show, set, copy, drop, shell, or unset project databases                                                       |
-| `osh backup`               | Get, list, or restore database backups, and register named remote backup sources                                     |
-| `osh addon`                | Odoo module lifecycle commands, provided by plugins (e.g. `update`, `uninstall`)                                     |
+| Command                    | What it does                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); runtime init adds the rest; version optional on re-init            |
+| `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default  |
+| `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                  |
+| `osh test`                 | Run Odoo tests for project modules                                                                                    |
+| `osh db`                   | List, show, set, copy, drop, shell, or unset project databases                                                        |
+| `osh backup`               | Get, list, or restore database backups, and register named remote backup sources                                      |
+| `osh addon`                | Register extra addon paths (`osh addon path add`); plugins add module lifecycle commands (e.g. `update`, `uninstall`) |
 
 A _runtime_ is where Osh runs Odoo and its tools: `host` (the default —
 Odoo and its dependencies already installed on the machine), `venv` or
@@ -270,6 +270,20 @@ to `default`, which `osh db set`/`unset` can map like any other branch.
 `osh odoo` scans the project directory (up to 9 levels deep) for directories
 containing `__manifest__.py` or `__openerp__.py`. The parent directories of
 those modules are added to the generated Odoo config as `addons_path`.
+
+Addon directories outside the project's git-managed scope — for example an
+OCA repository your project depends on — are registered explicitly and
+appended to `addons_path`:
+
+```bash
+osh addon path add ~/src/payroll      # register a local checkout
+osh addon path add oca/payroll        # clone a GitHub repo into .osh/payroll
+osh addon path list                   # show registered paths
+osh addon path remove payroll         # unregister (files are never deleted)
+```
+
+Git sources are shallow-cloned into `.osh/` on the project's Odoo version
+branch, the same way Odoo, Enterprise and design-themes sources are handled.
 
 ### Configuration file
 

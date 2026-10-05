@@ -559,9 +559,7 @@ def discover_addons_paths(base, *, max_depth=9):
             if child.name.startswith(".") or child.name.startswith("__"):
                 continue
             if child.is_dir():
-                if (child / "__manifest__.py").exists() or (
-                    child / "__openerp__.py"
-                ).exists():
+                if is_module_dir(child):
                     addons.append(child)
                 else:
                     _walk(child, depth + 1)
@@ -583,6 +581,11 @@ def discover_addons_paths(base, *, max_depth=9):
     return sorted(
         addon for addon in addons if not _nested(addon) or addon.name not in outer_names
     )
+
+
+def is_module_dir(path):
+    """Return True when *path* is an Odoo module directory."""
+    return (path / "__manifest__.py").exists() or (path / "__openerp__.py").exists()
 
 
 def discover_module_names(base):

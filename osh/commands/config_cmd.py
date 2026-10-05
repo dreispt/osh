@@ -31,6 +31,11 @@ class Config(CommandHandler):
         else:
             echo.info("  No database configuration.")
 
+        if cfg.has_section("addons"):
+            echo.info("Addons configuration:")
+            for key, value in cfg.items("addons"):
+                echo.info(f"  {key} = {value}")
+
         if cfg.has_section("user"):
             echo.info("User preferences:")
             for key, value in cfg.items("user"):
