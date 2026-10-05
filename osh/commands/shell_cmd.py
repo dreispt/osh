@@ -51,8 +51,15 @@ def build_dynamic_odoo_config(
         source = get_odoo_config_path(base)
 
     cfg = configparser.ConfigParser()
+    sources = []
+    base_conf = runtime.base_odoo_conf(base)
+    if base_conf is not None and base_conf.is_file():
+        # The BYO base config (``--odoo-conf``) seeds the generated config;
+        # the project's own config overrides it.
+        sources.append(base_conf)
     if source.exists():
-        cfg.read(source, encoding="utf-8")
+        sources.append(source)
+    cfg.read([str(path) for path in sources], encoding="utf-8")
     if not cfg.has_section("options"):
         cfg.add_section("options")
 

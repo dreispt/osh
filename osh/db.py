@@ -183,9 +183,9 @@ def set_active_runtime_name(base, name):
 def deactivate_runtime(base):
     """Record ``host`` as the active runtime; return the previous name.
 
-    Returns ``None`` when no managed runtime was active. Runtime plugins can
-    call this from their own deactivate command to keep the ``run.runtime``
-    bookkeeping in one place.
+    Returns ``None`` when no managed runtime was active. ``osh init
+    --runtime=host`` is the user-facing spelling; this helper keeps the
+    ``run.runtime`` bookkeeping in one place for callers that need it.
     """
     previous = get_active_runtime_name(base, default=None)
     if not previous or previous == "host":
@@ -198,7 +198,7 @@ def resolve_runtime(base, default="host"):
     """Instantiate the runtime configured for *base*.
 
     The active runtime is the ``run.runtime`` (or legacy ``run.target``) recorded in the project config
-    by ``osh <runtime> init`` or ``osh <runtime> activate``, falling back to
+    by ``osh init --runtime=<name>``, falling back to
     *default*. This is the supported way for commands and plugins to obtain
     the active runtime instance.
     """

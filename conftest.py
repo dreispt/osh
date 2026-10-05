@@ -1,5 +1,7 @@
 """Session-wide pytest setup shared by ``tests/`` and plugin test dirs."""
 
+import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -78,12 +80,54 @@ def in_project(monkeypatch, tmp_project):
     return tmp_project
 
 
+_FAKEBIN = (
+    Path(__file__).parent
+    / "osh"
+    / "plugins"
+    / "osh_runtime_docker"
+    / "tests"
+    / "fakebin"
+)
+
+
+@pytest.fixture(autouse=True)
+def user_config(tmp_path, monkeypatch):
+    """Isolate ``~/.config/osh/config.toml`` per test.
+
+    A real user config — e.g. a stored ``init.runtime`` default — must not
+    leak into tests, and preference writes must not touch the developer's
+    actual config.
+    """
+    path = tmp_path / "home" / ".config" / "osh" / "config.toml"
+    monkeypatch.setattr("osh.config.get_user_config_path", lambda: path)
+    return path
+
+
+@pytest.fixture
+def fake_docker(tmp_path, monkeypatch):
+    """Put a canned-answer ``docker`` on PATH; return its response dir.
+
+    For the cases real Docker cannot reproduce deterministically — an
+    empty ``docker ps``, or a failing one. Absent response files mean
+    success with empty output; ``docker_ps`` and ``docker_rc`` override
+    plain ``docker`` calls (``osh stop --all``).
+    """
+    real = shutil.which("docker")
+    state = tmp_path / "fake-docker"
+    state.mkdir()
+    monkeypatch.setenv("OSH_FAKE_DOCKER", str(state))
+    monkeypatch.setenv("PATH", f"{_FAKEBIN}{os.pathsep}{os.environ['PATH']}")
+    if real:
+        monkeypatch.setenv("OSH_REAL_DOCKER", real)
+    return state
+
+
 @pytest.fixture
 def fake_odoo_executable(tmp_project):
     """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``.
 
     A stub ``pip`` is included so the pre-existing ``.venv`` looks
-    complete to ``osh venv init``.
+    complete to ``osh init --runtime=venv``.
     """
     venv_bin = tmp_project / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)

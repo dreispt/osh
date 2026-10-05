@@ -3,19 +3,19 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "osh-runtimex"
+name = "osh-configx"
 version = "0.1.0"
 requires-python = ">=3.10"
 
 [project.entry-points."osh.plugins"]
-osh-runtimex = "osh_runtimex"
+osh-configx = "osh_configx"
 
 [tool.setuptools]
-package-dir = { "osh_runtimex" = "." }
-packages = ["osh_runtimex"]
+package-dir = { "osh_configx" = "." }
+packages = ["osh_configx"]
 
 [tool.setuptools.package-data]
-osh_runtimex = ["pyproject.toml"]
+osh_configx = ["pyproject.toml"]
 
 [tool.osh]
-extends = ["runtime"]
+extends = ["config"]

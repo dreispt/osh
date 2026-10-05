@@ -10,7 +10,7 @@ PLUGINS_DATA = Path(__file__).parent / "plugins"
 def write_stub_pip(venv_path):
     """Drop a no-op ``pip`` executable into *venv_path*.
 
-    ``pip install`` is the one step of ``osh venv init`` that cannot run
+    ``pip install`` is the one step of ``osh init --runtime=venv`` that cannot run
     for real (it fetches from PyPI), so a stub is provided as a real
     executable file — the same canned-answer technique as
     ``osh_runtime_docker/tests/fakebin/docker``.

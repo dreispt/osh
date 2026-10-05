@@ -1,30 +1,9 @@
 """Fixtures for the Docker runtime plugin tests."""
 
+import json
 import os
-import shutil
-
-import pytest
 
 FAKEBIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fakebin")
-
-
-@pytest.fixture
-def fake_docker(tmp_path, monkeypatch):
-    """Put a canned-answer ``docker`` on PATH; return its response dir.
-
-    For the rare cases real Docker cannot reproduce deterministically —
-    an empty ``docker ps``, or a failing one. Absent response files mean
-    success with empty output; ``docker_ps`` and ``docker_rc`` override
-    plain ``docker`` calls (``osh docker list``).
-    """
-    real = shutil.which("docker")
-    state = tmp_path / "fake-docker"
-    state.mkdir()
-    monkeypatch.setenv("OSH_FAKE_DOCKER", str(state))
-    monkeypatch.setenv("PATH", f"{FAKEBIN}{os.pathsep}{os.environ['PATH']}")
-    if real:
-        monkeypatch.setenv("OSH_REAL_DOCKER", real)
-    return state
 
 
 def _write_docker_config(project, port=None):
@@ -36,3 +15,28 @@ def _write_docker_config(project, port=None):
         text += f"port = {port}\n"
     (osh_dir / "docker.toml").write_text(text)
     (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+
+
+def _docker_ps_line(name, image, ports, status, labels="", cid=None):
+    """Return a ``docker ps --format '{{json .}}'`` output line."""
+    return json.dumps(
+        {
+            "ID": cid or name,
+            "Names": name,
+            "Image": image,
+            "Ports": ports,
+            "Status": status,
+            "Labels": labels,
+        }
+    )
+
+
+def _running_containers(fake_docker, *lines):
+    """Feed the canned-answer ``docker`` a ``docker ps`` listing."""
+    (fake_docker / "docker_ps").write_text("\n".join(lines))
+
+
+def _docker_calls(fake_docker):
+    """Return the argv lines the canned-answer ``docker`` recorded."""
+    log = fake_docker / "calls.log"
+    return log.read_text().splitlines() if log.exists() else []

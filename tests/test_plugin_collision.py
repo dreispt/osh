@@ -89,8 +89,8 @@ def test_plugin_commands_listed_in_separate_help_section(pip_install):
     assert "[fake]" in plugin_section
 
 
-def test_runtime_groups_listed_in_separate_help_section():
-    """`osh --help` lists runtime groups under Runtime Commands — lazily."""
+def test_help_does_not_import_runtime_plugins():
+    """`osh --help` renders without importing the runtime plugins."""
     from osh import cli
 
     importlib.reload(cli)
@@ -99,12 +99,10 @@ def test_runtime_groups_listed_in_separate_help_section():
     result = runner.invoke(cli.main, ["--help"])
 
     assert result.exit_code == 0
-    assert "docker" in cli.main.runtime_commands
-    core_section, _, rest = result.output.partition("Runtime Commands:")
-    runtime_section, _, _ = rest.partition("Plugin Commands:")
-    assert "\n  docker " not in core_section
-    assert "\n  docker " in runtime_section
-    assert "[osh-runtime-docker]" in runtime_section
+    # Runtime lifecycle folds into ``osh init``/``osh stop`` — no per-runtime
+    # command groups exist.
+    assert "docker" not in cli.main.commands
+    assert "venv" not in cli.main.commands
     # Help renders from metadata — the runtime plugins are never imported.
     from osh.utils.plugin_registry import plugin_registry
 

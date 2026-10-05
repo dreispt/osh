@@ -13,7 +13,6 @@ from .utils.plugin_loader import (
     declared_meta,
     load_group_commands,
     load_plugins,
-    runtime_meta,
     warn_unresolved_meta,
 )
 
@@ -65,10 +64,11 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
 
     Usage: osh [--silent | --verbose | --debug] <command> [args]
 
-    Use `osh init` to initialize an Odoo environment in a project.
+    Use `osh init` to initialize an Odoo environment in a project, and
+    `osh init --runtime=<name>` to set up a runtime (host, venv, docker, ...).
     Use `osh shell` to enter the runtime environment or run any command inside it.
-    Use `osh odoo` to run Odoo in that environment, using an available
-    runtime (host, venv, docker, etc.).
+    Use `osh odoo` to run Odoo in that environment, and `osh stop` to stop
+    what the runtime left running.
     Add the `--help` option to a command to learn more.
 
     Plugins add commands and runtimes; they are Python packages installed
@@ -144,14 +144,9 @@ main.plugin_commands = _plugin_commands
 # handlers with dotted names (``backup.restore``) declared under
 # ``[group_commands.<group>]``. Missing target
 # groups are created on demand: a group named after a declared runtime
-# (``osh docker``) renders in the "Runtime Commands" help section with
-# the runtime's description; any other auto-created group (e.g. the
-# ``backup.get`` handler creating ``backup``) is a plugin command.
-# The built-in ``host`` runtime has no group — it is the absence of a
-# managed runtime; ``osh init`` is its setup, ``osh runtime stop`` its
-# teardown, ``osh runtime deactivate`` the way back.
-# Targeting a non-group command is an error.
-main.runtime_commands = {}
+# gets the runtime's description as its help; any other auto-created
+# group (e.g. the ``backup.get`` handler creating ``backup``) is a
+# plugin command. Targeting a non-group command is an error.
 for group_name, entries in load_group_commands().items():
     target = main.commands.get(group_name)
     if target is None:
@@ -162,10 +157,7 @@ for group_name, entries in load_group_commands().items():
         registered = _register_plugin_command(main, target, entries[0][0], group_name)
         if registered is None:
             continue
-        if group_name in runtime_meta():
-            main.runtime_commands[registered] = entries[0][0]
-        else:
-            main.plugin_commands[registered] = entries[0][0]
+        main.plugin_commands[registered] = entries[0][0]
     if not isinstance(target, click.Group):
         for source, _cmd in entries:
             echo.error(
@@ -193,6 +185,7 @@ warn_unresolved_meta()
 # listed in a separate help section (see NaturalOrderGroup.format_commands).
 _COMMAND_ORDER = [
     "init",
+    "stop",
     "odoo",
     "switch",
     "shell",
@@ -200,7 +193,6 @@ _COMMAND_ORDER = [
     "db",
     "backup",
     "addon",
-    "runtime",
     "config",
 ]
 

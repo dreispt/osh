@@ -32,6 +32,6 @@ By default tests run on a dedicated database named
 `--dropdb` drops the test database first, then installs fresh.
 `--no-stop-after-init` keeps the server running after the test pass.
 
-`osh test` runs on the project's active runtime (`osh <runtime> activate`
-switches it). `--compose-file` is forwarded, and `--dry-run` prints the
+`osh test` runs on the project's active runtime (`osh init --runtime=<name>`
+selects it). `--compose-file` is forwarded, and `--dry-run` prints the
 exact Odoo commands that would run.

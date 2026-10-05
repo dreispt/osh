@@ -24,6 +24,7 @@ from .discovery import (
     _find_project_stack,
     _list_containers,
     _port_process_hint,
+    _project_stacks,
 )
 from .utils import (
     _COMPOSE_FILE,
@@ -189,7 +190,7 @@ class DockerRuntime(Runtime):
         return _environment_build_groups(base, (cfg or {}).get("compose_file"), cfg=cfg)
 
     def _stale_environment_hint(self):
-        return "Run 'osh docker stop'; " "the next 'osh odoo' rebuilds on a cold start."
+        return "Run 'osh stop'; " "the next 'osh odoo' rebuilds on a cold start."
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
@@ -547,19 +548,19 @@ class DockerRuntime(Runtime):
             project_path, running_for = holder
             raise click.ClickException(
                 f"Port {port} is already used by a container for "
-                f"{project_path} (running {running_for}). Run 'osh docker stop' "
+                f"{project_path} (running {running_for}). Run 'osh stop' "
                 "there, or 'osh odoo -p <n>' here."
             )
         process = _port_process_hint(port)
         if process:
             raise click.ClickException(
                 f"Port {port} is already used by {process}. "
-                "If it's an Osh session, run 'osh runtime stop' there; "
+                "If it's an Osh session, run 'osh stop' there; "
                 "otherwise stop it, or run 'osh odoo -p <n>' here."
             )
         raise click.ClickException(
             f"Port {port} is already in use. If this is from a previous "
-            "'osh odoo'/'osh shell' session, run 'osh docker stop' in that project "
+            "'osh odoo'/'osh shell' session, run 'osh stop' in that project "
             f"to free it. Otherwise, stop whatever's using port {port}, or "
             "run 'osh odoo -p <n>' here."
         )
@@ -577,7 +578,11 @@ class DockerRuntime(Runtime):
         ]
 
     def stop(self, ctx, base, **options):
-        """Stop and remove this project's Compose stack."""
+        """Stop and remove this project's Compose stack.
+
+        ``stop_by_name``/``stop_all`` pass the discovered ``names``/``ids``
+        in *options* so a listing made for discovery is not repeated here.
+        """
         cfg = _load_docker_config(base)
         if not cfg:
             echo.info("No Docker runtime configured; nothing to stop.", err=True)
@@ -595,15 +600,18 @@ class DockerRuntime(Runtime):
             # A compose file can be deleted while its containers are still
             # running — remove them by id, like ``stop_by_name`` does for
             # stacks whose project directory was deleted.
-            resolved = Path(base).resolve()
-            try:
-                ids = [
-                    c["id"]
-                    for c in _list_containers(show_all=True)
-                    if c["project"] is not None and c["project"].resolve() == resolved
-                ]
-            except click.ClickException:
-                ids = []
+            ids = options.get("ids")
+            if ids is None:
+                resolved = Path(base).resolve()
+                try:
+                    ids = [
+                        c["id"]
+                        for c in _list_containers(show_all=True)
+                        if c["project"] is not None
+                        and c["project"].resolve() == resolved
+                    ]
+                except click.ClickException:
+                    ids = []
             if not ids:
                 echo.info(f"Nothing to stop: {detail}.", err=True)
                 return
@@ -618,10 +626,12 @@ class DockerRuntime(Runtime):
         # Down every Compose project this project's containers run under —
         # stacks started by older Osh versions or outside ``osh odoo`` may
         # carry a different project name than the current one.
-        try:
-            names = _compose_project_names_for(base)
-        except click.ClickException:
-            names = set()
+        names = options.get("names")
+        if names is None:
+            try:
+                names = _compose_project_names_for(base)
+            except click.ClickException:
+                names = set()
         for project_name in sorted(names) or [None]:
             compose_cmd = _compose_base_command(
                 base,
@@ -641,36 +651,74 @@ class DockerRuntime(Runtime):
     def stop_by_name(self, ctx, name, **options):
         """Stop the Compose stack of the Osh project named *name*.
 
-        *name* is the project directory name shown by ``osh docker list``
+        Backs ``osh stop <name>``: *name* is the project directory name
         (a path or ``osh-*`` Compose project name also work). When the
         project directory is still present this is the same ``compose
-        down`` as ``osh docker stop`` there; otherwise the stack is torn
+        down`` as ``osh stop`` there; otherwise the stack is torn
         down from the containers' Compose labels.
         """
-        stack = _find_project_stack(name)
+        self._stop_stack(ctx, _find_project_stack(name), **options)
+
+    def stop_all(self, ctx, **options):
+        """Stop every Osh-managed Compose stack, wherever its project is."""
+        stacks = sorted(_project_stacks().values(), key=lambda s: str(s["path"]))
+        if not stacks:
+            echo.info("No Osh-managed Docker stacks found.", err=True)
+            return
+        echo.info("Osh-managed Docker stacks:", err=True)
+        for stack in stacks:
+            location = str(stack["path"])
+            if not stack["osh"]:
+                location += " (project directory removed)"
+            names = ", ".join(sorted(stack["compose_projects"])) or "-"
+            echo.info(
+                f"  {names} — {location} ({len(stack['ids'])} container(s))",
+                err=True,
+            )
+        for stack in stacks:
+            self._stop_stack(ctx, stack, **options)
+
+    def _stop_stack(self, ctx, stack, **options):
+        """Tear down one stack discovered by ``_project_stacks``.
+
+        An existing Osh project goes through ``stop`` — its configured
+        compose file and tool apply — with the discovered names/ids so no
+        second ``docker ps`` is needed. A stack whose project is gone is
+        downed from the containers' Compose labels instead.
+        """
         if stack["osh"]:
-            self.stop(ctx, stack["path"], **options)
+            self.stop(
+                ctx,
+                stack["path"],
+                names=stack["compose_projects"],
+                ids=stack["ids"],
+                **options,
+            )
             return
 
         # The config_files label is comma-separated when the stack was
         # started with several -f options; keep the ones still on disk.
-        compose_file = options.get("compose_file") or stack["config_file"] or ""
-        compose_files = [p for p in compose_file.split(",") if Path(p).is_file()]
-        if stack["compose_project"] and compose_files:
+        override = options.get("compose_file")
+        files = [override] if override else stack["config_files"]
+        compose_files = [p for p in files if Path(p).is_file()]
+        if stack["compose_projects"] and compose_files:
             compose_tool = _find_compose_tool()
             if compose_tool is None:
                 raise click.ClickException(
                     "No Docker Compose tool found. "
                     "Install 'docker compose' or 'docker-compose'."
                 )
-            docker_args = [*compose_tool, "-p", stack["compose_project"]]
-            for path in compose_files:
-                docker_args.extend(["-f", path])
-            docker_args.append("down")
-        else:
-            # The project directory is gone along with its compose file —
-            # remove the leftover containers directly.
-            docker_args = [_docker_executable(), "rm", "-f", *stack["ids"]]
+            for project_name in sorted(stack["compose_projects"]):
+                docker_args = [*compose_tool, "-p", project_name]
+                for path in compose_files:
+                    docker_args.extend(["-f", path])
+                docker_args.append("down")
+                echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+                run_command(docker_args, check=True, stream=True)
+            return
+        # The project directory is gone along with its compose file —
+        # remove the leftover containers directly.
+        docker_args = [_docker_executable(), "rm", "-f", *stack["ids"]]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
         run_command(docker_args, check=True, stream=True)
 
@@ -688,7 +736,7 @@ class DockerRuntime(Runtime):
         if not service:
             raise click.ClickException(
                 "No Docker service configured. Run "
-                "'osh docker init --service <name>' or edit "
+                "'osh init --runtime=docker --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
         argv = env_spec.argv or []
@@ -730,7 +778,7 @@ class DockerRuntime(Runtime):
         if not cfg.get("service"):
             raise click.ClickException(
                 "No Docker service configured. Run "
-                "'osh docker init --service <name>' or edit "
+                "'osh init --runtime=docker --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
         return self._exec_env(

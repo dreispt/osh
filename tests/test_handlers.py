@@ -17,12 +17,13 @@ from osh.utils import plugin_loader
 
 def test_core_commands_resolve_to_their_handlers():
     """Every built-in command name resolves to its handler class."""
-    from osh.commands import config_cmd, db_cmd, init_cmd, runtime_cmd, shell_cmd
+    from osh.commands import config_cmd, db_cmd, init_cmd, shell_cmd, stop_cmd
     from osh.plugins.osh_switch import switch_cmd
 
     expected = {
         "shell": shell_cmd.ShellRun,
         "init": init_cmd.Init,
+        "stop": stop_cmd.Stop,
         "switch": switch_cmd.Switch,
         "db": db_cmd.Db,
         "db.show": db_cmd.Db,
@@ -31,12 +32,6 @@ def test_core_commands_resolve_to_their_handlers():
         "db.copy": db_cmd.Db,
         "db.shell": db_cmd.Db,
         "db.unset": db_cmd.Db,
-        "runtime": runtime_cmd.RuntimeCtl,
-        "runtime.status": runtime_cmd.RuntimeCtl,
-        "runtime.list": runtime_cmd.RuntimeCtl,
-        "runtime.activate": runtime_cmd.RuntimeCtl,
-        "runtime.deactivate": runtime_cmd.RuntimeCtl,
-        "runtime.stop": runtime_cmd.RuntimeCtl,
         "config": config_cmd.Config,
         "config.show": config_cmd.Config,
         "config.user": config_cmd.ConfigUser,
@@ -337,17 +332,17 @@ def test_odoo_without_extensions_is_unchanged(
     assert capture_execvp
 
 
-def test_core_command_extensions_run_through_the_command(pip_install):
+def test_core_command_extensions_run_through_the_command(pip_install, in_project):
     """Subclassing a group handler hooks its subcommand invocation."""
-    from osh.commands.runtime_cmd import runtime
+    from osh.commands.config_cmd import config
 
-    pip_install("repo_runtimex")
+    pip_install("repo_configx")
 
-    result = CliRunner().invoke(runtime, ["list"])
+    result = CliRunner().invoke(config, ["show"])
 
     assert result.exit_code == 0, result.output
     assert "extension" in result.output
-    assert "host" in result.output
+    assert "Configuration file" in result.output
 
 
 def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):

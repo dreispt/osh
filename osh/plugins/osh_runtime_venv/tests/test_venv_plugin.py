@@ -15,7 +15,7 @@ from .conftest import real_commands
 
 
 def test_diagnose_warns_when_requirements_change_after_install(tmp_project):
-    """Editing requirements.txt after init prompts an ``osh venv init`` hint.
+    """Editing requirements.txt after init prompts an ``osh init --runtime=venv`` hint.
 
     Init records its install time in a marker file inside ``.venv``; a
     requirements file newer than it means a reinstall is due.
@@ -28,7 +28,7 @@ def test_diagnose_warns_when_requirements_change_after_install(tmp_project):
 
     warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
 
-    assert any("osh venv init" in w for w in warnings)
+    assert any("osh init --runtime=venv" in w for w in warnings)
 
 
 def test_diagnose_quiet_when_venv_newer_than_requirements(tmp_project):
@@ -42,7 +42,7 @@ def test_diagnose_quiet_when_venv_newer_than_requirements(tmp_project):
 
     warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
 
-    assert not any("osh venv init" in w for w in warnings)
+    assert not any("osh init --runtime=venv" in w for w in warnings)
 
 
 class TestInitCommand:
@@ -57,7 +57,8 @@ class TestInitCommand:
         real_commands(monkeypatch)
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "19.0", "--edition", "ee", str(tmp_project)]
+            main,
+            ["init", "19.0", str(tmp_project), "--runtime", "venv", "--edition", "ee"],
         )
 
         assert result.exit_code == 0
@@ -79,10 +80,11 @@ class TestInitCommand:
         result = runner.invoke(
             main,
             [
-                "venv",
                 "init",
                 "19.0",
                 str(tmp_project),
+                "--runtime",
+                "venv",
                 "-c",
                 str(odoo_src),
                 "-e",
@@ -108,10 +110,11 @@ class TestInitCommand:
         result = runner.invoke(
             main,
             [
-                "venv",
                 "init",
                 "19.0",
                 str(tmp_project),
+                "--runtime",
+                "venv",
                 "-c",
                 str(odoo_src),
                 "--themes-source",
@@ -142,7 +145,7 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "master", "--sh", str(tmp_project)]
+            main, ["init", "master", str(tmp_project), "--runtime", "venv", "--sh"]
         )
 
         assert result.exit_code == 0
@@ -187,10 +190,11 @@ class TestInitCommand:
         result = runner.invoke(
             main,
             [
-                "venv",
                 "init",
                 "19.0",
                 str(tmp_project),
+                "--runtime",
+                "venv",
                 "-c",
                 str(odoo_src),
                 "-e",
@@ -216,7 +220,16 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+            main,
+            [
+                "init",
+                "19.0",
+                str(tmp_project),
+                "--runtime",
+                "venv",
+                "-c",
+                str(odoo_src),
+            ],
         )
 
         assert result.exit_code == 0
@@ -224,9 +237,9 @@ class TestInitCommand:
         assert any(call[2:5] == ["-r", *project_req_arg] for call in calls)
 
     def test_reinit_skips_package_installs(self, tmp_project, monkeypatch):
-        """A repeated `osh venv init` does not reinstall packages.
+        """A repeated `osh init --runtime=venv` does not reinstall packages.
 
-        The user runs `osh venv init` on an already-initialised project —
+        The user runs `osh init --runtime=venv` on an already-initialised project —
         with unchanged requirements the slow pip installs are skipped;
         editing requirements.txt makes them run again.
         """
@@ -240,7 +253,15 @@ class TestInitCommand:
 
         calls = real_commands(monkeypatch)
         runner = CliRunner()
-        init = ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+        init = [
+            "init",
+            "19.0",
+            str(tmp_project),
+            "--runtime",
+            "venv",
+            "-c",
+            str(odoo_src),
+        ]
 
         result = runner.invoke(main, init)
         assert result.exit_code == 0
@@ -270,7 +291,16 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+            main,
+            [
+                "init",
+                "19.0",
+                str(tmp_project),
+                "--runtime",
+                "venv",
+                "-c",
+                str(odoo_src),
+            ],
         )
 
         assert result.exit_code == 0
@@ -292,7 +322,16 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "19.0", str(tmp_project), "-c", str(odoo_src)]
+            main,
+            [
+                "init",
+                "19.0",
+                str(tmp_project),
+                "--runtime",
+                "venv",
+                "-c",
+                str(odoo_src),
+            ],
         )
 
         assert result.exit_code == 0
@@ -322,7 +361,9 @@ class TestInitEdition:
         real_commands(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["venv", "init", "19.0", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -335,7 +376,9 @@ class TestInitEdition:
         real_commands(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["venv", "init", "19.0", "--ee", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--ee"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -348,21 +391,19 @@ class TestInitEdition:
         real_commands(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["venv", "init", "19.0", "--sh", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--sh"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert (tmp_project / ".osh" / "enterprise").is_symlink()
         assert (tmp_project / ".osh" / "design-themes").is_symlink()
 
-    def test_save_writes_user_config(self, tmp_project, monkeypatch):
+    def test_save_writes_user_config(self, tmp_project, monkeypatch, user_config):
         """--save persists the resolved edition to ~/.config/osh/config.toml."""
         self._make_local_sources(tmp_project)
         real_commands(monkeypatch)
-
-        fake_home = tmp_project / "home"
-        fake_home.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -370,9 +411,8 @@ class TestInitEdition:
         )
 
         assert result.exit_code == 0
-        config_file = fake_home / ".config" / "osh" / "config.toml"
-        assert config_file.exists()
-        assert "edition = 'sh'" in config_file.read_text()
+        assert user_config.exists()
+        assert "edition = 'sh'" in user_config.read_text()
 
     def test_ce_alias_skips_optional_sources(self, tmp_project, monkeypatch):
         """--ce explicitly selects Community only."""
@@ -380,7 +420,9 @@ class TestInitEdition:
         real_commands(monkeypatch)
 
         runner = CliRunner()
-        result = runner.invoke(main, ["venv", "init", "19.0", "--ce", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--ce"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -397,7 +439,9 @@ class TestInitEdition:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "19.0", "--sh", str(tmp_project)], input="\n"
+            main,
+            ["init", "19.0", str(tmp_project), "--runtime", "venv", "--sh"],
+            input="\n",
         )
 
         assert result.exit_code == 0
@@ -412,7 +456,9 @@ class TestInitEdition:
         real_commands(monkeypatch)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "ee"})
-        result = runner.invoke(main, ["venv", "init", "19.0", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -425,27 +471,29 @@ class TestInitEdition:
         real_commands(monkeypatch)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "sh"})
-        result = runner.invoke(main, ["venv", "init", "19.0", "--ce", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--ce"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
         assert not (tmp_project / ".osh" / "enterprise").exists()
         assert not (tmp_project / ".osh" / "design-themes").exists()
 
-    def test_user_config_sets_default_edition(self, tmp_project, monkeypatch):
+    def test_user_config_sets_default_edition(
+        self, tmp_project, monkeypatch, user_config
+    ):
         """~/.config/osh/config.toml sets the default edition."""
         self._make_local_sources(tmp_project)
         real_commands(monkeypatch)
 
-        fake_home = tmp_project / "home"
-        fake_home.mkdir(parents=True, exist_ok=True)
-        config_dir = fake_home / ".config" / "osh"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        (config_dir / "config.toml").write_text('[init]\nedition = "sh"\n')
-        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+        user_config.parent.mkdir(parents=True, exist_ok=True)
+        user_config.write_text('[init]\nedition = "sh"\n')
 
         runner = CliRunner()
-        result = runner.invoke(main, ["venv", "init", "19.0", str(tmp_project)])
+        result = runner.invoke(
+            main, ["init", "19.0", str(tmp_project), "--runtime", "venv"]
+        )
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -472,7 +520,17 @@ class TestInitEdition:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["venv", "init", "19.0", str(target), "--yes", "-c", str(odoo_src)]
+            main,
+            [
+                "init",
+                "19.0",
+                str(target),
+                "--runtime",
+                "venv",
+                "--yes",
+                "-c",
+                str(odoo_src),
+            ],
         )
         assert result.exit_code == 0
         assert "not a git repository" in result.output
@@ -480,7 +538,7 @@ class TestInitEdition:
 
 
 def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
-    """``osh <runtime> init`` resolves the version the same way."""
+    """``osh init --runtime=<name>`` resolves the version the same way."""
     set_project_config(tmp_project, "init", "version", "18.0")
     odoo_src = tmp_project / "odoo"
     odoo_src.mkdir()
@@ -488,7 +546,7 @@ def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
     real_commands(monkeypatch)
 
     result = CliRunner().invoke(
-        main, ["venv", "init", "--edition", "ce", str(tmp_project)]
+        main, ["init", str(tmp_project), "--runtime", "venv", "--edition", "ce"]
     )
 
     assert result.exit_code == 0, result.output

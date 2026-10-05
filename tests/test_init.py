@@ -329,26 +329,20 @@ class TestInitVersion:
         assert result.exit_code == 0, result.output
         assert get_project_config(tmp_project, "init", "version") == "19.0"
 
-    def test_user_config_sets_default_version(self, tmp_project, monkeypatch):
+    def test_user_config_sets_default_version(self, tmp_project, user_config):
         """``[init] version`` in the user config supplies a default."""
-        fake_home = tmp_project / "home"
-        config_dir = fake_home / ".config" / "osh"
-        config_dir.mkdir(parents=True)
-        (config_dir / "config.toml").write_text('[init]\nversion = "19.0"\n')
-        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+        user_config.parent.mkdir(parents=True)
+        user_config.write_text('[init]\nversion = "19.0"\n')
 
         result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
 
         assert result.exit_code == 0, result.output
         assert get_project_config(tmp_project, "init", "version") == "19.0"
 
-    def test_recorded_version_beats_user_default(self, tmp_project, monkeypatch):
+    def test_recorded_version_beats_user_default(self, tmp_project, user_config):
         """A recorded project version is never overridden by a user default."""
-        fake_home = tmp_project / "home"
-        config_dir = fake_home / ".config" / "osh"
-        config_dir.mkdir(parents=True)
-        (config_dir / "config.toml").write_text('[init]\nversion = "19.0"\n')
-        monkeypatch.setattr("osh.config.Path.home", lambda: fake_home)
+        user_config.parent.mkdir(parents=True)
+        user_config.write_text('[init]\nversion = "19.0"\n')
         set_project_config(tmp_project, "init", "version", "18.0")
 
         result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
@@ -363,7 +357,9 @@ class TestInitVersion:
         )
 
         result = CliRunner().invoke(
-            main, ["init", "--edition", "ce", str(tmp_project)], input="17.0\n"
+            main,
+            ["init", "--edition", "ce", str(tmp_project)],
+            input="17.0\n2\ny\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -481,14 +477,15 @@ class TestInitRollback:
     """A failed or aborted init must not leave a stale ``.osh`` marker."""
 
     def test_failed_runtime_init_removes_new_osh_dir(self, tmp_path, monkeypatch):
-        """``osh venv init`` failure removes the ``.osh`` dir it created."""
+        """``osh init --runtime=venv`` failure removes the ``.osh`` it created."""
         target = tmp_path / "fresh"
         target.mkdir()
         (target / ".git").mkdir()
         monkeypatch.setattr(VenvRuntime, "init", _raise_runtime_init_error)
 
         result = CliRunner().invoke(
-            main, ["venv", "init", "19.0", "--edition", "ce", str(target)]
+            main,
+            ["init", "19.0", str(target), "--edition", "ce", "--runtime", "venv"],
         )
 
         assert result.exit_code != 0
@@ -501,7 +498,16 @@ class TestInitRollback:
         monkeypatch.setattr(VenvRuntime, "init", _raise_runtime_init_error)
 
         result = CliRunner().invoke(
-            main, ["venv", "init", "19.0", "--edition", "ce", str(tmp_project)]
+            main,
+            [
+                "init",
+                "19.0",
+                str(tmp_project),
+                "--edition",
+                "ce",
+                "--runtime",
+                "venv",
+            ],
         )
 
         assert result.exit_code != 0
@@ -512,7 +518,16 @@ class TestInitRollback:
         monkeypatch.setattr(VenvRuntime, "init", _raise_runtime_init_error)
 
         result = CliRunner().invoke(
-            main, ["venv", "init", "19.0", "--edition", "ce", str(tmp_project)]
+            main,
+            [
+                "init",
+                "19.0",
+                str(tmp_project),
+                "--edition",
+                "ce",
+                "--runtime",
+                "venv",
+            ],
         )
 
         assert result.exit_code != 0
