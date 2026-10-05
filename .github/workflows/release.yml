@@ -15,7 +15,10 @@ jobs:
 
       - name: Read package version
         id: version
-        run: echo "version=$(grep -oP '^version = \"\\K[^\"]+' pyproject.toml)" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(grep -oP '^version = "\K[^"]+' pyproject.toml)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check if release tag already exists
         id: check
