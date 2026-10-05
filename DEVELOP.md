@@ -54,7 +54,7 @@ Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh db set`, `osh backup restore`,
 `osh addon update`), while bare top-level verbs are
 reserved for the primary day-to-day workflow actions (`osh init`,
-`osh stop`, `osh odoo`, `osh switch`, `osh shell`, `osh test`). Verbs may
+`osh stop`, `osh odoo`, `osh shell`, `osh test`). Verbs may
 deliberately diverge between groups when the underlying concepts differ —
 `osh addon uninstall` removes an Odoo module while `pip uninstall`
 removes an osh plugin, and `osh db set`/`unset` moves a mutable pointer
@@ -78,9 +78,9 @@ itself (e.g. `.osh/odoo`) is refused outright, and initialising the home
 directory asks for confirmation since a `~/.osh` would apply to every
 project-less directory under it.
 
-Nested subtrees are still visible to the parent's `osh switch` and addons
-discovery — nesting changes which environment commands bind to, not which
-repositories the parent sees.
+Nested subtrees are still visible to the parent's addons discovery —
+nesting changes which environment commands bind to, not which repositories
+the parent sees.
 
 ## Testing
 

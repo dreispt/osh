@@ -169,7 +169,7 @@ without importing anything.
 Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh backup restore`,
 `osh addon update`), while bare top-level verbs are reserved for the
-primary day-to-day workflow actions (`osh init`, `osh odoo`, `osh switch`,
+primary day-to-day workflow actions (`osh init`, `osh odoo`,
 `osh shell`, `osh test`). If your plugin manages a resource,
 attach its commands to the matching group via `group_commands` instead of
 claiming a bare top-level verb. Verbs may deliberately diverge between
@@ -599,7 +599,6 @@ extension target to declare under `extends`:
 | ----------------------- | ------------------------------------------------- | --------------------------- |
 | `init`                  | `osh init`                                        | `Init` (`init_cmd`)         |
 | `odoo`                  | `osh odoo`                                        | `OdooRun` (`odoo_cmd`)      |
-| `switch`                | `osh switch`                                      | `Switch` (`switch_cmd`)     |
 | `shell`                 | `osh shell`                                       | `ShellRun` (`shell_cmd`)    |
 | `db`, `db.<sub>`        | `osh db show`/`list`/`set`/`copy`/`shell`/`unset` | `Db` (`db_cmd`)             |
 | `stop`                  | `osh stop`                                        | `Stop` (`stop_cmd`)         |
