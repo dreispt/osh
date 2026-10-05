@@ -311,6 +311,43 @@ def test_dynamic_config_translates_addons_path_for_docker(
     assert "dbfilter = ^mydb$" in text
 
 
+def _addons_dir(path, module="some_module"):
+    """Create an addons directory holding one module at *path*."""
+    mod = path / module
+    mod.mkdir(parents=True)
+    (mod / "__manifest__.py").write_text("{'name': 'Some Module'}\n")
+    return path
+
+
+def test_build_addons_paths_includes_registered_paths(tmp_project, tmp_path):
+    """Registered ``[addons] paths`` append after the discovered project dirs."""
+    dep = _addons_dir(tmp_path / "payroll")
+    project_addons = _addons_dir(tmp_project / "custom", module="project_mod")
+    set_project_config(tmp_project, "addons", "paths", [str(dep)])
+
+    paths = build_addons_paths(tmp_project)
+    assert dep in paths
+    assert project_addons in paths
+    assert paths.index(project_addons) < paths.index(dep)
+
+
+def test_dynamic_config_translates_registered_addon_path_for_docker(
+    tmp_project,
+    tmp_path,
+):
+    """A registered path outside the project mounts under ``/mnt/osh-src``."""
+    dep = _addons_dir(tmp_path / "payroll")
+    set_project_config(tmp_project, "addons", "paths", [str(dep)])
+
+    runtime = DockerRuntime()
+    conf = build_dynamic_odoo_config(
+        tmp_project,
+        "mydb",
+        runtime,
+    )
+    assert "/mnt/osh-src/payroll-" in conf.read_text()
+
+
 ADDONS_LAYOUT = (Path(__file__).parent / "data" / "oca_layout").resolve()
 
 
