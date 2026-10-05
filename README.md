@@ -3,6 +3,7 @@
 <p align="center"><i>An exoskeleton for Odoo development</i></p>
 
 <p align="center">
+  <a href="https://github.com/dreispt/osh/releases/latest"><img src="https://img.shields.io/github/v/release/dreispt/osh" alt="Latest release"></a>
   <a href="https://github.com/dreispt/osh/actions/workflows/tests.yml"><img src="https://github.com/dreispt/osh/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
   <img src="https://img.shields.io/badge/license-LGPL--3.0-blue.svg" alt="License: LGPL-3.0">
   <img src="https://img.shields.io/badge/python-%E2%89%A53.10-blue.svg" alt="Python ≥3.10">
