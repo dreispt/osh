@@ -25,6 +25,7 @@ def init_project(
     themes_source,
     todo,
     confirmed=False,
+    env_changed=None,
 ):
     """Initialise *target* for an Odoo project using local sources."""
     _prepare_target_dir(target)
@@ -48,7 +49,9 @@ def init_project(
     if not sources.get("odoo"):
         raise click.ClickException("Odoo sources are required.")
 
-    env_ready = _setup_environment(target, sources, version, todo=todo)
+    env_ready = _setup_environment(
+        target, sources, version, todo=todo, env_changed=env_changed
+    )
     todo.start()
     smoke_ok = _run_init_smoke_test(target, env_ready)
 
@@ -128,8 +131,14 @@ def _setup_environment(
     sources,
     version,
     todo,
+    env_changed=None,
 ):
-    """Create a virtualenv and pip-install Odoo sources."""
+    """Create a virtualenv and pip-install Odoo sources.
+
+    *env_changed* is an optional predicate telling whether the recorded
+    build-input fingerprint differs from the current inputs — installs
+    are skipped when it reports no change.
+    """
     from osh.commands.init_cmd import TodoPlan
 
     if todo is None:
@@ -139,7 +148,8 @@ def _setup_environment(
     venv_path = target / ".venv"
 
     todo.start()
-    if venv_path.exists():
+    venv_existed = venv_path.exists()
+    if venv_existed:
         echo.info(f"Using existing virtual environment at {venv_path}", err=True)
     else:
         python = resolve_python_for_odoo(version)
@@ -157,24 +167,10 @@ def _setup_environment(
         _create_venv(venv_path, python["exe"])
 
     pip_exe = venv_path / ("Scripts" if os.name == "nt" else "bin") / "pip"
-    marker = venv_path / ".osh-installed"
 
-    # Skip the pip installs when the recorded install is newer than every
-    # input it consumed — the same freshness check the stale-environment
-    # diagnostic uses. Directory mtimes do not reliably change when pip
-    # installs a package, hence the marker file.
-    inputs = [
-        path
-        for path in (
-            odoo_link / "requirements.txt",
-            target / "requirements.txt",
-            odoo_link / "setup.py",
-        )
-        if path.is_file()
-    ]
-    if marker.exists() and all(
-        path.stat().st_mtime <= marker.stat().st_mtime for path in inputs
-    ):
+    # Skip the pip installs on a reused venv when the recorded
+    # build-input fingerprint already covers the requirement files.
+    if venv_existed and env_changed is not None and not env_changed():
         echo.info(
             f"Odoo and requirements already installed in {venv_path}; "
             "skipping reinstall\u2026",
@@ -203,10 +199,6 @@ def _setup_environment(
     echo.info(f"Installing Odoo from {odoo_link} into virtualenv\u2026", err=True)
     if not _pip_install(pip_exe, "install", "-e", str(odoo_link)):
         return False
-    # Anchor for the stale-environment check — directory mtimes do not
-    # reliably change when pip installs a package.
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.touch()
     return True
 
 

@@ -5,8 +5,9 @@ from pathlib import Path
 
 import click
 
+from ... import echo
 from ...common import get_venv_bin, run_subprocess, venv_env
-from ...runtimes import HostRuntime
+from ...runtimes import BuildInputs, HostRuntime
 from .python_versions import get_available_python_versions, get_python_requirements
 from .utils import init_project
 
@@ -125,12 +126,11 @@ class VenvRuntime(HostRuntime):
 
         return d
 
-    def _environment_builds(self, base):
-        """Anchor the venv's install time against init's requirements files."""
-        installed = _venv_install_time(Path(base) / ".venv")
-        if installed is None:
-            return ()
-        return [(installed, _requirement_files(base))]
+    def _environment_inputs(self, base, **options):
+        """Fingerprint the files init's pip installs consumed."""
+        if not (Path(base) / ".venv").is_dir():
+            return {}
+        return {"venv": BuildInputs(paths=_requirement_files(base))}
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
@@ -149,6 +149,9 @@ class VenvRuntime(HostRuntime):
         todo,
         **options,
     ):
+        if options.get("fingerprint") and not dry_run:
+            echo.info("Updating the build-input fingerprint.", err=True)
+            self._record_environment_fingerprints(target)
         init_project(
             target,
             version=version,
@@ -160,7 +163,12 @@ class VenvRuntime(HostRuntime):
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
             todo=todo,
+            env_changed=lambda: bool(
+                self._environment_changes(target, missing_is_change=True)
+            ),
         )
+        if not dry_run:
+            self._record_environment_fingerprints(target)
         return True
 
     def odoo_command(self, base):
@@ -183,37 +191,19 @@ class VenvRuntime(HostRuntime):
             return {}
 
 
-def _venv_install_time(venv):
-    """Return when packages were last installed into *venv*, or None.
-
-    Init touches ``.osh-installed`` after its installs complete; the older
-    site-packages/pyvenv.cfg mtimes remain as fallbacks for venvs created
-    before the marker existed.
-    """
-    anchors = [venv / ".osh-installed"]
-    anchors.extend(venv.glob("lib/python*/site-packages"))
-    anchors.append(venv / "Lib" / "site-packages")  # Windows layout
-    anchors.append(venv / "pyvenv.cfg")
-    for path in anchors:
-        try:
-            if path.exists():
-                return path.stat().st_mtime
-        except OSError:
-            continue
-    return None
-
-
 def _requirement_files(base):
-    """Return the requirements files ``init`` pip-installs, when present."""
+    """Return the files ``init`` pip-installs from, when present."""
     base = Path(base)
-    return [
+    files = sorted(path for path in base.glob("requirements*.txt") if path.is_file())
+    files.extend(
         path
         for path in (
-            base / "requirements.txt",
             base / ".osh" / "odoo" / "requirements.txt",
+            base / ".osh" / "odoo" / "setup.py",
         )
         if path.is_file()
-    ]
+    )
+    return files
 
 
 # Deprecated alias kept for plugins written against the backend API.

@@ -1,6 +1,5 @@
 """Tests for Docker port-collision detection in ``ensure_service_up``."""
 
-import re
 from types import SimpleNamespace
 
 import click
@@ -112,7 +111,7 @@ def test_ensure_service_up_brings_stack_up(tmp_project, fake_docker):
 
     DockerRuntime().ensure_service_up(tmp_project)
 
-    assert re.search(r"up -d --build\b", _docker_calls(fake_docker))
+    assert "up -d" in _docker_calls(fake_docker)
 
 
 def test_ensure_service_up_publishes_requested_port(tmp_project, fake_docker):
@@ -142,7 +141,7 @@ def test_ensure_service_up_foreign_compose_skips_port_check(
 
     DockerRuntime().ensure_service_up(tmp_project)
 
-    assert "up -d --build" in _docker_calls(fake_docker)
+    assert "up -d" in _docker_calls(fake_docker)
 
 
 def test_ensure_service_up_foreign_compose_checks_requested_port(

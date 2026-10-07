@@ -122,11 +122,6 @@ def docker_shared_project(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("docker-shared")
     project = tmp_path / "project"
     shutil.copytree(FIXTURE_PROJECT, project)
-    # Pin source mtimes to the past: the staleness check compares them with
-    # the image's Created, which BuildKit inherits from an earlier identical
-    # build — a cached rebuild can predate freshly copied files.
-    for path in project.rglob("*"):
-        os.utime(path, (1_600_000_000, 1_600_000_000))
     (project / ".osh").mkdir(exist_ok=True)
     shutil.copy(project / "docker.toml", project / ".osh" / "docker.toml")
     name = f"osh-test-{uuid.uuid4().hex[:8]}"
@@ -812,22 +807,25 @@ def test_docker_runtime_diagnose_reports_container_state(docker_project):
     assert container == "not running"
 
 
-def test_docker_diagnose_warns_when_context_newer_than_image(
+def test_docker_diagnose_warns_when_build_input_changes(
     docker_shared_project,
 ):
-    """A file edited after the image build prompts a stack-restart hint.
+    """A build-input edit after the image build prompts a re-init hint.
 
-    The shared fixture's ``app`` image was just built, so nothing is stale
-    until a file inside its ``odoo/`` build context is touched.
+    The shared fixture's ``app`` image was fingerprinted when its stack
+    came up, so nothing is stale until a file it was built from changes —
+    addon trees under the context do not count: they are mounted over at
+    run time.
     """
     runtime = DockerRuntime()
     warnings = runtime.diagnose(docker_shared_project, phase="run").warnings
-    assert not any("osh stop" in w for w in warnings)
+    assert not any("osh init --runtime=docker" in w for w in warnings)
 
-    (docker_shared_project / "odoo" / "Dockerfile").touch()
+    dockerfile = docker_shared_project / "odoo" / "Dockerfile"
+    dockerfile.write_text(dockerfile.read_text() + "# edited\n")
 
     warnings = runtime.diagnose(docker_shared_project, phase="run").warnings
-    assert any("osh stop" in w for w in warnings)
+    assert any("osh init --runtime=docker" in w for w in warnings)
 
 
 def test_docker_init_rebuilds_stale_image(docker_project):
@@ -863,6 +861,154 @@ def test_docker_init_rebuilds_stale_image(docker_project):
     result = _compose(docker_project, "run", "--rm", "app", "cat", "/init-marker")
     assert result.returncode == 0
     assert "init-built" in result.stdout
+
+
+def _buildable_project(tmp_project, fake_docker):
+    """A project whose foreign compose stack builds ``odoo`` from ``odoo/``."""
+    (tmp_project / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    build:\n      context: odoo\n"
+    )
+    context = tmp_project / "odoo"
+    (context / "src").mkdir(parents=True)
+    (context / "Dockerfile").write_text("FROM scratch\n")
+    (context / "requirements.txt").write_text("requests\n")
+    (context / "src" / "module.py").write_text("# addons\n")
+    (context / "src" / "requirements.txt").write_text("lxml\n")
+    (tmp_project / ".osh" / "docker.toml").write_text(
+        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    )
+    # ``compose config`` output for hosts without a real Docker to run it.
+    (fake_docker / "config.json").write_text(
+        json.dumps(
+            {
+                "name": "project",
+                "services": {
+                    "odoo": {
+                        "build": {"context": str(context)},
+                        "image": "project-odoo",
+                    }
+                },
+            }
+        )
+    )
+
+
+def _up_calls(fake_docker):
+    """The ``compose up -d`` invocations the canned-answer docker recorded."""
+    return [line for line in _docker_calls(fake_docker) if " up -d" in line]
+
+
+def test_cold_start_warns_instead_of_rebuilding_on_input_change(
+    tmp_project, fake_docker
+):
+    """Cold starts reuse the image; changed build inputs warn, not rebuild.
+
+    The first ``up`` records a fingerprint of the Dockerfile, the build
+    definition and the context files; later cold starts reuse the image
+    with a plain ``up -d``. Addon code edits do not count, while a
+    requirements edit — at the context root or nested — makes the run
+    diagnostics warn to re-init, and ``up`` still does not rebuild nor
+    bless the stale record.
+    """
+    _buildable_project(tmp_project, fake_docker)
+    runtime = DockerRuntime()
+
+    runtime.ensure_service_up(tmp_project)
+    ups = _up_calls(fake_docker)
+    assert ups and all(line.endswith("up -d") for line in ups)
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert not any("osh init --runtime=docker" in w for w in warnings)
+
+    (tmp_project / "odoo" / "src" / "module.py").write_text("# changed\n")
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert not any("osh init --runtime=docker" in w for w in warnings)
+
+    (tmp_project / "odoo" / "src" / "requirements.txt").write_text("lxml\nhttpx\n")
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert any("osh init --runtime=docker" in w for w in warnings)
+
+    (fake_docker / "calls.log").write_text("")
+    runtime.ensure_service_up(tmp_project)
+    ups = _up_calls(fake_docker)
+    assert ups and all(line.endswith("up -d") for line in ups)
+    # ``up`` did not rebuild, so the stale record survives — the warning
+    # must keep firing until ``osh init --runtime=docker`` rebuilds.
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert any("osh init --runtime=docker" in w for w in warnings)
+
+
+def test_cold_start_warns_when_a_build_input_is_removed(tmp_project, fake_docker):
+    """A deleted build input warns on the next cold start — not just edits."""
+    _buildable_project(tmp_project, fake_docker)
+    runtime = DockerRuntime()
+
+    runtime.ensure_service_up(tmp_project)
+    (tmp_project / "odoo" / "requirements.txt").unlink()
+
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert any("osh init --runtime=docker" in w for w in warnings)
+
+
+def test_compose_build_config_change_warns(tmp_project, fake_docker):
+    """Editing the compose ``build:`` mapping counts as an input change."""
+    _buildable_project(tmp_project, fake_docker)
+    runtime = DockerRuntime()
+    runtime.ensure_service_up(tmp_project)
+
+    (tmp_project / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    build:\n      context: odoo\n"
+        "      args:\n        - DEBUG=1\n"
+    )
+    (fake_docker / "config.json").write_text(
+        json.dumps(
+            {
+                "name": "project",
+                "services": {
+                    "odoo": {
+                        "build": {
+                            "context": str(tmp_project / "odoo"),
+                            "args": {"DEBUG": "1"},
+                        },
+                        "image": "project-odoo",
+                    }
+                },
+            }
+        )
+    )
+
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert any("osh init --runtime=docker" in w for w in warnings)
+
+
+def test_init_fingerprint_accepts_inputs_without_rebuild(
+    tmp_project, fake_docker, monkeypatch
+):
+    """``osh init --fingerprint`` accepts changed inputs without rebuilding.
+
+    A requirements edit after the recorded fingerprint makes the run
+    diagnostics warn; init with ``--fingerprint`` records the new inputs —
+    no ``compose build`` runs and the warning clears.
+    """
+    _buildable_project(tmp_project, fake_docker)
+    runtime = DockerRuntime()
+    runtime.ensure_service_up(tmp_project)
+
+    (tmp_project / "odoo" / "requirements.txt").write_text("requests\nhttpx\n")
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert any("osh init --runtime=docker" in w for w in warnings)
+
+    monkeypatch.chdir(tmp_project)
+    (fake_docker / "calls.log").write_text("")
+    result = CliRunner().invoke(
+        main,
+        ["init", "--runtime", "docker", "19.0", "--service", "odoo", "--fingerprint"],
+    )
+    assert result.exit_code == 0, result.output
+    calls = (fake_docker / "calls.log").read_text().splitlines()
+    assert not any(" build " in f" {line} " for line in calls)
+
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert not any("osh init --runtime=docker" in w for w in warnings)
 
 
 def test_docker_runtime_env_dry_run(tmp_project, capsys):

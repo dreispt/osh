@@ -15,7 +15,7 @@ from ... import echo
 from ...common import odoo_http_port, run_command, run_subprocess
 from ...runtimes import Runtime, copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
-from .diagnostics import _environment_build_groups
+from .diagnostics import _environment_input_groups
 from .diagnostics import diagnose as _diagnose
 from .discovery import (
     _compose_project_names_for,
@@ -184,13 +184,12 @@ class DockerRuntime(Runtime):
         """Inspect Docker Compose environment and project configuration."""
         return _diagnose(self, base, sections=sections, **options)
 
-    def _environment_builds(self, base):
-        """Anchor each buildable service's image to its context files."""
+    def _environment_inputs(self, base, compose_file=None, **options):
+        """Fingerprint each buildable service's build inputs."""
         cfg = _load_docker_config(base)
-        return _environment_build_groups(base, (cfg or {}).get("compose_file"), cfg=cfg)
-
-    def _stale_environment_hint(self):
-        return "Run 'osh stop'; " "the next 'osh odoo' rebuilds on a cold start."
+        return _environment_input_groups(
+            base, compose_file or (cfg or {}).get("compose_file"), cfg=cfg
+        )
 
     def _add_init_plans(self, todo):
         """Record planned init actions (without doing work)."""
@@ -487,9 +486,19 @@ class DockerRuntime(Runtime):
             themes_source=options.get("themes_source"),
         )
 
+        if options.get("fingerprint") and not dry_run:
+            echo.info("Updating the build-input fingerprint.", err=True)
+            self._record_environment_fingerprints(target, compose_file=compose_file)
+
         if _compose_declares_build(target, compose_file):
             todo.start()
-            _build_service_images(target, compose_file=compose_file)
+            # Builds follow the fingerprint: an up-to-date record (e.g.
+            # just written by --fingerprint) skips the build by itself.
+            if self._environment_changes(
+                target, compose_file=compose_file, missing_is_change=True
+            ):
+                _build_service_images(target, compose_file=compose_file)
+            self._record_environment_fingerprints(target, compose_file=compose_file)
 
         todo.start()
         _run_smoke_test(target, compose_file=compose_file)
@@ -500,11 +509,15 @@ class DockerRuntime(Runtime):
         """Start the project's Compose stack unless it is already running.
 
         Idempotent and cheap once the stack is up: a ``compose ps`` probe
-        short-circuits before ``compose up -d --build``. When Osh owns the
-        published host port — the generated stack or an ``osh odoo -p``
-        override — it is checked first so a collision produces an
-        actionable error instead of a raw Compose failure; a project
-        compose file's own port mapping is left to it.
+        short-circuits before ``compose up -d``. The cold start never
+        rebuilds: run diagnostics already warn when the recorded build
+        inputs changed, and ``osh init --runtime=docker`` rebuilds the
+        image — the addon trees a stack COPYs in are shadowed by the
+        project mount at run time anyway. When Osh owns the published
+        host port — the generated stack or an ``osh odoo -p`` override —
+        it is checked first so a collision produces an actionable error
+        instead of a raw Compose failure; a project compose file's own
+        port mapping is left to it.
         """
         cfg = _load_docker_config(base) or {}
         service = cfg.get("service") or "odoo"
@@ -530,9 +543,14 @@ class DockerRuntime(Runtime):
         # ``-p``; a project compose file's own mapping is what counts.
         if port is not None or _is_generated_compose(base, compose_file):
             self._check_port_available(base, cfg, port=port)
-        docker_args = [*compose_cmd, "up", "-d", "--build"]
+        docker_args = [*compose_cmd, "up", "-d"]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
         run_command(docker_args, cwd=base, check=True, stream=True)
+        # ``up`` does not rebuild the image on changed inputs, so a stale
+        # record must not be blessed as built — the warning stays until
+        # ``osh init --runtime=docker`` rebuilds.
+        if not self._environment_changes(base, compose_file=compose_file):
+            self._record_environment_fingerprints(base, compose_file=compose_file)
         _wait_for_db_ready(compose_cmd, cfg.get("db_service") or "db", base)
 
     def _check_port_available(self, base, cfg, port=None):

@@ -42,8 +42,9 @@ variables are mapped to the usual `PG*` ones.
   first match wins; pass `--compose-file` to pick another.
 - **`--dockerfile <path>`** or a `Dockerfile` at the project root: Osh
   generates `.osh/docker-compose.yml` with a `build:` stanza (context is
-  the project root) plus the usual `postgres` service, and `docker compose
-up --build` keeps the image current on each cold start.
+  the project root) plus the usual `postgres` service, and `osh odoo`
+  warns when the image falls behind the recorded build inputs (see
+  "Rebuilding images").
 - **Neither**: Osh generates `.osh/docker-compose.yml` — a standard
   `odoo:<version>` + `postgres:16` stack that mounts the project at
   `/mnt/extra-addons` and publishes `8069` (or `--port <n>`). It lives
@@ -75,9 +76,9 @@ up --build` keeps the image current on each cold start.
 
 The stack is kept running and reused: every `osh odoo` / `osh shell` /
 `osh db` command first runs `docker compose ps --status running <service>`;
-when the service is down, `docker compose up -d --build` brings it (and its
-dependencies) up once — `--build` is a no-op for image-based stacks and
-rebuilds `Dockerfile`-based ones. Commands then run via
+when the service is down, `docker compose up -d` brings it (and its
+dependencies) up once — images are never rebuilt here (see
+"Rebuilding images"). Commands then run via
 `docker compose exec`, not one-shot `compose run`, so back-to-back commands
 pay the startup cost once.
 
@@ -94,16 +95,33 @@ Containers are intentionally **left running** after commands exit.
 
 ## Rebuilding images
 
-A running stack never rebuilds its image — `up -d --build` only fires on
-a cold start, so edits to a project Dockerfile or its requirements stay
-invisible until the stack is recreated. `osh odoo` warns when files in
-the build context are newer than the built image.
+`osh odoo` never rebuilds images — a cold start runs `up -d` as is.
+After each build Osh records a fingerprint of the build inputs in
+`.osh/cache/env-fingerprints.json`: the service's Dockerfile, the files
+at the top of its build context, every `requirements*.txt` inside it,
+and the resolved `build:` options. When those differ on a run — an edit,
+a new file, a removed one — `osh odoo` warns that the image is stale and
+points at the refresh below.
 
-To refresh the image build, re-run init — it runs `compose build` before
-its smoke test on stacks that declare `build:` services:
+Directories inside the context are not fingerprinted (except for
+`requirements*.txt`): what a service COPYs in is usually addon source
+code, which the project mount overrides at run time anyway. If your real
+build inputs live in subdirectories, list them as context-relative globs
+in `build_inputs` in `.osh/docker.toml`.
+
+To rebuild the image, re-run init — on stacks that declare `build:`
+services it runs `compose build` when the fingerprint shows the inputs
+changed, and updates the record afterwards:
 
 ```bash
 osh init --runtime=docker   # rebuild the service images
+```
+
+If the warning is a false positive — the inputs changed but the image
+is already current — `--fingerprint` only re-records the fingerprint:
+
+```bash
+osh init --runtime=docker --fingerprint   # accept the inputs as built
 ```
 
 Init updates the image but does not recreate a running container, so a
@@ -111,7 +129,7 @@ live stack still needs a restart to run on it:
 
 ```bash
 osh stop          # down the stack
-osh odoo          # cold start rebuilds the image, then runs Odoo
+osh odoo          # cold start reuses the fresh image, then runs Odoo
 ```
 
 For project-provided compose files, `docker compose build` at the

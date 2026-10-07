@@ -104,6 +104,7 @@ class Init(CommandHandler):
     assume_yes = False
     dry_run = False
     dev = True
+    fingerprint = False
 
     @classmethod
     def get_options(cls):
@@ -178,6 +179,13 @@ class Init(CommandHandler):
         is_flag=True,
         help="Show the planned actions without modifying anything.",
     )
+    @click.option(
+        "--fingerprint",
+        is_flag=True,
+        help="Skip the environment build and only recalculate the recorded "
+        "build-input fingerprint for the project's active runtime (or "
+        "--runtime <name>), silencing stale-environment warnings.",
+    )
     def run(self):
         version, directory = _split_version_arg(self.version, self.directory)
         self.target = (directory or Path.cwd()).expanduser().resolve()
@@ -228,25 +236,31 @@ class Init(CommandHandler):
             and not self.save
             and self.dev
             and not self.dry_run
+            and not self.fingerprint
         )
 
     def _resolve_runtime_name(self):
         """Resolve which runtime to set up: flag, stored default, or ask.
 
         An explicit ``--runtime=<name>`` wins; ``--runtime=ask`` always
-        prompts. Without a flag the user's stored default applies, and a
-        first interactive run with no stored default asks once. Returns
-        ``None`` when nothing was chosen — a plain host setup.
+        prompts. A bare ``--fingerprint`` targets the project's active
+        runtime — it re-baselines the environment in use. Without a flag
+        the user's stored default applies, and a first interactive run
+        with no stored default asks once. Returns ``None`` when nothing
+        was chosen — a plain host setup.
         """
         name = self.runtime_name
         stored = get_user_preference("runtime", section="init")
         if name == "ask":
             return self._ask_runtime(stored)
         if name is None:
-            if stored is None and self._can_prompt():
-                name = self._ask_runtime(None)
-            else:
-                name = stored
+            if self.fingerprint:
+                name = get_active_runtime_name(self.target, default=None)
+            if name is None:
+                if stored is None and self._can_prompt():
+                    name = self._ask_runtime(None)
+                else:
+                    name = stored
         return name
 
     def _can_prompt(self):
@@ -289,6 +303,7 @@ class Init(CommandHandler):
             edition=edition,
             assume_yes=self.assume_yes,
             dry_run=self.dry_run,
+            fingerprint=self.fingerprint,
             **param_values(self, runtime_cls.get_init_options()),
         )
         if not self.dry_run:
@@ -479,6 +494,7 @@ def run_runtime_init(
     edition,
     assume_yes,
     dry_run,
+    fingerprint=False,
     **options,
 ):
     """Run the runtime-specific part of ``osh init --runtime=<name>``.
@@ -520,6 +536,7 @@ def run_runtime_init(
         assume_yes=assume_yes,
         confirmed=confirmed,
         todo=todo,
+        fingerprint=fingerprint,
         **options,
     )
 

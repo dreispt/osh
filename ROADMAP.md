@@ -20,6 +20,10 @@ To be removed in a later release, once the plugin ecosystem has had time to migr
 
 - Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_runtime_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.
 
+## Switch ports on Docker
+
+- Consider what `osh odoo -p <port>` should do in Docker environments regarding the build-image state: the port override already forces a stack recreate, but the stale-input check and fingerprint handling apply independently of it.
+
 ## `osh doctor` (removed — to be redesigned)
 
 The `osh doctor` command was removed; the diagnostics machinery behind it stays and is still used by `osh init`/`osh odoo`/`osh shell` pre-flight (`Runtime.diagnose`, `Diagnostics`, `collect_diagnostics`, `check_run_diagnostics` in `osh/commands/helpers.py`). Design notes for bringing it back:
