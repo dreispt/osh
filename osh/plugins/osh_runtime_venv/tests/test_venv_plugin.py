@@ -1,6 +1,5 @@
 """Tests for the built-in venv runtime plugin."""
 
-import os
 import sys
 from pathlib import Path
 
@@ -14,34 +13,68 @@ from tests.helpers import make_bare_repo
 from .conftest import real_commands
 
 
-def test_diagnose_warns_when_requirements_change_after_install(tmp_project):
-    """Editing requirements.txt after init prompts an ``osh init --runtime=venv`` hint.
+def test_diagnose_quiet_until_requirements_change_after_init(tmp_project, monkeypatch):
+    """Editing requirements.txt after init prompts an ``osh init`` hint.
 
-    Init records its install time in a marker file inside ``.venv``; a
-    requirements file newer than it means a reinstall is due.
+    Init fingerprints the requirement files it installed from; the check
+    is silent until one of them changes.
     """
-    installed = tmp_project / ".venv" / ".osh-installed"
-    installed.parent.mkdir(parents=True)
-    installed.touch()
-    os.utime(installed, (0, 0))  # installed long ago
-    (tmp_project / "requirements.txt").write_text("requests\n")
+    odoo_src = tmp_project / "odoo"
+    odoo_src.mkdir()
+    (odoo_src / "odoo-bin").touch()
+    requirements = tmp_project / "requirements.txt"
+    requirements.write_text("requests\n")
+    real_commands(monkeypatch)
+    result = CliRunner().invoke(
+        main,
+        ["init", "19.0", str(tmp_project), "--runtime", "venv", "-c", str(odoo_src)],
+    )
+    assert result.exit_code == 0
 
-    warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
+    runtime = VenvRuntime()
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
+    assert not any("osh init --runtime=venv" in w for w in warnings)
 
+    requirements.write_text("requests\nhttpx\n")
+    warnings = runtime.diagnose(tmp_project, phase="run").warnings
     assert any("osh init --runtime=venv" in w for w in warnings)
 
 
-def test_diagnose_quiet_when_venv_newer_than_requirements(tmp_project):
-    """An install newer than requirements.txt leaves the check silent."""
+def test_init_fingerprint_accepts_inputs_without_reinstall(tmp_project, monkeypatch):
+    """``osh init --fingerprint`` re-fingerprints inputs without reinstalling.
+
+    A requirements edit after init flags the environment as stale; a bare
+    ``--fingerprint`` targets the project's active runtime and accepts the
+    inputs as built — no pip installs run and the warning clears.
+    """
+    odoo_src = tmp_project / "odoo"
+    odoo_src.mkdir()
+    (odoo_src / "odoo-bin").touch()
     requirements = tmp_project / "requirements.txt"
     requirements.write_text("requests\n")
-    os.utime(requirements, (0, 0))
-    installed = tmp_project / ".venv" / ".osh-installed"
-    installed.parent.mkdir(parents=True)
-    installed.touch()
+    calls = real_commands(monkeypatch)
+    init = [
+        "init",
+        "19.0",
+        str(tmp_project),
+        "--runtime",
+        "venv",
+        "-c",
+        str(odoo_src),
+    ]
+    result = CliRunner().invoke(main, init)
+    assert result.exit_code == 0
+
+    requirements.write_text("requests\nhttpx\n")
+    warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
+    assert any("osh init --runtime=venv" in w for w in warnings)
+
+    calls.clear()
+    result = CliRunner().invoke(main, ["init", str(tmp_project), "--fingerprint"])
+    assert result.exit_code == 0
+    assert not any("install" in call for call in calls)
 
     warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
-
     assert not any("osh init --runtime=venv" in w for w in warnings)
 
 

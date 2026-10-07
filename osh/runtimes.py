@@ -15,6 +15,8 @@ legacy ``none`` name still resolves to it.
 deprecated aliases kept for plugins written against the old backend API.
 """
 
+import hashlib
+import json
 import os
 import shlex
 import shutil
@@ -29,7 +31,6 @@ import click
 
 from . import echo
 from .common import (
-    file_newer_than,
     find_shell,
     format_cmd,
     get_odoo_config_path,
@@ -87,6 +88,19 @@ class EnvSpec:
     stdin: BinaryIO = None
     db_name: str = None
     config_path: str = None
+
+
+@dataclass
+class BuildInputs:
+    """The inputs a built environment artifact was produced from.
+
+    ``paths`` are the files whose contents feed the artifact's fingerprint;
+    ``spec`` is an optional opaque value — e.g. a resolved Compose
+    ``build:`` mapping — hashed alongside them.
+    """
+
+    paths: list = field(default_factory=list)
+    spec: object = None
 
 
 class Runtime(ABC):
@@ -174,26 +188,79 @@ class Runtime(ABC):
 
         return _build_addons_paths(base, include_themes=include_themes)
 
-    def _environment_builds(self, base):
-        """Return ``(built_epoch, input_paths)`` pairs for the staleness check.
+    def _environment_inputs(self, base, **options):
+        """Return ``{key: BuildInputs}`` for artifacts this runtime builds.
 
-        Each pair gives a built environment artifact's timestamp and the
-        files it was built from. The default returns ``()``: runtimes that
-        manage no built environment (e.g. ``host``) never report staleness.
+        Keys name the built artifact (a Compose service, the project
+        virtualenv). The default returns ``{}``: runtimes that manage no
+        built environment (e.g. ``host``) never report staleness and never
+        rebuild.
         """
-        return ()
+        return {}
+
+    def _environment_changes(self, base, missing_is_change=False, **options):
+        """Return ``{key: [changed input labels]}`` for stale artifacts.
+
+        Inputs are fingerprinted on content and compared with the record
+        the last build left in ``.osh/cache/env-fingerprints.json`` — an
+        edited file, a removed input or a changed spec all count.
+        Artifacts without a record have no baseline yet and are not stale
+        (the next build writes it) — unless *missing_is_change* is set,
+        as init-time build decisions do: an unrecorded artifact is one
+        that still needs building.
+        """
+        inputs = self._environment_inputs(base, **options)
+        if not inputs:
+            return {}
+        stored = _load_env_fingerprints(base).get(self.name, {})
+        changed = {}
+        for key, spec in inputs.items():
+            previous = stored.get(key)
+            current = _fingerprint_inputs(base, spec)
+            if not isinstance(previous, dict):
+                if missing_is_change:
+                    changed[key] = sorted(current)
+                continue
+            diff = [
+                label
+                for label, digest in current.items()
+                if previous.get(label) != digest
+            ]
+            diff += [label for label in previous if label not in current]
+            if diff:
+                changed[key] = sorted(diff)
+        return changed
+
+    def _record_environment_fingerprints(self, base, **options):
+        """Store the current input fingerprints after a successful build."""
+        inputs = self._environment_inputs(base, **options)
+        if inputs:
+            self._store_environment_fingerprints(
+                base,
+                {key: _fingerprint_inputs(base, spec) for key, spec in inputs.items()},
+            )
+
+    def _store_environment_fingerprints(self, base, records):
+        """Merge *records* into the fingerprint store under this runtime."""
+        data = _load_env_fingerprints(base)
+        data.setdefault(self.name, {}).update(records)
+        path = _env_fingerprints_path(base)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
     def _stale_environment_hint(self):
         """Remediation text appended to the stale-environment warning."""
-        return f"Run 'osh init --runtime={self.name}' to refresh the environment."
+        return (
+            f"Run 'osh init --runtime={self.name}' to refresh the environment "
+            "('osh init --fingerprint' accepts the inputs without rebuilding)."
+        )
 
-    def _check_stale_environment(self, base, d):
-        """Warn when files the environment was built from postdate the build."""
+    def _check_stale_environment(self, base, d, **options):
+        """Warn when inputs the environment was built from changed since the build."""
         changed = dict.fromkeys(
-            str(path)
-            for built_epoch, paths in self._environment_builds(base)
-            for path in paths
-            if file_newer_than(path, built_epoch)
+            label
+            for labels in self._environment_changes(base, **options).values()
+            for label in labels
         )
         if changed:
             d.add_warning(
@@ -934,3 +1001,43 @@ def _looks_like_odoo(cmdline, extra_names=()):
         ]:
             return True
     return False
+
+
+def _env_fingerprints_path(base):
+    """Return the recorded environment input fingerprints file for *base*."""
+    return Path(base) / ".osh" / "cache" / "env-fingerprints.json"
+
+
+def _load_env_fingerprints(base):
+    """Load the ``{runtime: {artifact: {label: digest}}}`` fingerprint store."""
+    try:
+        return json.loads(_env_fingerprints_path(base).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _fingerprint_inputs(base, inputs):
+    """Map each *inputs* entry to ``label -> sha256`` — None when unreadable.
+
+    Labels are paths relative to *base* where possible so a moved project
+    still points at the same files; the ``spec`` value — e.g. a resolved
+    Compose ``build:`` mapping — is hashed under a pseudo-label that cannot
+    collide with a real path.
+    """
+    fp = {}
+    resolved_base = Path(base).resolve()
+    for path in inputs.paths:
+        path = Path(path)
+        try:
+            label = path.resolve().relative_to(resolved_base).as_posix()
+        except (OSError, ValueError):
+            label = str(path)
+        try:
+            fp[label] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            fp[label] = None
+    if inputs.spec is not None:
+        fp["<build definition>"] = hashlib.sha256(
+            json.dumps(inputs.spec, sort_keys=True, default=str).encode()
+        ).hexdigest()
+    return fp
