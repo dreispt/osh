@@ -239,7 +239,6 @@ _COMMAND_ORDER = [
     "test",
     "db",
     "backup",
-    "addon",
     "config",
 ]
 

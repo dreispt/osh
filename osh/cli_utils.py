@@ -118,6 +118,42 @@ def handler_group(name, cls):
     return group
 
 
+def handler_command_group(name, cls):
+    """Build a ``DefaultCommandGroup`` running handler *cls* by default.
+
+    *cls* is exposed as the group's default command — ``<name> [args]``
+    behaves exactly like the plain handler command, while ``add_command``
+    attaches subcommands/subgroups to the group (``osh init
+    extra-addons``).
+    """
+    command = handler_command(name, cls)
+    context_settings = {
+        # Options are the default command's — the group must not reject
+        # them before they are routed (``osh init --runtime docker``).
+        "ignore_unknown_options": True,
+        **(cls._cli_context_settings or {}),
+    }
+
+    @click.pass_context
+    def callback(ctx, **_kwargs):
+        # The group callback also runs when a subcommand is dispatched —
+        # the default command only runs when nothing else was invoked.
+        if ctx.invoked_subcommand is None:
+            ctx.invoke(command)
+
+    callback.__module__ = cls.__module__
+    callback.__name__ = cls.__name__
+    callback.__doc__ = inspect.getdoc(cls)
+
+    return DefaultCommandGroup(
+        name=name,
+        command=command,
+        callback=callback,
+        help=inspect.getdoc(cls),
+        context_settings=context_settings,
+    )
+
+
 def method_command(cls, method, attrs, handler=None):
     """Build the click command delegating to ``cls.<method>()``.
 
@@ -322,6 +358,42 @@ class NaturalOrderGroup(click.Group):
                 continue
             i += 1
         return super().parse_args(ctx, head + tail)
+
+
+class DefaultCommandGroup(NaturalOrderGroup):
+    """A group that delegates non-subcommand args to a default command.
+
+    Commands like ``osh init`` both run with their own arguments and host
+    subgroups (``osh init extra-addons``). When the first remaining
+    argument is a registered subcommand the group dispatches normally;
+    anything else — a positional like ``19.0``, or options — is handed to
+    the default command for its own parsing. With no arguments at all
+    the group callback invokes the default command with its defaults.
+
+    A token that is not a subcommand name is always the default
+    command's argument — a misspelled subcommand becomes a positional,
+    an unavoidable ambiguity since any string is a valid positional.
+    """
+
+    def __init__(self, *args, command=None, **kwargs):
+        kwargs.setdefault("invoke_without_command", True)
+        super().__init__(*args, **kwargs)
+        self.default_command = command
+
+    def resolve_command(self, ctx, args):
+        """Dispatch to a subcommand, or hand all args to the default command."""
+        if args and self.get_command(ctx, args[0]) is not None:
+            return super().resolve_command(ctx, args)
+        # The default command is not a named subcommand — an empty
+        # invoked name keeps usage lines reading 'osh init ...' and is
+        # truthy-checked nowhere ('' still differs from None for the
+        # group callback's invoke guard).
+        return "", self.default_command, args
+
+    def format_help(self, ctx, formatter):
+        """Show the default command's help, then the subcommand list."""
+        self.default_command.format_help(ctx, formatter)
+        self.format_commands(ctx, formatter)
 
 
 def merge_options(options, extra):

@@ -52,11 +52,11 @@ described in `README.md`.
 
 Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh db set`, `osh backup restore`,
-`osh addon update`), while bare top-level verbs are
+`osh db update`), while bare top-level verbs are
 reserved for the primary day-to-day workflow actions (`osh init`,
 `osh stop`, `osh odoo`, `osh shell`, `osh test`). Verbs may
 deliberately diverge between groups when the underlying concepts differ —
-`osh addon uninstall` removes an Odoo module while `pip uninstall`
+`osh db uninstall` removes an Odoo module while `pip uninstall`
 removes an osh plugin, and `osh db set`/`unset` moves a mutable pointer
 rather than acquiring or removing anything. Plugin commands that manage a
 resource should attach to the matching group via `group_commands` instead

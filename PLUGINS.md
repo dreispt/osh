@@ -168,12 +168,12 @@ without importing anything.
 
 Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh backup restore`,
-`osh addon update`), while bare top-level verbs are reserved for the
+`osh db update`), while bare top-level verbs are reserved for the
 primary day-to-day workflow actions (`osh init`, `osh odoo`,
 `osh shell`, `osh test`). If your plugin manages a resource,
 attach its commands to the matching group via `group_commands` instead of
 claiming a bare top-level verb. Verbs may deliberately diverge between
-groups when the underlying concepts differ — `osh addon uninstall` removes
+groups when the underlying concepts differ — `osh db uninstall` removes
 an Odoo module while `pip uninstall` removes an osh plugin, and
 `osh db set`/`unset` moves a mutable pointer rather than acquiring or
 removing anything.

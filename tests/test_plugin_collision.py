@@ -174,7 +174,7 @@ def test_group_subcommand_collision_renamed(pip_install, capsys):
 
 def test_group_subcommand_unknown_group_is_skipped(pip_install, capsys):
     """A group command targeting a non-group command is skipped with an error."""
-    pip_install("repo_initsub")
+    pip_install("repo_odoosub")
 
     from osh import cli
 

@@ -1,15 +1,8 @@
-"""``osh addon`` command group — Odoo module and addon-path commands.
+"""``osh init extra-addons`` — extra addon directories on the addons path.
 
-Core ships the group as the stable attachment point for module commands;
-plugins contribute the actual lifecycle actions (``osh addon update``,
-``osh addon uninstall``, ...) through the ``group_commands`` metadata
-section — or by subclassing ``Addon`` and adding ``@subcommand``
-methods.
-
-The ``osh addon path`` subgroup manages extra addon directories registered
-on the project's ``addons_path`` — local checkouts or git repositories
-cloned under ``.osh/`` — such as OCA repositories the project modules
-depend on.
+The subgroup manages extra addon directories registered on the project's
+``addons_path`` — local checkouts or git repositories cloned under
+``.osh/`` — such as OCA repositories the project modules depend on.
 """
 
 import re
@@ -33,17 +26,7 @@ from ..utils.odoo_layout import addon_path_entries, resolve_addon_path, store_ad
 _REPO_SHORTHAND_RE = re.compile(r"^\w[\w.-]*/\w[\w.-]*$")
 
 
-class Addon(CommandHandler):
-    """Manage Odoo modules and extra addon paths.
-
-    ``osh addon path`` registers extra addon directories on the project's
-    addons path. Module lifecycle commands are provided by plugins.
-    """
-
-    _cli_name = "addon"
-
-
-class AddonPath(CommandHandler):
+class ExtraAddons(CommandHandler):
     """Manage extra addon directories on the project's ``addons_path``.
 
     Registered directories are stored in ``.osh/config.toml`` under
@@ -52,7 +35,7 @@ class AddonPath(CommandHandler):
     being part of the project's git-managed scope.
     """
 
-    _cli_name = "addon.path"
+    _cli_name = "init.extra-addons"
 
     @subcommand
     @click.argument("source")
@@ -79,9 +62,9 @@ class AddonPath(CommandHandler):
         Examples:
 
         \b
-          osh addon path add ~/src/payroll
-          osh addon path add oca/payroll
-          osh addon path add https://github.com/oca/payroll.git --branch 19.0
+          osh init extra-addons add ~/src/payroll
+          osh init extra-addons add oca/payroll
+          osh init extra-addons add https://github.com/oca/payroll.git --branch 19.0
         """
         base = find_project_root(required=True)
         source_path = Path(self.source).expanduser()
@@ -190,8 +173,7 @@ class AddonPath(CommandHandler):
         return target
 
 
-addon = handler_group("addon", Addon)
-addon.add_command(handler_group("path", AddonPath))
+extra_addons = handler_group("extra-addons", ExtraAddons)
 
 
 def _match_entry(base, entries, name_or_path):

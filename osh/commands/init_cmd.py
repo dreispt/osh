@@ -24,7 +24,7 @@ from pathlib import Path
 import click
 
 from .. import echo
-from ..cli_utils import handler_command, long_flag, merge_options, param_values
+from ..cli_utils import handler_command_group, long_flag, merge_options, param_values
 from ..common import (
     find_enclosing_project,
     find_nested_projects,
@@ -46,6 +46,7 @@ from ..db import (
 from ..handlers import CommandHandler
 from ..runtimes import copy_odoo_rc_to_osh_conf
 from ..utils.plugin_loader import get_runtime_class, load_runtimes, runtime_meta
+from .extra_addons_cmd import extra_addons
 from .helpers import Diagnostics
 
 
@@ -86,6 +87,7 @@ class Init(CommandHandler):
       osh init ./another-project
       osh init 19.0 --dry-run
       osh init                         # report the project's status
+      osh init extra-addons --help     # manage extra addon directories
 
     With VERSION omitted, DIRECTORY can only be given as a path containing
     a separator (e.g. './another-project') — a bare name is read as VERSION.
@@ -331,7 +333,8 @@ class Init(CommandHandler):
             echo.warning(f"{flag} {hint}; ignored.")
 
 
-init = handler_command("init", Init)
+init = handler_command_group("init", Init)
+init.add_command(extra_addons)
 
 
 def _runtime_init_options():
