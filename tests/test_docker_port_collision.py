@@ -6,6 +6,7 @@ import click
 import pytest
 
 from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
+from osh.plugins.osh_runtime_docker.tests.conftest import _docker_ps_line
 from osh.runtimes import EnvSpec
 
 from .conftest import _free_port, _odoo_argv, _write_docker_config
@@ -28,8 +29,15 @@ def test_port_collision_identifies_other_osh_project(
     other = tmp_project.parent / "other-project"
     (other / ".osh").mkdir(parents=True)
     (other / ".osh" / "docker.toml").write_text('service = "odoo"\n')
-    labels = f"com.docker.compose.project.working_dir={other / '.osh'}"
-    (fake_docker / "docker_ps").write_text(f"{labels}\t3 hours ago\n")
+    (fake_docker / "docker_ps").write_text(
+        _docker_ps_line(
+            "other-odoo-1",
+            "odoo:19.0",
+            f"0.0.0.0:{port}->8069/tcp",
+            "Up 3 hours",
+            f"com.docker.compose.project.working_dir={other / '.osh'}",
+        )
+    )
 
     with pytest.raises(click.ClickException) as excinfo:
         DockerRuntime().ensure_service_up(tmp_project)
@@ -66,7 +74,14 @@ def test_port_collision_unidentified_holder(
     """An unidentifiable port holder produces the generic actionable error."""
     port = held_port()
     _write_docker_config(tmp_project, port=port)
-    (fake_docker / "docker_ps").write_text("k8s_pod\t2 days ago\n")
+    (fake_docker / "docker_ps").write_text(
+        _docker_ps_line(
+            "k8s_pod",
+            "registry.k8s.io/pause:3.9",
+            f"0.0.0.0:{port}->8080/tcp",
+            "Up 2 days",
+        )
+    )
     # The holder is invisible to the process scan — e.g. another user.
     monkeypatch.setattr("osh.runtimes._port_listeners", lambda port: [])
 

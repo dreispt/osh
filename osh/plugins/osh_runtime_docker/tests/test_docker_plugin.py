@@ -1487,6 +1487,154 @@ def test_stop_all_lists_and_downs_every_stack(tmp_path, fake_docker, monkeypatch
     assert len(downs) == 2
 
 
+def test_stop_list_reports_stack_without_downing(tmp_project, fake_docker, monkeypatch):
+    """``osh stop --list`` shows the stack containers and the down it would run."""
+    _write_docker_config(tmp_project)
+    set_project_config(tmp_project, "run", "runtime", "docker")
+    monkeypatch.chdir(tmp_project)
+    _running_containers(
+        fake_docker,
+        _docker_ps_line(
+            "proj-odoo-1",
+            "odoo:19.0",
+            "0.0.0.0:8069->8069/tcp",
+            "Up 1 hour",
+            f"com.docker.compose.project.working_dir={tmp_project / '.osh'},"
+            "com.docker.compose.project=osh-proj-aaaaaa",
+        ),
+        _docker_ps_line(
+            "proj-db-1",
+            "postgres:16",
+            "",
+            "Up 1 hour",
+            f"com.docker.compose.project.working_dir={tmp_project / '.osh'},"
+            "com.docker.compose.project=osh-proj-aaaaaa",
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["stop", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "proj-odoo-1" in result.output
+    assert "proj-db-1" in result.output
+    assert "this project's stack" in result.output
+    assert "Would run: docker compose" in result.output
+    assert " down" in result.output
+    assert not [c for c in _docker_calls(fake_docker) if c.endswith(" down")]
+
+
+def test_stop_list_names_the_project_holding_the_port(
+    tmp_project, fake_docker, monkeypatch
+):
+    """Another project's container publishing the port points at its owner."""
+    other = tmp_project.parent / "other"
+    _write_docker_config(other)
+    _write_docker_config(tmp_project)
+    set_project_config(tmp_project, "run", "runtime", "docker")
+    monkeypatch.chdir(tmp_project)
+    _running_containers(
+        fake_docker,
+        _docker_ps_line(
+            "other-odoo-1",
+            "odoo:19.0",
+            "0.0.0.0:8069->8069/tcp",
+            "Up 1 hour",
+            f"com.docker.compose.project.working_dir={other / '.osh'},"
+            "com.docker.compose.project=osh-other-bbbbbb",
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["stop", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "other-odoo-1" in result.output
+    assert f"osh stop {other}" in result.output
+    assert not [c for c in _docker_calls(fake_docker) if c.endswith(" down")]
+
+
+def test_stop_list_reports_a_port_range_publisher(
+    tmp_project, fake_docker, monkeypatch
+):
+    """A container publishing a range that includes the port is listed.
+
+    Podman reports ``Labels`` as a JSON object rather than a comma-separated
+    string; the holder must be identified either way.
+    """
+    _write_docker_config(tmp_project)
+    set_project_config(tmp_project, "run", "runtime", "docker")
+    monkeypatch.chdir(tmp_project)
+    _running_containers(
+        fake_docker,
+        _docker_ps_line(
+            "proj-odoo-1",
+            "odoo:19.0",
+            "0.0.0.0:8069-8070->8069-8070/tcp",
+            "Up 1 hour",
+            labels={
+                "com.docker.compose.project.working_dir": str(tmp_project / ".osh"),
+                "com.docker.compose.project": "osh-proj-aaaaaa",
+            },
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["stop", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "proj-odoo-1" in result.output
+    assert "this project's stack" in result.output
+    assert not [c for c in _docker_calls(fake_docker) if c.endswith(" down")]
+
+
+def test_stop_all_list_reports_stacks_without_downing(
+    tmp_path, fake_docker, monkeypatch
+):
+    """``osh stop --all --list`` lists the stacks and tears nothing down."""
+    proj_a = tmp_path / "proj-a"
+    _write_docker_config(proj_a)
+    _running_containers(
+        fake_docker,
+        _docker_ps_line(
+            "a-odoo-1",
+            "odoo:19.0",
+            "0.0.0.0:8069->8069/tcp",
+            "Up 1 hour",
+            f"com.docker.compose.project.working_dir={proj_a / '.osh'},"
+            "com.docker.compose.project=osh-proj-a-aaaaaa",
+        ),
+    )
+    monkeypatch.setattr("osh.runtimes._osh_managed_odoo_pids", lambda: [])
+
+    result = CliRunner().invoke(main, ["stop", "--all", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "osh-proj-a-aaaaaa" in result.output
+    assert str(proj_a) in result.output
+    assert not [c for c in _docker_calls(fake_docker) if c.endswith(" down")]
+
+
+def test_stop_by_name_list_reports_the_stack(tmp_path, fake_docker):
+    """``osh stop <name> --list`` reports the stack without downing it."""
+    other = tmp_path / "other"
+    _write_docker_config(other)
+    _running_containers(
+        fake_docker,
+        _docker_ps_line(
+            "other-odoo-1",
+            "odoo:19.0",
+            "0.0.0.0:8069->8069/tcp",
+            "Up 2 hours",
+            f"com.docker.compose.project.working_dir={other / '.osh'},"
+            "com.docker.compose.project=osh-other-abc123",
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["stop", "other", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "osh-other-abc123" in result.output
+    assert not [c for c in _docker_calls(fake_docker) if c.endswith(" down")]
+
+
 def test_docker_runtime_requires_service(tmp_project):
     """``env`` fails when no service is configured."""
     runtime = DockerRuntime()

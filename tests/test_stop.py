@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.db import set_project_config
+from osh.plugins.osh_runtime_docker.tests.conftest import _docker_ps_line
 
 from .conftest import (
     _configure_port,
@@ -15,6 +16,7 @@ from .conftest import (
     _odoo_argv,
     _odoo_module_argv,
     _sleeping_odoo,
+    _write_docker_config,
 )
 
 
@@ -200,6 +202,88 @@ def test_stop_by_path_stops_that_project(tmp_path, spawn):
     proc.wait(timeout=5)
 
 
+def test_stop_list_reports_odoo_listener_without_stopping(
+    in_project, odoo_port, tmp_path, spawn
+):
+    """``osh stop --list`` reports the port holder and leaves it running."""
+    proc = spawn(_odoo_argv(tmp_path, odoo_port), odoo_port)
+
+    result = CliRunner().invoke(main, ["stop", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Would stop Odoo process {proc.pid}" in result.output
+    assert proc.poll() is None
+
+
+def test_stop_list_marks_a_foreign_listener_as_untouchable(
+    in_project, odoo_port, spawn
+):
+    """A non-Odoo holder is reported as one ``osh stop`` would not touch."""
+    proc = spawn([sys.executable, "-m", "http.server", str(odoo_port)], odoo_port)
+
+    result = CliRunner().invoke(main, ["stop", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "does not look like Odoo" in result.output
+    assert "would leave it alone" in result.output
+    assert proc.poll() is None
+
+
+def test_stop_list_reports_a_docker_port_holder(
+    in_project, odoo_port, tmp_path, fake_docker
+):
+    """A container publishing the port is listed with its owning project.
+
+    The Docker holder is invisible to the host runtime's process sweep —
+    ``--list`` reports it anyway and points at the project that frees it.
+    """
+    other = tmp_path / "other"
+    _write_docker_config(other)
+    (fake_docker / "docker_ps").write_text(
+        _docker_ps_line(
+            "other-odoo-1",
+            "odoo:19.0",
+            f"0.0.0.0:{odoo_port}->8069/tcp",
+            "Up 1 hour",
+            f"com.docker.compose.project.working_dir={other / '.osh'},"
+            "com.docker.compose.project=osh-other-abc123",
+        )
+    )
+
+    result = CliRunner().invoke(main, ["stop", "--list"])
+
+    assert result.exit_code == 0, result.output
+    assert f"no process listening on port {odoo_port}" in result.output
+    assert "other-odoo-1" in result.output
+    assert str(other) in result.output
+    assert f"osh stop {other}" in result.output
+
+
+def test_stop_all_list_reports_processes_without_stopping(
+    fake_docker, tmp_path, monkeypatch
+):
+    """``osh stop --all --list`` lists Osh-managed processes, killing none."""
+    # The process is real and left running; only the discovery list is
+    # pinned to it so the listing cannot expose other Osh-managed Odoo
+    # processes on the machine running the tests.
+    proc = _sleeping_odoo(tmp_path)
+    monkeypatch.setattr(
+        "osh.runtimes._osh_managed_odoo_pids",
+        lambda: [(proc.pid, "/p/.venv/bin/odoo -d mydb", ())],
+    )
+
+    try:
+        result = CliRunner().invoke(main, ["stop", "--all", "--list"])
+
+        assert result.exit_code == 0, result.output
+        assert f"Would stop Odoo process {proc.pid}" in result.output
+        assert str(tmp_path) in result.output
+        assert proc.poll() is None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
 def test_stop_all_reports_when_nothing_runs(fake_docker, monkeypatch):
     """``osh stop --all`` with nothing running says so, plainly."""
     # The /proc sweep is pinned to nothing so a real Osh-managed Odoo on
@@ -250,3 +334,4 @@ def test_stop_help_shows_the_surface():
     assert result.exit_code == 0, result.output
     assert "[NAME]" in result.output
     assert "--all" in result.output
+    assert "--list" in result.output

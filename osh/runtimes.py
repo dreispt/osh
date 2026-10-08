@@ -367,33 +367,57 @@ class Runtime(ABC):
         state have nothing to report.
         """
 
-    def stop(self, ctx, base, **options):
+    def odoo_port(self, base):
+        """Return the host port Odoo serves HTTP on for *base*, or None.
+
+        ``osh stop --list`` uses it to report what holds the project's
+        port; the default reads the Odoo config files.
+        """
+        return get_odoo_port(base)
+
+    def port_holders(self, ctx, port, base):
+        """Return report lines for this runtime's holders of host *port*.
+
+        ``osh stop --list`` asks every runtime, so the report covers
+        holders the active runtime's own ``stop`` cannot see — e.g. a
+        Docker container publishing the port of a host-runtime project.
+        *base* is the project asking: lines should name the owning
+        resource and which ``osh stop`` invocation frees it. The default
+        reports no holders.
+        """
+        return []
+
+    def stop(self, ctx, base, *, dry_run=False, **options):
         """Stop resources the runtime may have left running.
 
-        The default is a no-op for runtimes without persistent state, so
-        ``osh stop`` is always safe to run.
+        With *dry_run* — ``osh stop --list`` — report what would be
+        stopped instead of stopping it. The default is a no-op for
+        runtimes without persistent state, so ``osh stop`` is always
+        safe to run.
         """
         echo.info(f"Nothing to stop for the '{self.name}' runtime.", err=True)
 
-    def stop_by_name(self, ctx, name, **options):
+    def stop_by_name(self, ctx, name, *, dry_run=False, **options):
         """Stop resources belonging to the Osh project named *name*.
 
         Backs ``osh stop <name>`` for runtimes whose resources are
         discoverable outside the project directory (e.g. Compose stacks
-        identified by container labels). The default rejects — the runtime
-        manages nothing that a name could resolve.
+        identified by container labels); with *dry_run* (``osh stop
+        <name> --list``) they are only reported. The default rejects —
+        the runtime manages nothing that a name could resolve.
         """
         raise click.ClickException(
             f"The '{self.name}' runtime manages no named resources "
             f"— no stack found for '{name}'."
         )
 
-    def stop_all(self, ctx, **options):
+    def stop_all(self, ctx, *, dry_run=False, **options):
         """Stop every Osh-managed resource of this runtime, host-wide.
 
         Backs ``osh stop --all``: runtimes whose resources outlive the
         project directory (containers, stray processes) enumerate and stop
-        them here. The default is a no-op.
+        them here; with *dry_run* (``osh stop --all --list``) they are
+        only reported. The default is a no-op.
         """
 
 
@@ -686,7 +710,7 @@ class HostRuntime(Runtime):
         command = self.odoo_command(base)
         return [Path(command[0]).name] if command else []
 
-    def _odoo_port(self, base):
+    def odoo_port(self, base):
         """HTTP port from the project configs, then the configured base conf."""
         extra = [conf] if (conf := self.base_odoo_conf(base)) else []
         return get_odoo_port(base, extra_confs=extra)
@@ -695,7 +719,7 @@ class HostRuntime(Runtime):
         """Report the process listening on the project's HTTP port, if any."""
         if command := self.odoo_command(base):
             echo.info(f"Odoo command: {' '.join(command)}")
-        port = self._odoo_port(base)
+        port = self.odoo_port(base)
         listeners = _port_listeners(port)
         if not listeners:
             echo.info(f"No process listening on port {port}.")
@@ -706,7 +730,34 @@ class HostRuntime(Runtime):
                 f"(pid {pid})"
             )
 
-    def stop_all(self, ctx, **options):
+    def port_holders(self, ctx, port, base):
+        """Report host processes listening on *port* and their owners."""
+        lines = []
+        for pid in _port_listeners(port):
+            cmdline = _pid_command(pid) or "unknown"
+            desc = f"'{cmdline}' (pid {pid})"
+            project = _pid_osh_project(pid)
+            if project is not None:
+                if Path(project).resolve() == Path(base).resolve():
+                    desc += " — this project's Odoo process"
+                else:
+                    desc += (
+                        f" — Osh project {project}; "
+                        f"run 'osh stop {project}' to free it"
+                    )
+            else:
+                cwd = _pid_cwd(pid)
+                if cwd:
+                    desc += f" in {cwd}"
+                desc += (
+                    " — Odoo process not managed by Osh"
+                    if _looks_like_odoo(cmdline)
+                    else " — not an Odoo process"
+                )
+            lines.append(desc)
+        return lines
+
+    def stop_all(self, ctx, *, dry_run=False, **options):
         """Stop every Osh-managed Odoo process found on this host.
 
         Osh exports ``ODOO_RC=<project>/.osh/odoo.conf`` into every command
@@ -717,6 +768,12 @@ class HostRuntime(Runtime):
         targets = _osh_managed_odoo_pids()
         if not targets:
             echo.info("No Osh-managed Odoo processes found.", err=True)
+            return
+        if dry_run:
+            for pid, cmdline, _extra_names in targets:
+                project = _pid_osh_project(pid)
+                location = f" — {project}" if project else ""
+                echo.info(f"Would stop Odoo process {pid} ({cmdline}){location}.")
             return
         pending = []
         for pid, cmdline, extra_names in targets:
@@ -747,9 +804,9 @@ class HostRuntime(Runtime):
             except OSError as exc:
                 echo.warning(f"Could not kill pid {pid}: {exc}")
 
-    def stop(self, ctx, base, **options):
+    def stop(self, ctx, base, *, dry_run=False, **options):
         """Stop an Odoo process left listening on the project's HTTP port."""
-        port = self._odoo_port(base)
+        port = self.odoo_port(base)
         extra_names = self._odoo_process_names(base)
         listeners = _port_listeners(port)
         if not listeners:
@@ -761,8 +818,17 @@ class HostRuntime(Runtime):
                 echo.warning(
                     f"Port {port} is held by '{cmdline or 'unknown'}' "
                     f"(pid {pid}), which does not look like Odoo — "
-                    "leaving it alone."
+                    + (
+                        "'osh stop' would leave it alone."
+                        if dry_run
+                        else "leaving it alone."
+                    )
                 )
+                continue
+            if dry_run:
+                cwd = _pid_cwd(pid)
+                location = f" in {cwd}" if cwd else ""
+                echo.info(f"Would stop Odoo process {pid} ({cmdline}){location}.")
                 continue
             echo.info(f"Stopping Odoo process {pid} ({cmdline})...", err=True)
             try:
@@ -818,38 +884,42 @@ def _osh_managed_odoo_pids():
     for entry in proc.iterdir():
         if not entry.name.isdigit():
             continue
-        try:
-            environ = (entry / "environ").read_bytes()
-        except OSError:
+        project = _pid_osh_project(int(entry.name))
+        if project is None:
             continue
-        odoo_rc = next(
-            (
-                var[len(b"ODOO_RC=") :].decode(errors="replace")
-                for var in environ.split(b"\0")
-                if var.startswith(b"ODOO_RC=")
-            ),
-            None,
-        )
-        if not odoo_rc:
-            continue
-        parts = Path(odoo_rc).parts
-        if ".osh" not in parts:
-            continue
-        extra_names = _configured_command_names(parts)
+        extra_names = _configured_command_names(project)
         cmdline = _pid_command(int(entry.name))
         if _looks_like_odoo(cmdline, extra_names=extra_names):
             found.append((int(entry.name), cmdline, extra_names))
     return found
 
 
-def _configured_command_names(odoo_rc_parts):
-    """Return the ``--odoo-command`` executable name recorded by the project.
+def _pid_osh_project(pid):
+    """Return the Osh project an Osh-run *pid* belongs to, or None.
 
-    *odoo_rc_parts* is an ``ODOO_RC`` path split on ``/`` — the segments
-    before ``.osh`` are the project, whose ``init.odoo_command`` may name
-    a binary (e.g. ``odoo-server``) that does not look like Odoo by name.
+    ``osh odoo``/``osh shell`` export ``ODOO_RC=<project>/.osh/odoo.conf``,
+    so a process whose environment carries an ``ODOO_RC`` inside ``.osh``
+    maps back to its project.
     """
-    project = Path(*odoo_rc_parts[: odoo_rc_parts.index(".osh")])
+    try:
+        environ = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+    for var in environ.split(b"\0"):
+        if not var.startswith(b"ODOO_RC="):
+            continue
+        parts = Path(var[len(b"ODOO_RC=") :].decode(errors="replace")).parts
+        if ".osh" in parts:
+            return Path(*parts[: parts.index(".osh")])
+    return None
+
+
+def _configured_command_names(project):
+    """Return the ``--odoo-command`` executable name recorded by *project*.
+
+    The project's ``init.odoo_command`` may name a binary (e.g.
+    ``odoo-server``) that does not look like Odoo by name.
+    """
     command = get_project_config(project, "init", "odoo_command")
     tokens = shlex.split(command) if command else []
     return (Path(tokens[0]).name,) if tokens else ()
@@ -898,7 +968,7 @@ def _port_listeners(port):
             if (err or "").strip():
                 echo.warning(f"Could not check port {port} with lsof: {err.strip()}")
             return []
-        return [int(p) for p in out.split() if p.strip().isdigit()]
+        return sorted({int(p) for p in out.split() if p.strip().isdigit()})
 
     fuser = shutil.which("fuser")
     if fuser:
@@ -913,7 +983,7 @@ def _port_listeners(port):
             return []
         if returncode != 0:
             return []
-        return [int(p) for p in (out or "").split() if p.isdigit()]
+        return sorted({int(p) for p in (out or "").split() if p.isdigit()})
 
     return _proc_port_listeners(port)
 
@@ -957,7 +1027,15 @@ def _proc_port_listeners(port):
                     continue
         except OSError:
             continue
-    return pids
+    return sorted(set(pids))
+
+
+def _pid_cwd(pid):
+    """Return *pid*'s working directory as a string, or None."""
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return None
 
 
 def _pid_command(pid):
