@@ -29,7 +29,7 @@
 #   cd ~/work/my-project
 #   osh init 19.0 --runtime=venv    # prompts: edition (first run), proceed
 #   osh odoo --stop-after-init      # creates my-project-19.0 (prompt: c)
-#   osh addon uninstall web_responsive --yes   # needs osh-contrib
+#   osh db uninstall web_responsive --yes   # needs osh-contrib
 #
 # A bare `osh init` asks which runtime to use only on the very first run
 # (the answer is remembered; `--runtime=ask` asks again) — once a project

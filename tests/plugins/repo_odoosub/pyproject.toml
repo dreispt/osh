@@ -3,19 +3,19 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "osh-initsub"
+name = "osh-odoosub"
 version = "0.1.0"
 requires-python = ">=3.10"
 
 [project.entry-points."osh.plugins"]
-osh-initsub = "osh_initsub"
+osh-odoosub = "osh_odoosub"
 
 [tool.setuptools]
-package-dir = { "osh_initsub" = "." }
-packages = ["osh_initsub"]
+package-dir = { "osh_odoosub" = "." }
+packages = ["osh_odoosub"]
 
 [tool.setuptools.package-data]
-osh_initsub = ["pyproject.toml"]
+osh_odoosub = ["pyproject.toml"]
 
-[tool.osh.group_commands.init]
-sub = "Sub of init."
+[tool.osh.group_commands.odoo]
+sub = "Sub of odoo."

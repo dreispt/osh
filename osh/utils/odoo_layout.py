@@ -52,8 +52,8 @@ def build_addons_paths(base, *, include_themes=False):
 
     Includes the Odoo core addons directory, Enterprise, optionally
     design-themes, discovered project addon parent directories, and any
-    extra directories registered via ``osh addon path`` — appended last so
-    project modules take precedence on name collisions.
+    extra directories registered via ``osh init extra-addons`` — appended
+    last so project modules take precedence on name collisions.
     """
     base = Path(base).resolve()
     addons_paths = []
@@ -82,7 +82,7 @@ def build_addons_paths(base, *, include_themes=False):
         if not path.is_dir():
             echo.warning(
                 f"Registered addon path '{path}' does not exist; "
-                "run 'osh addon path remove' to unregister it."
+                "run 'osh init extra-addons remove' to unregister it."
             )
             continue
         if path not in addons_paths:
