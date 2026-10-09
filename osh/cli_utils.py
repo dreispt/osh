@@ -139,7 +139,14 @@ def handler_command_group(name, cls):
         # The group callback also runs when a subcommand is dispatched —
         # the default command only runs when nothing else was invoked.
         if ctx.invoked_subcommand is None:
-            ctx.invoke(command)
+            # ``ctx.invoke(command)`` fills defaults from the command's
+            # static ``params`` — empty for handler commands — without
+            # running ``parse_args``, so options contributed dynamically
+            # by ``get_params`` (merged runtime options) never bind.
+            # Parse an empty arg list like the dispatched path does.
+            sub_ctx = command.make_context("", [], parent=ctx)
+            with sub_ctx:
+                return sub_ctx.command.invoke(sub_ctx)
 
     callback.__module__ = cls.__module__
     callback.__name__ = cls.__name__
