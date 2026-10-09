@@ -1,5 +1,6 @@
 """Session-wide pytest setup shared by ``tests/`` and plugin test dirs."""
 
+import socket
 import subprocess
 from pathlib import Path
 
@@ -129,6 +130,25 @@ def _cleanup_explicit_temp_root():
 # Odoo-named listener script is a real ``osh stop`` target. The patched
 # seams left in tests are for what cannot be produced safely (a failing
 # ``lsof``, a reused pid) — not for what the machine can just run.
+
+
+@pytest.fixture
+def held_port():
+    """Bind real TCP ports for the test's duration, closing on teardown."""
+
+    socks = []
+
+    def hold():
+        sock = socket.socket()
+        sock.bind(("0.0.0.0", 0))
+        sock.listen(1)
+        socks.append(sock)
+        return sock.getsockname()[1]
+
+    yield hold
+
+    for sock in socks:
+        sock.close()
 
 
 @pytest.fixture

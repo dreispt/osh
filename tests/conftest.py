@@ -7,6 +7,7 @@ so they also apply to plugin test directories.
 import importlib
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import uuid
@@ -168,6 +169,32 @@ def osh_source_dirs(tmp_project):
     (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
     (osh_dir / "design-themes").mkdir(parents=True, exist_ok=True)
     return osh_dir
+
+
+@pytest.fixture(autouse=True)
+def _free_odoo_http_port(monkeypatch):
+    """Resolve the configured Odoo HTTP port to a free ephemeral port.
+
+    ``osh odoo`` checks the port before exec'ing, and the machine running
+    the suite may legitimately hold 8069 (a running dev stack), so tests
+    must not depend on host port state. Only the ``osh odoo`` check is
+    patched — explicit ``--http-port`` arguments still resolve normally.
+    """
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    monkeypatch.setattr("osh.commands.odoo_cmd.get_odoo_port", lambda *a, **k: port)
+
+
+@pytest.fixture
+def missing_db(tmp_project, pg_db, monkeypatch):
+    """Configure the project's resolved database to one that does not exist."""
+    from osh.config import set_project_config
+
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.chdir(tmp_project)
+    return missing
 
 
 @pytest.fixture

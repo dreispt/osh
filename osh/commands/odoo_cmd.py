@@ -10,13 +10,14 @@ by ``osh shell`` via the dynamic config in ``.osh/cache/env``.
 """
 
 import os
+import socket
 import sys
 
 import click
 
 from .. import echo
 from ..cli_utils import format_runtimes_section, handler_command
-from ..common import find_project_root, has_arg, odoo_http_port
+from ..common import find_project_root, get_odoo_port, has_arg, odoo_http_port
 from ..config import get_user_preference
 from ..db import (
     _prompt_for_missing_db,
@@ -31,6 +32,7 @@ from ..db import (
 from ..handlers import CommandHandler
 from ..runtimes import EnvSpec
 from ..utils.plugin_loader import runtime_meta
+from ..utils.version import version_major
 from .helpers import check_run_diagnostics
 from .shell_cmd import parse_explicit_db, prepare_env_context
 
@@ -53,6 +55,9 @@ class OdooRun(CommandHandler):
     Dev mode is on by default: ``--dev=all`` is appended unless you pass
     ``--dev`` yourself or use ``--no-dev``. The default can be changed with
     ``osh config odoo dev <value>`` (``off`` disables the injection).
+    With dev mode on, a database Odoo creates on this run gets demo data
+    (``--with-demo`` on Odoo 19+, the default before it); pass
+    ``--without-demo`` to skip it.
 
     The execution runtime is the one activated for the project — see
     ``osh init --runtime=<name>`` (e.g. ``osh init --runtime=docker``).
@@ -75,8 +80,8 @@ class OdooRun(CommandHandler):
     Extensions subclass ``OdooRun`` and override the step methods,
     calling ``super()`` to keep the rest of the chain. Command state is
     on ``self``: ``ctx``, the parsed params (``dry_run``, ``extra_args``,
-    ...) plus ``base``, ``runtime``, ``diagnostics``, ``db_name`` and
-    ``env_spec`` as ``run()`` fills them in. ``backend`` is a deprecated
+    ...) plus ``dev``, ``base``, ``runtime``, ``diagnostics``, ``db_name``
+    and ``env_spec`` as ``run()`` fills them in. ``backend`` is a deprecated
     alias of ``runtime``.
     """
 
@@ -89,6 +94,7 @@ class OdooRun(CommandHandler):
     no_db_filter = False
     wait_for_exit = None
     extra_args = ()
+    dev = None
 
     @classmethod
     def format_cli_help(cls, formatter):
@@ -123,13 +129,14 @@ class OdooRun(CommandHandler):
         self.diagnostics = check_run_diagnostics(
             self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )
-        self.extra_args = _with_dev_default(
+        self.extra_args, self.dev = _with_dev_default(
             self.base, self.extra_args, no_dev=self.no_dev
         )
         self.publish_http_port()
         self.db_name = self.resolve_db()
         self.executable = self.resolve_executable()
         self.env_spec = self.build_env_spec()
+        self.check_http_port()
         self.pre_env()
         self.execute()
 
@@ -162,19 +169,49 @@ class OdooRun(CommandHandler):
                     last_db = get_last_db(self.base)
                     if last_db == db_name:
                         last_db = None
-                    _action, db_name = _prompt_for_missing_db(
+                    action, db_name = _prompt_for_missing_db(
                         self.base, branch, db_name, last_db, ctx=self.ctx
                     )
+                    if action == "create":
+                        self.apply_demo_default()
                 else:
                     echo.info(
                         f"Database '{db_name}' does not exist; "
                         "Odoo will create and initialize it."
                     )
+                    self.apply_demo_default()
             elif not self.dry_run:
                 # Only an existing database counts as "used"; a missing one is
                 # recorded on a later run, once Odoo has created it.
                 set_last_db(self.base, db_name)
         return db_name
+
+    def apply_demo_default(self):
+        """Prefer demo data for a database Odoo is about to create.
+
+        Dev-mode runs get demo data on the freshly initialised database —
+        far more useful for development. Odoo 19 needs the new
+        ``--with-demo`` flag (demo is off by default since 19.0); older
+        versions load it anyway, so only the opt-out hint matters there.
+        Skipped for subcommands, runs without dev mode, explicit
+        ``--with-demo``/``--without-demo`` arguments, and projects that
+        record no Odoo version (the flag name differs by version).
+        """
+        if self.has_subcommand or not self.dev:
+            return
+        if has_arg(self.extra_args, "--with-demo") or has_arg(
+            self.extra_args, "--without-demo"
+        ):
+            return
+        major = version_major(get_project_config(self.base, "init", "version"))
+        if major is None:
+            return
+        if major >= 19:
+            self.extra_args = (*self.extra_args, "--with-demo")
+        echo.info(
+            "New database will be initialized with demo data (dev mode is on). "
+            "Pass --without-demo to skip it."
+        )
 
     def resolve_executable(self):
         """Return the Odoo executable name for the active runtime."""
@@ -212,6 +249,42 @@ class OdooRun(CommandHandler):
             config_path=str(conf_path) if conf_path else None,
         )
 
+    def check_http_port(self):
+        """Fail fast with a helpful hint when the HTTP port is taken.
+
+        Otherwise Odoo starts up only to die with its plain "Address
+        already in use" — ``osh stop --list`` identifies the holder, so
+        pointing there saves the hunt. Only applies to runtimes that run
+        Odoo on the host (a container runtime publishes the port through
+        its stack, where a held port means a different problem), to
+        server runs, and when no explicit ``--config`` takes over. Runs
+        that never bind HTTP are skipped.
+        """
+        if self.dry_run or self.has_subcommand or not self.runtime.host_executable:
+            return
+        if has_arg(self.extra_args, "--config", short="-c") or any(
+            arg in self.extra_args for arg in _NO_SERVER_ARGS
+        ):
+            return
+        port = self._resolved_http_port()
+        if port and _port_in_use(port):
+            raise click.ClickException(
+                f"Port {port} is already in use.\n"
+                "Run 'osh stop --list' to see which process holds it, "
+                "or pass --http-port=<port> to use another one."
+            )
+
+    def _resolved_http_port(self):
+        """Return the port Odoo will bind, or None when HTTP is off."""
+        value = odoo_http_port(self.extra_args)
+        if value is not None:
+            try:
+                port = int(str(value).strip())
+            except ValueError:
+                return None
+            return port or None
+        return get_odoo_port(self.base) or None
+
     def pre_env(self):
         """Run after the EnvSpec is assembled, before ``runtime.env()``.
 
@@ -239,19 +312,36 @@ class OdooRun(CommandHandler):
 odoo = handler_command("odoo", OdooRun)
 
 
+_NO_SERVER_ARGS = ("--version", "--help", "-h", "--stop-after-init", "--no-http")
+
+
+def _port_in_use(port, host="127.0.0.1"):
+    """Return True when *host:port* already accepts a connection."""
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
 def _env_flag(name):
     """Return True when environment variable *name* holds a truthy value."""
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _with_dev_default(base, extra_args, *, no_dev):
-    """Append the configured ``--dev`` default unless the user passed one."""
-    if has_arg(extra_args, "--dev"):
-        return extra_args
+    """Append the configured ``--dev`` default unless the user passed one.
+
+    Returns ``(extra_args, dev)`` — *dev* is the effective dev-mode value
+    for the run, or None when dev mode is off.
+    """
+    found, dev = _dev_arg(extra_args)
+    if found:
+        return extra_args, dev
     dev = _resolve_dev_default(base, no_dev=no_dev)
     if dev is None:
-        return extra_args
-    return (*extra_args, f"--dev={dev}")
+        return extra_args, None
+    return (*extra_args, f"--dev={dev}"), dev
 
 
 def _resolve_dev_default(base, *, no_dev):
@@ -270,3 +360,18 @@ def _resolve_dev_default(base, *, no_dev):
     if str(value).strip().lower() in ("off", "none", "false", "0"):
         return None
     return value
+
+
+def _dev_arg(extra_args):
+    """Return ``(found, value)`` for the last ``--dev`` in *extra_args*.
+
+    A bare ``--dev`` means ``all``; an off-word value resolves to None.
+    """
+    for arg in reversed(tuple(extra_args)):
+        if arg == "--dev":
+            return True, "all"
+        if arg.startswith("--dev="):
+            value = arg.split("=", 1)[1]
+            off = value.strip().lower() in ("off", "none", "false", "0")
+            return True, None if off else value
+    return False, None
