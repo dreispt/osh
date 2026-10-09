@@ -226,7 +226,7 @@ def test_docker_runtime_compose_file_from_config(tmp_project, capsys):
     err = capsys.readouterr().err
     assert "docker compose" in err
     assert "-f" in err and "devel.yaml" in err
-    assert " exec " in err
+    assert "\nexec " in err
 
 
 def test_docker_runtime_compose_file_cli_override(tmp_project, capsys):

@@ -1,6 +1,5 @@
 """Tests for the Docker runtime's command environments (``env``/``db_env``)."""
 
-import os
 import subprocess
 
 import click
@@ -30,8 +29,8 @@ def test_docker_runtime_env_dry_run(tmp_project, capsys):
     err = capsys.readouterr().err
     assert "Would run:" in err
     assert "docker compose" in err
-    assert " exec " in err
-    assert " app " in err
+    assert "\nexec " in err
+    assert "\napp " in err
     assert "odoo" in err
 
 
@@ -55,61 +54,59 @@ def test_docker_runtime_env_runs_user_command(tmp_project, capsys):
     assert "python3 -m odoo" in err
 
 
-def test_docker_runtime_env_exports_pg_env_for_other_commands(tmp_project, capsys):
-    """Non-odoo commands run through a shell mapping image vars to libpq vars."""
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+def test_docker_runtime_env_injects_pg_env_for_other_commands(tmp_project, capsys):
+    """Non-odoo commands get the service env injected as libpq ``PG*`` vars."""
+    _write_docker_config(
+        tmp_project,
+        environment={
+            "HOST": "db",
+            "PORT": "5432",
+            "USER": "odoo",
+            "PASSWORD": "secret",
+        },
     )
 
     runtime = DockerRuntime()
     runtime.env(None, tmp_project, EnvSpec(argv=["psql", "-l"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert 'PGHOST="${PGHOST:-$HOST}"' in err
-    assert 'PGPASSWORD="${PGPASSWORD:-$PASSWORD}"' in err
-    assert "osh psql -l" in err
-    # C.UTF-8 overrides the image's ungenerated LANG=en_US.UTF-8, which makes
-    # perl-based tools (pg_wrapper) warn on every exec.
-    assert "-e LC_ALL=C.UTF-8" in err
+    assert "Would run: docker compose" in err
+    assert "-e PGHOST=db" in err
+    assert "-e PGPORT=5432" in err
+    assert "-e PGUSER=odoo" in err
+    assert "-e PGPASSWORD=secret" in err
+    assert "\nodoo psql -l" in err
+    assert "sh -c" not in err
 
 
 def test_docker_runtime_env_odoo_command_maps_db_env(tmp_project, capsys):
-    """``odoo`` runs via a wrapper mapping HOST/USER/... to libpq variables.
+    """``odoo`` gets libpq variables resolved from the image's env vars.
 
     ``compose exec`` bypasses the image entrypoint, which would map them to
-    ``--db_*`` arguments; the exported ``PG*`` variables reach Odoo through
+    ``--db_*`` arguments; the ``PG*`` variables reach Odoo through
     psycopg2's libpq fallback instead.
     """
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
+    _write_docker_config(tmp_project, environment={"HOST": "db", "USER": "odoo"})
 
     runtime = DockerRuntime()
     runtime.env(None, tmp_project, EnvSpec(argv=["odoo"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert 'PGHOST="${PGHOST:-$HOST}"' in err
-    assert " osh odoo" in err
+    assert "-e PGHOST=db" in err
+    assert "-e PGUSER=odoo" in err
+    assert "\nodoo odoo" in err
 
 
 def test_docker_runtime_env_dash_args_prepend_odoo_command(tmp_project, capsys):
     """Flags as argv[0] get the configured command prepended."""
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
+    _write_docker_config(tmp_project)
 
     runtime = DockerRuntime()
     runtime.env(None, tmp_project, EnvSpec(argv=["-d", "mydb"]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert 'PGHOST="${PGHOST:-$HOST}"' in err
-    assert " osh odoo -d mydb" in err
+    assert "Would run: docker compose" in err
+    assert "\nodoo odoo -d mydb" in err
 
 
 def test_docker_runtime_env_parses_quoted_command(tmp_project, capsys):
@@ -135,13 +132,13 @@ def test_docker_runtime_env_parses_quoted_command(tmp_project, capsys):
     assert "python3 -c 'print(1)'" in err
 
 
-def test_exec_script_maps_image_vars_to_libpq(docker_shared_project, monkeypatch):
-    """Commands in the container get libpq vars mapped from the image's vars.
+def test_exec_injects_libpq_env_flags(docker_shared_project, monkeypatch):
+    """Commands in the container get libpq vars injected from the image's vars.
 
-    ``compose exec`` bypasses the image entrypoint, so the emitted command
-    wraps the user command in a shell preamble exporting ``PG*`` from
-    ``HOST``/``PORT``/``USER``/``PASSWORD`` — preferring values already in
-    the environment (e.g. ``-e PGUSER=...``).
+    ``compose exec`` bypasses the image entrypoint, so the service's
+    ``HOST``/``PORT``/``USER``/``PASSWORD`` are resolved from the Compose
+    config and passed as ``-e PG*`` flags — values already provided (e.g.
+    an explicit ``PGUSER``) take precedence.
     """
     calls = []
     monkeypatch.setattr(
@@ -150,49 +147,34 @@ def test_exec_script_maps_image_vars_to_libpq(docker_shared_project, monkeypatch
     )
 
     DockerRuntime().env(
-        None, docker_shared_project, EnvSpec(argv=["odoo", "--dev=all"])
+        None,
+        docker_shared_project,
+        EnvSpec(argv=["odoo", "--dev=all"], env={"PGUSER": "preset"}),
     )
 
     args = calls[0]
-    i = args.index("-c")
-    script, tail = args[i + 1], args[i + 2 :]
-    script = script.replace(
-        'exec "$@"', 'printf "%s\\n" "$PGHOST:$PGPORT:$PGUSER:$PGPASSWORD"'
-    )
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOST": "db",
-        "PORT": "5432",
-        "USER": "odoo",
-        "PASSWORD": "secret",
-        "PGUSER": "preset",
+    env_args = {args[i + 1] for i, a in enumerate(args) if a == "-e"}
+    assert env_args == {
+        "LC_ALL=C.UTF-8",
+        "PGUSER=preset",
+        "PGHOST=db",
+        "PGPASSWORD=odoo",
     }
-    result = subprocess.run(
-        ["sh", "-c", script, *tail],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-    assert result.returncode == 0
-    assert result.stdout.splitlines() == ["db:5432:preset:secret"]
+    assert "sh" not in args
 
 
-def test_docker_runtime_env_interactive_shell_exports_pg_env(tmp_project, capsys):
+def test_docker_runtime_env_interactive_shell_injects_pg_env(tmp_project, capsys):
     """An interactive ``osh shell`` session also gets the libpq variables."""
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
+    _write_docker_config(tmp_project, environment={"HOST": "db", "USER": "odoo"})
 
     runtime = DockerRuntime()
     runtime.env(None, tmp_project, EnvSpec(argv=[]), dry_run=True)
 
     err = capsys.readouterr().err
-    assert 'PGHOST="${PGHOST:-$HOST}"' in err
+    assert "-e PGHOST=db" in err
+    assert "-e PGUSER=odoo" in err
     assert "command -v bash" in err
-    assert "else exec sh" in err
+    assert "|| exec sh" in err
 
 
 def test_docker_runtime_db_env_targets_db_service(tmp_project, capsys):
@@ -200,10 +182,14 @@ def test_docker_runtime_db_env_targets_db_service(tmp_project, capsys):
 
     ``ODOO_RC`` is dropped: the db container does not mount the project.
     """
-    docker_toml = tmp_project / ".osh" / "docker.toml"
-    docker_toml.parent.mkdir(parents=True, exist_ok=True)
-    docker_toml.write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
+    _write_docker_config(
+        tmp_project,
+        extra_services=(
+            "  db:\n    image: postgres\n    environment:\n"
+            "      POSTGRES_USER: odoo\n"
+            "      POSTGRES_PASSWORD: secret\n"
+            "      POSTGRES_DB: other\n"
+        ),
     )
 
     runtime = DockerRuntime()
@@ -213,20 +199,20 @@ def test_docker_runtime_db_env_targets_db_service(tmp_project, capsys):
     runtime.db_env(None, tmp_project, env_spec, dry_run=True)
 
     err = capsys.readouterr().err
-    assert "Would run:" in err
-    assert " db sh -c" in err
-    assert 'PGUSER="${PGUSER:-$POSTGRES_USER}"' in err
-    assert 'PGDATABASE="${PGDATABASE:-$POSTGRES_DB}"' in err
-    assert "osh psql -l" in err
+    assert "-e PGUSER=odoo" in err
+    assert "-e PGPASSWORD=secret" in err
+    assert "-e PGDATABASE=db1" in err
+    assert "\ndb psql -l" in err
     assert "ODOO_RC" not in err
 
+    docker_toml = tmp_project / ".osh" / "docker.toml"
     docker_toml.write_text(
         'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
         'db_service = "postgres"\n'
     )
     runtime.db_env(None, tmp_project, env_spec, dry_run=True)
     err = capsys.readouterr().err
-    assert " postgres sh -c" in err
+    assert "\npostgres psql -l" in err
 
 
 def test_shell_docker_runs_container_with_env_vars(
@@ -253,7 +239,7 @@ def test_shell_docker_runs_container_with_env_vars(
     assert exe == "docker"
     assert args[:2] == ["docker", "compose"]
     assert "exec" in args
-    assert args[-4:] == ["osh", "odoo", "-i", "base"]
+    assert args[-3:] == ["odoo", "-i", "base"]
     assert any("ODOO_RC" in a for a in args)
     assert any("PGDATABASE" in a for a in args)
 
@@ -321,6 +307,6 @@ def test_osh_run_docker_uses_branch_database(
     assert result.exit_code == 0, result.output
     assert "Using database: project-feature-x" in result.output
     assert "PGDATABASE=project-feature-x" in result.output
-    assert " osh odoo" in result.output
+    assert "\nodoo odoo --dev=all" in result.output
     assert "-d project-feature-x" not in result.output
     assert "--db-filter" not in result.output
