@@ -1,5 +1,6 @@
 """Tests for ``osh odoo`` command assembly."""
 
+import pytest
 from click.testing import CliRunner
 
 from osh.commands.odoo_cmd import odoo
@@ -157,6 +158,42 @@ def test_odoo_fails_with_instructions_when_branch_db_missing_in_non_tty(
     assert "create and initialize" in result.output
 
 
+@pytest.mark.parametrize(
+    "version,args,expect_demo,expect_flag",
+    [
+        pytest.param("19.0", [], True, True, id="odoo19-adds-with-demo"),
+        pytest.param("18.0", [], True, False, id="odoo18-demo-is-default"),
+        pytest.param("19.0", ["--without-demo"], False, False, id="explicit-opt-out"),
+        pytest.param("19.0", ["--no-dev"], False, False, id="no-dev"),
+    ],
+)
+def test_odoo_missing_db_demo_data(
+    tmp_project,
+    missing_db,
+    fake_odoo_executable,
+    osh_source_dirs,
+    version,
+    args,
+    expect_demo,
+    expect_flag,
+):
+    """Dev-mode runs get demo data on a database Odoo creates.
+
+    Odoo 19 needs the new ``--with-demo`` flag (demo is off by default
+    there); older versions load it anyway so only the hint matters.
+    ``--no-dev`` and an explicit demo opt-out are respected.
+    """
+    from osh.config import set_project_config
+
+    set_project_config(tmp_project, "init", "version", version)
+    result = CliRunner().invoke(odoo, ["--dry-run", *args])
+
+    assert result.exit_code == 0, result.output
+    assert ("initialized with demo data" in result.output) == expect_demo
+    command_line = result.output.split("Would run:")[-1]
+    assert ("--with-demo" in command_line.split()) == expect_flag
+
+
 def test_odoo_missing_db_prompt_create_runs(
     tmp_project,
     monkeypatch,
@@ -259,6 +296,45 @@ def test_odoo_explicit_db_does_not_record_last_db(
 
     assert result.exit_code == 0, result.output
     assert get_last_db(tmp_project) is None
+
+
+def test_odoo_port_in_use_points_at_stop_list(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    branch_db,
+    capture_execvp,
+    held_port,
+):
+    """A busy HTTP port fails fast and points at ``osh stop --list``."""
+    monkeypatch.chdir(tmp_project)
+    port = held_port()
+    result = CliRunner().invoke(odoo, ["--http-port", str(port)])
+
+    assert result.exit_code != 0
+    assert f"Port {port} is already in use" in result.output
+    assert "osh stop --list" in result.output
+    assert capture_execvp == []
+
+
+@pytest.mark.parametrize("args", [["shell"], ["--no-http"], ["--stop-after-init"]])
+def test_odoo_runs_that_bind_no_port_ignore_a_busy_one(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    branch_db,
+    capture_execvp,
+    held_port,
+    args,
+):
+    """Subcommands and no-HTTP runs never bind the port — a busy one is fine."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, [*args, "--http-port", str(held_port())])
+
+    assert result.exit_code == 0, result.output
+    assert len(capture_execvp) == 1
 
 
 def test_odoo_missing_db_prompt_abort(

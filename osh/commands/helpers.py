@@ -27,6 +27,7 @@ class Diagnostics:
     target: str | None = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     info: dict[str, dict[str, Any]] = field(default_factory=dict)
     plan: list[str] = field(default_factory=list)
     command: list[str] | None = None
@@ -39,6 +40,7 @@ class Diagnostics:
         target=None,
         errors=None,
         warnings=None,
+        notes=None,
         info=None,
         plan=None,
         command=None,
@@ -51,6 +53,7 @@ class Diagnostics:
         self.target = target
         self.errors = errors if errors is not None else []
         self.warnings = warnings if warnings is not None else []
+        self.notes = notes if notes is not None else []
         self.info = info if info is not None else {}
         self.plan = plan if plan is not None else []
         self.command = command
@@ -76,6 +79,10 @@ class Diagnostics:
     def add_warning(self, message):
         """Record a non-fatal warning."""
         self.warnings.append(message)
+
+    def add_note(self, message):
+        """Record a "will be handled" notice — informational, not a warning."""
+        self.notes.append(message)
 
     def add_info(self, key, value, *, topic=None):
         """Record a piece of information under a topic."""

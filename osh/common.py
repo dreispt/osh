@@ -677,4 +677,4 @@ def _copy_bundled_neutralize_script(neutralize_dir, resource, name):
     if destination.exists() and destination.read_text(encoding="utf-8") == content:
         return
     destination.write_text(content, encoding="utf-8")
-    echo.info(f"Copied default neutralization script: {name}", err=True)
+    echo.success(f"Copied default neutralization script: {name}", err=True)

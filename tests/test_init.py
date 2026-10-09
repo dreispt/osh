@@ -359,7 +359,7 @@ class TestInitVersion:
         result = CliRunner().invoke(
             main,
             ["init", "--edition", "ce", str(tmp_project)],
-            input="17.0\n2\ny\n",
+            input="17.0\n1\ny\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -376,6 +376,78 @@ class TestInitVersion:
         assert result.exit_code != 0
         assert "Missing VERSION" in result.output
         assert not (target / ".osh").exists()
+
+    def test_odoo_sources_detect_version(self, tmp_project):
+        """A checked-out ``odoo/release.py`` is the strongest version hint."""
+        release = tmp_project / "odoo" / "odoo" / "release.py"
+        release.parent.mkdir(parents=True)
+        release.write_text('version = "18.0"\n')
+        # The checkout wins over weaker signals.
+        (tmp_project / "repos.yml").write_text("merges:\n    - oca 19.0\n")
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert "Detected Odoo 18.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+    def test_repos_yml_detects_version(self, tmp_project):
+        """Git-aggregator ``repos.yml`` merge refs pin the Odoo version."""
+        (tmp_project / "repos.yml").write_text(
+            "./account-invoicing:\n"
+            "  remotes:\n"
+            "    oca: https://github.com/OCA/account-invoicing.git\n"
+            "  merges:\n"
+            "    - oca 19.0\n"
+            "  target: oca gift/19.0\n"
+        )
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert "Detected Odoo 19.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_addon_manifest_detects_version(self, tmp_project):
+        """An addon's manifest version pin (``19.0.1.0``) is a hint."""
+        addon = tmp_project / "addons" / "my_addon"
+        addon.mkdir(parents=True)
+        (addon / "__manifest__.py").write_text(
+            "{'name': 'My Addon', 'version': '19.0.1.0'}\n"
+        )
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert "Detected Odoo 19.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_branch_name_detects_version(self, tmp_project):
+        """A ``staging-19``-style branch name is an Odoo version hint."""
+        (tmp_project / ".git" / "HEAD").write_text("ref: refs/heads/staging-19\n")
+
+        result = CliRunner().invoke(main, ["init", "--edition", "ce", str(tmp_project)])
+
+        assert result.exit_code == 0, result.output
+        assert "Detected Odoo 19.0" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
+
+    def test_detected_version_is_prompt_default(self, tmp_project, monkeypatch):
+        """The detected version pre-fills the interactive prompt."""
+        (tmp_project / "repos.yml").write_text("merges:\n    - oca 19.0\n")
+        monkeypatch.setattr(
+            "click.testing._NamedTextIOWrapper.isatty", lambda self: True
+        )
+
+        result = CliRunner().invoke(
+            main,
+            ["init", "--edition", "ce", str(tmp_project)],
+            input="\n1\ny\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Odoo version" in result.output
+        assert get_project_config(tmp_project, "init", "version") == "19.0"
 
 
 class TestNeutralizeScripts:

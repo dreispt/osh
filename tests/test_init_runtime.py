@@ -193,7 +193,7 @@ def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config
     )
 
     assert result.exit_code == 0, result.output
-    assert "1. docker" in result.output
+    assert "1. host" in result.output
     assert "3. venv" in result.output
     assert _active_runtime(in_project) == "venv"
     assert get_user_preference("runtime", section="init") == "venv"
@@ -237,6 +237,35 @@ def test_init_without_terminal_keeps_host_default(in_project, user_config):
     assert result.exit_code == 0, result.output
     assert _active_runtime(in_project) in (None, "host")
     assert get_user_preference("runtime", section="init") is None
+
+
+def test_init_offers_runtime_with_stored_default(in_project, monkeypatch, user_config):
+    """A stored default is preselected but another runtime can be picked."""
+    set_project_config(in_project, "init", "version", "19.0")
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text('[init]\nruntime = "venv"\n')
+    _as_tty(monkeypatch)
+
+    result = CliRunner().invoke(main, ["init", "--edition", "ce"], input="1\ny\n")
+
+    assert result.exit_code == 0, result.output
+    # The stored 'venv' default is marked; the user picked 'host' (1).
+    assert "3. venv *" in result.output
+    assert _active_runtime(in_project) == "host"
+
+
+def test_init_non_interactive_uses_stored_runtime(in_project, monkeypatch, user_config):
+    """Without a terminal the stored runtime applies without prompting."""
+    set_project_config(in_project, "init", "version", "19.0")
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text('[init]\nruntime = "venv"\n')
+    _init_runtime(in_project, monkeypatch, "venv")
+
+    result = CliRunner().invoke(main, ["init", "--edition", "ce", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "Select" not in result.output
+    assert _active_runtime(in_project) == "venv"
 
 
 def _byo_odoo(tmp_path):

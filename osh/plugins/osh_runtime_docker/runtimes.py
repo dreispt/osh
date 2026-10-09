@@ -941,7 +941,7 @@ class DockerRuntime(Runtime):
                     stdout=options.get("stdout"),
                     text=options.get("text", True),
                 )
-            echo.info(f"Would run: {shlex.join(docker_args)}", err=True)
+            _echo_exec(docker_args, verb="Would run")
             return None
 
         self.ensure_service_up(base, compose_file=compose_file, port=port)
@@ -959,7 +959,7 @@ class DockerRuntime(Runtime):
                 text=options.get("text", True),
             )
 
-        echo.info(f"Running: {shlex.join(docker_args)}", err=True)
+        _echo_exec(docker_args, verb="Running")
         if wait:
             run_command(docker_args, cwd=base, check=True, stream=True)
             return None
@@ -980,63 +980,34 @@ class DockerRuntime(Runtime):
         path translation — the db container does not mount the project — and
         ``ODOO_RC`` is dropped for the same reason.
         """
-        args = list(env_spec.argv)
-        if not args:
-            container_argv = ["sh", "-c", _DB_PG_ENV_SHELL_SCRIPT]
-        else:
-            container_argv = ["sh", "-c", _DB_PG_ENV_SCRIPT, "osh", *args]
-
         env = {**_CONTAINER_ENV_DEFAULTS, **env_spec.env}
         env.pop("ODOO_RC", None)
-
-        docker_args = [*compose_cmd, "exec"]
-        if (
-            capture
-            or env_spec.input is not None
-            or env_spec.stdin is not None
-            or not sys.stdin.isatty()
-        ):
-            docker_args.append("-T")
-        for key, value in env.items():
-            docker_args.extend(["-e", f"{key}={value}"])
-        docker_args.append(service)
-        docker_args.extend(container_argv)
-        return docker_args
+        env.update(_libpq_env(compose_cmd, service, base, env, _DB_PG_ENV_MAP))
+        argv = list(env_spec.argv) or ["sh", "-c", _INTERACTIVE_SHELL]
+        return _exec_argv(compose_cmd, service, env, argv, env_spec, capture)
 
     def _exec_args(self, base, compose_cmd, service, cfg, env_spec, capture):
         """Assemble the ``compose exec`` argument vector for *env_spec*."""
         args = list(env_spec.argv)
         command = cfg.get("command") or "odoo"
-        if args and args[0] == "odoo":
-            args = shlex.split(command) + args[1:]
-        elif args and args[0].startswith("-"):
-            # Entrypoint-style odoo flags get the configured command prepended,
-            # since ``compose exec`` bypasses the image entrypoint.
-            args = shlex.split(command) + args
+        if args and (args[0] == "odoo" or args[0].startswith("-")):
+            # ``compose exec`` bypasses the image entrypoint, so the
+            # configured command is prepended to ``odoo`` calls and to
+            # entrypoint-style flags (``-d ...``).
+            tail = args[1:] if args[0] == "odoo" else args
+            args = shlex.split(command) + tail
 
-        if not args:
-            container_argv = ["sh", "-c", _PG_ENV_SHELL_SCRIPT]
-        else:
-            container_argv = ["sh", "-c", _PG_ENV_SCRIPT, "osh", *args]
+        argv = [_containerize_arg(a, base) for a in args] or [
+            "sh",
+            "-c",
+            _INTERACTIVE_SHELL,
+        ]
 
         env = {**_CONTAINER_ENV_DEFAULTS, **env_spec.env}
         if "ODOO_RC" in env:
-            host_path = Path(env["ODOO_RC"])
-            env["ODOO_RC"] = str(host_path).replace(str(base), "/mnt/extra-addons")
-
-        docker_args = [*compose_cmd, "exec"]
-        if (
-            capture
-            or env_spec.input is not None
-            or env_spec.stdin is not None
-            or not sys.stdin.isatty()
-        ):
-            docker_args.append("-T")
-        for key, value in env.items():
-            docker_args.extend(["-e", f"{key}={value}"])
-        docker_args.append(service)
-        docker_args.extend(_containerize_arg(a, base) for a in container_argv)
-        return docker_args
+            env["ODOO_RC"] = env["ODOO_RC"].replace(str(base), "/mnt/extra-addons")
+        env.update(_libpq_env(compose_cmd, service, base, env, _PG_ENV_MAP))
+        return _exec_argv(compose_cmd, service, env, argv, env_spec, capture)
 
 
 def _requested_port(ctx, base):
@@ -1115,6 +1086,61 @@ def _compose_services(compose_cmd, base):
     return set(out.split())
 
 
+def _compose_config(compose_cmd, base):
+    """Parsed ``docker compose config --format json`` output, or {}.
+
+    Resolution handles ``.env`` files, variable interpolation and
+    ``compose_file`` merges/overrides, so the values match what the
+    container actually gets.
+    """
+    returncode, out, _ = run_subprocess(
+        [*compose_cmd, "config", "--format", "json"], cwd=base
+    )
+    if returncode != 0:
+        return {}
+    try:
+        return json.loads(out) or {}
+    except ValueError:
+        return {}
+
+
+def _libpq_env(compose_cmd, service, base, provided, mapping):
+    """Map the service's Compose environment to libpq ``PG*`` variables.
+
+    *provided* — the variables already set for this exec — win over both
+    the service's own ``PG*`` entries and the mapped image variables;
+    the service's own ``PG*`` win over the mapped ones. Entries declared
+    without a value (``KEY``-only, which inherit the host's value at
+    config time and may resolve empty) are dropped.
+    """
+    config = _compose_config(compose_cmd, base)
+    env = (config.get("services") or {}).get(service, {}).get("environment") or {}
+    return {
+        pg: env.get(pg) or env[src]
+        for pg, src in mapping.items()
+        if pg not in provided and (env.get(pg) or env.get(src))
+    }
+
+
+def _exec_argv(compose_cmd, service, env, argv, env_spec, capture):
+    """Assemble ``compose exec [-T] [-e ...] service argv``.
+
+    ``-T`` disables the pseudo-TTY for captured/piped calls so control
+    characters don't leak into captured output.
+    """
+    docker_args = [*compose_cmd, "exec"]
+    if (
+        capture
+        or env_spec.input is not None
+        or env_spec.stdin is not None
+        or not sys.stdin.isatty()
+    ):
+        docker_args.append("-T")
+    for key, value in env.items():
+        docker_args.extend(["-e", f"{key}={value}"])
+    return [*docker_args, service, *argv]
+
+
 def _compose_service_config(base, cfg):
     """Return the Odoo service's resolved ``compose config`` entry, or {}.
 
@@ -1125,17 +1151,40 @@ def _compose_service_config(base, cfg):
     compose_cmd = _compose_base_command(base, cfg=cfg, required=False)
     if compose_cmd is None:
         return {}
-    returncode, out, _ = run_subprocess(
-        [*compose_cmd, "config", "--format", "json"], cwd=base
-    )
-    if returncode != 0:
-        return {}
-    try:
-        data = json.loads(out)
-    except ValueError:
-        return {}
-    services = (data or {}).get("services") or {}
+    config = _compose_config(compose_cmd, base)
+    services = config.get("services") or {}
     return services.get(cfg.get("service") or "odoo") or {}
+
+
+def _echo_exec(docker_args, *, verb):
+    """Print the exec command wrapped at ``exec`` and at the service name.
+
+    Continuation backslashes keep the preview copy-pasteable: the Compose
+    prefix, the ``exec`` + ``-e`` flag run, and the service + in-container
+    command each get a line.
+    """
+    try:
+        exec_at = docker_args.index("exec")
+    except ValueError:
+        echo.info(f"{verb}: {shlex.join(docker_args)}", err=True)
+        return
+    tail = docker_args[exec_at:]
+    service_at = (
+        exec_at
+        + 1
+        + next(
+            i
+            for i, (a, p) in enumerate(zip(tail[1:], tail))
+            if a not in ("-e", "-T") and p != "-e"
+        )
+    )
+    lines = [
+        shlex.join(docker_args[:exec_at]),
+        shlex.join(docker_args[exec_at:service_at]),
+        shlex.join(docker_args[service_at:]),
+    ]
+    joined = " \\\n".join(lines)
+    echo.info(f"{verb}: {joined}", err=True)
 
 
 def _db_ready(compose_cmd, db_service, base):
@@ -1169,50 +1218,32 @@ def _db_ready(compose_cmd, db_service, base):
 _CONTAINER_ENV_DEFAULTS = {"LC_ALL": "C.UTF-8"}
 
 # Maps the Odoo image's database variables to the libpq ones, keeping any
-# values already provided (e.g. ``-e PGHOST=...`` or a Compose environment).
-# ``USER`` is the image's database user variable, as used by its entrypoint.
-# ``compose exec`` bypasses that entrypoint, which would map them to ``--db_*``
-# arguments; libpq environment variables reach both psycopg2 (Odoo itself)
-# and tools like ``psql`` without argument rewriting. Each export is guarded:
-# a foreign compose file may define neither variable, and exporting an empty
-# PGPORT crashes Odoo's env-options parser (``int('')``).
-_PG_ENV_EXPORTS = (
-    '[ -n "${PGHOST:-$HOST}" ] && export PGHOST="${PGHOST:-$HOST}";'
-    ' [ -n "${PGPORT:-$PORT}" ] && export PGPORT="${PGPORT:-$PORT}";'
-    ' [ -n "${PGUSER:-$USER}" ] && export PGUSER="${PGUSER:-$USER}";'
-    ' [ -n "${PGPASSWORD:-$PASSWORD}" ] && export PGPASSWORD="${PGPASSWORD:-$PASSWORD}";'
-)
+# values already provided (``env_spec.env``, or a Compose environment that
+# sets the ``PG*`` variables directly). ``compose exec`` bypasses the image
+# entrypoint, which would map them to ``--db_*`` arguments; libpq
+# environment variables reach both psycopg2 (Odoo itself) and tools like
+# ``psql`` without argument rewriting. The values are resolved from the
+# service's Compose ``environment:`` and injected as ``-e`` flags — a
+# service may define neither variable, and an empty PGPORT would crash
+# Odoo's env-options parser (``int('')``).
+_PG_ENV_MAP = {
+    "PGHOST": "HOST",
+    "PGPORT": "PORT",
+    "PGUSER": "USER",
+    "PGPASSWORD": "PASSWORD",
+}
 
-# Runs a command with the libpq variables exported.
-_PG_ENV_SCRIPT = _PG_ENV_EXPORTS + ' exec "$@"'
+# Same mapping for commands run inside the ``db`` service by ``osh db
+# shell`` — the Postgres image's own variables this time. ``PGHOST`` is
+# deliberately left unmapped so libpq uses the container's local socket.
+_DB_PG_ENV_MAP = {
+    "PGUSER": "POSTGRES_USER",
+    "PGPASSWORD": "POSTGRES_PASSWORD",
+    "PGDATABASE": "POSTGRES_DB",
+}
 
-# Interactive shell with the libpq variables exported, preferring bash.
-_PG_ENV_SHELL_SCRIPT = (
-    _PG_ENV_EXPORTS
-    + " if command -v bash > /dev/null 2>&1; then exec bash; else exec sh; fi"
-)
-
-# Maps the Postgres image's own variables to the libpq ones, for commands
-# run inside the ``db`` service by ``osh db shell``. Values already provided
-# (``-e PGUSER=...``, from the project config) take precedence. ``PGHOST``
-# is deliberately left unset so libpq uses the container's local socket.
-# Like ``_PG_ENV_EXPORTS``, each export is guarded — a non-postgres db
-# service may not define the ``POSTGRES_*`` variables at all.
-_DB_PG_ENV_EXPORTS = (
-    '[ -n "${PGUSER:-$POSTGRES_USER}" ] && export PGUSER="${PGUSER:-$POSTGRES_USER}";'
-    ' [ -n "${PGPASSWORD:-$POSTGRES_PASSWORD}" ]'
-    ' && export PGPASSWORD="${PGPASSWORD:-$POSTGRES_PASSWORD}";'
-    ' [ -n "${PGDATABASE:-$POSTGRES_DB}" ] && export PGDATABASE="${PGDATABASE:-$POSTGRES_DB}";'
-)
-
-# Runs a command with the libpq variables exported.
-_DB_PG_ENV_SCRIPT = _DB_PG_ENV_EXPORTS + ' exec "$@"'
-
-# Interactive shell with the libpq variables exported, preferring bash.
-_DB_PG_ENV_SHELL_SCRIPT = (
-    _DB_PG_ENV_EXPORTS
-    + " if command -v bash > /dev/null 2>&1; then exec bash; else exec sh; fi"
-)
+# Interactive shells prefer bash when the image ships it.
+_INTERACTIVE_SHELL = "command -v bash > /dev/null 2>&1 && exec bash || exec sh"
 
 
 def _containerize_arg(arg, base):

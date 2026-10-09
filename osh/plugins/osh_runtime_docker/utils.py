@@ -47,8 +47,8 @@ def _save_docker_config(
 ):
     """Write ``.osh/docker.toml`` with the selected service, command and metadata."""
     if not service:
-        echo.warning(
-            "no --service provided; defaulting to 'odoo'. "
+        echo.info(
+            "no --service provided; using 'odoo'. "
             f"Edit {base / _DOCKER_TOML} if your compose service is named differently."
         )
     service = service or "odoo"
@@ -91,7 +91,7 @@ def _save_docker_config(
     _config.save_docker_config(base, data)
 
     docker_toml = base / _DOCKER_TOML
-    echo.info(f"Wrote Docker runtime config to {docker_toml}.", err=True)
+    echo.success(f"Wrote Docker runtime config to {docker_toml}.", err=True)
 
 
 # Compose service names must be safe as a YAML mapping key in the generated
@@ -328,5 +328,5 @@ def _generate_compose_file(
     )
     compose_path.parent.mkdir(parents=True, exist_ok=True)
     compose_path.write_text(content)
-    echo.info(f"Generated {compose_path}.", err=True)
+    echo.success(f"Generated {compose_path}.", err=True)
     return True

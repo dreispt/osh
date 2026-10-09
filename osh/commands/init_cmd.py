@@ -46,6 +46,7 @@ from ..db import (
 from ..handlers import CommandHandler
 from ..runtimes import copy_odoo_rc_to_osh_conf
 from ..utils.plugin_loader import get_runtime_class, load_runtimes, runtime_meta
+from ..utils.version import detect_project_version
 from .extra_addons_cmd import extra_addons
 from .helpers import Diagnostics
 
@@ -66,9 +67,9 @@ class Init(CommandHandler):
     or ``--compose-file`` apply to the selected runtime.
 
     The selected runtime is remembered in the user configuration and used
-    as the default for later ``osh init`` runs. On a first interactive run
-    with no stored default, the runtime is asked once; ``--runtime=ask``
-    forces the prompt again.
+    as the default for later ``osh init`` runs. An interactive run offers
+    the numbered runtime choice with the stored default preselected;
+    ``--runtime=ask`` forces the prompt when it would not appear.
 
     Init is idempotent: re-running re-applies setup and repairs or updates
     what changed — a modified ``requirements.txt`` is reinstalled, the
@@ -197,7 +198,10 @@ class Init(CommandHandler):
             return
         runtime_name = None
         with _rollback_new_osh_dir(self.target):
-            edition, version = base_init(
+            # Resolve every input — prompts included — before any write:
+            # the runtime question belongs with the other questions, not
+            # after the neutralize scripts have already been copied.
+            edition, version, enclosing = resolve_init_inputs(
                 self.ctx,
                 self.target,
                 version=version,
@@ -205,18 +209,27 @@ class Init(CommandHandler):
                 save=self.save,
                 assume_yes=self.assume_yes,
                 dry_run=self.dry_run,
-                dev=self.dev,
             )
             runtime_name = self._resolve_runtime_name()
             # Warn only now: the effective runtime (stored default or an
             # interactive choice) was unknown while the args were parsed.
             self._warn_foreign_runtime_options(runtime_name)
+            apply_init_setup(
+                self.target,
+                version=version,
+                edition=edition,
+                enclosing=enclosing,
+                save=self.save,
+                dry_run=self.dry_run,
+                dev=self.dev,
+                runtime_name=runtime_name,
+            )
             if runtime_name:
                 self._init_runtime(runtime_name, version=version, edition=edition)
         if self.dry_run:
             echo.info(f"Dry run for project directory at {self.target}")
         else:
-            echo.info(f"Initialised project directory at {self.target}")
+            echo.success(f"Initialised project directory at {self.target}")
             if not runtime_name:
                 echo.friendly("Next steps:")
                 echo.friendly("  osh init --runtime=<name>  # e.g. 'venv' or 'docker'")
@@ -242,14 +255,15 @@ class Init(CommandHandler):
         )
 
     def _resolve_runtime_name(self):
-        """Resolve which runtime to set up: flag, stored default, or ask.
+        """Resolve which runtime to set up: flag, prompt, or stored default.
 
         An explicit ``--runtime=<name>`` wins; ``--runtime=ask`` always
         prompts. A bare ``--fingerprint`` targets the project's active
         runtime — it re-baselines the environment in use. Without a flag
-        the user's stored default applies, and a first interactive run
-        with no stored default asks once. Returns ``None`` when nothing
-        was chosen — a plain host setup.
+        an interactive run offers the numbered runtime choice (the stored
+        default preselected, so accepting it is a single Enter); a
+        non-interactive run applies the stored default silently. Returns
+        ``None`` when nothing was chosen — a plain host setup.
         """
         name = self.runtime_name
         stored = get_user_preference("runtime", section="init")
@@ -259,10 +273,7 @@ class Init(CommandHandler):
             if self.fingerprint:
                 name = get_active_runtime_name(self.target, default=None)
             if name is None:
-                if stored is None and self._can_prompt():
-                    name = self._ask_runtime(None)
-                else:
-                    name = stored
+                name = self._ask_runtime(stored) if self._can_prompt() else stored
         return name
 
     def _can_prompt(self):
@@ -272,7 +283,9 @@ class Init(CommandHandler):
         """Prompt for the runtime to use; *stored* is the default answer."""
         if not sys.stdin.isatty():
             raise click.ClickException("'--runtime=ask' needs an interactive terminal.")
-        choices = sorted(runtime_meta())
+        # ``host`` first — it is the "no managed environment" choice —
+        # then the plugin runtimes alphabetically.
+        choices = ["host"] + sorted(n for n in runtime_meta() if n != "host")
         default = stored if stored in choices else "host"
         default_index = choices.index(default) + 1
         echo.info("Runtime:")
@@ -429,6 +442,45 @@ def base_init(
     ``[init]`` settings and installs the neutralize scripts. Returns the
     resolved ``(edition, version)`` pair for the runtime init to reuse.
     """
+    edition, version, enclosing = resolve_init_inputs(
+        ctx,
+        target,
+        version=version,
+        edition=edition,
+        save=save,
+        assume_yes=assume_yes,
+        dry_run=dry_run,
+    )
+    apply_init_setup(
+        target,
+        version=version,
+        edition=edition,
+        enclosing=enclosing,
+        save=save,
+        dry_run=dry_run,
+        dev=dev,
+    )
+    return edition, version
+
+
+def resolve_init_inputs(
+    ctx,
+    target,
+    *,
+    version,
+    edition,
+    save,
+    assume_yes,
+    dry_run,
+):
+    """Resolve the ``osh init`` inputs — questions first, actions later.
+
+    Returns the ``(edition, version, enclosing)`` triple ``run()`` needs
+    before offering the runtime choice; ``apply_init_setup`` performs the
+    actual writes afterwards. Keeping the phases apart means every prompt
+    (version, edition, runtime, plus the nesting/git guards) runs before
+    any file is created.
+    """
     version = version or _resolve_version(
         target, assume_yes=assume_yes, dry_run=dry_run
     )
@@ -453,15 +505,32 @@ def base_init(
                 default="ce",
             )
     edition = (edition or "ce").lower()
+    return edition, version, enclosing
+
+
+def apply_init_setup(
+    target,
+    *,
+    version,
+    edition,
+    enclosing,
+    save,
+    dry_run,
+    dev,
+    runtime_name=None,
+):
+    """Write the ``.osh`` project setup for the resolved init inputs."""
+    using = [f"Odoo {version}", f"{_EDITION_NAMES.get(edition, edition)} edition"]
+    if runtime_name:
+        using.append(f"{runtime_name} runtime")
+    echo.info(f"Using: {', '.join(using)}")
+
     if save and not dry_run:
         save_user_preference("edition", edition, section="init")
 
-    echo.info(f"Using Odoo {version}")
-    echo.info(f"Using {_EDITION_NAMES.get(edition, edition)} edition")
-
     if dry_run:
         echo.info(f"Would create .osh/ project configuration in {target}")
-        return edition, version
+        return
 
     target.mkdir(parents=True, exist_ok=True)
 
@@ -485,7 +554,6 @@ def base_init(
     if enclosing is None and get_project_config(target, "init", "parent"):
         unset_project_config(target, "init", "parent")
     setup_project_neutralize_scripts(target, version)
-    return edition, version
 
 
 def run_runtime_init(
@@ -515,6 +583,8 @@ def run_runtime_init(
         sections=runtime.diagnose_sections_for_phase("init"),
         **options,
     )
+    for note in diagnostics.notes:
+        echo.info(note)
     for warning_msg in diagnostics.warnings:
         echo.warning(warning_msg)
     for error_msg in diagnostics.errors:
@@ -550,7 +620,7 @@ def run_runtime_init(
             {key: str(value) for key, value in options.items() if value is not None}
         )
         set_project_config(target, "init", values=init_values)
-        echo.info(f"Runtime '{runtime.name}' is ready.")
+        echo.success(f"Runtime '{runtime.name}' is ready.")
 
     return result
 
@@ -690,8 +760,11 @@ def _resolve_version(target, *, assume_yes, dry_run):
     ``OSH_INIT_VERSION`` wins, then the version the project recorded on a
     previous ``osh init``, then the saved user default — the recorded project
     version takes precedence over the user default so a re-init never
-    silently switches versions. When nothing resolves, prompt interactively;
-    non-interactive runs fail since every later step depends on it.
+    silently switches versions. When nothing resolves, project heuristics
+    (source checkouts, ``repos.yml``, addon manifests, the branch name)
+    offer a best guess: preselected in the interactive prompt, applied
+    directly otherwise. With no hint at all, non-interactive runs fail
+    since every later step depends on the version.
     """
     version = (
         os.environ.get("OSH_INIT_VERSION")
@@ -703,8 +776,15 @@ def _resolve_version(target, *, assume_yes, dry_run):
     version = str(version).strip() if version is not None else ""
     if version:
         return version
+    detected, source = detect_project_version(target)
+    if detected:
+        echo.info(f"Detected Odoo {detected} from {source}.")
     if not dry_run and not assume_yes and sys.stdin.isatty():
+        if detected:
+            return click.prompt("Odoo version", default=detected)
         return click.prompt("Odoo version")
+    if detected:
+        return detected
     raise click.ClickException(
         "Missing VERSION. Pass the Odoo version (e.g. 'osh init 19.0'), or "
         "run inside a project that already records one."

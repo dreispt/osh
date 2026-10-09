@@ -3,7 +3,6 @@
 import json
 import os
 import shutil
-import socket
 import subprocess
 import uuid
 
@@ -49,24 +48,6 @@ def fake_docker(tmp_path, monkeypatch):
     if real:
         monkeypatch.setenv("OSH_REAL_DOCKER", real)
     return state
-
-
-@pytest.fixture
-def held_port():
-    """Bind real TCP ports for the test's duration, closing on teardown."""
-    socks = []
-
-    def hold():
-        sock = socket.socket()
-        sock.bind(("0.0.0.0", 0))
-        sock.listen(1)
-        socks.append(sock)
-        return sock.getsockname()[1]
-
-    yield hold
-
-    for sock in socks:
-        sock.close()
 
 
 @pytest.fixture
@@ -178,7 +159,7 @@ def docker_shared_project(tmp_path_factory):
             os.environ["COMPOSE_PROJECT_NAME"] = previous
 
 
-def _write_docker_config(project, port=None):
+def _write_docker_config(project, port=None, environment=None, extra_services=""):
     """Write a minimal docker runtime config and generated compose file."""
     osh_dir = project / ".osh"
     osh_dir.mkdir(parents=True, exist_ok=True)
@@ -186,7 +167,11 @@ def _write_docker_config(project, port=None):
     if port:
         text += f"port = {port}\n"
     (osh_dir / "docker.toml").write_text(text)
-    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
+    compose = "services:\n  odoo:\n    image: odoo\n"
+    if environment:
+        compose += "    environment:\n"
+        compose += "".join(f"      {k}: {v}\n" for k, v in environment.items())
+    (osh_dir / "docker-compose.yml").write_text(compose + extra_services)
 
 
 def _docker_ps_line(name, image, ports, status, labels="", cid=None):
