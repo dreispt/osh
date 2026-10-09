@@ -432,7 +432,9 @@ Two core commands drive a runtime's lifecycle:
   active runtime's `status()` hook.
 - `osh stop` calls the active runtime's `stop()` (its
   `get_stop_options()` are merged onto `osh stop`), `osh stop <name>`
-  its `stop_by_name()` and `osh stop --all` its `stop_all()`.
+  its `stop_by_name()` and `osh stop --all` its `stop_all()`. `--list`
+  turns any of them into a report — the hooks get `dry_run=True` — and
+  adds every runtime's `port_holders()` on the project's `odoo_port()`.
 
 The runtime class is imported only when the runtime is selected or one
 of these hooks runs — listing runtimes in `--help` and `osh init`'s
@@ -503,16 +505,34 @@ class MyRuntime(Runtime):
   _base_ — called by `osh init`'s status report on an initialized
   project. The default prints nothing.
 
-- `stop(self, ctx, base, **options)`: stop anything the runtime
-  leaves running. Called by `osh stop` in the project; the host runtimes
-  kill a rogue Odoo process listening on the configured HTTP port.
+- `odoo_port(self, base)`: return the host port Odoo serves HTTP on for
+  _base_, or `None` when it cannot be determined. `osh stop --list` uses
+  it to report what holds the project's port. The default reads the Odoo
+  config files.
 
-- `stop_by_name(self, ctx, name, **options)`: stop resources belonging
-  to another Osh project identified by _name_ — backs `osh stop <name>`.
-  The default rejects with an error.
+- `port_holders(self, ctx, port, base)`: return report lines for this
+  runtime's holders of host _port_ — a container publishing it, a process
+  listening on it. `osh stop --list` asks every runtime so holders the
+  active runtime cannot stop are reported too (e.g. a Docker stack
+  publishing the port of a host-runtime project). _base_ is the project
+  asking; lines should name the owning resource and which `osh stop`
+  invocation frees it. The default reports no holders.
 
-- `stop_all(self, ctx, **options)`: stop every Osh-managed resource of
-  this runtime — backs `osh stop --all`. The default is a no-op.
+- `stop(self, ctx, base, *, dry_run=False, **options)`: stop anything
+  the runtime leaves running. Called by `osh stop` in the project; the
+  host runtimes kill a rogue Odoo process listening on the configured
+  HTTP port. With `dry_run=True` — `osh stop --list` — report what would
+  be stopped instead of stopping it.
+
+- `stop_by_name(self, ctx, name, *, dry_run=False, **options)`: stop
+  resources belonging to another Osh project identified by _name_ —
+  backs `osh stop <name>`; with `dry_run` (`osh stop <name> --list`)
+  they are only reported. The default rejects with an error.
+
+- `stop_all(self, ctx, *, dry_run=False, **options)`: stop every
+  Osh-managed resource of this runtime — backs `osh stop --all`; with
+  `dry_run` (`osh stop --all --list`) they are only reported. The
+  default is a no-op.
 
 - `env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
   execute a command inside the target environment. `env_spec` is an `EnvSpec`

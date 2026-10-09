@@ -1,37 +1,25 @@
 """Session-wide pytest setup shared by ``tests/`` and plugin test dirs."""
 
-import os
-import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from tests.helpers import write_stub_pip
+from tests.helpers import _wait_listening, write_stub_pip
 
 
 def pytest_addoption(parser):
-    """Add ``--no-docker`` to skip the Docker-daemon tests."""
+    """Add ``--no-docker`` to skip the Docker-daemon tests.
+
+    The option must be registered here, in the root conftest, so it is
+    known when the whole suite runs; the mark/skip logic that consumes it
+    lives in ``osh_runtime_docker/tests/conftest.py``.
+    """
     parser.addoption(
         "--no-docker",
         action="store_true",
         help="skip tests that start real Docker containers",
     )
-
-
-def pytest_collection_modifyitems(config, items):
-    """Mark tests that start real Docker containers.
-
-    ``pytest --no-docker`` skips them for fast local iteration; CI runs
-    them as a separate job via ``-m docker``. The mark follows fixture
-    use, so tests don't repeat the decorator.
-    """
-    skip_docker = config.getoption("--no-docker")
-    docker_fixtures = {"docker_daemon", "docker_project", "docker_shared_project"}
-    for item in items:
-        if docker_fixtures & set(getattr(item, "fixturenames", ())):
-            item.add_marker(pytest.mark.docker)
-            if skip_docker:
-                item.add_marker(pytest.mark.skip(reason="needs a Docker daemon"))
 
 
 @pytest.fixture(autouse=True)
@@ -80,16 +68,6 @@ def in_project(monkeypatch, tmp_project):
     return tmp_project
 
 
-_FAKEBIN = (
-    Path(__file__).parent
-    / "osh"
-    / "plugins"
-    / "osh_runtime_docker"
-    / "tests"
-    / "fakebin"
-)
-
-
 @pytest.fixture(autouse=True)
 def user_config(tmp_path, monkeypatch):
     """Isolate ``~/.config/osh/config.toml`` per test.
@@ -101,25 +79,6 @@ def user_config(tmp_path, monkeypatch):
     path = tmp_path / "home" / ".config" / "osh" / "config.toml"
     monkeypatch.setattr("osh.config.get_user_config_path", lambda: path)
     return path
-
-
-@pytest.fixture
-def fake_docker(tmp_path, monkeypatch):
-    """Put a canned-answer ``docker`` on PATH; return its response dir.
-
-    For the cases real Docker cannot reproduce deterministically — an
-    empty ``docker ps``, or a failing one. Absent response files mean
-    success with empty output; ``docker_ps`` and ``docker_rc`` override
-    plain ``docker`` calls (``osh stop --all``).
-    """
-    real = shutil.which("docker")
-    state = tmp_path / "fake-docker"
-    state.mkdir()
-    monkeypatch.setenv("OSH_FAKE_DOCKER", str(state))
-    monkeypatch.setenv("PATH", f"{_FAKEBIN}{os.pathsep}{os.environ['PATH']}")
-    if real:
-        monkeypatch.setenv("OSH_REAL_DOCKER", real)
-    return state
 
 
 @pytest.fixture
@@ -161,3 +120,31 @@ def _cleanup_explicit_temp_root():
         import shutil
 
         shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+# Real processes and ports -------------------------------------------------
+#
+# Port-holding and process-teardown tests run against real sockets and
+# real processes: a bound socket is a real ``port_in_use`` collision, an
+# Odoo-named listener script is a real ``osh stop`` target. The patched
+# seams left in tests are for what cannot be produced safely (a failing
+# ``lsof``, a reused pid) — not for what the machine can just run.
+
+
+@pytest.fixture
+def spawn():
+    """Spawn real listener processes; survivors are killed on teardown."""
+    procs = []
+
+    def run(argv, port=None, env=None):
+        proc = subprocess.Popen(argv, env=env, close_fds=True)
+        procs.append(proc)
+        if port is not None:
+            _wait_listening(port)
+        return proc
+
+    yield run
+
+    for proc in procs:
+        if proc.poll() is None:
+            proc.kill()

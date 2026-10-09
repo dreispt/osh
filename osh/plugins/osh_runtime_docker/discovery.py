@@ -7,7 +7,7 @@ invocation helpers in ``utils.py``.
 """
 
 import json
-import os
+import re
 import shutil
 from pathlib import Path
 
@@ -23,27 +23,57 @@ def _find_port_holder(port):
     container belonging to another Osh Docker project, or ``None`` when the
     holder is not identifiable.
     """
+    for c in _port_publishers(port):
+        if c["project"] is not None:
+            return str(c["project"]), c["running_for"] or "unknown uptime"
+    return None
+
+
+def _port_publishers(port):
+    """Return the containers publishing host *port*, with owner details.
+
+    One ``docker ps`` call, answered as ``{id, name, image, running_for,
+    compose_project, project}`` dicts — ``project`` is the resolved Osh
+    project ``Path``, or ``None`` when the container is not part of an
+    Osh-managed stack. The ``Ports`` column is checked client-side so
+    Podman and published port ranges are covered too.
+    """
     returncode, out, _ = run_subprocess(
         [
             _docker_executable(),
             "ps",
-            "--filter",
-            f"publish={int(port)}",
             "--format",
-            "{{.Labels}}\t{{.RunningFor}}",
+            "{{json .}}",
         ]
     )
     if returncode != 0 or not out:
-        return None
+        return []
+    published = re.compile(rf":{int(port)}(?:-\d+)?->")
+    containers = []
     for line in out.splitlines():
-        labels, _, running_for = line.partition("\t")
-        working_dir = _label_value(labels, "com.docker.compose.project.working_dir")
-        if not working_dir:
+        try:
+            entry = json.loads(line)
+        except ValueError:
             continue
-        project = _osh_project_for_working_dir(Path(working_dir))
-        if project is not None:
-            return str(project), running_for.strip() or "unknown uptime"
-    return None
+        if not published.search(str(entry.get("Ports") or "")):
+            continue
+        labels = entry.get("Labels") or ""
+        working_dir = _label_value(labels, "com.docker.compose.project.working_dir")
+        containers.append(
+            {
+                "id": entry.get("ID") or "",
+                "name": entry.get("Names") or "",
+                "image": entry.get("Image") or "",
+                "running_for": (entry.get("RunningFor") or "").strip(),
+                "compose_project": _label_value(labels, "com.docker.compose.project"),
+                "project": (
+                    _osh_project_for_working_dir(Path(working_dir))
+                    if working_dir
+                    else None
+                ),
+            }
+        )
+    return containers
 
 
 def _list_containers(show_all=False):
@@ -175,7 +205,7 @@ def _port_process_hint(port):
     process's working directory points at the project where ``osh stop``
     would free the port.
     """
-    from ...runtimes import _looks_like_odoo, _pid_command, _port_listeners
+    from ...runtimes import _looks_like_odoo, _pid_command, _pid_cwd, _port_listeners
 
     for pid in _port_listeners(port):
         cmdline = _pid_command(pid)
@@ -184,12 +214,19 @@ def _port_process_hint(port):
         hint = f"'{cmdline}' (pid {pid})"
         if not _looks_like_odoo(cmdline):
             return hint
-        try:
-            cwd = os.readlink(f"/proc/{pid}/cwd")
-        except OSError:
-            cwd = None
+        cwd = _pid_cwd(pid)
         return f"host Odoo process {hint}" + (f" in {cwd}" if cwd else "")
     return None
+
+
+def _project_containers(base):
+    """Return ``_list_containers`` entries owned by the Osh project *base*."""
+    resolved = Path(base).resolve()
+    return [
+        c
+        for c in _list_containers(show_all=True)
+        if c["project"] is not None and c["project"].resolve() == resolved
+    ]
 
 
 def _compose_project_names_for(base):
@@ -199,13 +236,8 @@ def _compose_project_names_for(base):
     carry a project label different from the derived one; this discovers
     what is really running so commands can target it.
     """
-    resolved = Path(base).resolve()
     return {
-        c["compose_project"]
-        for c in _list_containers(show_all=True)
-        if c["project"] is not None
-        and c["project"].resolve() == resolved
-        and c["compose_project"]
+        c["compose_project"] for c in _project_containers(base) if c["compose_project"]
     }
 
 
@@ -236,8 +268,16 @@ def _container_running_status(base, compose_cmd, service):
 
 
 def _label_value(labels, name):
-    """Return the value of *name* from a comma-separated Docker label list."""
-    for item in labels.split(","):
+    """Return the value of *name* from Docker/Podman label data.
+
+    Docker's ``--format '{{json .}}'`` reports Labels as a comma-separated
+    ``key=value`` string; Podman reports a JSON object. Accept both.
+    """
+    if isinstance(labels, dict):
+        return labels.get(name)
+    if not labels:
+        return None
+    for item in re.split(r",(?=[^,]+=)", str(labels)):
         key, _, value = item.partition("=")
         if key.strip() == name:
             return value.strip()

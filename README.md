@@ -182,6 +182,10 @@ Odoo and its dependencies already installed on the machine), `venv` or
   or path, handy when a leftover stack still holds port 8069.
 - `osh stop --all` — list and stop every Osh-managed stack and host Odoo
   process on the machine.
+- `osh stop --list` — report what would be stopped without stopping it:
+  who holds the project's Odoo port — including foreign holders like a
+  Docker container publishing it — and, with `--all` or `<name>`, every
+  resource that form would tear down.
 - `osh odoo -p <n>` — republish the stack on that host port for the run
   (equivalent to `osh init --runtime docker --port <n>` without re-init).
 

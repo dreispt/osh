@@ -34,18 +34,26 @@ class Stop(CommandHandler):
     ``--all`` stops every Osh-managed runtime resource: all Osh Compose
     stacks plus host Odoo processes started under an ``.osh`` environment.
 
+    ``--list`` reports what would be stopped without stopping anything:
+    who holds the project's Odoo port — including holders the active
+    runtime cannot stop, like a Docker container publishing it — and every
+    resource ``--all`` would tear down.
+
     Examples:
 
     \b
       osh stop                # stop this project's runtime resources
+      osh stop --list         # report port holders and would-be targets
       osh stop other-project  # stop another project's stack by name
       osh stop --all          # stop every Osh-managed runtime resource
+      osh stop --all --list   # list every Osh-managed runtime resource
     """
 
     _cli_name = "stop"
 
     name = None
     stop_all = False
+    list_only = False
 
     @classmethod
     def get_options(cls):
@@ -67,6 +75,14 @@ class Stop(CommandHandler):
         help="Stop every Osh-managed runtime resource, not just this "
         "project's; lists the stacks and processes found.",
     )
+    @click.option(
+        "--list",
+        "list_only",
+        is_flag=True,
+        help="Report what would be stopped — holders of the project's "
+        "Odoo port and the resources stop would tear down — without "
+        "stopping anything.",
+    )
     def run(self):
         if self.stop_all:
             if self.name:
@@ -84,7 +100,37 @@ class Stop(CommandHandler):
         """Delegate teardown to the active runtime of project *base*."""
         runtime = resolve_runtime(base)
         self._warn_foreign_stop_options({runtime.name})
-        runtime.stop(self.ctx, base, **param_values(self, runtime.get_stop_options()))
+        options = param_values(self, runtime.get_stop_options())
+        if self.list_only:
+            runtime.stop(self.ctx, base, dry_run=True, **options)
+            self._report_foreign_port_holders(runtime, base)
+            return
+        runtime.stop(self.ctx, base, **options)
+
+    def _report_foreign_port_holders(self, runtime, base):
+        """Report holders of the project's port the active runtime can't see.
+
+        The runtime's own ``stop(dry_run=True)`` covers the holders it can
+        act on; this adds what other runtimes see — e.g. a Docker stack
+        publishing the port of a host-runtime project — so ``--list``
+        gives the complete picture of what blocks the port. Holder
+        implementations are deduplicated like ``--all``'s teardown.
+        """
+        port = runtime.odoo_port(base)
+        if port is None:
+            return
+        seen = {type(runtime).port_holders, Runtime.port_holders}
+        lines = []
+        for runtime_cls in load_runtimes().values():
+            impl = runtime_cls.port_holders
+            if impl in seen:
+                continue
+            seen.add(impl)
+            lines.extend(runtime_cls().port_holders(self.ctx, port, base))
+        if lines:
+            echo.info(f"Port {port} is also held by:")
+            for line in lines:
+                echo.info(f"  {line}")
 
     def _stop_named(self):
         """Stop another project's resources, by path or by stack name."""
@@ -101,6 +147,7 @@ class Stop(CommandHandler):
                 runtime.stop_by_name(
                     self.ctx,
                     self.name,
+                    dry_run=self.list_only,
                     **param_values(self, runtime.get_stop_options()),
                 )
                 return
@@ -125,7 +172,7 @@ class Stop(CommandHandler):
             if stop_all in seen or stop_all is Runtime.stop_all:
                 continue
             seen.add(stop_all)
-            runtime_cls().stop_all(self.ctx)
+            runtime_cls().stop_all(self.ctx, dry_run=self.list_only)
 
     def _named_stoppers(self):
         """Return the runtime classes that override ``stop_by_name``."""

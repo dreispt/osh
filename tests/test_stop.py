@@ -9,13 +9,7 @@ from click.testing import CliRunner
 from osh.cli import main
 from osh.db import set_project_config
 
-from .conftest import (
-    _configure_port,
-    _free_port,
-    _odoo_argv,
-    _odoo_module_argv,
-    _sleeping_odoo,
-)
+from .helpers import _configure_port, _free_port, _odoo_argv, _odoo_module_argv
 
 
 @pytest.fixture
@@ -200,39 +194,31 @@ def test_stop_by_path_stops_that_project(tmp_path, spawn):
     proc.wait(timeout=5)
 
 
-def test_stop_all_reports_when_nothing_runs(fake_docker, monkeypatch):
-    """``osh stop --all`` with nothing running says so, plainly."""
-    # The /proc sweep is pinned to nothing so a real Osh-managed Odoo on
-    # the machine running the tests cannot be killed by accident.
-    monkeypatch.setattr("osh.runtimes._osh_managed_odoo_pids", lambda: [])
+def test_stop_list_reports_odoo_listener_without_stopping(
+    in_project, odoo_port, tmp_path, spawn
+):
+    """``osh stop --list`` reports the port holder and leaves it running."""
+    proc = spawn(_odoo_argv(tmp_path, odoo_port), odoo_port)
 
-    result = CliRunner().invoke(main, ["stop", "--all"])
+    result = CliRunner().invoke(main, ["stop", "--list"])
 
     assert result.exit_code == 0, result.output
-    assert "No Osh-managed Docker stacks" in result.output
-    assert "No Osh-managed Odoo processes" in result.output
+    assert f"Would stop Odoo process {proc.pid}" in result.output
+    assert proc.poll() is None
 
 
-def test_stop_all_stops_osh_managed_host_processes(fake_docker, tmp_path, monkeypatch):
-    """``osh stop --all`` terminates Odoo processes running under an .osh env."""
-    # The process is real and really killed; only the discovery list is
-    # pinned to it so the sweep cannot touch other Osh-managed Odoo
-    # processes on the machine running the tests.
-    proc = _sleeping_odoo(tmp_path)
-    monkeypatch.setattr(
-        "osh.runtimes._osh_managed_odoo_pids",
-        lambda: [(proc.pid, "/p/.venv/bin/odoo -d mydb", ())],
-    )
+def test_stop_list_marks_a_foreign_listener_as_untouchable(
+    in_project, odoo_port, spawn
+):
+    """A non-Odoo holder is reported as one ``osh stop`` would not touch."""
+    proc = spawn([sys.executable, "-m", "http.server", str(odoo_port)], odoo_port)
 
-    try:
-        result = CliRunner().invoke(main, ["stop", "--all"])
+    result = CliRunner().invoke(main, ["stop", "--list"])
 
-        assert result.exit_code == 0, result.output
-        assert f"Stopping Odoo process {proc.pid}" in result.output
-        proc.wait(timeout=5)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
+    assert result.exit_code == 0, result.output
+    assert "does not look like Odoo" in result.output
+    assert "would leave it alone" in result.output
+    assert proc.poll() is None
 
 
 def test_stop_all_rejects_a_name_argument():
@@ -250,3 +236,4 @@ def test_stop_help_shows_the_surface():
     assert result.exit_code == 0, result.output
     assert "[NAME]" in result.output
     assert "--all" in result.output
+    assert "--list" in result.output

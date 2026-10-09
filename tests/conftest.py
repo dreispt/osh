@@ -7,10 +7,8 @@ so they also apply to plugin test directories.
 import importlib
 import os
 import shutil
-import socket
 import subprocess
 import sys
-import time
 import uuid
 from pathlib import Path
 
@@ -170,145 +168,6 @@ def osh_source_dirs(tmp_project):
     (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
     (osh_dir / "design-themes").mkdir(parents=True, exist_ok=True)
     return osh_dir
-
-
-def _write_docker_config(project, port=None):
-    """Write a minimal docker runtime config and generated compose file."""
-    osh_dir = project / ".osh"
-    osh_dir.mkdir(parents=True, exist_ok=True)
-    text = 'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    if port:
-        text += f"port = {port}\n"
-    (osh_dir / "docker.toml").write_text(text)
-    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
-
-
-# Real processes and ports -------------------------------------------------
-#
-# Port-holding and process-teardown tests run against real sockets and
-# real processes: a bound socket is a real ``port_in_use`` collision, an
-# Odoo-named listener script is a real ``osh stop`` target. The patched
-# seams left in tests are for what cannot be produced safely (a failing
-# ``lsof``, a reused pid) — not for what the machine can just run.
-
-_LISTENER = """\
-import signal
-import socket
-import sys
-import time
-
-if "--ignore-term" in sys.argv:
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-sock = socket.socket()
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-sock.bind(("0.0.0.0", int(sys.argv[1])))
-sock.listen(1)
-time.sleep(3600)
-"""
-
-_SLEEPER = "import time; time.sleep(3600)"
-
-
-def _free_port():
-    """Return a TCP port that is free right now."""
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
-
-
-def _configure_port(project, port):
-    """Point the project's Odoo HTTP port at *port*."""
-    conf = project / ".osh" / "odoo.conf"
-    conf.parent.mkdir(parents=True, exist_ok=True)
-    conf.write_text(f"[options]\nhttp_port = {port}\n")
-
-
-def _wait_listening(port, timeout=10):
-    """Wait until *port* accepts a connection."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-            return
-        except OSError:
-            time.sleep(0.05)
-    raise TimeoutError(f"nothing listening on port {port}")
-
-
-def _odoo_argv(tmp_path, port, name="odoo", ignore_term=False):
-    """Return the argv of a listener script whose cmdline looks like Odoo's."""
-    script = tmp_path / name
-    script.write_text(f"#!{sys.executable}\n{_LISTENER}")
-    script.chmod(0o755)
-    argv = [str(script), str(port)]
-    if ignore_term:
-        argv.append("--ignore-term")
-    return argv
-
-
-def _odoo_module_argv(tmp_path, port):
-    """Return the ``python -m odoo`` argv of a real listener, plus its env."""
-    package = tmp_path / "odoo"
-    package.mkdir()
-    (package / "__main__.py").write_text(_LISTENER)
-    return (
-        [sys.executable, "-m", "odoo", str(port)],
-        {**os.environ, "PYTHONPATH": str(tmp_path)},
-    )
-
-
-def _sleeping_odoo(tmp_path):
-    """Spawn a real process looking like a leftover Osh-managed Odoo."""
-    script = tmp_path / "odoo"
-    script.write_text(f"#!{sys.executable}\n{_SLEEPER}")
-    script.chmod(0o755)
-    conf = tmp_path / ".osh" / "odoo.conf"
-    conf.parent.mkdir(exist_ok=True)
-    conf.write_text("")
-    return subprocess.Popen(
-        [str(script)],
-        env={**os.environ, "ODOO_RC": str(conf)},
-        close_fds=True,
-    )
-
-
-@pytest.fixture
-def spawn():
-    """Spawn real listener processes; survivors are killed on teardown."""
-    procs = []
-
-    def run(argv, port=None, env=None):
-        proc = subprocess.Popen(argv, env=env, close_fds=True)
-        procs.append(proc)
-        if port is not None:
-            _wait_listening(port)
-        return proc
-
-    yield run
-
-    for proc in procs:
-        if proc.poll() is None:
-            proc.kill()
-
-
-@pytest.fixture
-def held_port():
-    """Bind real TCP ports for the test's duration, closing on teardown."""
-    socks = []
-
-    def hold():
-        sock = socket.socket()
-        sock.bind(("0.0.0.0", 0))
-        sock.listen(1)
-        socks.append(sock)
-        return sock.getsockname()[1]
-
-    yield hold
-
-    for sock in socks:
-        sock.close()
 
 
 @pytest.fixture
