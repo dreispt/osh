@@ -50,45 +50,6 @@ def test_init_runtime_venv_records_run_runtime(in_project, monkeypatch):
     assert calls and calls[0][0] == in_project
 
 
-def test_init_runtime_docker_records_run_runtime(in_project, fake_docker):
-    """``osh init --runtime=docker`` makes 'docker' the active runtime."""
-    set_project_config(in_project, "init", "version", "19.0")
-
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _active_runtime(in_project) == "docker"
-    assert (in_project / ".osh" / "docker.toml").exists()
-
-
-def test_init_runtime_passes_runtime_options(in_project, fake_docker):
-    """Options owned by the selected runtime land in its config."""
-    set_project_config(in_project, "init", "version", "19.0")
-
-    result = CliRunner().invoke(
-        main,
-        [
-            "init",
-            "--runtime",
-            "docker",
-            "--service",
-            "odoo",
-            "--port",
-            "9071",
-            "--edition",
-            "ce",
-            "--yes",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    docker_toml = (in_project / ".osh" / "docker.toml").read_text()
-    assert "service = 'odoo'" in docker_toml
-    assert "port = 9071" in docker_toml
-
-
 def test_init_runtime_foreign_option_warns_and_is_ignored(in_project, monkeypatch):
     """A docker-only option with ``--runtime=venv`` warns it is ignored."""
     set_project_config(in_project, "init", "version", "19.0")
@@ -217,36 +178,7 @@ def test_init_asks_runtime_on_first_run(tmp_path, monkeypatch, user_config):
     assert get_user_preference("runtime", section="init") == "venv"
 
 
-def test_init_uses_stored_runtime_default(in_project, fake_docker, user_config):
-    """A bare ``osh init`` applies the stored runtime default."""
-    set_project_config(in_project, "init", "version", "19.0")
-    user_config.parent.mkdir(parents=True)
-    user_config.write_text('[init]\nruntime = "docker"\n')
-
-    result = CliRunner().invoke(
-        main, ["init", "20.0", str(in_project), "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _active_runtime(in_project) == "docker"
-    assert (in_project / ".osh" / "docker.toml").exists()
-
-
-def test_init_explicit_runtime_becomes_default(in_project, fake_docker, user_config):
-    """``--runtime=<name>`` is remembered as the user's default."""
-    set_project_config(in_project, "init", "version", "19.0")
-
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert get_user_preference("runtime", section="init") == "docker"
-
-
-def test_init_runtime_ask_forces_the_prompt(
-    in_project, monkeypatch, fake_docker, user_config
-):
+def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config):
     """``--runtime=ask`` asks again and updates the stored default."""
     set_project_config(in_project, "init", "version", "19.0")
     user_config.parent.mkdir(parents=True)

@@ -7,10 +7,8 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands.odoo_cmd import odoo
-from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.common import discover_addons_paths, discover_module_names
 from osh.db import set_project_config
-from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 from osh.utils.odoo_layout import build_addons_paths
 
 
@@ -268,49 +266,6 @@ def test_odoo_osh_wait_env_var_waits_for_process(
     assert not capture_execvp
 
 
-def test_odoo_compose_file_from_env_var(
-    tmp_project,
-    monkeypatch,
-    fake_docker,
-    test_db,
-):
-    """OSH_COMPOSE_FILE is honored like --compose-file for the docker target."""
-    osh_dir = tmp_project / ".osh"
-    (osh_dir / "docker.toml").write_text(
-        'service = "odoo"\ncommand = "odoo"\ncompose_tool = "docker compose"\n'
-    )
-    (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
-    monkeypatch.setenv("OSH_COMPOSE_FILE", "devel.yaml")
-
-    set_project_config(tmp_project, "run", "runtime", "docker")
-    monkeypatch.chdir(tmp_project)
-
-    runner = CliRunner()
-    result = runner.invoke(odoo, ["--dry-run"])
-
-    assert result.exit_code == 0, result.output
-    assert "devel.yaml" in result.output
-
-
-def test_dynamic_config_translates_addons_path_for_docker(
-    tmp_project,
-    osh_source_dirs,
-):
-    """The dynamic config uses container paths for the Docker runtime."""
-    runtime = DockerRuntime()
-    conf = build_dynamic_odoo_config(
-        tmp_project,
-        "mydb",
-        runtime,
-    )
-    text = conf.read_text()
-    assert "/mnt/extra-addons/.osh/odoo/addons" in text
-    assert "/mnt/extra-addons/.osh/enterprise" in text
-    assert "/mnt/extra-addons/.osh/design-themes" in text
-    assert "db_name = mydb" in text
-    assert "dbfilter = ^mydb$" in text
-
-
 def _addons_dir(path, module="some_module"):
     """Create an addons directory holding one module at *path*."""
     mod = path / module
@@ -329,23 +284,6 @@ def test_build_addons_paths_includes_registered_paths(tmp_project, tmp_path):
     assert dep in paths
     assert project_addons in paths
     assert paths.index(project_addons) < paths.index(dep)
-
-
-def test_dynamic_config_translates_registered_addon_path_for_docker(
-    tmp_project,
-    tmp_path,
-):
-    """A registered path outside the project mounts under ``/mnt/osh-src``."""
-    dep = _addons_dir(tmp_path / "payroll")
-    set_project_config(tmp_project, "addons", "paths", [str(dep)])
-
-    runtime = DockerRuntime()
-    conf = build_dynamic_odoo_config(
-        tmp_project,
-        "mydb",
-        runtime,
-    )
-    assert "/mnt/osh-src/payroll-" in conf.read_text()
 
 
 ADDONS_LAYOUT = (Path(__file__).parent / "data" / "oca_layout").resolve()

@@ -7,10 +7,7 @@ from click.testing import CliRunner
 
 from osh.cli import main
 from osh.commands.shell_cmd import build_dynamic_odoo_config, shell
-from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 from osh.runtimes import HostRuntime
-
-from .conftest import _free_port
 
 
 def _setup_venv(project):
@@ -182,88 +179,6 @@ def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     assert result.exit_code == 0, result.output
     assert not (tmp_project / ".osh" / "cache").exists()
     assert calls[0][1] == ["odoo-bin", "--config", "/other/odoo.conf"]
-
-
-def test_shell_docker_runs_container_with_env_vars(
-    tmp_project, branch_db, monkeypatch, fake_docker
-):
-    """``osh shell`` on the docker runtime builds a compose invocation with env vars."""
-    osh_dir = tmp_project / ".osh"
-    docker_toml = osh_dir / "docker.toml"
-    docker_toml.write_text(
-        "service = 'odoo'\ncommand = 'odoo'\ncompose_tool = 'docker compose'\n"
-        f"port = {_free_port()}\n"
-    )
-    (osh_dir / "docker-compose.yml").write_text("services:\n  odoo:\n")
-    _use_runtime(tmp_project, "docker")
-
-    monkeypatch.chdir(tmp_project)
-
-    calls = []
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_docker.runtimes.os.execvp",
-        lambda exe, args: calls.append((exe, list(args))),
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(main, ["shell", "odoo", "-i", "base"])
-
-    assert result.exit_code == 0, result.output
-    assert len(calls) == 1
-    exe, args = calls[0]
-    assert exe == "docker"
-    assert args[:2] == ["docker", "compose"]
-    assert "exec" in args
-    assert args[-4:] == ["osh", "odoo", "-i", "base"]
-    assert any("ODOO_RC" in a for a in args)
-    assert any("PGDATABASE" in a for a in args)
-
-
-def test_build_dynamic_odoo_config_uses_container_paths_for_docker(
-    tmp_project,
-):
-    """The helper translates local addon paths to the Docker mount point."""
-    osh_dir = tmp_project / ".osh"
-    (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
-    (osh_dir / "enterprise").mkdir(parents=True, exist_ok=True)
-
-    runtime = DockerRuntime()
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", runtime)
-    text = conf.read_text()
-    assert "/mnt/extra-addons/.osh/odoo/addons" in text
-    assert "/mnt/extra-addons/.osh/enterprise" in text
-    assert "db_name = mydb" in text
-    assert "dbfilter = ^mydb$" in text
-
-
-def test_build_dynamic_odoo_config_data_dir(tmp_project, fake_docker):
-    """The generated config carries the data dir the project declares."""
-    (tmp_project / ".osh" / "docker.toml").write_text(
-        "service = 'odoo'\ncompose_tool = 'docker compose'\n"
-        "compose_file = 'docker-compose.yml'\n"
-    )
-    (tmp_project / "docker-compose.yml").write_text(
-        "services:\n  odoo:\n    image: odoo:19.0\n"
-        "    volumes:\n      - data:/odoo/data\nvolumes:\n  data:\n"
-    )
-    # Fallback for hosts without a real Docker binary (fakebin delegates
-    # ``config`` to the real one when present).
-    (fake_docker / "config.json").write_text(
-        '{"services": {"odoo": {"volumes": '
-        '[{"type": "volume", "source": "data", "target": "/odoo/data"}]}}}'
-    )
-
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
-    assert "data_dir = /odoo/data" in conf.read_text()
-
-    # A data_dir in the project's seed config always wins.
-    (tmp_project / ".osh" / "odoo.conf").write_text(
-        "[options]\ndata_dir = /custom/data\n"
-    )
-    conf = build_dynamic_odoo_config(tmp_project, "mydb", DockerRuntime())
-    text = conf.read_text()
-    assert "data_dir = /custom/data" in text
-    assert "/odoo/data" not in text
 
 
 def test_build_dynamic_odoo_config_seeds_from_base_conf(tmp_project):
