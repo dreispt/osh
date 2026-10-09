@@ -573,6 +573,8 @@ class HostRuntime(Runtime):
             config = osh_conf if osh_conf.exists() else odoo_rc
             if config.exists():
                 d.add_info("odoo_config", str(config))
+            elif phase == "init":
+                d.add_note(f"Odoo config {osh_conf} will be generated.")
             elif phase != "run":
                 # More informative warning showing both attempted paths
                 attempted_paths = [str(osh_conf), str(odoo_rc)]

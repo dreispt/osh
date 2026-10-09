@@ -100,9 +100,7 @@ def _diagnose_config(
         if cfg.get("compose_tool"):
             d.add_info("configured_compose_tool", cfg["compose_tool"])
     elif phase == "init":
-        d.add_warning(
-            "Docker runtime config not found; it will be created during init."
-        )
+        d.add_note("Docker runtime config will be created during init.")
     elif phase == "run":
         d.add_error(
             "Docker runtime config not found. " "Run 'osh init --runtime=docker' first."
@@ -159,7 +157,7 @@ def _diagnose_service(d, phase, service):
     """Validate the configured Docker Compose service."""
     if not service:
         if phase == "init":
-            d.add_warning("No --service provided; defaulting to 'odoo'.")
+            d.add_note("No --service provided; using the default 'odoo'.")
         elif phase == "run":
             d.add_error("No Docker service configured.")
 

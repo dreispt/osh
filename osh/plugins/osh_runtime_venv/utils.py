@@ -61,7 +61,7 @@ def init_project(
             "(Odoo setup incomplete; see warnings above)."
         )
     else:
-        echo.info(f"Initialised project directory at {target}")
+        echo.success(f"Initialised project directory at {target}")
     return True
 
 
