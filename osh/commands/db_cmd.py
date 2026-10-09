@@ -138,7 +138,7 @@ class Db(CommandHandler):
         """
         self.base = find_project_root(required=True)
         self.branch, self.value = _set_branch_db(self.base, self.db_name, self.branch)
-        echo.info(f"Branch '{self.branch}' will use database '{self.value}'")
+        echo.success(f"Branch '{self.branch}' will use database '{self.value}'")
 
     @subcommand
     @click.argument("from_db")
@@ -151,7 +151,7 @@ class Db(CommandHandler):
         if not db_exists(self.base, from_name, ctx=self.ctx):
             raise click.ClickException(f"Source database '{from_name}' does not exist.")
         copy_db(self.base, from_name, to_name, ctx=self.ctx)
-        echo.info(f"Copied database '{from_name}' to '{to_name}'")
+        echo.success(f"Copied database '{from_name}' to '{to_name}'")
 
     @subcommand(context_settings=dict(ignore_unknown_options=True))
     def shell(self):
@@ -207,7 +207,7 @@ class Db(CommandHandler):
         self.base = find_project_root(required=True)
         self.branch = resolve_branch(self.base, self.branch)
         unset_project_config(self.base, "db", self.branch)
-        echo.info(f"Unset branch '{self.branch}'")
+        echo.success(f"Unset branch '{self.branch}'")
 
 
 db = handler_group("db", Db)

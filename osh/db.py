@@ -286,7 +286,7 @@ def install_filestore(ctx, base, src_dir, db_name):
         raise RuntimeError("Could not locate `sh`/`tar` in the runtime environment.")
     if returncode != 0:
         raise RuntimeError(f"Failed to install filestore for '{db_name}': {stderr}")
-    echo.info(f"Installed filestore for '{db_name}' at {dest_path}", err=True)
+    echo.success(f"Installed filestore for '{db_name}' at {dest_path}", err=True)
 
 
 def export_filestore(ctx, base, db_name, dest_dir):

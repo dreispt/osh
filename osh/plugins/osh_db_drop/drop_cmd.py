@@ -8,6 +8,7 @@ from ...db import (
     db_exists,
     drop_db,
     get_last_db,
+    resolve_db_name,
     sanitize_db_name,
     unset_project_config,
 )
@@ -18,6 +19,9 @@ from .filestore import filestore_exists, remove_filestore
 class DbDrop(CommandHandler):
     """Drop a PostgreSQL database and its Odoo filestore.
 
+    Without options, drops the current branch's database — the one
+    ``osh db show`` reports. A specific name can be given with ``-d``.
+
     Removes the database and the matching ``filestore/<db>`` directory under
     Odoo's ``data_dir`` (inside the container on Docker runtimes). Asks for
     confirmation unless ``--force`` is given.
@@ -25,16 +29,21 @@ class DbDrop(CommandHandler):
     Examples:
 
     \b
-      osh db drop myproject-fix-123
-      osh db drop myproject-fix-123 --force
+      osh db drop
+      osh db drop -d myproject-fix-123
+      osh db drop -d myproject-fix-123 --force
     """
 
     _cli_name = "db.drop"
 
-    db_name = None
+    database = None
     force = False
 
-    @click.argument("db_name")
+    @click.option(
+        "-d",
+        "--database",
+        help="Database to drop (defaults to the current branch's database).",
+    )
     @click.option(
         "--force",
         is_flag=True,
@@ -43,7 +52,11 @@ class DbDrop(CommandHandler):
     def run(self):
         ctx = self.ctx
         base = find_project_root(required=True)
-        name = sanitize_db_name(self.db_name)
+        name = (
+            sanitize_db_name(self.database)
+            if self.database
+            else resolve_db_name(base, verbose=True)
+        )
         exists = db_exists(base, name, ctx=ctx)
         has_filestore = filestore_exists(ctx, base, name)
         if not exists and not has_filestore:
@@ -59,7 +72,7 @@ class DbDrop(CommandHandler):
             drop_db(base, name, ctx=ctx)
             if db_exists(base, name, ctx=ctx):
                 raise click.ClickException(f"Could not drop database '{name}'.")
-            echo.info(f"Dropped database '{name}'")
+            echo.success(f"Dropped database '{name}'")
         remove_filestore(ctx, base, name)
         if get_last_db(base) == name:
             unset_project_config(base, "db", "last_db")

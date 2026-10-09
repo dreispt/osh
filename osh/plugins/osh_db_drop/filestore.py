@@ -42,7 +42,7 @@ def remove_filestore(ctx, base, db_name):
     if not filestore_exists(ctx, base, db_name):
         return
     run_in_runtime(ctx, base, ["rm", "-rf", path])
-    echo.info(f"Removed filestore for '{db_name}' at {path}", err=True)
+    echo.success(f"Removed filestore for '{db_name}' at {path}", err=True)
 
 
 def filestore_exists(ctx, base, db_name):

@@ -242,7 +242,8 @@ osh db list                  # databases matching the generated <project>- prefi
 osh db set myproject-main --branch main
 osh db set myproject-staging --branch staging
 osh db show
-osh db drop myproject-old    # drop a database and its filestore (asks first)
+osh db drop                  # drop the current branch's database (asks first)
+osh db drop -d myproject-old # drop a specific database and its filestore
 osh db shell                 # shell where the db runs (the db container on Docker)
 osh db shell psql            # psql against the current branch's database
 osh db unset --branch feature/old-thing
