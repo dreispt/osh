@@ -105,7 +105,8 @@ osh odoo
 
 The init step:
 
-- Uses the chosen runtime: `host` (Odoo already installed), `venv` or `docker`.
+- Uses the chosen runtime: `host` (Odoo already installed), `venv`, `docker`
+  or `doodba` (experimental).
 - Downloads the required Odoo sources, including Enterprise or Design Themes
   (for example, for Odoo.sh project that don't include these sources).
 - Sets up the necessary run environment for Odoo.
