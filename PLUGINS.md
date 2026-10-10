@@ -170,7 +170,7 @@ Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh backup restore`,
 `osh db update`), while bare top-level verbs are reserved for the
 primary day-to-day workflow actions (`osh init`, `osh odoo`,
-`osh shell`, `osh test`). If your plugin manages a resource,
+`osh exec`, `osh test`). If your plugin manages a resource,
 attach its commands to the matching group via `group_commands` instead of
 claiming a bare top-level verb. Verbs may deliberately diverge between
 groups when the underlying concepts differ — `osh db uninstall` removes
@@ -425,7 +425,7 @@ Two core commands drive a runtime's lifecycle:
 - `osh init <name>` runs the common base setup, then the
   runtime's `init()` (its `get_init_options()` are exposed on the
   `osh init <name>` subcommand), and records `run.runtime = <name>` in
-  `.osh/config.toml` — the active runtime `osh odoo`/`osh shell`/`osh db`
+  `.osh/config.toml` — the active runtime `osh odoo`/`osh exec`/`osh db`
   run through. `osh init host` is the way back to host
   execution.
 - `osh init` on an initialized project reports status and calls the
@@ -544,7 +544,7 @@ class MyRuntime(Runtime):
 
 - `db_env(self, ctx, base, env_spec, *, dry_run=False, **options)`:
   execute a command inside the _database_ environment, used by
-  `osh db shell`. The default delegates to `env()` — the right answer for
+  `osh db exec`. The default delegates to `env()` — the right answer for
   host-like runtimes where PostgreSQL shares Odoo's environment. Runtimes
   with a separate database service (e.g. Docker's Compose `db` service)
   override it to target that service.
@@ -616,16 +616,16 @@ decompose their work into methods so any step is an extension point.
 Every built-in command is a named handler — the `_cli_name` is the
 extension target to declare under `extends`:
 
-| `_cli_name`             | Commands                                          | Handler                     |
-| ----------------------- | ------------------------------------------------- | --------------------------- |
-| `init`                  | `osh init`                                        | `Init` (`init_cmd`)         |
-| `odoo`                  | `osh odoo`                                        | `OdooRun` (`odoo_cmd`)      |
-| `shell`                 | `osh shell`                                       | `ShellRun` (`shell_cmd`)    |
-| `db`, `db.<sub>`        | `osh db show`/`list`/`set`/`copy`/`shell`/`unset` | `Db` (`db_cmd`)             |
-| `stop`                  | `osh stop`                                        | `Stop` (`stop_cmd`)         |
-| `config`, `config.show` | `osh config show`                                 | `Config` (`config_cmd`)     |
-| `config.user.<sub>`     | `osh config user verbosity`                       | `ConfigUser` (`config_cmd`) |
-| `config.odoo.<sub>`     | `osh config odoo dev`                             | `ConfigOdoo` (`config_cmd`) |
+| `_cli_name`             | Commands                                         | Handler                     |
+| ----------------------- | ------------------------------------------------ | --------------------------- |
+| `init`                  | `osh init`                                       | `Init` (`init_cmd`)         |
+| `odoo`                  | `osh odoo`                                       | `OdooRun` (`odoo_cmd`)      |
+| `shell`                 | `osh exec` (`osh shell` alias)                   | `ShellRun` (`shell_cmd`)    |
+| `db`, `db.<sub>`        | `osh db show`/`list`/`set`/`copy`/`exec`/`unset` | `Db` (`db_cmd`)             |
+| `stop`                  | `osh stop`                                       | `Stop` (`stop_cmd`)         |
+| `config`, `config.show` | `osh config show`                                | `Config` (`config_cmd`)     |
+| `config.user.<sub>`     | `osh config user verbosity`                      | `ConfigUser` (`config_cmd`) |
+| `config.odoo.<sub>`     | `osh config odoo dev`                            | `ConfigOdoo` (`config_cmd`) |
 
 All modules live in `osh/commands/`. A _group_ handler like `Db` owns
 each `db.<sub>` name — subcommands are `@subcommand` methods on the

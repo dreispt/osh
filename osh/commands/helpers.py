@@ -2,7 +2,7 @@
 
 Runtimes implement ``diagnose`` to inspect the environment and the current
 project. The same diagnostics are reused by ``osh init`` (to plan and ask
-for confirmation) and ``osh odoo``/``osh shell`` (to check prerequisites
+for confirmation) and ``osh odoo``/``osh exec`` (to check prerequisites
 before executing).
 """
 
@@ -113,7 +113,7 @@ def collect_diagnostics(
 def check_run_diagnostics(base, runtime, ctx, *, compose_file=None):
     """Collect run-phase diagnostics; print warnings, raise on errors.
 
-    Shared pre-flight for ``osh odoo``/``osh shell`` and plugin commands that
+    Shared pre-flight for ``osh odoo``/``osh exec`` and plugin commands that
     need the runtime checked before executing (e.g. ``osh backup restore``).
     Returns the collected ``Diagnostics``.
     """

@@ -40,8 +40,8 @@ class Db(CommandHandler):
       osh db show
       osh db set myproject-main --branch main
       osh db copy myproject-main myproject-fix-123
-      osh db shell
-      osh db shell psql
+      osh db exec
+      osh db exec psql
       osh db unset
       osh db unset --branch feature/old-thing
     """
@@ -75,7 +75,7 @@ class Db(CommandHandler):
         """List PostgreSQL databases, filtered to this project by default.
 
         Runs ``psql -l`` inside the project's runtime environment — the same
-        context ``osh shell`` provides — and keeps only databases whose name
+        context ``osh exec`` provides — and keeps only databases whose name
         starts with the generated ``<project>-`` prefix. Use ``--all`` to list
         every database on the server.
 
@@ -153,14 +153,18 @@ class Db(CommandHandler):
         copy_db(self.base, from_name, to_name, ctx=self.ctx)
         echo.success(f"Copied database '{from_name}' to '{to_name}'")
 
-    @subcommand(context_settings=dict(ignore_unknown_options=True))
+    @subcommand(
+        name="exec",
+        aliases={"shell": {"hidden": True}},
+        context_settings=dict(ignore_unknown_options=True),
+    )
     def shell(self):
         """Enter the database environment or run a command in it.
 
         Without arguments this opens an interactive shell where the database
         runs: the Compose ``db`` service container on Docker projects, or the
         project environment itself on host/venv runtimes — where it is
-        equivalent to ``osh shell``. PostgreSQL connection variables
+        equivalent to ``osh exec``. PostgreSQL connection variables
         (``PGHOST``, ``PGUSER``, ``PGDATABASE``, ...) are already configured for
         the current branch's database. Any arguments are passed through as a
         command to run in that environment.
@@ -168,9 +172,9 @@ class Db(CommandHandler):
         Examples:
 
         \b
-          osh db shell
-          osh db shell psql
-          osh db shell pg_dump -Fc myproject-main > backup.dump
+          osh db exec
+          osh db exec psql
+          osh db exec pg_dump -Fc myproject-main > backup.dump
         """
         ShellRun(
             self.env,
@@ -182,7 +186,8 @@ class Db(CommandHandler):
 
     @classmethod
     def shell_options(cls):
-        """``db shell`` takes ``osh shell``'s parameters verbatim."""
+        """``db exec`` (and the hidden ``db shell``) take ``osh exec``'s
+        parameters verbatim."""
         return ShellRun.get_options()
 
     @subcommand

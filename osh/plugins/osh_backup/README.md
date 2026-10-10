@@ -4,7 +4,7 @@ Provides the `osh backup` command group: `get`, `restore`, `list` and
 `remote`.
 
 All database work is runtime-agnostic: `pg_dump`/`pg_restore`/`psql` run
-through the active runtime's execution context (the same one `osh shell`
+through the active runtime's execution context (the same one `osh exec`
 uses), so `docker` projects dump and restore inside the Compose stack and
 `local`/`venv` projects use host tools. Backup contents and `.zip`
 filestores are streamed through the runtime's stdin/stdout (`tar` archives

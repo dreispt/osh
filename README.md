@@ -65,7 +65,7 @@ Commands:
   init     Initialise an Osh project directory, or report its status.
   stop     Stop resources the project's runtime left running.
   odoo     Run the project's Odoo executable.
-  shell    Enter the project's runtime environment or run a command in it.
+  exec     Enter the project's runtime environment or run a command in it.
   db       Manage databases and branch-to-database mappings.
   config   Manage Osh project settings stored in `.osh/config.toml`.
 
@@ -140,9 +140,9 @@ Run `osh <command> --help` for full usage details.
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); `osh init <runtime>` adds the rest; version optional on re-init   |
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
-| `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
+| `osh exec`                 | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
-| `osh db`                   | List, show, set, copy, drop, shell, or unset project databases                                                       |
+| `osh db`                   | List, show, set, copy, drop, exec, or unset project databases                                                        |
 | `osh backup`               | Get, list, or restore database backups, and register named remote backup sources                                     |
 | `osh init extra-addons`    | Register extra addon paths (`osh init extra-addons add`); plugins add module lifecycle commands under `osh db`       |
 
@@ -167,7 +167,7 @@ Odoo and its dependencies already installed on the machine), `venv` or
   runs — on a first run without one, the runtime is asked once;
   `--runtime=ask` forces the prompt again, and `-r`/`--runtime <name>`
   remains as a compatible spelling of `osh init <name>`. The active
-  runtime is what `osh odoo`, `osh shell` and `osh db` run through.
+  runtime is what `osh odoo`, `osh exec` and `osh db` run through.
 - `osh init` — in an initialized project, reports the recorded version,
   the active runtime and the available runtimes.
 - `osh init host` — the "bring your own Odoo" runtime: nothing is
@@ -178,7 +178,7 @@ Odoo and its dependencies already installed on the machine), `venv` or
   arguments included — and `--odoo-conf /etc/odoo/odoo.conf` seeds the
   generated config from a base file (the project's own `.osh/odoo.conf`
   still overrides it). Both are recorded and reused by `osh odoo`,
-  `osh shell` and `osh stop`.
+  `osh exec` and `osh stop`.
 - `osh stop` — stop whatever the active runtime left running (with its
   options, e.g. `osh stop --compose-file`).
 - `osh stop <name>` — stop another project's resources by directory name
@@ -205,7 +205,7 @@ database a branch uses and what's in it.
 ## Design principles
 
 - **Say what you do** – `osh odoo` runs Odoo, just like `odoo-bin` would,
-  with the project's env pre-configured. `osh shell` gives you a shell.
+  with the project's env pre-configured. `osh exec` gives you a shell.
   No command's name and behavior disagree.
 - **Mirror the tool underneath** – anything you'd pass to `odoo-bin` (`shell`,
   `-u mymodule`, `scaffold`, ...) works the same way after `osh odoo`. You're
@@ -247,16 +247,16 @@ osh db set myproject-staging --branch staging
 osh db show
 osh db drop                  # drop the current branch's database (asks first)
 osh db drop -d myproject-old # drop a specific database and its filestore
-osh db shell                 # shell where the db runs (the db container on Docker)
-osh db shell psql            # psql against the current branch's database
+osh db exec                  # shell where the db runs (the db container on Docker)
+osh db exec psql             # psql against the current branch's database
 osh db unset --branch feature/old-thing
 ```
 
 `osh db list` also reports filestore directories under Odoo's `data_dir` that
 no longer have a matching database — leftovers that `osh db drop` removes.
-On the Docker runtime, `osh db shell` runs inside the Compose `db` service
+On the Docker runtime, `osh db exec` runs inside the Compose `db` service
 (configurable via `db_service` in `.osh/docker.toml`); on host and virtualenv
-runtimes it is the same environment as `osh shell`.
+runtimes it is the same environment as `osh exec`.
 
 The generated name is based on the project directory name and the git branch
 (or `default` when no branch is found — detached `HEAD` or no repository at

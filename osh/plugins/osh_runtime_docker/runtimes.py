@@ -692,7 +692,7 @@ class DockerRuntime(Runtime):
             )
         raise click.ClickException(
             f"Port {port} is already in use. If this is from a previous "
-            "'osh odoo'/'osh shell' session, run 'osh stop' in that project "
+            "'osh odoo'/'osh exec' session, run 'osh stop' in that project "
             f"to free it. Otherwise, stop whatever's using port {port}, or "
             "run 'osh odoo -p <n>' here."
         )
@@ -1136,7 +1136,7 @@ class DockerRuntime(Runtime):
 def _requested_port(ctx, base):
     """Return the port this invocation should publish, or None for configured.
 
-    Used for ``_PORT_KEEP`` calls (probes, ``osh shell``): a pending
+    Used for ``_PORT_KEEP`` calls (probes, ``osh exec``): a pending
     ``osh odoo -p`` stashes its value in ``ctx.obj['http_port']``; otherwise
     the port the compose override already publishes is kept so probes don't
     churn or strip it.

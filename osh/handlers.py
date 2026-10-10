@@ -62,7 +62,12 @@ def subcommand(func=None, **attrs):
             ...
 
     *attrs* customize the generated command: ``name`` (defaults to the
-    method name), ``context_settings`` and ``hidden``. For dynamic
+    method name), ``context_settings``, ``hidden`` and ``aliases`` —
+    extra command names dispatching to the same method, so options,
+    overrides and extension triggers stay shared. ``aliases`` accepts a
+    name, an iterable of names, or a mapping of alias → per-alias attrs
+    (e.g. ``{"shell": {"hidden": True}}``); without per-alias attrs the
+    marker's other attrs — including ``hidden`` — apply. For dynamic
     parameters a ``<method>_options()`` classmethod hook is consulted —
     see ``osh.cli_utils.handler_group``.
     """
@@ -98,6 +103,10 @@ class CommandHandler:
     - ``_cli_group``: target group override (``""`` forces top level).
     - ``_cli_context_settings``: dict passed to the ``click.Command``.
     - ``_cli_hidden``: truthy hides the command from ``--help`` listings.
+    - ``_cli_aliases``: alternate names the handler resolves and accepts
+      ``extends`` triggers under — e.g. the canonical command name when
+      the handler's identity keeps a legacy name. Alias commands are
+      still registered explicitly on the CLI side.
 
     Help text has two sources with disjoint roles: the plugin's
     ``[tool.osh]`` declaration is the short description shown in
@@ -112,6 +121,7 @@ class CommandHandler:
     _cli_group = None
     _cli_context_settings = None
     _cli_hidden = False
+    _cli_aliases = ()
 
     def __new__(cls, *args, **kwargs):
         # Instantiating a named handler yields its effective class — the
@@ -176,8 +186,9 @@ class CommandHandler:
         )
 
         name = _declared_name(cls)
-        if name:
-            ensure_declared("extends", name)
+        for target in (name, *_declared_aliases(cls)):
+            if target:
+                ensure_declared("extends", target)
 
         exts = []
         seen = set()
@@ -317,7 +328,7 @@ def resolve(name):
     ensure_handler(name)
     found = None
     for cls in _resolve_candidates():
-        if _declared_name(cls) != name:
+        if _declared_name(cls) != name and name not in _declared_aliases(cls):
             continue
         if found is not None:
             echo.error(
@@ -331,7 +342,13 @@ def resolve(name):
     head, _, method = name.rpartition(".")
     if head and method:
         group_cls = resolve(head)
-        if method in _subcommand_methods(group_cls):
+        subs = _subcommand_methods(group_cls)
+        sub_names = set(subs)
+        for attrs in subs.values():
+            if attrs.get("name"):
+                sub_names.add(attrs["name"])
+            sub_names.update(_alias_specs(attrs.get("aliases")))
+        if method in sub_names:
             return group_cls
     raise KeyError(f"No handler registered as '{name}'.")
 
@@ -344,6 +361,12 @@ def _declared_name(cls):
     parent, not a new handler.
     """
     return cls.__dict__.get("_cli_name")
+
+
+def _declared_aliases(cls):
+    """Return *cls*'s own declared handler aliases — ``_cli_aliases``
+    set in the class's own ``__dict__``, like :func:`_declared_name`."""
+    return cls.__dict__.get("_cli_aliases") or ()
 
 
 def _nearest_named(cls):
@@ -368,6 +391,21 @@ def _subcommand_methods(cls):
             if mark is not None:
                 methods[name] = mark
     return methods
+
+
+def _alias_specs(aliases):
+    """Normalize an ``aliases`` marker value to ``{name: per-alias attrs}``.
+
+    Accepts a single name, an iterable of names, or a mapping of
+    alias → per-alias attrs (``{"shell": {"hidden": True}}``).
+    """
+    if not aliases:
+        return {}
+    if isinstance(aliases, str):
+        return {aliases: {}}
+    if isinstance(aliases, dict):
+        return {name: attrs or {} for name, attrs in aliases.items()}
+    return {name: {} for name in aliases}
 
 
 def _resolve_candidates():

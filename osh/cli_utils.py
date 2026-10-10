@@ -46,13 +46,21 @@ class ExtensibleCommand(click.Command):
         if self.method is not None:
             # Method-level extension targets keep their own lazy trigger:
             # ``extends = ["db.list"]`` imports the plugin only when the
-            # ``db list`` command is composed.
-            from .handlers import _declared_name
+            # ``db list`` command is composed. Aliases are targets too —
+            # ``extends = ["db.exec"]`` fires for ``db shell`` and vice
+            # versa, since both dispatch to the same method.
+            from .handlers import _alias_specs, _declared_name, _subcommand_methods
             from .utils.plugin_loader import ensure_declared
 
             name = _declared_name(cls)
             if name:
-                ensure_declared("extends", f"{name}.{self.method}")
+                attrs = _subcommand_methods(cls).get(self.method) or {}
+                targets = {self.method}
+                if attrs.get("name"):
+                    targets.add(attrs["name"])
+                targets.update(_alias_specs(attrs.get("aliases")))
+                for target in targets:
+                    ensure_declared("extends", f"{name}.{target}")
         return cls.effective()
 
     def get_params(self, ctx):
@@ -79,8 +87,14 @@ class ExtensibleCommand(click.Command):
             handler.format_cli_help(formatter)
 
 
-def handler_command(name, cls):
-    """Build the ``click.Command`` exposing handler *cls* as *name*."""
+def handler_command(name, cls, *, hidden=None):
+    """Build the ``click.Command`` exposing handler *cls* as *name*.
+
+    *hidden* overrides the handler's ``_cli_hidden`` — used for
+    compatibility aliases registered under extra names.
+    """
+    if hidden is None:
+        hidden = cls._cli_hidden
 
     @click.pass_context
     def callback(ctx, **kwargs):
@@ -96,7 +110,7 @@ def handler_command(name, cls):
         params=[],
         help=inspect.getdoc(cls),
         context_settings=cls._cli_context_settings,
-        hidden=cls._cli_hidden,
+        hidden=hidden,
         handler=cls,
     )
 
@@ -108,13 +122,19 @@ def handler_group(name, cls):
     method becomes one command: its name comes from the marker's ``name``
     (defaulting to the method name), its ``--help`` body from the method
     docstring and its parameters from the method's click decorators plus
-    an optional ``<method>_options()`` hook.
+    an optional ``<method>_options()`` hook. ``aliases`` registers extra
+    command names dispatching to the same method; each alias inherits
+    the marker's attrs (``hidden`` included) unless the alias's own
+    attrs override them — see :func:`osh.handlers._alias_specs`.
     """
-    from .handlers import _subcommand_methods
+    from .handlers import _alias_specs, _subcommand_methods
 
     group = NaturalOrderGroup(name=name, help=inspect.getdoc(cls))
     for method, attrs in _subcommand_methods(cls).items():
         group.add_command(method_command(cls, method, attrs))
+        for alias, alias_attrs in _alias_specs(attrs.get("aliases")).items():
+            merged = {**attrs, "name": alias, **alias_attrs}
+            group.add_command(method_command(cls, method, merged))
     return group
 
 

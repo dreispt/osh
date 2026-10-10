@@ -54,7 +54,7 @@ Commands follow a noun/verb rule: anything that operates on a persistent
 resource is `osh <noun> <verb>` (`osh db set`, `osh backup restore`,
 `osh db update`), while bare top-level verbs are
 reserved for the primary day-to-day workflow actions (`osh init`,
-`osh stop`, `osh odoo`, `osh shell`, `osh test`). Verbs may
+`osh stop`, `osh odoo`, `osh exec`, `osh test`). Verbs may
 deliberately diverge between groups when the underlying concepts differ —
 `osh db uninstall` removes an Odoo module while `pip uninstall`
 removes an osh plugin, and `osh db set`/`unset` moves a mutable pointer
