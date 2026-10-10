@@ -330,7 +330,7 @@ pipx inject osh git+https://github.com/dreispt/osh-contrib
 
 Highlights include:
 
-- `osh db uninstall mod_a,mod_b` — uninstall modules and their installed dependents.
+- `osh apps uninstall mod_a,mod_b` — uninstall modules and their installed dependents.
 - `osh odoo --open` — print the browser URL once Odoo is ready
   (`--open` also opens it).
 
