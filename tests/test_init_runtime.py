@@ -168,7 +168,7 @@ def test_init_asks_runtime_on_first_run(tmp_path, monkeypatch, user_config):
     result = CliRunner().invoke(
         main,
         ["init", "19.0", str(target), "--edition", "ce"],
-        input="3\ny\n",
+        input="venv\ny\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -189,12 +189,12 @@ def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config
     result = CliRunner().invoke(
         main,
         ["init", "--runtime", "ask", "--edition", "ce", "--yes"],
-        input="9\n3\n",
+        input="9\nvenv\n",
     )
 
     assert result.exit_code == 0, result.output
     assert "1. host" in result.output
-    assert "3. venv" in result.output
+    assert ". venv" in result.output
     assert _active_runtime(in_project) == "venv"
     assert get_user_preference("runtime", section="init") == "venv"
 
@@ -246,11 +246,11 @@ def test_init_offers_runtime_with_stored_default(in_project, monkeypatch, user_c
     user_config.write_text('[init]\nruntime = "venv"\n')
     _as_tty(monkeypatch)
 
-    result = CliRunner().invoke(main, ["init", "--edition", "ce"], input="1\ny\n")
+    result = CliRunner().invoke(main, ["init", "--edition", "ce"], input="host\ny\n")
 
     assert result.exit_code == 0, result.output
-    # The stored 'venv' default is marked; the user picked 'host' (1).
-    assert "3. venv *" in result.output
+    # The stored 'venv' default is marked; the user picked 'host'.
+    assert ". venv *" in result.output
     assert _active_runtime(in_project) == "host"
 
 
@@ -443,8 +443,11 @@ def test_init_help_shows_core_options_and_runtime_commands():
 
     assert result.exit_code == 0, result.output
     assert "-r, --runtime" in result.output
-    # Each runtime is listed as a subcommand; foreign options are not shown.
-    for name in ("docker", "host", "venv"):
+    # Each registered runtime is listed as a subcommand; foreign options
+    # are not shown.
+    from osh.utils.plugin_loader import runtime_meta
+
+    for name in runtime_meta():
         assert f"\n  {name} " in result.output or f"\n  {name}\n" in result.output
     assert "Runtimes" not in result.output
     # Option rows start a line with two spaces — docstring examples don't.

@@ -359,7 +359,7 @@ class TestInitVersion:
         result = CliRunner().invoke(
             main,
             ["init", "--edition", "ce", str(tmp_project)],
-            input="17.0\n1\ny\n",
+            input="17.0\nhost\ny\n",
         )
 
         assert result.exit_code == 0, result.output
@@ -442,7 +442,7 @@ class TestInitVersion:
         result = CliRunner().invoke(
             main,
             ["init", "--edition", "ce", str(tmp_project)],
-            input="\n1\ny\n",
+            input="\nhost\ny\n",
         )
 
         assert result.exit_code == 0, result.output
