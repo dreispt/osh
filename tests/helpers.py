@@ -1,5 +1,7 @@
 """Helper functions shared by ``tests/`` and plugin test directories."""
 
+import contextlib
+import io
 import os
 import socket
 import subprocess
@@ -83,6 +85,32 @@ def make_bare_repo(tmp_path, name, branches=("master",)):
         capture_output=True,
     )
     return bare
+
+
+@contextlib.contextmanager
+def menu_terminal(monkeypatch, keys):
+    """Patch stdin/stdout so ``termui.choose`` runs its arrow-key menu.
+
+    *keys* are bytes written to the pty master — already in raw mode, so
+    they reach the menu exactly as a terminal would send them (e.g.
+    ``b"\\x1b[B\\r"`` for Down + Enter).
+    """
+    import tty
+
+    master, slave = os.openpty()
+    stdout = io.StringIO()
+    try:
+        tty.setraw(slave)
+        stdin = os.fdopen(os.dup(slave), "r", encoding="utf-8")
+        os.write(master, keys)
+        monkeypatch.setattr(sys, "stdin", stdin)
+        monkeypatch.setattr(sys, "stdout", stdout)
+        monkeypatch.setenv("TERM", "xterm")
+        yield stdout
+    finally:
+        stdin.close()
+        os.close(master)
+        os.close(slave)
 
 
 # Real processes and ports -------------------------------------------------

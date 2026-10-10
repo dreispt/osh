@@ -108,6 +108,12 @@ def parse_version_output(text):
 
 # ``osh init`` project heuristics --------------------------------------------
 
+# Recent stable series offered by the interactive version prompt, newest
+# first — a suggestion list, not a validity gate ("master", saas and older
+# versions stay reachable via "Other…"). Keep in sync with the venv
+# plugin's ``ODOO_PYTHON_VERSIONS`` when a new Odoo release lands.
+KNOWN_ODOO_SERIES = ("19.0", "18.0", "17.0", "16.0")
+
 _REF_VERSION = re.compile(r"saas-\d+\.\d+|\d+\.\d+")
 
 _MANIFEST_VERSION = re.compile(r"""['"]version['"]\s*:\s*['"](?:saas-)?(\d+\.\d+)""")

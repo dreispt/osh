@@ -24,6 +24,7 @@ from .common import (
     get_osh_odoo_config_path,
     git_current_branch,
 )
+from .termui import choose
 
 
 def sanitize_db_name(name):
@@ -474,17 +475,9 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     options.append(("a", "Abort"))
 
     echo.warning(f"Database '{db_name}' does not exist.")
-    for num, (key, label) in enumerate(options):
-        default_marker = "  [default]" if num == 0 else ""
-        echo.info(f"  [{key}] {label}{default_marker}")
-
-    keys = [key for key, _ in options]
-    choice = click.prompt(
-        "Choice",
-        type=click.Choice(keys, case_sensitive=False),
-        default=keys[0],
-        show_choices=False,
-    ).lower()
+    choice = choose(
+        None, options, default=options[0][0], prompt="Choice", case_sensitive=False
+    )
 
     if choice == "a":
         raise click.Abort()

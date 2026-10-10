@@ -9,6 +9,7 @@ import click
 
 from .... import echo
 from ....backup_sources import BackupSource, SourceError, now_stamp, safe_name
+from ....termui import choose
 
 
 class HttpsSource(BackupSource):
@@ -75,11 +76,14 @@ class HttpsSource(BackupSource):
         """Prompt for the backup format when it is not in the URL."""
         if not sys.stdin.isatty():
             return "sql"
-        return click.prompt(
-            "Backup format (sql=plain SQL, dump=compressed pg_dump, zip=with filestore)",
+        return choose(
+            "Backup format",
+            [
+                ("sql", "sql — plain SQL"),
+                ("dump", "dump — compressed pg_dump"),
+                ("zip", "zip — with filestore"),
+            ],
             default="sql",
-            type=click.Choice(["sql", "zip", "dump"]),
-            show_default=True,
             err=True,
         )
 
