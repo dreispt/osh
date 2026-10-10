@@ -78,8 +78,8 @@ class Init(CommandHandler):
 
     The selected runtime is remembered in the user configuration and used
     as the default for later ``osh init`` runs. An interactive run offers
-    the runtime menu with the stored default preselected;
-    ``--runtime=ask`` forces the prompt when it would not appear.
+    the runtime menu with the stored default preselected; ``--ask``
+    forces the prompt when it would not appear.
     ``--runtime=<name>`` (``-r``) remains for compatibility — ``osh init
     <name>`` is the equivalent subcommand form.
 
@@ -97,7 +97,7 @@ class Init(CommandHandler):
       osh init venv 19.0 --ee
       osh init docker --service odoo   # docker runtime options live on it
       osh init host                    # back to host execution
-      osh init --runtime ask           # choose interactively, remember it
+      osh init --ask                   # choose interactively, remember it
       osh init ./another-project
       osh init 19.0 --dry-run
       osh init                         # report the project's status
@@ -156,7 +156,14 @@ class Init(CommandHandler):
         help="Runtime to set up and make active (host, venv, docker, ...); "
         "remembered as your default for future projects. "
         "'osh init <name>' is the equivalent subcommand form. "
-        "Use 'ask' to choose interactively.",
+        "--ask chooses interactively.",
+    )
+    @click.option(
+        "--ask",
+        "ask",
+        is_flag=True,
+        help="Ask which runtime to use, even when a stored or detected "
+        "default would apply without prompting.",
     )
     @click.option(
         "--edition",
@@ -263,6 +270,7 @@ class Init(CommandHandler):
             and self.directory is None
             and self.runtime_name is None
             and self.edition is None
+            and not self.ask
             and not self.save
             and self.dev
             and not self.dry_run
@@ -272,17 +280,20 @@ class Init(CommandHandler):
     def _resolve_runtime_name(self):
         """Resolve which runtime to set up: flag, prompt, or stored default.
 
-        An explicit ``--runtime=<name>`` wins; ``--runtime=ask`` always
-        prompts. A bare ``--fingerprint`` targets the project's active
-        runtime — it re-baselines the environment in use. Without a flag
-        an interactive run offers the numbered runtime choice (the stored
-        default preselected, so accepting it is a single Enter); a
-        non-interactive run applies the stored default silently. Returns
-        ``None`` when nothing was chosen — a plain host setup.
+        An explicit ``--runtime=<name>`` wins; ``--ask`` always prompts
+        (the legacy ``--runtime=ask`` value does the same). A bare
+        ``--fingerprint`` targets the project's active runtime — it
+        re-baselines the environment in use. Without a flag an
+        interactive run offers the runtime choice (the stored default
+        preselected, so accepting it is a single Enter); a non-interactive
+        run applies the stored default silently. Returns ``None`` when
+        nothing was chosen — a plain host setup.
         """
         name = self.runtime_name
         stored = get_user_preference("runtime", section="init")
-        if name == "ask":
+        if self.ask and name not in (None, "ask"):
+            raise click.ClickException("--ask and --runtime are mutually exclusive.")
+        if self.ask or name == "ask":
             return self._ask_runtime(stored)
         if name is None:
             if self.fingerprint:
@@ -297,7 +308,7 @@ class Init(CommandHandler):
     def _ask_runtime(self, stored):
         """Prompt for the runtime to use; *stored* is the default answer."""
         if not sys.stdin.isatty():
-            raise click.ClickException("'--runtime=ask' needs an interactive terminal.")
+            raise click.ClickException("'--ask' needs an interactive terminal.")
         # ``host`` first — it is the "no managed environment" choice —
         # then the plugin runtimes alphabetically. Names and numbers are
         # both accepted, so an added runtime shifts nobody's answer.

@@ -24,6 +24,8 @@ section collects the release notes for the next version as changes land on
   highlighted: `osh init`'s Odoo version, edition and runtime questions,
   the missing-database choice and the backup format. Non-interactive
   terminals keep the typed prompt.
+- `osh init --ask` asks which runtime to use (was `--runtime=ask`, still
+  accepted).
 
 ### Changed
 
