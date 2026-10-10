@@ -258,6 +258,8 @@ def warn_unresolved_meta():
         provided.update(_spec_declared_names(spec))
     from ..handlers import (
         CommandHandler,
+        _alias_specs,
+        _declared_aliases,
         _declared_name,
         _subcommand_methods,
         _walk_subclasses,
@@ -266,7 +268,14 @@ def warn_unresolved_meta():
     for cls in _walk_subclasses(CommandHandler):
         if name := _declared_name(cls):
             provided.add(name)
-            provided.update(f"{name}.{method}" for method in _subcommand_methods(cls))
+            provided.update(_declared_aliases(cls))
+            for method, attrs in _subcommand_methods(cls).items():
+                provided.add(f"{name}.{method}")
+                if sub_name := attrs.get("name"):
+                    provided.add(f"{name}.{sub_name}")
+                provided.update(
+                    f"{name}.{alias}" for alias in _alias_specs(attrs.get("aliases"))
+                )
     for spec in registry.specs.values():
         if spec.legacy_marker:
             echo.warning(

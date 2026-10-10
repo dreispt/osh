@@ -21,6 +21,7 @@ def test_core_commands_resolve_to_their_handlers():
 
     expected = {
         "shell": shell_cmd.ShellRun,
+        "exec": shell_cmd.ShellRun,
         "init": init_cmd.Init,
         "stop": stop_cmd.Stop,
         "db": db_cmd.Db,
@@ -29,6 +30,7 @@ def test_core_commands_resolve_to_their_handlers():
         "db.set": db_cmd.Db,
         "db.copy": db_cmd.Db,
         "db.shell": db_cmd.Db,
+        "db.exec": db_cmd.Db,
         "db.unset": db_cmd.Db,
         "config": config_cmd.Config,
         "config.show": config_cmd.Config,
@@ -372,7 +374,7 @@ def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):
     )
 
     monkeypatch.chdir(tmp_project)
-    result = CliRunner().invoke(db, ["shell", "psql"])
+    result = CliRunner().invoke(db, ["exec", "psql"])
 
     assert result.exit_code == 0, result.output
     assert seen["db_env"].argv == ["psql"]

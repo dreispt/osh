@@ -58,7 +58,7 @@ class DoodbaRuntime(_docker_runtimes.DockerRuntime):
         "the dev compose file (docker-compose.yml or devel.yaml) — or offers "
         "to scaffold the layout with copier — builds the image and runs the "
         "'devel-setup' git-aggregation that populates odoo/custom/src.\n\n"
-        "Afterwards 'osh odoo'/'osh shell' exec into the sleeping 'odoo' "
+        "Afterwards 'osh odoo'/'osh exec' exec into the sleeping 'odoo' "
         "service like the docker runtime; Odoo is reachable through "
         "odoo_proxy on port <odoo-major>069 (e.g. 19069), and 'osh odoo -p' "
         "republishes the service directly. 'osh stop --volumes' also drops "

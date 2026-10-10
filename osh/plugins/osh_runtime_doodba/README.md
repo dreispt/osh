@@ -6,7 +6,7 @@ Point `osh init doodba` at your existing project and Osh adopts it
 as-is — the `devel.yaml` dev stack, `repos.yaml` aggregation, the
 `odoo_proxy` port convention, `odoo/custom` build inputs. Nothing is
 rewritten, nothing moves: Osh learns Doodba's conventions instead of
-asking you to learn Osh's. From then on `osh odoo`, `osh shell`,
+asking you to learn Osh's. From then on `osh odoo`, `osh exec`,
 `osh db` and `osh stop` drive the same containers your `invoke` tasks
 do — plus the extras Osh adds on top: fingerprint-gated image rebuilds
 that notice when `build.d` or `dependencies` change, generated branch
@@ -62,7 +62,7 @@ aggregation owns every checkout, including Enterprise via `repos.yaml`.
 
 ## Running
 
-`osh odoo`, `osh shell`, `osh db shell` and `osh stop` behave as under the
+`osh odoo`, `osh exec`, `osh db exec` and `osh stop` behave as under the
 `docker` runtime: `compose up -d` starts the stack (odoo sleeps via the
 generated Osh override), then `compose exec odoo …` runs the command.
 

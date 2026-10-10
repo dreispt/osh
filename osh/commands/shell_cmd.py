@@ -1,9 +1,9 @@
-"""`osh shell` command implementation.
+"""`osh exec` command implementation.
 
-``osh shell`` enters the project's runtime environment (local virtualenv or
+``osh exec`` enters the project's runtime environment (local virtualenv or
 Docker container) with ``ODOO_RC`` and PostgreSQL connection variables already
 set for the active branch/database. Other commands, such as ``osh odoo``, build
-on top of it.
+on top of it. ``osh shell`` remains registered as a hidden alias.
 """
 
 import configparser
@@ -144,18 +144,21 @@ class ShellRun(CommandHandler):
     Examples:
 
     \b
-      osh shell
-      osh shell odoo --version
-      osh shell psql
-      osh shell odoo -i base
+      osh exec
+      osh exec odoo --version
+      osh exec psql
+      osh exec odoo -i base
     """
 
     # Extension surface: parsed params (``dry_run``, ``compose_file``,
     # ``extra_args``) plus ``base``, ``runtime``, ``args``, ``db_name`` and
     # ``env_spec`` as ``run()`` fills them in; ``execute()`` dispatches on
-    # ``use_db_env`` — set by ``db shell`` to enter the database
-    # environment instead of the project one.
+    # ``use_db_env`` — set by ``db exec`` to enter the database
+    # environment instead of the project one. The handler name stays
+    # ``shell`` so existing ``extends = ["shell"]`` plugins keep working;
+    # ``exec`` is declared an alias so it resolves and extends too.
     _cli_name = "shell"
+    _cli_aliases = ("exec",)
     _cli_context_settings = dict(ignore_unknown_options=True)
 
     dry_run = False
@@ -221,7 +224,11 @@ class ShellRun(CommandHandler):
         env_fn(self.ctx, self.base, self.env_spec, dry_run=self.dry_run)
 
 
-shell = handler_command("shell", ShellRun)
+exec_cmd = handler_command("exec", ShellRun)
+
+# ``osh shell`` keeps working as a hidden alias of ``osh exec``
+# (mirroring ``ShellRun._cli_aliases``).
+shell = handler_command("shell", ShellRun, hidden=True)
 
 
 def parse_explicit_db(extra_args):

@@ -1,4 +1,4 @@
-"""Tests for ``osh shell`` command implementation."""
+"""Tests for ``osh exec`` command implementation (``osh shell`` is its hidden alias)."""
 
 import os
 import re
@@ -6,7 +6,7 @@ import re
 from click.testing import CliRunner
 
 from osh.cli import main
-from osh.commands.shell_cmd import build_dynamic_odoo_config, shell
+from osh.commands.shell_cmd import build_dynamic_odoo_config, exec_cmd, shell
 from osh.runtimes import HostRuntime
 
 
@@ -27,8 +27,17 @@ def _use_runtime(project, name):
     set_project_config(project, "run", "runtime", name)
 
 
-def test_shell_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
-    """``osh shell`` with no arguments launches a shell in the environment."""
+def _listed_commands(output):
+    """Return the command names shown as rows in click help output."""
+    return {
+        match.group(1)
+        for line in output.splitlines()
+        if (match := re.match(r"^  ([a-z][a-z0-9_-]*)  +\S", line))
+    }
+
+
+def test_exec_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
+    """``osh exec`` with no arguments launches a shell in the environment."""
     venv_bin = tmp_project / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
     (venv_bin / "odoo").write_text("#!/bin/sh\necho odoo")
@@ -51,7 +60,7 @@ def test_shell_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, [])
+    result = runner.invoke(exec_cmd, [])
 
     assert result.exit_code == 0, result.output
     exe, args, exec_env = calls[0]
@@ -64,8 +73,8 @@ def test_shell_opens_interactive_shell_with_env_vars(tmp_project, monkeypatch):
     assert exec_env.get("PGUSER") == "odoo"
 
 
-def test_shell_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
-    """``osh shell <cmd>`` executes the command with the env active."""
+def test_exec_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
+    """``osh exec <cmd>`` executes the command with the env active."""
     venv_bin = tmp_project / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
     (venv_bin / "psql").write_text("#!/bin/sh\necho psql")
@@ -81,7 +90,7 @@ def test_shell_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["psql", "-l"])
+    result = runner.invoke(exec_cmd, ["psql", "-l"])
 
     assert result.exit_code == 0, result.output
     exe, args, exec_env = calls[0]
@@ -90,8 +99,8 @@ def test_shell_runs_command_in_environment(tmp_project, branch_db, monkeypatch):
     assert "ODOO_RC" in exec_env
 
 
-def test_shell_tool_passthrough_skips_missing_db_prompt(tmp_project, monkeypatch):
-    """``osh shell psql -l`` runs even when the branch database is missing.
+def test_exec_tool_passthrough_skips_missing_db_prompt(tmp_project, monkeypatch):
+    """``osh exec psql -l`` runs even when the branch database is missing.
 
     Tool commands get the project env (``PGDATABASE`` and friends) without
     the create/copy prompt — that prompt is for Odoo runs.
@@ -110,15 +119,15 @@ def test_shell_tool_passthrough_skips_missing_db_prompt(tmp_project, monkeypatch
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["psql", "-l"])
+    result = runner.invoke(exec_cmd, ["psql", "-l"])
 
     assert result.exit_code == 0, result.output
     assert calls and calls[0][1] == ["psql", "-l"]
     assert calls[0][2]["PGDATABASE"] == "project-default"
 
 
-def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch):
-    """``osh shell`` creates a branch/db specific config in ``.osh/cache/env``."""
+def test_exec_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch):
+    """``osh exec`` creates a branch/db specific config in ``.osh/cache/env``."""
     _setup_venv(tmp_project)
     osh_dir = tmp_project / ".osh"
     (osh_dir / "odoo" / "addons").mkdir(parents=True, exist_ok=True)
@@ -133,7 +142,7 @@ def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["odoo-bin", "--version"])
+    result = runner.invoke(exec_cmd, ["odoo-bin", "--version"])
 
     assert result.exit_code == 0, result.output
     conf = tmp_project / ".osh" / "cache" / "env" / f"default-{branch_db}.conf"
@@ -145,14 +154,14 @@ def test_shell_generates_dynamic_odoo_config(tmp_project, branch_db, monkeypatch
     assert f"dbfilter = ^{re.escape(branch_db)}$" in text
 
 
-def test_shell_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
-    """``osh shell --dry-run`` writes the generated config so it can be inspected."""
+def test_exec_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
+    """``osh exec --dry-run`` writes the generated config so it can be inspected."""
     _setup_venv(tmp_project)
     _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["--dry-run"])
+    result = runner.invoke(exec_cmd, ["--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert "Would run:" in result.output
@@ -161,7 +170,7 @@ def test_shell_dry_run_writes_config(tmp_project, branch_db, monkeypatch):
     assert "db_name" in conf_files[0].read_text()
 
 
-def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
+def test_exec_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     """An explicit ``--config`` argument disables the generated config."""
     _setup_venv(tmp_project)
     _use_runtime(tmp_project, "venv")
@@ -174,7 +183,7 @@ def test_shell_explicit_config_skips_dynamic_config(tmp_project, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["--", "odoo-bin", "--config", "/other/odoo.conf"])
+    result = runner.invoke(exec_cmd, ["--", "odoo-bin", "--config", "/other/odoo.conf"])
 
     assert result.exit_code == 0, result.output
     assert not (tmp_project / ".osh" / "cache").exists()
@@ -226,8 +235,8 @@ def test_build_dynamic_odoo_config_no_db_filter(tmp_project):
     assert "dbfilter" not in text
 
 
-def test_db_shell_matches_osh_shell_on_venv(tmp_project, monkeypatch):
-    """``osh db shell`` on a host-like runtime behaves like ``osh shell``."""
+def test_db_exec_matches_osh_exec_on_venv(tmp_project, monkeypatch):
+    """``osh db exec`` on a host-like runtime behaves like ``osh exec``."""
     _setup_venv(tmp_project)
     _use_runtime(tmp_project, "venv")
     monkeypatch.chdir(tmp_project)
@@ -240,7 +249,7 @@ def test_db_shell_matches_osh_shell_on_venv(tmp_project, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, ["db", "shell"])
+    result = runner.invoke(main, ["db", "exec"])
 
     assert result.exit_code == 0, result.output
     exe, args, exec_env = calls[0]
@@ -249,8 +258,8 @@ def test_db_shell_matches_osh_shell_on_venv(tmp_project, monkeypatch):
     assert exec_env["PGDATABASE"] == "project-default"
 
 
-def test_shell_does_not_record_last_used_database(tmp_project, branch_db, monkeypatch):
-    """``osh shell`` never records the resolved database as last used."""
+def test_exec_does_not_record_last_used_database(tmp_project, branch_db, monkeypatch):
+    """``osh exec`` never records the resolved database as last used."""
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
@@ -263,14 +272,14 @@ def test_shell_does_not_record_last_used_database(tmp_project, branch_db, monkey
     )
 
     runner = CliRunner()
-    result = runner.invoke(shell, [])
+    result = runner.invoke(exec_cmd, [])
 
     assert result.exit_code == 0, result.output
     assert get_last_db(tmp_project) is None
 
 
-def test_shell_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeypatch):
-    """``osh shell --dry-run`` does not touch the last used database record."""
+def test_exec_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeypatch):
+    """``osh exec --dry-run`` does not touch the last used database record."""
     from osh.db import get_last_db
 
     _setup_venv(tmp_project)
@@ -278,7 +287,61 @@ def test_shell_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeyp
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(shell, ["--dry-run"])
+    result = runner.invoke(exec_cmd, ["--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert get_last_db(tmp_project) is None
+
+
+def test_shell_is_a_hidden_alias_of_exec(tmp_project, monkeypatch):
+    """``osh shell`` still works but is hidden from ``osh --help``."""
+    from osh.commands.db_cmd import db
+
+    assert main.commands["exec"] is exec_cmd
+    assert main.commands["shell"] is shell and shell.hidden
+    assert db.commands["shell"].hidden
+    assert "exec" in db.commands
+
+    _setup_venv(tmp_project)
+    _use_runtime(tmp_project, "venv")
+    monkeypatch.chdir(tmp_project)
+
+    calls = []
+    monkeypatch.setattr(
+        "osh.runtimes.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args))),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["shell", "psql", "-l"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0][1] == ["psql", "-l"]
+
+    result = runner.invoke(main, ["--help"])
+    assert "exec" in _listed_commands(result.output)
+    assert "shell" not in _listed_commands(result.output)
+
+    result = runner.invoke(main, ["db", "--help"])
+    assert "exec" in _listed_commands(result.output)
+    assert "shell" not in _listed_commands(result.output)
+
+
+def test_db_shell_is_a_hidden_alias_of_db_exec(tmp_project, monkeypatch):
+    """``osh db shell`` still dispatches to the ``db exec`` implementation."""
+    _setup_venv(tmp_project)
+    _use_runtime(tmp_project, "venv")
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+
+    calls = []
+    monkeypatch.setattr(
+        "osh.runtimes.os.execvpe",
+        lambda exe, args, env: calls.append((exe, list(args), env)),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["db", "shell", "psql"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0][1] == ["psql"]

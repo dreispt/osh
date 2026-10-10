@@ -6,7 +6,7 @@ for executing Odoo, including subcommands such as ``shell``, ``neutralize`` and
 ``scaffold``.
 
 Environment preparation – addons path, database name and dbfilter – is handled
-by ``osh shell`` via the dynamic config in ``.osh/cache/env``.
+by ``osh exec`` via the dynamic config in ``.osh/cache/env``.
 """
 
 import os
@@ -44,7 +44,7 @@ class OdooRun(CommandHandler):
     ``shell``, ``neutralize`` or ``scaffold`` are supported.
 
     Environment preparation – addons path, database name and dbfilter – is handled
-    by ``osh shell`` through the dynamic config in ``.osh/cache/env``.
+    by ``osh exec`` through the dynamic config in ``.osh/cache/env``.
     ``ODOO_RC`` and the ``PG*`` connection variables are already exported into
     the subprocess environment.
 

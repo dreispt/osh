@@ -231,7 +231,7 @@ def test_shell_docker_runs_container_with_env_vars(
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, ["shell", "odoo", "-i", "base"])
+    result = runner.invoke(main, ["exec", "odoo", "-i", "base"])
 
     assert result.exit_code == 0, result.output
     assert len(calls) == 1

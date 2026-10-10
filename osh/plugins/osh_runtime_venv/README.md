@@ -22,7 +22,7 @@ For each requested edition `osh init --runtime=venv`:
 
 ## Execution model
 
-Commands (`osh odoo`, `osh shell`, `osh db`, `osh test`, ...) run on the
+Commands (`osh odoo`, `osh exec`, `osh db`, `osh test`, ...) run on the
 host with the virtualenv activated — `VIRTUAL_ENV` is set and
 `.venv/bin` is prepended to `PATH` — plus the usual `odoo`-config-derived
 environment. `find_odoo_executable` resolves the `odoo`/`odoo-bin` binary

@@ -23,7 +23,7 @@ declares none, Odoo's own default applies.
 
 An optional `db_service` key names the Compose service running PostgreSQL
 (`--db-service` on init); it defaults to `db`, matching the generated stack
-and Doodba. `osh db shell` opens a shell or runs commands in that service
+and Doodba. `osh db exec` opens a shell or runs commands in that service
 instead of the Odoo one — inside it, the postgres image's `POSTGRES_*`
 variables are mapped to the usual `PG*` ones.
 
@@ -74,7 +74,7 @@ variables are mapped to the usual `PG*` ones.
 
 ## Execution model
 
-The stack is kept running and reused: every `osh odoo` / `osh shell` /
+The stack is kept running and reused: every `osh odoo` / `osh exec` /
 `osh db` command first runs `docker compose ps --status running <service>`;
 when the service is down, `docker compose up -d` brings it (and its
 dependencies) up once — images are never rebuilt here (see
@@ -87,7 +87,7 @@ arguments itself:
 
 - `odoo`/`odoo-bin` invocations are wrapped to map the image's `HOST`,
   `USER`, `PASSWORD`, `PORT` variables to `--db_*` arguments.
-- Other commands (e.g. `psql` via `osh db` or `osh shell`) run with those
+- Other commands (e.g. `psql` via `osh db` or `osh exec`) run with those
   variables re-exported as the standard `PG*` names.
 
 Containers are intentionally **left running** after commands exit.
@@ -149,7 +149,7 @@ the project mount. For those, Osh generates
 `.osh/docker-compose.osh.yml`, a Compose override adding each one as a
 read-only volume under `/mnt/osh-src/<name>-<hash>`, and includes it in
 every `docker compose` invocation. It is regenerated on each run, so
-changing a link takes effect on the next `osh odoo`/`osh shell` (the stack
+changing a link takes effect on the next `osh odoo`/`osh exec` (the stack
 is recreated to pick up new mounts). The same override carries the
 `sleep infinity` command and `/mnt/extra-addons` mount on foreign stacks
 (see "Stack model"); the file is removed when nothing needs overriding.
