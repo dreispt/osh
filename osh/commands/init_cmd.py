@@ -54,8 +54,9 @@ from ..db import (
 )
 from ..handlers import CommandHandler
 from ..runtimes import copy_odoo_rc_to_osh_conf
+from ..termui import can_menu, choose
 from ..utils.plugin_loader import get_runtime_class, load_runtimes, runtime_meta
-from ..utils.version import detect_project_version
+from ..utils.version import KNOWN_ODOO_SERIES, detect_project_version
 from .extra_addons_cmd import extra_addons
 from .helpers import Diagnostics
 
@@ -77,7 +78,7 @@ class Init(CommandHandler):
 
     The selected runtime is remembered in the user configuration and used
     as the default for later ``osh init`` runs. An interactive run offers
-    the numbered runtime choice with the stored default preselected;
+    the runtime menu with the stored default preselected;
     ``--runtime=ask`` forces the prompt when it would not appear.
     ``--runtime=<name>`` (``-r``) remains for compatibility — ``osh init
     <name>`` is the equivalent subcommand form.
@@ -302,16 +303,7 @@ class Init(CommandHandler):
         # both accepted, so an added runtime shifts nobody's answer.
         choices = ["host"] + sorted(n for n in runtime_meta() if n != "host")
         default = stored if stored in choices else "host"
-        echo.info("Runtime:")
-        for index, name in enumerate(choices, 1):
-            marker = " *" if name == default else ""
-            echo.info(f"  {index}. {name}{marker}")
-        answer = click.prompt(
-            "Select",
-            type=click.Choice(choices + [str(i) for i in range(1, len(choices) + 1)]),
-            default=default,
-        )
-        return answer if answer in choices else choices[int(answer) - 1]
+        return choose("Runtime:", [(name, name) for name in choices], default=default)
 
     def _init_runtime(self, name, *, version, edition):
         """Run the runtime-init half of ``osh init`` and remember the choice."""
@@ -595,10 +587,11 @@ def resolve_init_inputs(
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         edition = _default_edition(target) or edition
         if not edition and not dry_run and not assume_yes and sys.stdin.isatty():
-            edition = click.prompt(
-                "Edition",
-                type=click.Choice(["ce", "ee", "sh"], case_sensitive=False),
+            edition = choose(
+                "Edition:",
+                [(code, f"{name} ({code})") for code, name in _EDITION_NAMES.items()],
                 default="ce",
+                case_sensitive=False,
             )
     edition = (edition or "ce").lower()
     return edition, version, enclosing
@@ -876,15 +869,40 @@ def _resolve_version(target, *, assume_yes, dry_run):
     if detected:
         echo.info(f"Detected Odoo {detected} from {source}.")
     if not dry_run and not assume_yes and sys.stdin.isatty():
-        if detected:
-            return click.prompt("Odoo version", default=detected)
-        return click.prompt("Odoo version")
+        return _ask_version(detected)
     if detected:
         return detected
     raise click.ClickException(
         "Missing VERSION. Pass the Odoo version (e.g. 'osh init 19.0'), or "
         "run inside a project that already records one."
     )
+
+
+def _ask_version(detected):
+    """Prompt for the Odoo version; *detected* is the preselected guess.
+
+    On a capable terminal an arrow-key list offers the recent series —
+    the detected version is injected first when it is not one of them —
+    plus ``master`` and an ``Other…`` escape to free typing, since VERSION
+    is an open value (``saas-19.4``-style branches included). Other
+    terminals keep the plain free-text prompt.
+    """
+    if not can_menu():
+        if detected:
+            return click.prompt("Odoo version", default=detected)
+        return click.prompt("Odoo version")
+    options = []
+    if detected and detected not in KNOWN_ODOO_SERIES and detected != "master":
+        options.append((detected, f"{detected} (detected)"))
+    options.extend((v, v) for v in KNOWN_ODOO_SERIES)
+    options.append(("master", "master (development branch)"))
+    options.append(("other", "Other version…"))
+    choice = choose("Odoo version:", options, default=detected or KNOWN_ODOO_SERIES[0])
+    if choice == "other":
+        if detected:
+            return click.prompt("Odoo version", default=detected)
+        return click.prompt("Odoo version")
+    return choice
 
 
 def _default_edition(target):

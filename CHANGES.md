@@ -20,6 +20,10 @@ section collects the release notes for the next version as changes land on
 - `osh odoo` adds demo data to newly created dev databases and checks the
   HTTP port is free before running.
 - Docker runtime: overridable init hooks and prepare/execute script writers.
+- Interactive pick-one prompts are arrow-key menus with the current row
+  highlighted: `osh init`'s Odoo version, edition and runtime questions,
+  the missing-database choice and the backup format. Non-interactive
+  terminals keep the typed prompt.
 
 ### Changed
 
