@@ -2,7 +2,7 @@
 
 `osh test` is a thin wrapper around `osh odoo` that adds test-specific
 options and generates the right `-i`/`-u`/`--test-enable` arguments. It runs
-on the project's active runtime (see ``osh init --runtime=<name>``).
+on the project's active runtime (see ``osh init <runtime>``).
 """
 
 import click

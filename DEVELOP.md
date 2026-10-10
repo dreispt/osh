@@ -70,7 +70,7 @@ subproject that needs a different Odoo version. The innermost `.osh` always
 wins: commands run inside a nested project use its environment, and the
 parent project no longer applies there.
 
-Creating one is deliberate: `osh init` (and `osh init --runtime=<name>`) detects
+Creating one is deliberate: `osh init` (and `osh init <runtime>`) detects
 when the target is inside an existing project and asks for confirmation,
 recording the enclosing project as `parent` under `[init]` in the nested
 `.osh/config.toml`. Initialising inside the parent's `.osh/` directory

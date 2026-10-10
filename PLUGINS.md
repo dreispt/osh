@@ -266,8 +266,8 @@ A fallback name that itself collides is an error, and the command is
 skipped — the fix is to rename the command in the plugin's
 `[tool.osh]` declarations.
 
-Runtime and backup source names are functional identifiers (`--runtime
-<name>` values and `<scheme>://` prefixes), so they cannot be renamed —
+Runtime and backup source names are functional identifiers (`osh init
+<name>` subcommands and `<scheme>://` prefixes), so they cannot be renamed —
 a collision is an error and the contribution is skipped.
 
 ### Built-in plugins
@@ -422,11 +422,11 @@ class MyRuntime(Runtime):
 
 Two core commands drive a runtime's lifecycle:
 
-- `osh init --runtime=<name>` runs the common base setup, then the
-  runtime's `init()` (its `get_init_options()` are merged onto
-  `osh init`), and records `run.runtime = <name>` in
+- `osh init <name>` runs the common base setup, then the
+  runtime's `init()` (its `get_init_options()` are exposed on the
+  `osh init <name>` subcommand), and records `run.runtime = <name>` in
   `.osh/config.toml` — the active runtime `osh odoo`/`osh shell`/`osh db`
-  run through. `osh init --runtime=host` is the way back to host
+  run through. `osh init host` is the way back to host
   execution.
 - `osh init` on an initialized project reports status and calls the
   active runtime's `status()` hook.
@@ -437,8 +437,8 @@ Two core commands drive a runtime's lifecycle:
   adds every runtime's `port_holders()` on the project's `odoo_port()`.
 
 The runtime class is imported only when the runtime is selected or one
-of these hooks runs — listing runtimes in `--help` and `osh init`'s
-status report reads the declared descriptions instead.
+of these hooks runs — listing runtime subcommands in `osh init --help`
+and `osh init`'s status report reads the declared descriptions instead.
 
 Plugins should use `get_active_runtime_name`,
 `set_active_runtime_name` and `resolve_runtime` from `osh.db` rather than
@@ -446,7 +446,7 @@ reading the keys directly. Built-in examples:
 `osh/plugins/osh_runtime_docker/` (Docker Compose) and
 `osh/plugins/osh_runtime_venv/` (managed virtualenv). The core `host`
 runtime (`HostRuntime`) is the "bring your own Odoo" default — it runs
-the machine's Odoo, optionally pinned by `osh init --runtime=host
+the machine's Odoo, optionally pinned by `osh init host
 --odoo-command`/`--odoo-conf` — and stops a host Odoo process listening
 on the project's HTTP port.
 
@@ -455,7 +455,7 @@ on the project's HTTP port.
 ```python
 class MyRuntime(Runtime):
     runtime_type = "runtime"
-    name = "my-target"              # Selected via `osh init --runtime=my-target`
+    name = "my-target"              # Selected via `osh init my-target`
     label = "My Target"             # Short label shown to users
     description = "Runs Odoo on my custom target."
     help_text = "Long help text for --help."
@@ -463,10 +463,11 @@ class MyRuntime(Runtime):
 
 #### Runtime class methods
 
-- `get_init_options(cls)`: return a list of `click.Option` instances that
-  `osh init --runtime=<name>` should accept, on top of the common init
+- `get_init_options(cls)`: return a list of `click.Option` instances for
+  the `osh init <name>` subcommand, on top of the common init
   options (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
-  They are merged onto `osh init` itself — a user passing one without
+  On the compatibility `osh init --runtime=<name>` path they stay
+  parseable (hidden from `--help`) — a user passing one without
   selecting the runtime gets a warning. The parsed values are passed to
   `init()` as `**options`.
 
@@ -493,13 +494,13 @@ class MyRuntime(Runtime):
   tag).
 
 - `diagnose(self, base, ctx=None, **options)`: inspect the project and system.
-  Return a `Diagnostics` object. `osh init --runtime=<name>` and
+  Return a `Diagnostics` object. `osh init <name>` and
   `osh odoo` both use this. `options` may include `phase` (`"init"`
   or `"run"`) and any CLI options passed by the command.
 
 - `init(self, target, *, version="", edition="ce", dry_run=False, **options)`:
   prepare `target` for use and return `True` when ready. This is called by
-  `osh init --runtime=<name>` after the common base setup.
+  `osh init <name>` after the common base setup.
 
 - `status(self, ctx, base)`: report what the runtime has running for
   _base_ — called by `osh init`'s status report on an initialized
@@ -799,7 +800,7 @@ Runtimes return diagnostics via the `Diagnostics` dataclass in
 - `add_error(msg)`, `add_warning(msg)`, `add_info(key, value)`,
   `add_plan(item)`: helper methods.
 
-`osh odoo` aborts on `errors`; `osh init --runtime=<name>` uses `plan`
+`osh odoo` aborts on `errors`; `osh init <name>` uses `plan`
 to show the user what will happen.
 
 ### Minimal runtime plugin example
@@ -844,6 +845,6 @@ class EchoRuntime(Runtime):
         return 0
 ```
 
-`osh init --runtime=echo` then runs the base setup plus `init()`,
+`osh init echo` then runs the base setup plus `init()`,
 `osh stop` and `osh stop --all` the teardown hooks — no command
 declarations needed.

@@ -841,7 +841,7 @@ class DockerRuntime(Runtime):
         if not service:
             raise click.ClickException(
                 "No Docker service configured. Run "
-                "'osh init --runtime=docker --service <name>' or edit "
+                "'osh init docker --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
         argv = env_spec.argv or []
@@ -883,7 +883,7 @@ class DockerRuntime(Runtime):
         if not cfg.get("service"):
             raise click.ClickException(
                 "No Docker service configured. Run "
-                "'osh init --runtime=docker --service <name>' or edit "
+                "'osh init docker --service <name>' or edit "
                 f"{base / _DOCKER_TOML}."
             )
         return self._exec_env(

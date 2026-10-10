@@ -118,13 +118,14 @@ def handler_group(name, cls):
     return group
 
 
-def handler_command_group(name, cls):
+def handler_command_group(name, cls, *, group_cls=None):
     """Build a ``DefaultCommandGroup`` running handler *cls* by default.
 
     *cls* is exposed as the group's default command — ``<name> [args]``
     behaves exactly like the plain handler command, while ``add_command``
     attaches subcommands/subgroups to the group (``osh init
-    extra-addons``).
+    extra-addons``). *group_cls* overrides the group class for groups
+    resolving subcommands dynamically (e.g. runtime names).
     """
     command = handler_command(name, cls)
     context_settings = {
@@ -152,7 +153,7 @@ def handler_command_group(name, cls):
     callback.__name__ = cls.__name__
     callback.__doc__ = inspect.getdoc(cls)
 
-    return DefaultCommandGroup(
+    return (group_cls or DefaultCommandGroup)(
         name=name,
         command=command,
         callback=callback,

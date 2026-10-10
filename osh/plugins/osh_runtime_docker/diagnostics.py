@@ -102,13 +102,9 @@ def _diagnose_config(
     elif phase == "init":
         d.add_note("Docker runtime config will be created during init.")
     elif phase == "run":
-        d.add_error(
-            "Docker runtime config not found. " "Run 'osh init --runtime=docker' first."
-        )
+        d.add_error("Docker runtime config not found. " "Run 'osh init docker' first.")
     else:
-        d.add_warning(
-            "Docker runtime config not found. Run 'osh init --runtime=docker'."
-        )
+        d.add_warning("Docker runtime config not found. Run 'osh init docker'.")
 
 
 def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=None):

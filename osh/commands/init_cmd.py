@@ -2,9 +2,11 @@
 
 ``osh init`` performs the runtime-independent project setup: ``.osh/`` and
 the project config, ``.odoorc`` migration, dev-friendly config and the
-neutralize scripts. ``--runtime=<name>`` layers a runtime's own setup on
+neutralize scripts. ``osh init <runtime>`` layers a runtime's own setup on
 top (:func:`run_runtime_init`) and records it as the active runtime —
-``--runtime=host`` switches the project back to plain host execution.
+``osh init host`` switches the project back to plain host execution.
+``--runtime=<name>`` (``-r``) selects the runtime on the default command
+for compatibility.
 
 Init is idempotent: re-running it re-applies setup, repairing or updating
 changed pieces (requirements, generated Compose stack, recorded version).
@@ -24,7 +26,14 @@ from pathlib import Path
 import click
 
 from .. import echo
-from ..cli_utils import handler_command_group, long_flag, merge_options, param_values
+from ..cli_utils import (
+    DefaultCommandGroup,
+    ExtensibleCommand,
+    handler_command_group,
+    long_flag,
+    merge_options,
+    param_values,
+)
 from ..common import (
     find_enclosing_project,
     find_nested_projects,
@@ -60,16 +69,18 @@ class Init(CommandHandler):
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
     Creates `.osh/` and the project configuration, migrates `.odoorc` and
-    installs the neutralize scripts. ``--runtime=<name>`` also runs the
+    installs the neutralize scripts. ``osh init <runtime>`` also runs the
     runtime's own setup — virtualenv and Odoo sources, Docker stack — and
-    records it as the active runtime (``--runtime=host`` switches back to
-    plain host execution). Runtime-specific options such as ``--service``
-    or ``--compose-file`` apply to the selected runtime.
+    records it as the active runtime (``osh init host`` switches back to
+    plain host execution). Each runtime is a subcommand carrying its own
+    options — ``osh init docker --service odoo``.
 
     The selected runtime is remembered in the user configuration and used
     as the default for later ``osh init`` runs. An interactive run offers
     the numbered runtime choice with the stored default preselected;
     ``--runtime=ask`` forces the prompt when it would not appear.
+    ``--runtime=<name>`` (``-r``) remains for compatibility — ``osh init
+    <name>`` is the equivalent subcommand form.
 
     Init is idempotent: re-running re-applies setup and repairs or updates
     what changed — a modified ``requirements.txt`` is reinstalled, the
@@ -81,9 +92,10 @@ class Init(CommandHandler):
 
     \b
       osh init 19.0
-      osh init 19.0 --runtime docker
-      osh init 19.0 --runtime venv --ee
-      osh init --runtime host          # back to host execution
+      osh init docker 19.0
+      osh init venv 19.0 --ee
+      osh init docker --service odoo   # docker runtime options live on it
+      osh init host                    # back to host execution
       osh init --runtime ask           # choose interactively, remember it
       osh init ./another-project
       osh init 19.0 --dry-run
@@ -111,24 +123,22 @@ class Init(CommandHandler):
 
     @classmethod
     def get_options(cls):
-        """``osh init`` params: the base ones plus every runtime's init options.
+        """``osh init`` params: the base ones plus every runtime's, hidden.
 
-        Merging ``get_init_options()`` of every registered runtime imports
-        the runtime plugins — acceptable here since it only runs when
-        ``osh init`` itself is parsed. Options shared by several runtimes
-        (e.g. ``-e/--enterprise-source``) merge into one.
+        Runtime init options stay parseable on the default command for
+        ``--runtime=<name>`` compatibility, but marked hidden so
+        ``osh init --help`` shows only the core options — each runtime
+        also owns a subcommand (``osh init <name>``) where they are
+        visible. Merging ``get_init_options()`` of every registered
+        runtime imports the runtime plugins — acceptable here since it
+        only runs when ``osh init`` itself is parsed. Options shared by
+        several runtimes (e.g. ``-e/--enterprise-source``) merge into one.
         """
-        return merge_options(
-            super().get_options(),
-            (param for _name, param in _runtime_init_options()),
-        )
-
-    @classmethod
-    def format_cli_help(cls, formatter):
-        """Append the list of available runtimes to ``osh init --help``."""
-        from ..cli_utils import format_runtimes_section
-
-        format_runtimes_section(formatter, runtime_meta())
+        merged = []
+        for _name, param in _runtime_init_options():
+            param.hidden = True
+            merged.append(param)
+        return merge_options(super().get_options(), merged)
 
     @click.argument("version", required=False, type=str)
     @click.argument(
@@ -137,12 +147,14 @@ class Init(CommandHandler):
         type=click.Path(file_okay=False, path_type=Path),
     )
     @click.option(
+        "-r",
         "--runtime",
         "runtime_name",
         metavar="NAME",
         default=None,
         help="Runtime to set up and make active (host, venv, docker, ...); "
         "remembered as your default for future projects. "
+        "'osh init <name>' is the equivalent subcommand form. "
         "Use 'ask' to choose interactively.",
     )
     @click.option(
@@ -232,7 +244,9 @@ class Init(CommandHandler):
             echo.success(f"Initialised project directory at {self.target}")
             if not runtime_name:
                 echo.friendly("Next steps:")
-                echo.friendly("  osh init --runtime=<name>  # e.g. 'venv' or 'docker'")
+                echo.friendly(
+                    "  osh init <runtime>       # e.g. 'osh init venv' or 'osh init docker'"
+                )
 
     def _is_status_run(self):
         """Whether this invocation reports status instead of setting up.
@@ -346,7 +360,91 @@ class Init(CommandHandler):
             echo.warning(f"{flag} {hint}; ignored.")
 
 
-init = handler_command_group("init", Init)
+class RuntimeInitCommand(ExtensibleCommand):
+    """``osh init <runtime>`` — the ``Init`` handler bound to one runtime.
+
+    Parsing exposes the common init options plus the runtime's own
+    ``get_init_options()``: ``--runtime`` is implied by the command name
+    and the hidden compatibility options merged on plain ``osh init``
+    are dropped — under their runtime they belong on its own subcommand.
+    """
+
+    def __init__(self, *args, runtime_name=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.runtime_name = runtime_name
+
+    def get_params(self, ctx):
+        params = [
+            param
+            for param in super().get_params(ctx)
+            if param.name != "runtime_name" and not getattr(param, "hidden", False)
+        ]
+        runtime_cls = get_runtime_class(self.runtime_name)
+        if runtime_cls is not None:
+            params = merge_options(params, runtime_cls.get_init_options())
+        return params
+
+    def format_help(self, ctx, formatter):
+        if self.help is None:
+            self.help = _runtime_init_help(self.runtime_name)
+        super().format_help(ctx, formatter)
+
+
+class RuntimeInitGroup(DefaultCommandGroup):
+    """``osh init`` group resolving each declared runtime to a subcommand.
+
+    Runtime names are looked up dynamically — from ``runtime_meta()``
+    metadata, without importing runtime plugins — so plugin runtimes
+    appear in ``osh init`` listings as soon as they are installed.
+    Commands registered on the group (``extra-addons``, plugin group
+    commands) take precedence over a runtime of the same name.
+    """
+
+    def get_command(self, ctx, cmd_name):
+        command = self.commands.get(cmd_name)
+        if command is None and cmd_name in runtime_meta():
+            command = _runtime_init_command(cmd_name)
+        return command
+
+    def list_commands(self, ctx):
+        names = set(self.commands) | set(runtime_meta())
+        return sorted(names)
+
+
+def _runtime_init_command(name):
+    """Build the ``osh init <name>`` command binding init to runtime *name*."""
+
+    @click.pass_context
+    def callback(ctx, **kwargs):
+        Init(ctx, **{**ctx.params, **kwargs, "runtime_name": name}).run()
+
+    callback.__module__ = Init.__module__
+    callback.__name__ = f"{Init.__name__}.{name}"
+
+    return RuntimeInitCommand(
+        name=name,
+        runtime_name=name,
+        callback=callback,
+        params=[],
+        help=None,
+        short_help=runtime_meta().get(name),
+        context_settings=Init._cli_context_settings,
+        handler=Init,
+    )
+
+
+def _runtime_init_help(name):
+    """Return the ``--help`` body for the ``osh init <name>`` command."""
+    runtime_cls = get_runtime_class(name)
+    help_text = getattr(runtime_cls, "help_text", "") if runtime_cls else ""
+    text = (
+        f"Initialise the project with the '{name}' runtime — "
+        f"equivalent to 'osh init --runtime={name}'."
+    )
+    return f"{text}\n\n{help_text}" if help_text else text
+
+
+init = handler_command_group("init", Init, group_cls=RuntimeInitGroup)
 init.add_command(extra_addons)
 
 
@@ -377,7 +475,7 @@ def _status_report(ctx, target):
         runtime_cls().status(ctx, target)
     available = ", ".join(sorted(runtime_meta()))
     echo.info(f"Runtimes: {available}")
-    echo.info("Run 'osh init --runtime=<name>' to set up or switch runtimes.")
+    echo.info("Run 'osh init <runtime>' to set up or switch runtimes.")
 
 
 def _split_version_arg(version, directory):

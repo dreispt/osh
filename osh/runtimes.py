@@ -3,7 +3,7 @@
 Runtimes allow plugins to replace the default host-venv execution model with
 other targets, such as Docker or remote containers, while keeping the same
 ``osh shell``/``osh odoo`` user interface. Runtime lifecycle plugs into the
-core commands: ``osh init --runtime=<name>`` drives ``init`` and records the
+core commands: ``osh init <name>`` drives ``init`` and records the
 runtime as active, and ``osh stop`` drives ``stop``/``stop_by_name``/
 ``stop_all``.
 
@@ -251,7 +251,7 @@ class Runtime(ABC):
     def _stale_environment_hint(self):
         """Remediation text appended to the stale-environment warning."""
         return (
-            f"Run 'osh init --runtime={self.name}' to refresh the environment "
+            f"Run 'osh init {self.name}' to refresh the environment "
             "('osh init --fingerprint' accepts the inputs without rebuilding)."
         )
 
@@ -426,7 +426,7 @@ class HostRuntime(Runtime):
 
     The ``host`` runtime manages no environment — it is the "bring your own
     Odoo" runtime: it execs the resolved Odoo executable with the project
-    environment applied. ``osh init --runtime=host --odoo-command`` pins the
+    environment applied. ``osh init host --odoo-command`` pins the
     run command a system init file would use (e.g. ``/usr/bin/odoo``);
     without it Odoo resolves from ``.venv/bin``, ``.osh/odoo`` sources, or
     ``PATH``. ``--odoo-conf`` seeds the generated config from a base file.

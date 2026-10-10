@@ -119,10 +119,10 @@ def test_docker_diagnose_warns_when_build_input_changes(
     """
     runtime = DockerRuntime()
     warnings = runtime.diagnose(docker_shared_project, phase="run").warnings
-    assert not any("osh init --runtime=docker" in w for w in warnings)
+    assert not any("osh init docker" in w for w in warnings)
 
     dockerfile = docker_shared_project / "odoo" / "Dockerfile"
     dockerfile.write_text(dockerfile.read_text() + "# edited\n")
 
     warnings = runtime.diagnose(docker_shared_project, phase="run").warnings
-    assert any("osh init --runtime=docker" in w for w in warnings)
+    assert any("osh init docker" in w for w in warnings)

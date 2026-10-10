@@ -33,11 +33,11 @@ def test_diagnose_quiet_until_requirements_change_after_init(tmp_project, monkey
 
     runtime = VenvRuntime()
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert not any("osh init --runtime=venv" in w for w in warnings)
+    assert not any("osh init venv" in w for w in warnings)
 
     requirements.write_text("requests\nhttpx\n")
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=venv" in w for w in warnings)
+    assert any("osh init venv" in w for w in warnings)
 
 
 def test_init_fingerprint_accepts_inputs_without_reinstall(tmp_project, monkeypatch):
@@ -67,7 +67,7 @@ def test_init_fingerprint_accepts_inputs_without_reinstall(tmp_project, monkeypa
 
     requirements.write_text("requests\nhttpx\n")
     warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=venv" in w for w in warnings)
+    assert any("osh init venv" in w for w in warnings)
 
     calls.clear()
     result = CliRunner().invoke(main, ["init", str(tmp_project), "--fingerprint"])
@@ -75,7 +75,7 @@ def test_init_fingerprint_accepts_inputs_without_reinstall(tmp_project, monkeypa
     assert not any("install" in call for call in calls)
 
     warnings = VenvRuntime().diagnose(tmp_project, phase="run").warnings
-    assert not any("osh init --runtime=venv" in w for w in warnings)
+    assert not any("osh init venv" in w for w in warnings)
 
 
 class TestInitCommand:

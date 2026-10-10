@@ -20,10 +20,6 @@ To be removed in a later release, once the plugin ecosystem has had time to migr
 
 - Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_runtime_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.
 
-## Runtime-specific `osh init` options
-
-`osh init --help` currently merges every runtime's init options into one flag list (`--service`, `--compose-file`, `--odoo-source`, `--odoo-command`, ...), so options for runtimes you never use pollute the help — and foreign options only produce a runtime warning. Move each runtime's options behind its own subcommand (e.g. `osh init docker --service odoo`, keeping `--runtime=<name>` for compatibility), so `osh init --help` shows only core options and each runtime exposes its flags where they apply. With runtimes as subcommands, the separate "Runtimes" help section can fold into the normal "Commands" section — each runtime is just a command in the list. Foreign-option warnings may become unnecessary once options live under their runtime.
-
 ## Switch ports on Docker
 
 - Consider what `osh odoo -p <port>` should do in Docker environments regarding the build-image state: the port override already forces a stack recreate, but the stale-input check and fingerprint handling apply independently of it.

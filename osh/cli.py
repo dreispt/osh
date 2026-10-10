@@ -113,7 +113,7 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     Usage: osh [--silent | --verbose | --debug] <command> [args]
 
     Use `osh init` to initialize an Odoo environment in a project, and
-    `osh init --runtime=<name>` to set up a runtime (host, venv, docker, ...).
+    `osh init <runtime>` to set up a runtime (host, venv, docker, ...).
     Use `osh shell` to enter the runtime environment or run any command inside it.
     Use `osh odoo` to run Odoo in that environment, and `osh stop` to stop
     what the runtime left running.

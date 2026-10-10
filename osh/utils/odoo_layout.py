@@ -41,7 +41,7 @@ def find_odoo_executable(base, *, required=False):
     if not exe and required:
         raise click.ClickException(
             "Could not locate Odoo executable. "
-            "Run 'osh init --runtime=venv <version>' to set up a project, "
+            "Run 'osh init venv <version>' to set up a project, "
             "or install Odoo on PATH for the 'host' runtime."
         )
     return exe
