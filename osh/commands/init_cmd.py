@@ -298,22 +298,20 @@ class Init(CommandHandler):
         if not sys.stdin.isatty():
             raise click.ClickException("'--runtime=ask' needs an interactive terminal.")
         # ``host`` first — it is the "no managed environment" choice —
-        # then the plugin runtimes alphabetically.
+        # then the plugin runtimes alphabetically. Names and numbers are
+        # both accepted, so an added runtime shifts nobody's answer.
         choices = ["host"] + sorted(n for n in runtime_meta() if n != "host")
         default = stored if stored in choices else "host"
-        default_index = choices.index(default) + 1
         echo.info("Runtime:")
         for index, name in enumerate(choices, 1):
-            marker = " *" if index == default_index else ""
+            marker = " *" if name == default else ""
             echo.info(f"  {index}. {name}{marker}")
-        return choices[
-            click.prompt(
-                "Select",
-                type=click.IntRange(1, len(choices)),
-                default=default_index,
-            )
-            - 1
-        ]
+        answer = click.prompt(
+            "Select",
+            type=click.Choice(choices + [str(i) for i in range(1, len(choices) + 1)]),
+            default=default,
+        )
+        return answer if answer in choices else choices[int(answer) - 1]
 
     def _init_runtime(self, name, *, version, edition):
         """Run the runtime-init half of ``osh init`` and remember the choice."""

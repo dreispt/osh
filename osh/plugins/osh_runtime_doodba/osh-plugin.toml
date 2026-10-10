@@ -1,0 +1,5 @@
+description = "Doodba Compose runtime (experimental)."
+depends = ["osh-runtime-docker"]
+
+[runtimes]
+doodba = "Run Odoo inside a Doodba Compose stack (experimental)."
