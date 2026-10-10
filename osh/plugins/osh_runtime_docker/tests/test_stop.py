@@ -66,6 +66,21 @@ def test_stop_downs_the_project_stack(tmp_project, fake_docker, monkeypatch):
     assert len(downs) == 1
 
 
+def test_stop_volumes_passes_volumes_to_compose_down(
+    tmp_project, fake_docker, monkeypatch
+):
+    """``osh stop --volumes`` also drops the stack's named volumes."""
+    _write_docker_config(tmp_project)
+    set_project_config(tmp_project, "run", "runtime", "docker")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(main, ["stop", "--volumes"])
+
+    assert result.exit_code == 0, result.output
+    downs = [c for c in _docker_calls(fake_docker) if c.endswith("down --volumes")]
+    assert len(downs) == 1
+
+
 def test_stop_without_docker_config_is_noop(tmp_project, fake_docker, monkeypatch):
     """A docker project without docker.toml reports nothing to stop."""
     set_project_config(tmp_project, "run", "runtime", "docker")

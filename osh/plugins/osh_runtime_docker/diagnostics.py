@@ -16,7 +16,6 @@ from .utils import (
     _COMPOSE_FILE,
     _compose_base_command,
     _detect_compose_file,
-    _detect_dockerfile,
     _find_compose_tool,
     _load_docker_config,
     _resolve_compose_file,
@@ -47,7 +46,7 @@ def diagnose(runtime, base, *, sections=None, **options):
             d, phase, cfg, service, command, compose_file, dockerfile, edition
         )
     if "compose_file" in sections:
-        _diagnose_compose_file(d, phase, base, compose_file, dockerfile, cfg)
+        _diagnose_compose_file(runtime, d, phase, base, compose_file, dockerfile, cfg)
     if "odoo_version" in sections:
         _diagnose_odoo_version(runtime, d, phase, base)
     if "service" in sections:
@@ -107,7 +106,9 @@ def _diagnose_config(
         d.add_warning("Docker runtime config not found. Run 'osh init docker'.")
 
 
-def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=None):
+def _diagnose_compose_file(
+    runtime, d, phase, base, compose_file, dockerfile=None, cfg=None
+):
     """Check the resolved Docker Compose file."""
     if phase == "init" and not compose_file:
         detected = _detect_compose_file(base)
@@ -131,9 +132,7 @@ def _diagnose_compose_file(d, phase, base, compose_file, dockerfile=None, cfg=No
             d.add_error(f"Compose file not found: {compose_path}")
         return
     if phase == "init":
-        dockerfile = dockerfile or _detect_dockerfile(base)
-        suffix = f" building {dockerfile}" if dockerfile else ""
-        d.add_plan(f"Compose file: generate {base / _COMPOSE_FILE}{suffix}")
+        runtime._missing_compose_plan(d, base, dockerfile=dockerfile)
     elif phase == "run":
         d.add_error(f"Compose file not found: {base / _COMPOSE_FILE}")
     else:

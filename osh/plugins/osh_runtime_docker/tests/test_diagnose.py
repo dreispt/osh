@@ -38,6 +38,25 @@ def test_diagnose_reports_odoo_version_from_compose_image(tmp_project, docker_cl
     assert d.info["docker"]["odoo_version"] == "odoo 17.0"
 
 
+def test_diagnose_reports_odoo_version_from_build_args(tmp_project, docker_cli):
+    """Dockerfile-style stacks carry the version in ``build.args``."""
+    (tmp_project / "compose.yaml").write_text(
+        "services:\n"
+        "  odoo:\n"
+        "    build:\n"
+        "      context: .\n"
+        "      args:\n"
+        "        ODOO_VERSION: '19.0'\n"
+    )
+    (tmp_project / ".osh" / "docker.toml").write_text(
+        "service = 'odoo'\ncompose_file = 'compose.yaml'\n"
+    )
+
+    d = DockerRuntime().diagnose(tmp_project)
+
+    assert d.info["docker"]["odoo_version"] == "odoo 19.0"
+
+
 def test_docker_runtime_diagnose(tmp_project, docker_cli):
     """``diagnose`` returns diagnostics for the configured stack."""
     docker_toml = tmp_project / ".osh" / "docker.toml"
