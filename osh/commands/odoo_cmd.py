@@ -60,7 +60,7 @@ class OdooRun(CommandHandler):
     ``--without-demo`` to skip it.
 
     The execution runtime is the one activated for the project — see
-    ``osh init --runtime=<name>`` (e.g. ``osh init --runtime=docker``).
+    ``osh init <runtime>`` (e.g. ``osh init docker``).
 
     Environment variables:
 

@@ -113,7 +113,7 @@ The init step:
 
 `osh init` is safe to re-run at any time — it is idempotent. A bare `osh
 init` in an initialized project only reports status and changes nothing;
-`osh init <version>` or `osh init --runtime <name>` re-applies setup and
+`osh init <version>` or `osh init <runtime>` re-applies setup and
 repairs or updates what changed: a modified `requirements.txt` is
 reinstalled into the venv, the generated Compose stack is regenerated for
 a new Odoo target version and rebuilt when it declares a `build:`, and a
@@ -137,7 +137,7 @@ Run `osh <command> --help` for full usage details.
 
 | Command                    | What it does                                                                                                         |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); runtime init adds the rest; version optional on re-init           |
+| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); `osh init <runtime>` adds the rest; version optional on re-init   |
 | `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
 | `osh shell`                | Open an interactive shell in the project's env, without running Odoo                                                 |
 | `osh test`                 | Run Odoo tests for project modules                                                                                   |
@@ -155,19 +155,21 @@ Odoo and its dependencies already installed on the machine), `venv` or
 | `osh stop`   | Stop whatever the active runtime left running                                       |
 | `osh config` | View or change osh settings for this project                                        |
 
-- `osh init --runtime <name>` — base project setup, then the runtime's own
+- `osh init <runtime>` — base project setup, then the runtime's own
   steps, and records it as the active `run.runtime` in `.osh/config.toml`
-  (`osh init --runtime docker` writes `docker.toml` and honors a project
+  (`osh init docker` writes `docker.toml` and honors a project
   compose file or Dockerfile when present, generating one otherwise;
-  runtime options like `--service`/`--port` are accepted on `osh init`
-  itself). The chosen runtime is also remembered in the user config
+  runtime options like `--service`/`--port` live on the runtime's own
+  subcommand — `osh init docker --service odoo`). The chosen runtime is
+  also remembered in the user config
   (`~/.config/osh/config.toml`) as the default for future `osh init`
   runs — on a first run without one, the runtime is asked once;
-  `--runtime=ask` forces the prompt again. The active runtime is what
-  `osh odoo`, `osh shell` and `osh db` run through.
+  `--runtime=ask` forces the prompt again, and `-r`/`--runtime <name>`
+  remains as a compatible spelling of `osh init <name>`. The active
+  runtime is what `osh odoo`, `osh shell` and `osh db` run through.
 - `osh init` — in an initialized project, reports the recorded version,
   the active runtime and the available runtimes.
-- `osh init --runtime host` — the "bring your own Odoo" runtime: nothing is
+- `osh init host` — the "bring your own Odoo" runtime: nothing is
   installed, `osh odoo` runs whatever Odoo the machine already has (also
   the way back to host execution from another runtime). Two options make
   a system setup first-class: `--odoo-command 'odoo-bin --workers=2'`
@@ -187,7 +189,7 @@ Odoo and its dependencies already installed on the machine), `venv` or
   Docker container publishing it — and, with `--all` or `<name>`, every
   resource that form would tear down.
 - `osh odoo -p <n>` — republish the stack on that host port for the run
-  (equivalent to `osh init --runtime docker --port <n>` without re-init).
+  (equivalent to `osh init docker --port <n>` without re-init).
 
 Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
 

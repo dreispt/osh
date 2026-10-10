@@ -437,13 +437,95 @@ def test_init_runtime_host_byo_options_stay_host_only(in_project, monkeypatch):
     assert get_project_config(in_project, "init", "odoo_command") is None
 
 
-def test_init_help_lists_runtimes_and_merged_options():
-    """``osh init --help`` shows ``--runtime`` and each runtime's options."""
+def test_init_help_shows_core_options_and_runtime_commands():
+    """``osh init --help`` shows core options; runtimes are commands."""
     result = CliRunner().invoke(main, ["init", "--help"])
 
     assert result.exit_code == 0, result.output
-    assert "--runtime" in result.output
-    assert "Runtimes" in result.output
-    # Merged runtime init options: docker's --service, venv's --odoo-source.
+    assert "-r, --runtime" in result.output
+    # Each runtime is listed as a subcommand; foreign options are not shown.
+    for name in ("docker", "host", "venv"):
+        assert f"\n  {name} " in result.output or f"\n  {name}\n" in result.output
+    assert "Runtimes" not in result.output
+    # Option rows start a line with two spaces — docstring examples don't.
+    assert "\n  --service" not in result.output
+    assert "\n  -c, --odoo-source" not in result.output
+    assert "--odoo-source" not in result.output
+
+
+def test_init_runtime_subcommand_help():
+    """``osh init docker --help`` shows docker options, not foreign ones."""
+    result = CliRunner().invoke(main, ["init", "docker", "--help"])
+
+    assert result.exit_code == 0, result.output
     assert "--service" in result.output
-    assert "--odoo-source" in result.output
+    assert "--compose-file" in result.output
+    # --runtime is implied by the subcommand; venv options are foreign.
+    # (option rows start a line with two spaces; prose mentions don't count)
+    assert "\n  -r, --runtime" not in result.output
+    assert "--odoo-source" not in result.output
+
+
+def test_init_runtime_subcommand_selects_runtime(in_project, monkeypatch):
+    """``osh init venv`` selects the venv runtime, like ``--runtime=venv``."""
+    set_project_config(in_project, "init", "version", "19.0")
+    calls = _init_runtime(in_project, monkeypatch, "venv")
+
+    result = CliRunner().invoke(main, ["init", "venv", "--edition", "ce", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert _active_runtime(in_project) == "venv"
+    assert calls and calls[0][0] == in_project
+
+
+def test_init_runtime_subcommand_passes_its_options(in_project, monkeypatch):
+    """Runtime options on ``osh init <name>`` reach the runtime's init."""
+    set_project_config(in_project, "init", "version", "19.0")
+    source = in_project / "odoo-src"
+    source.mkdir()
+    calls = _init_runtime(in_project, monkeypatch, "venv")
+
+    result = CliRunner().invoke(
+        main,
+        ["init", "venv", "--odoo-source", str(source), "--edition", "ce", "--yes"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls and calls[0][1].get("odoo_source") == str(source)
+
+
+def test_init_runtime_subcommand_rejects_runtime_flag(in_project):
+    """``osh init docker --runtime venv`` is a parse error — it is implied."""
+    result = CliRunner().invoke(
+        main, ["init", "docker", "--runtime", "venv", "--edition", "ce", "--yes"]
+    )
+
+    assert result.exit_code != 0
+    assert "No such option" in result.output
+    assert _active_runtime(in_project) is None
+
+
+def test_init_runtime_subcommand_rejects_foreign_options(in_project):
+    """``osh init docker --odoo-source`` fails — it belongs to venv."""
+    result = CliRunner().invoke(
+        main,
+        ["init", "docker", "--odoo-source", "/tmp/x", "--edition", "ce", "--yes"],
+    )
+
+    assert result.exit_code != 0
+    assert "No such option" in result.output
+    assert _active_runtime(in_project) is None
+
+
+def test_init_runtime_short_flag_matches_long_form(in_project, monkeypatch):
+    """``osh init -r venv`` behaves exactly like ``--runtime venv``."""
+    set_project_config(in_project, "init", "version", "19.0")
+    calls = _init_runtime(in_project, monkeypatch, "venv")
+
+    result = CliRunner().invoke(
+        main, ["init", "-r", "venv", "--edition", "ce", "--yes"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _active_runtime(in_project) == "venv"
+    assert calls and calls[0][0] == in_project

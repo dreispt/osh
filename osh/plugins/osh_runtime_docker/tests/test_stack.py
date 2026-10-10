@@ -167,24 +167,24 @@ def test_cold_start_warns_instead_of_rebuilding_on_input_change(
     ups = _up_calls(fake_docker)
     assert ups and all(line.endswith("up -d") for line in ups)
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert not any("osh init --runtime=docker" in w for w in warnings)
+    assert not any("osh init docker" in w for w in warnings)
 
     (tmp_project / "odoo" / "src" / "module.py").write_text("# changed\n")
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert not any("osh init --runtime=docker" in w for w in warnings)
+    assert not any("osh init docker" in w for w in warnings)
 
     (tmp_project / "odoo" / "src" / "requirements.txt").write_text("lxml\nhttpx\n")
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=docker" in w for w in warnings)
+    assert any("osh init docker" in w for w in warnings)
 
     (fake_docker / "calls.log").write_text("")
     runtime.ensure_service_up(tmp_project)
     ups = _up_calls(fake_docker)
     assert ups and all(line.endswith("up -d") for line in ups)
     # ``up`` did not rebuild, so the stale record survives — the warning
-    # must keep firing until ``osh init --runtime=docker`` rebuilds.
+    # must keep firing until ``osh init docker`` rebuilds.
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=docker" in w for w in warnings)
+    assert any("osh init docker" in w for w in warnings)
 
 
 def test_cold_start_warns_when_a_build_input_is_removed(tmp_project, fake_docker):
@@ -196,7 +196,7 @@ def test_cold_start_warns_when_a_build_input_is_removed(tmp_project, fake_docker
     (tmp_project / "odoo" / "requirements.txt").unlink()
 
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=docker" in w for w in warnings)
+    assert any("osh init docker" in w for w in warnings)
 
 
 def test_compose_build_config_change_warns(tmp_project, fake_docker):
@@ -227,7 +227,7 @@ def test_compose_build_config_change_warns(tmp_project, fake_docker):
     )
 
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=docker" in w for w in warnings)
+    assert any("osh init docker" in w for w in warnings)
 
 
 def test_init_fingerprint_accepts_inputs_without_rebuild(
@@ -245,7 +245,7 @@ def test_init_fingerprint_accepts_inputs_without_rebuild(
 
     (tmp_project / "odoo" / "requirements.txt").write_text("requests\nhttpx\n")
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert any("osh init --runtime=docker" in w for w in warnings)
+    assert any("osh init docker" in w for w in warnings)
 
     monkeypatch.chdir(tmp_project)
     (fake_docker / "calls.log").write_text("")
@@ -258,7 +258,7 @@ def test_init_fingerprint_accepts_inputs_without_rebuild(
     assert not any(" build " in f" {line} " for line in calls)
 
     warnings = runtime.diagnose(tmp_project, phase="run").warnings
-    assert not any("osh init --runtime=docker" in w for w in warnings)
+    assert not any("osh init docker" in w for w in warnings)
 
 
 def test_ensure_service_up_waits_for_db_ready(docker_shared_project):
