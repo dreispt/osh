@@ -6,6 +6,8 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 1.12.0 — 2026-10-12
+
 ### Added
 
 - `osh init <runtime>` subcommands carry each runtime's options —
