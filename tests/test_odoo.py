@@ -504,3 +504,35 @@ def test_host_runtime_diagnose_reports_installed_odoo_version(
 
     diagnostics = HostRuntime().diagnose(tmp_project)
     assert diagnostics.info["host"]["odoo_version"] == "odoo 19.0"
+
+
+def test_build_addons_paths_warns_on_same_module_in_two_dirs(tmp_path, capsys):
+    """A module name found under two project dirs is reported, not silent."""
+    for repo in ("repo_a", "repo_b"):
+        module = tmp_path / repo / "l10n_dup"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text("{'name': 'dup'}\n")
+    unique = tmp_path / "repo_b" / "only_b"
+    unique.mkdir()
+    (unique / "__manifest__.py").write_text("{'name': 'only_b'}\n")
+
+    paths = build_addons_paths(tmp_path)
+
+    assert (tmp_path / "repo_a").resolve() in paths
+    assert (tmp_path / "repo_b").resolve() in paths
+    err = capsys.readouterr().err
+    assert "Module 'l10n_dup' exists in 2 project directories" in err
+    assert str((tmp_path / "repo_a").resolve()) in err
+    assert "only_b" not in err
+
+
+def test_build_addons_paths_no_warning_for_unique_modules(tmp_path, capsys):
+    """Distinct module names in several dirs produce no duplicate warning."""
+    for repo, name in (("repo_a", "mod_a"), ("repo_b", "mod_b")):
+        module = tmp_path / repo / name
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text("{'name': 'x'}\n")
+
+    build_addons_paths(tmp_path)
+
+    assert "exists in" not in capsys.readouterr().err
