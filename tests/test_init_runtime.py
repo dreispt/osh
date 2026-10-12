@@ -179,7 +179,7 @@ def test_init_asks_runtime_on_first_run(tmp_path, monkeypatch, user_config):
 
 
 def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config):
-    """``--runtime=ask`` asks again and updates the stored default."""
+    """``--ask`` asks again and updates the stored default."""
     set_project_config(in_project, "init", "version", "19.0")
     user_config.parent.mkdir(parents=True)
     user_config.write_text('[init]\nruntime = "docker"\n')
@@ -188,7 +188,7 @@ def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config
 
     result = CliRunner().invoke(
         main,
-        ["init", "--runtime", "ask", "--edition", "ce", "--yes"],
+        ["init", "--ask", "--edition", "ce", "--yes"],
         input="9\nvenv\n",
     )
 
@@ -199,13 +199,41 @@ def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config
     assert get_user_preference("runtime", section="init") == "venv"
 
 
-def test_init_runtime_ask_needs_a_terminal(in_project, monkeypatch):
-    """``--runtime=ask`` without a terminal explains it cannot prompt."""
+def test_init_runtime_ask_legacy_value_still_prompts(
+    in_project, monkeypatch, user_config
+):
+    """The legacy ``--runtime=ask`` value prompts like ``--ask``."""
+    set_project_config(in_project, "init", "version", "19.0")
+    _init_runtime(in_project, monkeypatch, "venv")
+    _as_tty(monkeypatch)
+
+    result = CliRunner().invoke(
+        main,
+        ["init", "--runtime", "ask", "--edition", "ce", "--yes"],
+        input="venv\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _active_runtime(in_project) == "venv"
+
+
+def test_init_runtime_ask_and_runtime_conflict(in_project):
+    """``--ask`` together with ``--runtime=<name>`` is rejected."""
     set_project_config(in_project, "init", "version", "19.0")
 
     result = CliRunner().invoke(
-        main, ["init", "--runtime", "ask", "--edition", "ce", "--yes"]
+        main, ["init", "--ask", "--runtime", "venv", "--edition", "ce", "--yes"]
     )
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_init_runtime_ask_needs_a_terminal(in_project, monkeypatch):
+    """``--ask`` without a terminal explains it cannot prompt."""
+    set_project_config(in_project, "init", "version", "19.0")
+
+    result = CliRunner().invoke(main, ["init", "--ask", "--edition", "ce", "--yes"])
 
     assert result.exit_code != 0
     assert "interactive terminal" in result.output
