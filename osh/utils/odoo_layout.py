@@ -77,6 +77,13 @@ def build_addons_paths(base, *, include_themes=False):
     if addon_modules:
         project_addons = sorted({addon.parent for addon in addon_modules})
         addons_paths.extend(project_addons)
+        for name, parents in sorted(find_duplicate_modules(addon_modules).items()):
+            echo.warning(
+                f"Module '{name}' exists in {len(parents)} project directories "
+                f"({', '.join(str(p) for p in parents)}); Odoo loads the copy from "
+                f"'{parents[0]}' and ignores the others.",
+                err=True,
+            )
 
     for path in registered_addon_paths(base):
         if not path.is_dir():
@@ -89,6 +96,22 @@ def build_addons_paths(base, *, include_themes=False):
             addons_paths.append(path)
 
     return addons_paths
+
+
+def find_duplicate_modules(addon_modules):
+    """Return ``{module name: [addons dirs]}`` for names found under several dirs.
+
+    *addon_modules* is the list returned by `discover_addons_paths`. The dirs
+    are sorted like the generated ``addons_path``, so the first one listed is
+    the copy Odoo loads. Nested ``setup/`` symlink dirs are already dropped
+    by the discovery, so only genuine same-name modules are reported.
+    """
+    by_name = {}
+    for addon in addon_modules:
+        by_name.setdefault(addon.name, set()).add(addon.parent)
+    return {
+        name: sorted(parents) for name, parents in by_name.items() if len(parents) > 1
+    }
 
 
 def registered_addon_paths(base):
