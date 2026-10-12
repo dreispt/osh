@@ -62,7 +62,7 @@ remote.
 
 Third-party plugins register additional source schemes by subclassing
 `osh.backup_sources.BackupSource` — any subclass defined at a plugin
-module's top level is discovered automatically. See `PLUGINS.md` for the
+module's top level is discovered automatically. See `docs/PLUGINS.md` for the
 source contract.
 
 ## Extending restore

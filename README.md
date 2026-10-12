@@ -30,51 +30,14 @@ Docker) so `osh odoo` just works.
 
 > **Note:** `osh` is not related to or affiliated with Odoo S.A. or its `odoo.sh` service.
 
-**Contents:** [Why osh?](#why-osh) · [Quick start](#quick-start) ·
-[Commands](#commands) · [Design principles](#design-principles) ·
-[Configuration](#configuration) · [Plugins](#plugins) ·
-[Contributing](#contributing) · [License](#license)
-
-## Why osh?
-
-**Without osh** — on the host:
-
-```bash
-odoo-bin -c .osh/odoo.conf -d myproject-feature-x \
-  --addons-path=enterprise,odoo/addons,custom_addons
-```
-
-or in a Docker Compose stack:
-
-```bash
-docker compose build
-docker compose up
-```
-
-**With osh** — either way:
-
-```bash
-osh odoo
-```
-
-And `osh --help` always reflects what's actually installed — core commands,
-bundled plugins, and pip-installed plugins listed together:
-
-```text
-Commands:
-  init     Initialise an Osh project directory, or report its status.
-  stop     Stop resources the project's runtime left running.
-  odoo     Run the project's Odoo executable.
-  exec     Enter the project's runtime environment or run a command in it.
-  db       Manage databases and branch-to-database mappings.
-  config   Manage Osh project settings stored in `.osh/config.toml`.
-
-Plugin Commands:
-  test    Run Odoo tests for the project's modules. [osh-test]
-  backup  [osh-backup]
-```
+**Contents:** [Quick start](#quick-start) · [Guide](docs/GETTING-STARTED.md) · [Commands](#commands) ·
+[Runtimes](#runtimes) · [Design principles](#design-principles) ·
+[Plugins](#plugins) · [Contributing](#contributing) · [License](#license)
 
 ## Quick start
+
+> **New to osh?** The [getting-started guide](docs/GETTING-STARTED.md)
+> walks through a full session — install, init, real data, daily work.
 
 Requirements: Python ≥ 3.10 and `git` (plus Docker for the `docker`
 runtime and `psql`/`createdb` for database commands).
@@ -103,104 +66,50 @@ osh init 19.0
 osh odoo
 ```
 
-The init step:
+No need to remember the target database or config file: the database name
+is detected from the current git branch and the addons paths are
+auto-discovered. `osh init` is safe to re-run at any time — see
+[docs/INIT.md](docs/INIT.md) for the full story, including `osh init
+extra-addons` and the runtime subcommands.
 
-- Uses the chosen runtime: `host` (Odoo already installed), `venv`, `docker`
-  or `doodba` (experimental).
-- Downloads the required Odoo sources, including Enterprise or Design Themes
-  (for example, for Odoo.sh project that don't include these sources).
-- Sets up the necessary run environment for Odoo.
-- All support files are stored in a `.osh` directory.
-
-`osh init` is safe to re-run at any time — it is idempotent. A bare `osh
-init` in an initialized project only reports status and changes nothing;
-`osh init <version>` or `osh init <runtime>` re-applies setup and
-repairs or updates what changed: a modified `requirements.txt` is
-reinstalled into the venv, the generated Compose stack is regenerated for
-a new Odoo target version and rebuilt when it declares a `build:`, and a
-project's own compose file is left untouched.
-
-When running Odoo there is no need to remember the target database or config file:
-
-- The database name is detected based on the current git branch.
-- The addons paths are automatically discovered.
-
-When initializing an Odoo project you usually want to restore a database copy:
-
-- `osh backup get <source>` downloads a database backup from a source,
-  such as a file or an Odoo database manager URL.
-- `osh backup restore <source>` restores a database from a backup file,
-  detecting the backup format and using the appropriate tools accordingly.
+To restore a real database into the project: `osh backup get <source>`
+downloads a backup from a file or an Odoo database manager URL, and
+`osh backup restore <source>` applies it to the current branch's
+database — see [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) for a
+full walkthrough.
 
 ## Commands
 
-Run `osh <command> --help` for full usage details.
+Run `osh <command> --help` for full usage details, and
+[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) for a walkthrough of a
+full session.
 
-| Command                    | What it does                                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `osh init [version] [dir]` | Base project setup (directory, `.osh/`, settings); `osh init <runtime>` adds the rest; version optional on re-init   |
-| `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...); dev mode on by default |
-| `osh exec`                 | Open an interactive shell in the project's env, without running Odoo                                                 |
-| `osh test`                 | Run Odoo tests for project modules                                                                                   |
-| `osh db`                   | List, show, set, copy, drop, exec, or unset project databases                                                        |
-| `osh backup`               | Get, list, or restore database backups, and register named remote backup sources                                     |
-| `osh init extra-addons`    | Register extra addon paths (`osh init extra-addons add`); plugins add module lifecycle commands under `osh db`       |
+| Command                    | What it does                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| `osh init [version] [dir]` | Initialise a project; `osh init <runtime>` selects the runtime; bare run reports status      |
+| `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...) |
+| `osh exec`                 | Enter the project's runtime environment or run a command in it                               |
+| `osh stop`                 | Stop whatever the active runtime left running                                                |
+| `osh test`                 | Run Odoo tests for project modules                                                           |
+| `osh db`                   | List, show, set, copy, drop, exec, or unset project databases                                |
+| `osh backup`               | Get, list, or restore database backups, and register named remote sources                    |
+| `osh config`               | View or change osh settings for this project                                                 |
 
-A _runtime_ is where Osh runs Odoo and its tools: `host` (the default —
-Odoo and its dependencies already installed on the machine), `venv` or
-`docker`. The whole runtime lifecycle hangs off two commands:
+`osh --help` always reflects what's actually installed — core commands,
+bundled plugins, and pip-installed plugins listed together.
 
-| Command      | What it does                                                                        |
-| ------------ | ----------------------------------------------------------------------------------- |
-| `osh init`   | Idempotent project setup; repairs changed pieces on re-run; bare run reports status |
-| `osh stop`   | Stop whatever the active runtime left running                                       |
-| `osh config` | View or change osh settings for this project                                        |
+## Runtimes
 
-- `osh init <runtime>` — base project setup, then the runtime's own
-  steps, and records it as the active `run.runtime` in `.osh/config.toml`
-  (`osh init docker` writes `docker.toml` and honors a project
-  compose file or Dockerfile when present, generating one otherwise;
-  runtime options like `--service`/`--port` live on the runtime's own
-  subcommand — `osh init docker --service odoo`). The chosen runtime is
-  also remembered in the user config
-  (`~/.config/osh/config.toml`) as the default for future `osh init`
-  runs — on a first run without one, the runtime is asked once;
-  `--runtime=ask` forces the prompt again, and `-r`/`--runtime <name>`
-  remains as a compatible spelling of `osh init <name>`. The active
-  runtime is what `osh odoo`, `osh exec` and `osh db` run through.
-- `osh init` — in an initialized project, reports the recorded version,
-  the active runtime and the available runtimes.
-- `osh init host` — the "bring your own Odoo" runtime: nothing is
-  installed, `osh odoo` runs whatever Odoo the machine already has (also
-  the way back to host execution from another runtime). Two options make
-  a system setup first-class: `--odoo-command 'odoo-bin --workers=2'`
-  pins the run command — copy the one a systemd `ExecStart` uses,
-  arguments included — and `--odoo-conf /etc/odoo/odoo.conf` seeds the
-  generated config from a base file (the project's own `.osh/odoo.conf`
-  still overrides it). Both are recorded and reused by `osh odoo`,
-  `osh exec` and `osh stop`.
-- `osh stop` — stop whatever the active runtime left running (with its
-  options, e.g. `osh stop --compose-file`).
-- `osh stop <name>` — stop another project's resources by directory name
-  or path, handy when a leftover stack still holds port 8069.
-- `osh stop --all` — list and stop every Osh-managed stack and host Odoo
-  process on the machine.
-- `osh stop --list` — report what would be stopped without stopping it:
-  who holds the project's Odoo port — including foreign holders like a
-  Docker container publishing it — and, with `--all` or `<name>`, every
-  resource that form would tear down.
-- `osh odoo -p <n>` — republish the stack on that host port for the run
-  (equivalent to `osh init docker --port <n>` without re-init).
+A _runtime_ is where `osh` runs Odoo and its tools; `osh init <runtime>`
+picks one and `osh odoo`, `osh exec` and `osh db` run through it.
 
-Global flags: `--silent` / `--verbose` / `--debug` (mutually exclusive).
-
-`osh backup get` fetches a database copy from anywhere (odoo.sh, a live server,
-an Odoo database manager) into the local cache; `osh backup restore` applies a
-cached backup (`osh backup list` shows them) to your current branch's database — it never fetches.
-`osh backup remote add <name> <source>` gives a source a short, stable name
-(git-remote style) so you can `osh backup get prod` / `osh backup restore prod`
-instead of retyping the full URL. `osh db` owns everything about _which_
-database a branch uses and what's in it.
+- **host** — run whatever Odoo the machine already has (the default);
+  covered in [docs/INIT.md](docs/INIT.md#the-host-runtime)
+- **venv** — managed virtualenv plus Odoo sources; [docs/VENV.md](docs/VENV.md)
+- **docker** — Odoo and PostgreSQL in a Docker Compose stack;
+  [docs/DOCKER.md](docs/DOCKER.md)
+- **doodba** — adopt a Doodba project's Compose stack (experimental);
+  [docs/DOODBA.md](docs/DOODBA.md)
 
 ## Design principles
 
@@ -222,94 +131,6 @@ database a branch uses and what's in it.
   show up in that output.
 - **Pluggable** – grow the toolbelt with plugins; `pipx inject osh <dist>`
   and new commands show up alongside the built-ins.
-
-## Configuration
-
-### Database name
-
-`osh` resolves the database to use for the current git branch from `.osh/config.toml`.
-By default each branch gets its own generated `<project>-<branch>` database, so
-switching branches never accidentally reuses another branch's database.
-
-Branches are matched in this order:
-
-1. Exact branch name in `[db]` (e.g. `main`).
-2. Longest matching glob pattern in `[db]` (e.g. `feature/*`).
-3. The special `default` key.
-4. Generated `<project>-<branch>` if nothing is configured.
-
-Use `osh db` to manage mappings:
-
-```bash
-osh db list                  # databases matching the generated <project>- prefix
-osh db set myproject-main --branch main
-osh db set myproject-staging --branch staging
-osh db show
-osh db drop                  # drop the current branch's database (asks first)
-osh db drop -d myproject-old # drop a specific database and its filestore
-osh db exec                  # shell where the db runs (the db container on Docker)
-osh db exec psql             # psql against the current branch's database
-osh db unset --branch feature/old-thing
-```
-
-`osh db list` also reports filestore directories under Odoo's `data_dir` that
-no longer have a matching database — leftovers that `osh db drop` removes.
-On the Docker runtime, `osh db exec` runs inside the Compose `db` service
-(configurable via `db_service` in `.osh/docker.toml`); on host and virtualenv
-runtimes it is the same environment as `osh exec`.
-
-The generated name is based on the project directory name and the git branch
-(or `default` when no branch is found — detached `HEAD` or no repository at
-all). Special characters are sanitized to keep the name safe for PostgreSQL
-and for Odoo's `--db-filter`.
-
-### Multi-repository projects
-
-The project root does not need to be a git repository itself. When `osh` finds
-a `.osh` directory but no `.git`, it treats every git repository found below
-the project root as part of the project: the branch-aware database name
-resolves from the branch all repositories share. When the repositories are on
-different branches — or no repository exists at all — the branch name resolves
-to `default`, which `osh db set`/`unset` can map like any other branch.
-
-### Addons path discovery
-
-`osh odoo` scans the project directory (up to 9 levels deep) for directories
-containing `__manifest__.py` or `__openerp__.py`. The parent directories of
-those modules are added to the generated Odoo config as `addons_path`.
-
-Addon directories outside the project's git-managed scope — for example an
-OCA repository your project depends on — are registered explicitly and
-appended to `addons_path`:
-
-```bash
-osh init extra-addons add ~/src/payroll  # register a local checkout
-osh init extra-addons add oca/payroll    # clone a GitHub repo into .osh/payroll
-osh init extra-addons list               # show registered paths
-osh init extra-addons remove payroll     # unregister (files are never deleted)
-```
-
-Git sources are shallow-cloned into `.osh/` on the project's Odoo version
-branch, the same way Odoo, Enterprise and design-themes sources are handled.
-
-### Configuration file
-
-The config file used is in the `.osh` subdirectory (`.osh/odoo.conf`). It is hackable and automatically generated. If the project root has an `.odoorc` file, it will be copied to `.osh/odoo.conf` during init.
-
-### Removing Osh
-
-To remove the Osh environment from a project, simply delete the `.osh` directory. This will remove all Osh-specific project configurations including:
-
-- Project settings (`.osh/config.toml`)
-- Generated Odoo configuration (`.osh/odoo.conf`)
-- Source symlinks and cached backups (`.osh/backups/`)
-- Docker runtime configuration (`.osh/docker.toml`, `.osh/docker-compose.yml`)
-
-```bash
-rm -rf .osh
-```
-
-Your project files, virtual environment (`.venv/`), and any existing Odoo sources will remain intact.
 
 ## Plugins
 
@@ -334,7 +155,7 @@ Highlights include:
 - `osh odoo --open` — print the browser URL once Odoo is ready
   (`--open` also opens it).
 
-See [PLUGINS.md](PLUGINS.md) for how to write and publish your own plugins.
+See [PLUGINS.md](docs/PLUGINS.md) for how to write and publish your own plugins.
 
 ## Help
 
@@ -347,7 +168,7 @@ available in your setup.
 ## Contributing
 
 Contributions are welcome. See [DEVELOP.md](DEVELOP.md) for the development
-setup, test suite, and conventions, and [PLUGINS.md](PLUGINS.md) for the
+setup, test suite, and conventions, and [PLUGINS.md](docs/PLUGINS.md) for the
 plugin API.
 
 ## License

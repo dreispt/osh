@@ -2,7 +2,7 @@
 
 This guide is for hacking on `osh` itself. If you want to use `osh` to manage an
 Odoo project, see `README.md`. If you want to extend `osh` with plugins, see
-`PLUGINS.md`.
+`docs/PLUGINS.md`.
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ deliberately diverge between groups when the underlying concepts differ —
 removes an osh plugin, and `osh db set`/`unset` moves a mutable pointer
 rather than acquiring or removing anything. Plugin commands that manage a
 resource should attach to the matching group via `group_commands` instead
-of claiming a bare top-level verb (see `PLUGINS.md`).
+of claiming a bare top-level verb (see `docs/PLUGINS.md`).
 
 ## Nested projects
 

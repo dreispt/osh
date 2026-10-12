@@ -121,7 +121,7 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
 
     Plugins add commands and runtimes; they are Python packages installed
     into the osh environment (e.g. `pipx inject osh osh-contrib`, or
-    `pip install` when osh was installed with pip). See PLUGINS.md for
+    `pip install` when osh was installed with pip). See docs/PLUGINS.md for
     the plugin system documentation.
     """
     ctx.ensure_object(dict)
