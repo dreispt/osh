@@ -9,7 +9,7 @@ from ... import echo
 from ...common import get_venv_bin, run_subprocess, venv_env
 from ...runtimes import BuildInputs, HostRuntime
 from .python_versions import get_available_python_versions, get_python_requirements
-from .utils import init_project
+from .utils import init_project, resolve_installer
 
 
 class VenvRuntime(HostRuntime):
@@ -21,8 +21,9 @@ class VenvRuntime(HostRuntime):
     description = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
     help_text = (
         "Clones Odoo (and optionally Enterprise and design-themes) into ``.osh/``, "
-        "creates a Python virtualenv at ``.venv``, pip-installs Odoo in editable "
-        "mode, and runs an ``odoo --version`` smoke test.\n\n"
+        "creates a Python virtualenv at ``.venv``, installs Odoo in editable "
+        "mode with uv (when available) or pip, and runs an ``odoo --version`` "
+        "smoke test.\n\n"
         "Sources are resolved from explicit flags, existing project directories, "
         "or a central cache under ``~/.cache/osh``."
     )
@@ -44,6 +45,15 @@ class VenvRuntime(HostRuntime):
                 ["-d", "--themes-source"],
                 help="Design-themes source: an existing local directory or a git URL. "
                 "Defaults to the central cache (populated from GitHub).",
+            ),
+            click.Option(
+                ["--installer"],
+                type=click.Choice(["auto", "uv", "pip"]),
+                envvar="OSH_VENV_INSTALLER",
+                help="Package installer for the virtualenv: uv is faster and "
+                "shares a cache across projects. 'auto' uses uv when it is on "
+                "PATH and pip otherwise (default). The choice is remembered "
+                "for later re-inits.",
             ),
         ]
 
@@ -121,6 +131,11 @@ class VenvRuntime(HostRuntime):
                 ", ".join(available) if available else "none",
                 topic="System",
             )
+            d.add_info(
+                "installer",
+                resolve_installer(base, None),
+                topic="System",
+            )
         if "requirements" in active and options.get("phase") != "init":
             self._check_stale_environment(base, d)
 
@@ -163,6 +178,7 @@ class VenvRuntime(HostRuntime):
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
             todo=todo,
+            installer=options.get("installer"),
             env_changed=lambda: bool(
                 self._environment_changes(target, missing_is_change=True)
             ),
