@@ -6,6 +6,14 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Added
+
+- `osh init venv` builds the environment with [uv](https://github.com/astral-sh/uv)
+  when it is on `PATH` — `uv venv` plus `uv pip` installs from a
+  shared cache — falling back to `venv` + `pip` otherwise. `--installer
+uv|pip|auto` (or `$OSH_VENV_INSTALLER`) forces the choice and is
+  remembered for later re-inits.
+
 ## 1.12.0 — 2026-10-12
 
 ### Added

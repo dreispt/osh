@@ -87,9 +87,13 @@ the parent sees.
 Install the test dependencies and run the `osh` test suite with `pytest`:
 
 ```bash
-pip install pytest
+pip install -e ".[tests]"
 python -m pytest
 ```
+
+The `tests` extra includes [uv](https://github.com/astral-sh/uv): the venv
+runtime tests drive a real `uv` (fully offline, resolved against vendored
+wheels), and are skipped when `uv` is not on `PATH`.
 
 Run a specific test file or test:
 

@@ -32,14 +32,28 @@ For the requested [edition](INIT.md#editions), `osh init venv`:
 ### Choosing where sources come from
 
 | Option                      | What it does                                           |
-| --------------------------- | ------------------------------------------------------ |
+| --------------------------- | ------------------------------------------------------ | ----- | ----------------------------------------------- |
 | `-c`, `--odoo-source`       | Odoo source: an existing local directory or a git URL. |
 | `-e`, `--enterprise-source` | Enterprise source, same forms.                         |
 | `-d`, `--themes-source`     | Design-themes source, same forms.                      |
+| `--installer uv             | pip                                                    | auto` | Package installer used to build the virtualenv. |
 
 Each accepts a local checkout or a git URL. The defaults populate a
 central cache under `~/.cache/osh` shared across projects, so the second
 project on the same Odoo version initialises in seconds.
+
+### Choosing the installer
+
+When [uv](https://github.com/astral-sh/uv) is on `PATH`, the virtualenv is
+created with `uv venv` and packages are installed with `uv pip`
+instead of the venv's own pip — uv installs from a shared, hard-linked
+cache, so repeat inits across projects and branches are noticeably
+faster. `--installer pip` (or `$OSH_VENV_INSTALLER`) forces the classic
+`venv` + `pip` path, `--installer uv` requires uv and fails without it,
+and the default `auto` picks uv when available. An explicit choice is
+remembered in `.osh/config.toml` and reused by later `osh init venv`
+runs; if a project built with uv is opened on a machine without it, init
+warns and falls back to pip.
 
 ## How commands run
 
