@@ -56,12 +56,9 @@ def init_project(
     smoke_ok = _run_init_smoke_test(target, env_ready)
 
     if not env_ready or not smoke_ok:
-        echo.warning(
-            f"Initialised project directory at {target} "
-            "(Odoo setup incomplete; see warnings above)."
-        )
-    else:
-        echo.success(f"Initialised project directory at {target}")
+        # ``osh init`` announces the project directory itself once the
+        # runtime reports back — flag only the degraded outcome here.
+        echo.warning("Odoo setup incomplete; see warnings above.")
     return True
 
 
