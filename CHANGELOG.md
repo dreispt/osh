@@ -6,6 +6,18 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 1.13.0 — 2026-10-21
+
+### Added
+
+- `osh` warns on the generated `addons_path` when a module name exists in
+  several project directories, listing the directories and which copy
+  Odoo will load.
+
+### Fixed
+
+- `osh init venv` no longer prints "Initialised project directory" twice.
+
 ## 1.12.0 — 2026-10-12
 
 ### Added
