@@ -33,6 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 tests = [
     "pytest>=7.0",
+    "uv>=0.5",
 ]
 
 [project.scripts]

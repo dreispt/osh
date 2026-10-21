@@ -25,6 +25,7 @@ repos:
       - id: check-toml
       - id: check-added-large-files
         args: ["--maxkb=1024"] # docs/demo.gif is ~800KB
+        exclude: ^osh/plugins/osh_runtime_venv/tests/wheels/
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-symlinks

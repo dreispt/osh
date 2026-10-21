@@ -10,6 +10,11 @@ section collects the release notes for the next version as changes land on
 
 ### Added
 
+- `osh init venv` builds the environment with [uv](https://github.com/astral-sh/uv)
+  when it is on `PATH` — `uv venv` plus `uv pip` installs from a
+  shared cache — falling back to `venv` + `pip` otherwise.
+  `--installer uv|pip|auto` (or `$OSH_VENV_INSTALLER`) forces the choice
+  and is remembered for later re-inits.
 - `osh` warns on the generated `addons_path` when a module name exists in
   several project directories, listing the directories and which copy
   Odoo will load.
