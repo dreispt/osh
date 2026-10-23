@@ -15,6 +15,7 @@ from .. import db as db_module
 from .. import echo
 from ..cli_utils import handler_command
 from ..common import (
+    env_root,
     find_project_root,
     get_odoo_config_path,
     get_osh_odoo_config_path,
@@ -26,7 +27,13 @@ from .helpers import check_run_diagnostics
 
 
 def build_dynamic_odoo_config(
-    base, db_name, runtime, *, conf_path=None, no_db_filter=False, extra_args=()
+    base,
+    db_name,
+    runtime,
+    *,
+    conf_path=None,
+    no_db_filter=False,
+    extra_args=(),
 ):
     """Build a branch/database-specific Odoo config file in ``.osh/cache/env``.
 
@@ -38,7 +45,7 @@ def build_dynamic_odoo_config(
     (e.g., container paths for Docker runtimes).
     """
     if conf_path is None:
-        cache_dir = base / ".osh" / "cache" / "env"
+        cache_dir = env_root(base) / ".osh" / "cache" / "env"
         cache_dir.mkdir(parents=True, exist_ok=True)
         branch = db_module.sanitize_db_name(db_module.resolve_branch(base, None))
         safe_db = db_module.sanitize_db_name(db_name) if db_name else "none"

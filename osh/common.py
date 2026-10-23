@@ -25,8 +25,8 @@ DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
 
 
 def get_venv_bin(base):
-    """Return the virtualenv binary directory for *base*."""
-    return Path(base) / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    """Return the virtualenv binary directory for *base*'s env root."""
+    return env_root(base) / ".venv" / ("Scripts" if os.name == "nt" else "bin")
 
 
 def venv_env(base):
@@ -90,21 +90,38 @@ def _find_git_root(start):
 
 
 def find_project_root(start=None, *, required=False):
-    """Return the project root containing a ``.osh`` directory.
+    """Return the project checkout root for the directory *start* is in.
 
-    When inside a git repository, the ``.osh`` directory is expected at the
-    git root. If the git root itself has no ``.osh``, the search continues
-    upward through parent directories until finding an ``.osh`` directory
-    or reaching the user's home directory. This supports running from inside
-    a git submodule of the actual project.
+    When inside a git repository, the project root is the git root. If the
+    git root itself has no ``.osh``, the search continues upward through
+    parent directories until finding an ``.osh`` directory or reaching the
+    user's home directory. This supports running from inside a git submodule
+    of the actual project.
+
+    When the git root is a linked worktree, the worktree is the project
+    root as long as its source repository provides ``.osh`` — the worktree
+    borrows the repository's environment (see :func:`env_root`).
 
     When not inside a git repository, falls back to walking up from *start*
     looking for a ``.osh`` directory.
 
     When *required* is True, print an informational message and exit if no
     project is found, instead of returning None.
+
+    When *start* is omitted the current directory is used; if it was
+    deleted — e.g. the worktree was removed while a shell still sat in it —
+    a clean ``click.ClickException`` is raised instead of ``OSError``.
     """
-    start = (start or Path.cwd()).resolve()
+    if start is None:
+        try:
+            start = Path.cwd()
+        except OSError as exc:
+            raise click.ClickException(
+                "The current directory no longer exists "
+                f"({exc.strerror or exc}); "
+                "'cd' into an existing directory."
+            )
+    start = start.resolve()
     home = Path.home().resolve()
 
     # Inside a git repo the search starts at the repo root (``.osh`` lives
@@ -114,10 +131,75 @@ def find_project_root(start=None, *, required=False):
     for p in [walk_from] + list(walk_from.parents):
         if (p / ".osh").exists():
             return p
+        # A linked worktree declares its repository explicitly, so the hop
+        # runs before the plain ancestor walk continues.
+        source = _worktree_source_root(p)
+        if source is not None and (source / ".osh").exists():
+            return p
         if p == home:
             break
     if required:
         _not_in_project()
+    return None
+
+
+def env_root(base):
+    """Return the environment root for project checkout *base*.
+
+    The env root is where ``.osh`` and its managed state (``config.toml``,
+    Odoo sources, runtime files) live. A linked git worktree borrows its
+    source repository's environment; every other directory — including a
+    worktree carrying its own ``.osh`` — is its own env root.
+
+    ``.osh`` paths are always built against ``env_root(base)``, never
+    against *base* directly.
+    """
+    base = Path(base)
+    if (base / ".osh").exists():
+        return base
+    source = _worktree_source_root(base)
+    if source is not None and (source / ".osh").exists():
+        return source
+    return base
+
+
+def _worktree_source_root(path):
+    """Return the source repository's main worktree of a linked worktree, or None.
+
+    A linked worktree's ``.git`` is a file pointing at
+    ``<common>/worktrees/<name>``; the ``commondir`` file inside that gitdir
+    locates the shared git dir. When it resolves to ``<repo>/.git``, the
+    parent is the main worktree. Worktrees of submodules — the common dir
+    lives under ``.git/modules/`` — fall back to ``git worktree list``.
+    """
+    git_file = Path(path) / ".git"
+    if not git_file.is_file():
+        return None
+    try:
+        text = git_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    git_dir = Path(text.split(":", 1)[1].strip())
+    if not git_dir.is_absolute():
+        git_dir = (Path(path) / git_dir).resolve()
+    if git_dir.parent.name != "worktrees" or not (git_dir / "commondir").is_file():
+        return None
+    try:
+        common = (git_dir / (git_dir / "commondir").read_text().strip()).resolve()
+    except OSError:
+        return None
+    if common.name == ".git":
+        return common.parent
+    returncode, stdout, _ = run_subprocess(
+        ["git", "-C", str(path), "worktree", "list", "--porcelain"]
+    )
+    if returncode != 0:
+        return None
+    for line in stdout.splitlines():
+        if line.startswith("worktree "):
+            return Path(line.removeprefix("worktree ").strip())
     return None
 
 
@@ -262,13 +344,13 @@ def git_current_branch(path):
 
 
 def get_odoo_config_path(base):
-    """Return path to the Odoo configuration file (.odoorc) in the project root."""
-    return base / ".odoorc"
+    """Return path to the Odoo configuration file (.odoorc) in the env root."""
+    return env_root(base) / ".odoorc"
 
 
 def get_osh_odoo_config_path(base):
     """Return path to the Osh-managed Odoo configuration file (.osh/odoo.conf)."""
-    return base / ".osh" / "odoo.conf"
+    return env_root(base) / ".osh" / "odoo.conf"
 
 
 def get_odoo_port(base, extra_confs=()):
@@ -592,9 +674,35 @@ def discover_module_names(base):
     """Return module names found in *base*.
 
     Returns a sorted list of module names that contain a ``__manifest__.py``
-    or ``__openerp__.py`` file.
+    or ``__openerp__.py`` file. For a worktree checkout, discovery follows
+    :func:`worktree_source_addons` semantics: the checkout's modules plus
+    the source repository's fill-in for directories empty in the worktree.
     """
-    return sorted({addon.name for addon in discover_addons_paths(base)})
+    modules = discover_addons_paths(base) + worktree_source_addons(base)
+    return sorted({addon.name for addon in modules})
+
+
+def worktree_source_addons(base):
+    """Return env-root module dirs whose counterpart in checkout *base* is empty.
+
+    A directory present in the source repository but missing or empty in the
+    worktree — typically an uninitialized submodule — still contributes its
+    modules from the source checkout. A counterpart holding content shadows
+    the source directory as a whole: the worktree's branch stays
+    authoritative. The check is per addons dir, not per module.
+
+    Returns ``[]`` when *base* is its own env root.
+    """
+    base = Path(base).resolve()
+    source = env_root(base).resolve()
+    if source == base:
+        return []
+    modules = []
+    for addon in discover_addons_paths(source):
+        counterpart = base / addon.parent.relative_to(source)
+        if not counterpart.is_dir() or not any(counterpart.iterdir()):
+            modules.append(addon)
+    return modules
 
 
 def get_odoo_data_dir(base):

@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import merged_env, run_command
+from ...common import env_root, merged_env, run_command
 from ..osh_runtime_docker import runtimes as _docker_runtimes
 from ..osh_runtime_docker.utils import (
     _compose_base_command,
@@ -249,7 +249,7 @@ class DoodbaRuntime(_docker_runtimes.DockerRuntime):
 
     def base_odoo_conf(self, base):
         """Seed generated configs with Doodba's proxy/smtp defaults."""
-        return base / _SEED_CONF
+        return env_root(base) / _SEED_CONF
 
     def build_addons_paths(self, base, *, include_themes=False):
         """Doodba's flattened addons dir plus sources outside the project.

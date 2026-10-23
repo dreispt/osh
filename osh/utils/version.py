@@ -64,7 +64,11 @@ def version_major(version):
 
 def get_version_from_sources(base):
     """Return the version declared in ``.osh/odoo/odoo/release.py``, or None."""
-    return read_release_version(base / ".osh" / "odoo" / "odoo" / "release.py")
+    from ..common import env_root
+
+    return read_release_version(
+        env_root(base) / ".osh" / "odoo" / "odoo" / "release.py"
+    )
 
 
 def read_release_version(release_file):

@@ -25,12 +25,16 @@ def get_user_config_path():
 
 def get_project_config_path(base):
     """Return the path to the project-level TOML configuration file."""
-    return Path(base) / ".osh" / "config.toml"
+    from .common import env_root
+
+    return env_root(base) / ".osh" / "config.toml"
 
 
 def get_docker_config_path(base):
     """Return the path to the Docker runtime TOML configuration file."""
-    return Path(base) / ".osh" / "docker.toml"
+    from .common import env_root
+
+    return env_root(base) / ".osh" / "docker.toml"
 
 
 # ---------------------------------------------------------------------------

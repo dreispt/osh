@@ -1,5 +1,8 @@
 """Tests for the generated Odoo config and compose-file resolution."""
 
+import shutil
+
+import pytest
 from click.testing import CliRunner
 
 from osh.commands.odoo_cmd import odoo
@@ -7,8 +10,13 @@ from osh.commands.shell_cmd import build_dynamic_odoo_config
 from osh.db import set_project_config
 from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 from osh.runtimes import EnvSpec
+from tests.helpers import make_worktree_project
 
 from .conftest import _write_docker_config
+
+requires_git = pytest.mark.skipif(
+    shutil.which("git") is None, reason="git not available"
+)
 
 
 def test_conf_addons_path_resolves_symlinks_on_host(tmp_project):
@@ -64,6 +72,38 @@ def test_docker_addons_paths_mount_out_of_project_sources(
     assert override.is_file()
     text = override.read_text()
     assert f"{external / 'addons'}:{container_path}:ro" in text
+
+
+@requires_git
+def test_worktree_addons_mount_outside_env_root(docker_daemon, tmp_path):
+    """A worktree's own addon dirs mount read-only under ``/mnt/osh-src``.
+
+    The worktree checkout lives outside the environment the Compose stack
+    serves, so its project addons cannot be reached through the
+    ``/mnt/extra-addons`` mount; the source repository's fill-in for the
+    empty ``sub`` submodule can and stays a project path.
+    """
+    project, worktree = make_worktree_project(tmp_path)
+    _write_docker_config(project)
+    (project / ".osh" / "docker-compose.yml").write_text(
+        "services:\n  odoo:\n    image: busybox\n    command: sleep infinity\n"
+    )
+
+    runtime = DockerRuntime()
+    conf = build_dynamic_odoo_config(worktree, "mydb", runtime)
+
+    addons_path = conf.read_text().split("addons_path = ", 1)[1].splitlines()[0].strip()
+    worktree_path = next(
+        p for p in addons_path.split(",") if p.startswith("/mnt/osh-src/wt-")
+    )
+    assert "/mnt/extra-addons/sub" in addons_path
+
+    # The override is generated on ensure_service_up and carries the mount.
+    runtime.ensure_service_up(worktree)
+
+    override = project / ".osh" / "docker-compose.osh.yml"
+    assert override.is_file()
+    assert f"{worktree}:{worktree_path}:ro" in override.read_text()
 
 
 def test_conf_data_dir_only_when_declared(tmp_project):

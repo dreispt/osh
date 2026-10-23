@@ -9,10 +9,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ...common import env_root
+
 
 def get_cache_dir(base):
     """Return the backup cache directory for an Osh project."""
-    return base / ".osh" / "backups"
+    return env_root(base) / ".osh" / "backups"
 
 
 def ensure_cache_dir(base):

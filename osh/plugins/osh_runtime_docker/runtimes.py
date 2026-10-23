@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import odoo_http_port, run_command, run_subprocess
+from ...common import env_root, odoo_http_port, run_command, run_subprocess
 from ...runtimes import Runtime, copy_odoo_rc_to_osh_conf
 from ...sources import ensure_osh_sources
 from .diagnostics import _environment_input_groups
@@ -145,7 +145,7 @@ class DockerRuntime(Runtime):
             return cfg["version"]
 
         compose_file = (cfg or {}).get("compose_file") or str(_COMPOSE_FILE)
-        compose_path = base / Path(compose_file)
+        compose_path = env_root(base) / Path(compose_file)
         if not compose_path.is_file():
             return None
 
@@ -235,11 +235,11 @@ class DockerRuntime(Runtime):
     def build_addons_paths(self, base, *, include_themes=False):
         """Return a list of addon paths for *base* translated to container paths.
 
-        Host paths under the project translate to the project mount under
-        ``/mnt/extra-addons``. Paths resolving outside the project — e.g.
-        an ``.osh/odoo`` link to a shared checkout — get a dedicated mount
-        under ``/mnt/osh-src``, provided by the generated Compose override
-        (see ``ensure_service_up``).
+        Host paths under the env root translate to the project mount under
+        ``/mnt/extra-addons``. Paths resolving outside it — e.g.
+        an ``.osh/odoo`` link to a shared checkout or a worktree's addon
+        directories — get a dedicated mount under ``/mnt/osh-src``, provided
+        by the generated Compose override (see ``ensure_service_up``).
         """
         mounts = self._source_mounts(base, include_themes=include_themes)
         return [container for _, container in mounts]
@@ -249,10 +249,10 @@ class DockerRuntime(Runtime):
 
         Symlinks are resolved on the host first — a path reached through a
         link must map to the real directory, which is what a container
-        mount exposes. Sources outside the project root mount read-only
+        mount exposes. Sources outside the env root mount read-only
         under ``/mnt/osh-src/<name>-<digest>``.
         """
-        resolved_base = Path(base).resolve()
+        resolved_base = env_root(base).resolve()
         mounts = {}
         for path in super().build_addons_paths(base, include_themes=include_themes):
             resolved = path.resolve()
@@ -280,7 +280,7 @@ class DockerRuntime(Runtime):
         HTTP port) and the project mount the translated addons paths
         assume. The file is removed when nothing needs overriding.
         """
-        override = Path(base) / _SOURCES_COMPOSE_FILE
+        override = env_root(base) / _SOURCES_COMPOSE_FILE
         content = self._prepare_compose_override(
             base, service, port=port, compose_file=compose_file
         )
@@ -311,7 +311,7 @@ class DockerRuntime(Runtime):
             sections.append('    command: ["sleep", "infinity"]')
             mounts.insert(
                 0,
-                f'      - "{Path(base).resolve().as_posix()}:/mnt/extra-addons"',
+                f'      - "{env_root(base).resolve().as_posix()}:/mnt/extra-addons"',
             )
         if port:
             sections.append(f'    ports: !override\n      - "{port}:{port}"')
@@ -659,7 +659,7 @@ class DockerRuntime(Runtime):
             self._check_port_available(base, cfg, port=port)
         docker_args = [*compose_cmd, "up", "-d"]
         echo.info(f"Running: {shlex.join(docker_args)}", err=True)
-        run_command(docker_args, cwd=base, check=True, stream=True)
+        run_command(docker_args, cwd=env_root(base), check=True, stream=True)
         # ``up`` does not rebuild the image on changed inputs, so a stale
         # record must not be blessed as built — the warning stays until
         # ``osh init --runtime=docker`` rebuilds.
@@ -676,7 +676,7 @@ class DockerRuntime(Runtime):
         if not port_in_use(port):
             return
         holder = _find_port_holder(port)
-        if holder and Path(holder[0]) != Path(base):
+        if holder and Path(holder[0]) != Path(env_root(base)):
             project_path, running_for = holder
             raise click.ClickException(
                 f"Port {port} is already used by a container for "
@@ -727,7 +727,7 @@ class DockerRuntime(Runtime):
     def port_holders(self, ctx, port, base):
         """Report the containers publishing host *port* and their owners."""
         lines = []
-        resolved = Path(base).resolve()
+        resolved = env_root(base).resolve()
         for c in _port_publishers(port):
             desc = f"container '{c['name']}'"
             if c["image"]:
@@ -787,7 +787,7 @@ class DockerRuntime(Runtime):
         compose_file = _resolve_compose_file(base, options.get("compose_file"), cfg=cfg)
         compose_path = Path(compose_file) if compose_file else None
         if compose_path is not None and not compose_path.is_absolute():
-            compose_path = Path(base) / compose_path
+            compose_path = env_root(base) / compose_path
         if compose_path is None or not compose_path.exists():
             detail = (
                 f"compose file {compose_file} does not exist"
@@ -818,7 +818,7 @@ class DockerRuntime(Runtime):
                 err=True,
             )
             echo.info(f"Running: {shlex.join(docker_args)}", err=True)
-            run_command(docker_args, cwd=base, check=True, stream=True)
+            run_command(docker_args, cwd=env_root(base), check=True, stream=True)
             return
         # Down every Compose project this project's containers run under —
         # stacks started by older Osh versions or outside ``osh odoo`` may
@@ -848,7 +848,7 @@ class DockerRuntime(Runtime):
                 echo.info(f"Would run: {shlex.join(docker_args)}")
                 continue
             echo.info(f"Running: {shlex.join(docker_args)}", err=True)
-            run_command(docker_args, cwd=base, check=True, stream=True)
+            run_command(docker_args, cwd=env_root(base), check=True, stream=True)
 
     def stop_by_name(self, ctx, name, *, dry_run=False, **options):
         """Stop the Compose stack of the Osh project named *name*.
@@ -965,7 +965,7 @@ class DockerRuntime(Runtime):
             raise click.ClickException(
                 "No Docker service configured. Run "
                 "'osh init docker --service <name>' or edit "
-                f"{base / _DOCKER_TOML}."
+                f"{env_root(base) / _DOCKER_TOML}."
             )
         argv = env_spec.argv or []
         # Server run: ``odoo`` followed by flags only (or a flag argv when no
@@ -1007,7 +1007,7 @@ class DockerRuntime(Runtime):
             raise click.ClickException(
                 "No Docker service configured. Run "
                 "'osh init docker --service <name>' or edit "
-                f"{base / _DOCKER_TOML}."
+                f"{env_root(base) / _DOCKER_TOML}."
             )
         return self._exec_env(
             ctx,
@@ -1058,7 +1058,7 @@ class DockerRuntime(Runtime):
                     return 1, "", ""
                 return run_subprocess(
                     docker_args,
-                    cwd=base,
+                    cwd=env_root(base),
                     input=env_spec.input,
                     stdin=env_spec.stdin,
                     stdout=options.get("stdout"),
@@ -1075,7 +1075,7 @@ class DockerRuntime(Runtime):
             echo.debug(f"Running: {shlex.join(docker_args)}")
             return run_subprocess(
                 docker_args,
-                cwd=base,
+                cwd=env_root(base),
                 input=env_spec.input,
                 stdin=env_spec.stdin,
                 stdout=options.get("stdout"),
@@ -1084,7 +1084,7 @@ class DockerRuntime(Runtime):
 
         _echo_exec(docker_args, verb="Running")
         if wait:
-            run_command(docker_args, cwd=base, check=True, stream=True)
+            run_command(docker_args, cwd=env_root(base), check=True, stream=True)
             return None
 
         try:
@@ -1128,7 +1128,9 @@ class DockerRuntime(Runtime):
 
         env = {**_CONTAINER_ENV_DEFAULTS, **env_spec.env}
         if "ODOO_RC" in env:
-            env["ODOO_RC"] = env["ODOO_RC"].replace(str(base), "/mnt/extra-addons")
+            env["ODOO_RC"] = env["ODOO_RC"].replace(
+                str(env_root(base)), "/mnt/extra-addons"
+            )
         env.update(_libpq_env(compose_cmd, service, base, env, _PG_ENV_MAP))
         return _exec_argv(compose_cmd, service, env, argv, env_spec, capture)
 
@@ -1152,7 +1154,7 @@ def _requested_port(ctx, base):
 
 def _override_port(base):
     """Return the host port a ``-p`` override publishes for *base*, or None."""
-    override = Path(base) / _SOURCES_COMPOSE_FILE
+    override = env_root(base) / _SOURCES_COMPOSE_FILE
     if override.is_file():
         match = re.search(r'^\s+- "?(\d+):\d+"?', override.read_text(), re.MULTILINE)
         if match:
@@ -1164,7 +1166,7 @@ def _service_running(compose_cmd, service, base):
     """Return True when *service* has a running container in this project."""
     returncode, out, _ = run_subprocess(
         [*compose_cmd, "ps", "--status", "running", "-q", service],
-        cwd=base,
+        cwd=env_root(base),
     )
     return returncode == 0 and bool(out.strip())
 
@@ -1202,7 +1204,7 @@ def _wait_for_db_ready(compose_cmd, db_service, base):
 def _compose_services(compose_cmd, base):
     """Return the service names in the Compose configuration, or None."""
     returncode, out, _ = run_subprocess(
-        [*compose_cmd, "config", "--services"], cwd=base
+        [*compose_cmd, "config", "--services"], cwd=env_root(base)
     )
     if returncode != 0:
         return None
@@ -1217,7 +1219,7 @@ def _compose_config(compose_cmd, base):
     container actually gets.
     """
     returncode, out, _ = run_subprocess(
-        [*compose_cmd, "config", "--format", "json"], cwd=base
+        [*compose_cmd, "config", "--format", "json"], cwd=env_root(base)
     )
     if returncode != 0:
         return {}
@@ -1328,7 +1330,7 @@ def _db_ready(compose_cmd, db_service, base):
             "command -v pg_isready > /dev/null 2>&1 || exit 0;"
             " exec pg_isready -q -h 127.0.0.1",
         ],
-        cwd=base,
+        cwd=env_root(base),
     )
     return returncode == 0
 
@@ -1370,7 +1372,7 @@ _INTERACTIVE_SHELL = "command -v bash > /dev/null 2>&1 && exec bash || exec sh"
 
 
 def _containerize_arg(arg, base):
-    """Translate an absolute host path under *base* to its container mount."""
+    """Translate an absolute host path under the env root to its container mount."""
     value = str(arg)
     if "=" in value:
         key, _, path = value.partition("=")
@@ -1382,7 +1384,7 @@ def _containerize_arg(arg, base):
     if not path.is_absolute():
         return value
     try:
-        rel = path.resolve().relative_to(Path(base).resolve())
+        rel = path.resolve().relative_to(env_root(base).resolve())
     except (ValueError, OSError):
         return value
     return f"/mnt/extra-addons/{rel.as_posix()}"

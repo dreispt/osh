@@ -11,7 +11,7 @@ import click
 
 from ... import config as _config
 from ... import echo
-from ...common import merged_env, run_command, run_subprocess
+from ...common import env_root, merged_env, run_command, run_subprocess
 
 _DOCKER_TOML = Path(".osh") / "docker.toml"
 _COMPOSE_FILE = Path(".osh") / "docker-compose.yml"
@@ -157,6 +157,9 @@ def _compose_base_command(
     discovered stack) always wins. When *required* is False and no Compose
     tool is on PATH, returns ``None`` instead of raising.
     """
+    # The stack belongs to the environment: a worktree checkout runs the
+    # source repository's Compose project.
+    base = env_root(base)
     cfg = cfg if cfg is not None else _load_docker_config(base)
     compose_file = _resolve_compose_file(base, compose_file, cfg=cfg)
     compose_tool = cfg.get("compose_tool")
@@ -205,6 +208,7 @@ def _resolve_compose_file(base, compose_file=None, cfg=None):
     generated ``.osh/docker-compose.yml`` is the default when it exists and
     no file is configured. ``None`` means Compose's own discovery applies.
     """
+    base = env_root(base)
     if not compose_file:
         cfg = cfg if cfg is not None else _load_docker_config(base)
         compose_file = (cfg or {}).get("compose_file")
@@ -221,6 +225,7 @@ def _resolve_compose_file(base, compose_file=None, cfg=None):
 
 def _is_generated_compose(base, compose_file):
     """Return True when *compose_file* is the Osh-managed stack file."""
+    base = env_root(base)
     if not compose_file:
         return False
     path = Path(compose_file)
@@ -231,12 +236,12 @@ def _is_generated_compose(base, compose_file):
 
 def _detect_compose_file(base):
     """Return project-root compose file names found, in precedence order."""
-    return [name for name in _COMPOSE_CANDIDATES if (Path(base) / name).is_file()]
+    return [name for name in _COMPOSE_CANDIDATES if (env_root(base) / name).is_file()]
 
 
 def _detect_dockerfile(base):
     """Return the project-root Dockerfile path, relative to *base*, or None."""
-    return "Dockerfile" if (Path(base) / "Dockerfile").is_file() else None
+    return "Dockerfile" if (env_root(base) / "Dockerfile").is_file() else None
 
 
 def _resolve_dockerfile(base, dockerfile):
@@ -245,6 +250,7 @@ def _resolve_dockerfile(base, dockerfile):
     The generated Compose file builds with the project root as its context,
     so the Dockerfile must live under it.
     """
+    base = env_root(base)
     path = Path(dockerfile)
     if not path.is_absolute():
         path = Path(base) / path
@@ -309,7 +315,7 @@ def _published_port(base, cfg=None, target=8069):
         return None
     proc = run_command(
         [*compose_cmd, "config", "--format", "json"],
-        cwd=base,
+        cwd=env_root(base),
         capture_output=True,
         check=False,
     )

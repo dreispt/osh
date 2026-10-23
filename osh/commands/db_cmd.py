@@ -4,7 +4,7 @@ import click
 
 from .. import echo
 from ..cli_utils import handler_group
-from ..common import find_project_root
+from ..common import env_root, find_project_root
 from ..db import (
     copy_db,
     db_exists,
@@ -93,7 +93,7 @@ class Db(CommandHandler):
             )
         if returncode != 0:
             raise click.ClickException(f"Could not list databases: {stderr.strip()}")
-        self.prefix = f"{sanitize_db_name(self.base.name)}-"
+        self.prefix = f"{sanitize_db_name(env_root(self.base).name)}-"
         if self.show_all:
             click.echo(stdout, nl=False)
         else:

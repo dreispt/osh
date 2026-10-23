@@ -90,6 +90,13 @@ databases that exist for the project — and filestore leftovers that
 repo: without one, osh reads the branch the repositories below it share
 (and falls back to `default` when they disagree).
 
+Git worktrees plug straight into this: run any `osh` command from a
+linked worktree and it reuses the repository's `.osh` environment —
+venv, Odoo sources, branch mappings — while the worktree's own branch
+names the database (`<project>-<worktree-branch>`). A submodule left
+uninitialized in the worktree still contributes its addons from the
+source checkout, so the worktree runs complete out of the box.
+
 ## Pull in real data
 
 A fresh empty database is rarely what you want. `osh backup` moves

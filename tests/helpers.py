@@ -27,6 +27,67 @@ def write_stub_pip(venv_path):
     pip.chmod(0o755)
 
 
+def git(repo, *args):
+    """Run a git command in *repo*, failing loudly."""
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def make_git_project(path, branch=None):
+    """Create a real git repository at *path* with one commit."""
+    path.mkdir(parents=True, exist_ok=True)
+    git(path, "init")
+    git(path, "config", "user.email", "x@y")
+    git(path, "config", "user.name", "x")
+    (path / "README").write_text("x")
+    git(path, "add", "README")
+    git(path, "commit", "-m", "init")
+    if branch:
+        git(path, "switch", "-c", branch)
+    return path
+
+
+def make_worktree_project(tmp_path):
+    """Create a real Osh project repository plus a linked worktree.
+
+    The project carries the ``.osh`` marker, a committed ``proj_mod``
+    module and a ``sub`` submodule providing ``sub_mod``. The worktree
+    sits beside it on branch ``wt-feature``: its ``sub`` directory stays
+    empty and an uncommitted ``wt_mod`` module marks worktree-local work.
+
+    Returns ``(project, worktree)`` as resolved paths.
+    """
+    sub_src = make_git_project(tmp_path / "sub-src")
+    module = sub_src / "sub_mod"
+    module.mkdir()
+    (module / "__manifest__.py").write_text("{'name': 'sub_mod'}\n")
+    git(sub_src, "add", "-A")
+    git(sub_src, "commit", "-m", "sub_mod")
+
+    project = make_git_project(tmp_path / "project")
+    (project / ".osh").mkdir()
+    module = project / "proj_mod"
+    module.mkdir()
+    (module / "__manifest__.py").write_text("{'name': 'proj_mod'}\n")
+    git(
+        project,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        str(sub_src),
+        "sub",
+    )
+    git(project, "add", "-A")
+    git(project, "commit", "-m", "addons")
+
+    worktree = tmp_path / "wt"
+    git(project, "worktree", "add", "-b", "wt-feature", str(worktree))
+    module = worktree / "wt_mod"
+    module.mkdir()
+    (module / "__manifest__.py").write_text("{'name': 'wt_mod'}\n")
+    return project.resolve(), worktree.resolve()
+
+
 def make_bare_repo(tmp_path, name, branches=("master",)):
     """Create a bare git repository with commits on the requested branches."""
     repo = tmp_path / name
