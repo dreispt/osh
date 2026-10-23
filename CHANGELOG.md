@@ -6,6 +6,13 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Changed
+
+- The missing-database prompt offers to copy the last used database to the
+  branch name — `[c]` runs the same `pg_dump | pg_restore` copy as
+  `osh db copy` and links the new database's filestore onto the source's.
+  The create-empty option moved to `[n]` (`New database`).
+
 ## 1.13.0 — 2026-10-21
 
 ### Added

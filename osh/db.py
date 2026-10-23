@@ -436,9 +436,10 @@ def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):
     """Resolve the database name for the current context, prompting if missing.
 
     If the branch's resolved database does not exist, prompt in an interactive
-    terminal to reuse the last used database or create it. In non-interactive
-    mode raise a ``click.ClickException`` with instructions. In *dry_run* mode
-    the existence probe only runs where it is side-effect free.
+    terminal to reuse the last used database, create it, or copy the last
+    used one onto it. In non-interactive mode raise a
+    ``click.ClickException`` with instructions. In *dry_run* mode the
+    existence probe only runs where it is side-effect free.
     """
     branch = resolve_branch(base, None)
     db_name = resolve_db_name(base, verbose=False, branch=branch)
@@ -463,7 +464,9 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     """Prompt the user when the branch's database is missing.
 
     Returns ``("use", last_db)`` when the last used database is picked — the
-    branch is re-mapped to it — or ``("create", db_name)``. The database
+    branch is re-mapped to it — ``("create", db_name)`` for a new empty
+    database, or ``("copy", db_name)`` after copying the last used database
+    (including a filestore symlink) onto *db_name*. The "create" database
     itself is left for the caller (or Odoo) to create. ``[a] Abort`` raises
     ``click.Abort``.
     """
@@ -471,7 +474,9 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     options = []
     if last_db_exists:
         options.append(("u", f"Use the last used database '{last_db}'"))
-    options.append(("c", f"Create new database '{db_name}'"))
+    options.append(("n", f"New database '{db_name}'"))
+    if last_db_exists:
+        options.append(("c", f"Copy database '{db_name}' from '{last_db}'"))
     options.append(("a", "Abort"))
 
     echo.warning(f"Database '{db_name}' does not exist.")
@@ -484,7 +489,39 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     if choice == "u":
         set_project_config(base, "db", branch, last_db)
         return "use", last_db
+    if choice == "c":
+        copy_db(base, last_db, db_name, ctx=ctx)
+        link_filestore(ctx, base, last_db, db_name)
+        set_last_db(base, db_name)
+        return "copy", db_name
     return "create", db_name
+
+
+def link_filestore(ctx, base, src_db, dst_db):
+    """Symlink *dst_db*'s filestore onto *src_db*'s inside the runtime.
+
+    Best effort for the missing-database copy option: warns when the data
+    dir cannot be determined or the link fails, and skips silently when
+    the source has no filestore. A relative target keeps the link valid on
+    host and container runtimes alike — the two directories always sit
+    side by side in the same filestore root. An existing *dst_db*
+    filestore (dangling when its database is missing) is replaced,
+    matching ``copy_db``'s replace-the-target semantics.
+    """
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
+    if data_dir is None:
+        echo.warning("could not determine Odoo data_dir; filestore not linked.")
+        return
+    store = f"{data_dir}/filestore"
+    src, dst = f"{store}/{src_db}", f"{store}/{dst_db}"
+    returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", src])
+    if returncode != 0:
+        return
+    quoted_dst = shlex.quote(dst)
+    script = f"rm -rf {quoted_dst} && ln -s {shlex.quote(src_db)} {quoted_dst}"
+    returncode, _, stderr = run_in_runtime(ctx, base, ["sh", "-c", script])
+    if returncode != 0:
+        echo.warning(f"could not link filestore for '{dst_db}': {stderr}")
 
 
 def _raise_missing_db_error(base, branch, db_name, last_db):

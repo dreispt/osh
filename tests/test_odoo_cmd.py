@@ -194,7 +194,7 @@ def test_odoo_missing_db_demo_data(
     assert ("--with-demo" in command_line.split()) == expect_flag
 
 
-def test_odoo_missing_db_prompt_create_runs(
+def test_odoo_missing_db_prompt_new_runs(
     tmp_project,
     monkeypatch,
     fake_odoo_executable,
@@ -202,7 +202,7 @@ def test_odoo_missing_db_prompt_create_runs(
     pg_db,
     capture_execvp,
 ):
-    """Choosing ``[c]`` proceeds to run Odoo, which creates the database."""
+    """Choosing ``[n]`` proceeds to run Odoo, which creates the database."""
     from click.testing import _NamedTextIOWrapper
 
     from osh.config import set_project_config
@@ -218,16 +218,64 @@ def test_odoo_missing_db_prompt_create_runs(
     # CliRunner replaces sys.stdin with a non-TTY wrapper; patching its
     # isatty method simulates an interactive terminal.
     monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
-    monkeypatch.setattr("click.prompt", lambda *a, **kw: "c")
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: "n")
 
     result = CliRunner().invoke(odoo, [])
 
     assert result.exit_code == 0, result.output
     assert f"[u] Use the last used database '{previous}'" in result.output
-    assert f"[c] Create new database '{missing}'" in result.output
+    assert f"[n] New database '{missing}'" in result.output
+    assert f"[c] Copy database '{missing}' from '{previous}'" in result.output
     assert len(capture_execvp) == 1
     # A not-yet-created database must not replace the recorded last used one.
     assert get_last_db(tmp_project) == previous
+
+
+def test_odoo_missing_db_prompt_copy_last_db(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+    capture_execvp,
+    tmp_path,
+):
+    """Choosing ``[c]`` clones the last used database, filestore included."""
+    from click.testing import _NamedTextIOWrapper
+
+    from osh.config import set_project_config
+    from osh.db import get_last_db
+
+    previous = pg_db.create()
+    missing = pg_db.name()
+    pg_db.track(missing)
+    set_project_config(
+        tmp_project,
+        "db",
+        values={"default": missing, "last_db": previous},
+    )
+    set_project_config(tmp_project, "init", "version", "19.0")
+    data_dir = tmp_path / "data"
+    source_store = data_dir / "filestore" / previous
+    source_store.mkdir(parents=True)
+    (source_store / "attachment.bin").write_text("x")
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: "c")
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert pg_db.exists(missing)
+    linked = data_dir / "filestore" / missing
+    assert linked.is_symlink() and linked.readlink().name == previous
+    assert (linked / "attachment.bin").exists()
+    # The copied database is in use now, and is no longer "about to be
+    # created": no demo-data flag is injected.
+    assert get_last_db(tmp_project) == missing
+    assert len(capture_execvp) == 1
+    assert "--with-demo" not in capture_execvp[0][1]
 
 
 def test_odoo_missing_db_prompt_use_last_db(

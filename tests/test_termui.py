@@ -55,16 +55,17 @@ class TestArrowKeyMenu:
         assert picked == "docker"
 
     def test_single_char_option_keys_select_immediately(self, monkeypatch):
-        """A one-key menu ('u'/'c'/'a') answers on the keypress itself."""
+        """A one-key menu ('u'/'n'/'c'/'a') answers on the keypress itself."""
         options = [
             ("u", "Use the last used database 'old'"),
-            ("c", "Create new database 'new'"),
+            ("n", "New database 'new'"),
+            ("c", "Copy database 'new' from 'old'"),
             ("a", "Abort"),
         ]
         with menu_terminal(monkeypatch, b"c") as out:
             picked = choose(None, options, default="u")
         assert picked == "c"
-        assert "[c] Create new database 'new'" in out.getvalue()
+        assert "[c] Copy database 'new' from 'old'" in out.getvalue()
 
     def test_the_current_row_is_highlighted(self, monkeypatch):
         """The row under the cursor is drawn with reverse-video text."""
