@@ -15,6 +15,7 @@ import shlex
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from pathlib import Path
 
@@ -123,6 +124,12 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
 
     # The dump is streamed through stdin, so the host path is never passed
     # to the runtime environment (e.g. a container that cannot see it).
+    started = time.monotonic()
+    if backup_format == "zip":
+        # For .zip backups the filestore install follows the dump restore,
+        # so _restore_zip reports the dump step itself.
+        _restore_zip(ctx, base, dump_path, target_db, started=started)
+        return
     if backup_format == "dump":
         _run_db_tool(
             ctx,
@@ -147,10 +154,10 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
             "psql failed",
             stdin_path=dump_path,
         )
-    elif backup_format == "zip":
-        _restore_zip(ctx, base, dump_path, target_db)
     else:
         raise click.ClickException(f"Unsupported backup format: {backup_format}")
+
+    _report_dump_restored(started, dump_path)
 
 
 def neutralize_with_sql(base, db_name, ctx=None):
@@ -254,8 +261,43 @@ def _dump_suffix(path):
     return path.suffix
 
 
-def _restore_zip(ctx, base, dump_path, target_db):
-    """Restore an Odoo backup zip (dump.sql + filestore/)."""
+def _human_size(nbytes):
+    """Return *nbytes* as a human-readable size (e.g. ``512 MB``)."""
+    size = float(nbytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def _human_duration(seconds):
+    """Return *seconds* as a human-readable duration (e.g. ``1m 5s``)."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m {secs}s"
+
+
+def _report_dump_restored(started, dump_path):
+    """Report the elapsed time and size of the restored dump."""
+    elapsed = time.monotonic() - started
+    echo.success(
+        f"Dump restored in {_human_duration(elapsed)} "
+        f"(dump size: {_human_size(dump_path.stat().st_size)})",
+        err=True,
+    )
+
+
+def _restore_zip(ctx, base, dump_path, target_db, *, started):
+    """Restore an Odoo backup zip (dump.sql + filestore/).
+
+    The filestore is installed only after ``dump.sql`` restores
+    successfully — a failing ``psql`` never reaches it.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         with zipfile.ZipFile(dump_path, "r") as zf:
@@ -272,6 +314,7 @@ def _restore_zip(ctx, base, dump_path, target_db):
             "psql failed",
             stdin_path=dump_sql,
         )
+        _report_dump_restored(started, dump_path)
 
         filestore_src = tmp_path / "filestore"
         if filestore_src.exists():
