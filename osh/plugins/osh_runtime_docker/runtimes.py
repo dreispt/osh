@@ -588,6 +588,7 @@ class DockerRuntime(Runtime):
             confirmed=options.get("confirmed", False),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
+            pins=options.get("pins"),
         )
 
     def _compose_env(self, target):

@@ -176,6 +176,7 @@ class VenvRuntime(HostRuntime):
             odoo_source=options.get("odoo_source"),
             enterprise_source=options.get("enterprise_source"),
             themes_source=options.get("themes_source"),
+            pins=options.get("pins"),
             todo=todo,
             installer=options.get("installer"),
             env_changed=lambda: bool(

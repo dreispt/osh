@@ -54,6 +54,7 @@ from ..db import (
 )
 from ..handlers import CommandHandler
 from ..runtimes import copy_odoo_rc_to_osh_conf
+from ..sources import parse_source_pins, update_osh_sources
 from ..termui import can_menu, choose
 from ..utils.plugin_loader import get_runtime_class, load_runtimes, runtime_meta
 from ..utils.version import KNOWN_ODOO_SERIES, detect_project_version
@@ -103,6 +104,21 @@ class Init(CommandHandler):
       osh init                         # report the project's status
       osh init extra-addons --help     # manage extra addon directories
 
+    Updating Odoo sources:
+
+    \b
+      osh init --update-sources                        # refresh cache + .osh/ clones
+      osh init --update-sources --date 2026-10-15      # pin at a date (Odoo.sh-style)
+      osh init --update-sources --ref odoo=<sha>       # pin one source to a commit
+      osh init venv --update-sources                   # update, then re-run init
+
+    Manual equivalent (what --update-sources runs for you):
+
+    \b
+      git -C ~/.cache/osh/odoo.git fetch --depth 1 origin +refs/heads/<V>:refs/heads/<V>
+      git -C .osh/odoo fetch --depth 1 origin <sha-or-branch>
+      git -C .osh/odoo reset --hard FETCH_HEAD         # or: git switch --detach <sha>
+
     With VERSION omitted, DIRECTORY can only be given as a path containing
     a separator (e.g. './another-project') — a bare name is read as VERSION.
     """
@@ -121,6 +137,10 @@ class Init(CommandHandler):
     dry_run = False
     dev = True
     fingerprint = False
+    update_sources = False
+    refs = ()
+    dates = ()
+    force = False
 
     @classmethod
     def get_options(cls):
@@ -209,12 +229,72 @@ class Init(CommandHandler):
         "build-input fingerprint for the project's active runtime (or "
         "--runtime <name>), silencing stale-environment warnings.",
     )
+    @click.option(
+        "--update-sources",
+        is_flag=True,
+        help="Refresh the central source cache and reset the project's "
+        "managed .osh/ source clones to upstream. See 'Updating Odoo "
+        "sources' above for the manual equivalent.",
+    )
+    @click.option(
+        "--ref",
+        "refs",
+        multiple=True,
+        metavar="[NAME=]VALUE",
+        help="Pin sources to a branch, tag or full 40-char sha — e.g. "
+        "--ref odoo=abcdef.... A bare VALUE applies to all sources, "
+        "NAME= scopes it to odoo, enterprise or design-themes.",
+    )
+    @click.option(
+        "--date",
+        "dates",
+        multiple=True,
+        metavar="[NAME=]VALUE",
+        help="Pin sources at the newest upstream commit on or before the "
+        "date (git approxidate, e.g. '2026-10-15'), the way Odoo.sh pins "
+        "a deploy. Same NAME= scoping as --ref.",
+    )
+    @click.option(
+        "--force",
+        "force",
+        is_flag=True,
+        help="With --update-sources, discard uncommitted changes in "
+        "managed source clones.",
+    )
     def run(self):
         version, directory = _split_version_arg(self.version, self.directory)
         self.target = (directory or Path.cwd()).expanduser().resolve()
         if self._is_status_run():
             self._warn_foreign_runtime_options(None)
             _status_report(self.ctx, self.target)
+            return
+        self.pins = parse_source_pins(self.refs, self.dates)
+        if self.fingerprint and (self.update_sources or self.pins):
+            raise click.ClickException(
+                "--fingerprint cannot be combined with "
+                "--update-sources/--ref/--date."
+            )
+        did_update = False
+        if (self.update_sources or self.pins) and (self.target / ".osh").is_dir():
+            update_osh_sources(
+                self.target,
+                version=version or get_project_config(self.target, "init", "version"),
+                pins=self.pins,
+                dry_run=self.dry_run,
+                force=self.force,
+            )
+            did_update = True
+        elif self.update_sources:
+            update_osh_sources(None, dry_run=self.dry_run)
+            did_update = True
+        if did_update and not self.runtime_name and not self.ask:
+            if self.dry_run:
+                echo.info("Dry run: no changes made.", err=True)
+            else:
+                echo.friendly(
+                    "Run 'osh init <runtime>' if the new sources changed "
+                    "environment inputs (e.g. requirements.txt)."
+                )
             return
         runtime_name = None
         with _rollback_new_osh_dir(self.target):
@@ -275,6 +355,9 @@ class Init(CommandHandler):
             and self.dev
             and not self.dry_run
             and not self.fingerprint
+            and not self.update_sources
+            and not self.refs
+            and not self.dates
         )
 
     def _resolve_runtime_name(self):
@@ -334,6 +417,7 @@ class Init(CommandHandler):
             assume_yes=self.assume_yes,
             dry_run=self.dry_run,
             fingerprint=self.fingerprint,
+            pins=self.pins,
             **param_values(self, runtime_cls.get_init_options()),
         )
         if not self.dry_run:
@@ -666,6 +750,7 @@ def run_runtime_init(
     assume_yes,
     dry_run,
     fingerprint=False,
+    pins=None,
     **options,
 ):
     """Run the runtime-specific part of ``osh init --runtime=<name>``.
@@ -710,6 +795,7 @@ def run_runtime_init(
         confirmed=confirmed,
         todo=todo,
         fingerprint=fingerprint,
+        pins=pins,
         **options,
     )
 

@@ -29,6 +29,7 @@ def init_project(
     confirmed=False,
     env_changed=None,
     installer=None,
+    pins=None,
 ):
     """Initialise *target* for an Odoo project using local sources."""
     _prepare_target_dir(target)
@@ -44,6 +45,7 @@ def init_project(
         odoo_source=odoo_source,
         enterprise_source=enterprise_source,
         themes_source=themes_source,
+        pins=pins,
     )
 
     if dry_run:

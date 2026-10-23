@@ -155,3 +155,46 @@ Init is idempotent — safe to re-run at any time:
   own compose file is left untouched.
 - `--fingerprint` re-baselines the recorded build inputs without
   rebuilding, for when a stale-environment warning is a false positive.
+- `--update-sources` refreshes the Odoo sources — see below.
+
+## Updating Odoo sources
+
+The shallow clones under `.osh/` and the shared cache under
+`~/.cache/osh/` are snapshots: init never re-fetches an already-cached
+branch, so a `git pull` inside `.osh/odoo` only talks to the (possibly
+stale) cache. `osh init --update-sources` refreshes both:
+
+```bash
+osh init --update-sources                        # cache refs + .osh/ clones
+osh init --update-sources --dry-run              # show what would happen
+```
+
+Linked sources (`.osh/odoo` symlinked to your own checkout) are reported
+and skipped — pull those yourself. Managed clones with uncommitted
+changes are skipped unless `--force`. Outside a project, the command
+refreshes every branch cached under `~/.cache/osh/`.
+
+Pins put a source at a specific revision instead of the branch tip —
+the same way Odoo.sh deploys all three repositories at a fixed date:
+
+```bash
+osh init --update-sources --date 2026-10-15      # newest commit at-or-before the date
+osh init --update-sources --ref odoo=<sha>       # one source at a commit
+osh init --date 2026-10-15                       # pins alone imply --update-sources
+osh init venv 19.0 --date 2026-10-15             # clone as-of the date from scratch
+```
+
+`--ref` takes a branch, tag or full 40-char sha; `--date` takes any git
+approxidate. Both accept a `NAME=` prefix (`odoo`, `enterprise`,
+`design-themes`) to scope the pin — repeat them for per-source pins;
+a bare value applies to all sources. A pin switch or a detached
+checkout survives re-init: a later plain `--update-sources` returns the
+clone to the recorded version's branch tip.
+
+The manual equivalent of a source update:
+
+```bash
+git -C ~/.cache/osh/odoo.git fetch --depth 1 origin +refs/heads/<V>:refs/heads/<V>
+git -C .osh/odoo fetch --depth 1 origin <sha-or-branch>
+git -C .osh/odoo reset --hard FETCH_HEAD        # or: git switch --detach <sha>
+```

@@ -6,6 +6,18 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Added
+
+- `osh init --update-sources` refreshes the shared source cache under
+  `~/.cache/osh` and resets the project's managed `.osh/` source clones
+  to upstream — cached branch refs were previously never re-fetched.
+  `--ref [NAME=]<branch|tag|sha>` and `--date [NAME=]<date>` pin sources
+  to a specific revision or to the newest commit at-or-before a date
+  (matching Odoo.sh deploy semantics), both when updating and when
+  cloning fresh sources on init. `--force` discards uncommitted changes
+  in managed clones; linked sources are left alone. Outside a project
+  the command refreshes every cached branch ref.
+
 ### Changed
 
 - The missing-database prompt offers to copy the last used database to the
