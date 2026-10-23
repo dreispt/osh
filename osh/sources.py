@@ -913,9 +913,10 @@ def _resolve_date(repo, value, branch, *, track_ref):
             )
     sha = _rev_list_before(repo, value)
     if not sha:
-        # The wanted commit sits just past the shallow-since boundary —
-        # deepen a little first and grow exponentially for skewed dates.
-        _deepen_until(repo, ref, lambda: _rev_list_before(repo, value), depth=32)
+        # The wanted commit is exactly the first one the server withheld:
+        # a boundary parent. --deepen 1 pulls that single layer past the
+        # shallow edge; growth only matters for skewed commit dates.
+        _deepen_until(repo, ref, lambda: _rev_list_before(repo, value), depth=1)
         sha = _rev_list_before(repo, value)
     if not sha:
         raise click.ClickException(
