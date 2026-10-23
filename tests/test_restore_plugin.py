@@ -480,7 +480,7 @@ def test_restore_uses_content_detection(monkeypatch, in_project):
         restore_calls.append(argv[0])  # Track the command name
         return (0, "", "")
 
-    def mock_restore_zip(ctx, base, dump_path, target_db):
+    def mock_restore_zip(ctx, base, dump_path, target_db, **kw):
         restore_calls.append("restore_zip")
 
     monkeypatch.setattr(
