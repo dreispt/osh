@@ -6,8 +6,18 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 1.14.0 — 2026-10-23
+
 ### Added
 
+- `osh` commands run inside a linked git worktree share the main
+  repository's environment — the `.osh` directory, virtualenv, Odoo
+  sources and database mappings. Each worktree keeps its own branch and
+  database name (`<project>-<branch>`), and addon directories left empty
+  in the worktree — typically uninitialized submodules — fall back to
+  the source checkout's copy.
+- `osh backup restore` reports the dump's size and how long the restore
+  took once finished.
 - `osh init --update-sources` refreshes the shared source cache under
   `~/.cache/osh` and resets the project's managed `.osh/` source clones
   to upstream — cached branch refs were previously never re-fetched.
@@ -24,6 +34,18 @@ section collects the release notes for the next version as changes land on
   branch name — `[c]` runs the same `pg_dump | pg_restore` copy as
   `osh db copy` and links the new database's filestore onto the source's.
   The create-empty option moved to `[n]` (`New database`).
+
+### Fixed
+
+- Modules visible through several addon directories via symlinks —
+  e.g. Doodba's `odoo/auto/addons` — no longer trigger false
+  "module exists in several directories" warnings.
+- `osh` run from a directory deleted underneath it — e.g. a removed
+  worktree — fails with a clear message instead of a traceback.
+- `osh --verbose` lists the subprocess commands being run, as the
+  flag's help promises.
+- `osh init` resolves the shared environment correctly when run inside
+  a linked worktree.
 
 ## 1.13.0 — 2026-10-21
 
