@@ -1,5 +1,8 @@
 """Regression tests — each case names the bug it protects against."""
 
+import subprocess
+import sys
+
 from click.testing import CliRunner
 
 from osh.cli import main
@@ -62,3 +65,28 @@ def test_duplicate_module_warning_skips_symlinked_copies(tmp_path, capsys):
     build_addons_paths(tmp_path)
 
     assert "exists in" not in capsys.readouterr().err
+
+
+def test_deleted_working_directory_reports_a_clean_error(tmp_path):
+    """``osh`` started from a deleted directory fails cleanly.
+
+    Removing a linked worktree while a shell still sits inside it leaves
+    ``os.getcwd()`` raising ``FileNotFoundError``; the CLI must report
+    that instead of crashing with a raw traceback.
+    """
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    code = (
+        "import os\n"
+        f"os.chdir({str(gone)!r})\n"
+        f"os.rmdir({str(gone)!r})\n"
+        "from osh.cli import main\n"
+        "main(['odoo', '--help'])\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    assert "no longer exists" in result.stderr

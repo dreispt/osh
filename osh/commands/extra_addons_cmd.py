@@ -12,7 +12,7 @@ import click
 
 from .. import echo
 from ..cli_utils import handler_group
-from ..common import discover_addons_paths, find_project_root, is_module_dir
+from ..common import discover_addons_paths, env_root, find_project_root, is_module_dir
 from ..config import get_project_config, set_project_config
 from ..handlers import CommandHandler, subcommand
 from ..sources import (
@@ -115,7 +115,7 @@ class ExtraAddons(CommandHandler):
         set_project_config(base, "addons", "paths", entries)
         path = resolve_addon_path(base, match)
         echo.info(f"Unregistered addon path '{path}'.", err=True)
-        if path.is_relative_to(base / ".osh") and path.exists():
+        if path.is_relative_to(env_root(base) / ".osh") and path.exists():
             echo.info(
                 f"Directory left on disk at {path}; "
                 "delete it manually if no longer needed.",
@@ -163,7 +163,7 @@ class ExtraAddons(CommandHandler):
             raise click.ClickException(
                 f"Invalid clone name '{name}': expected a plain directory name."
             )
-        target = base / ".osh" / name
+        target = env_root(base) / ".osh" / name
         if target.exists():
             raise click.ClickException(f"'{target}' already exists.")
         branch = self.branch or get_project_config(base, "init", "version")

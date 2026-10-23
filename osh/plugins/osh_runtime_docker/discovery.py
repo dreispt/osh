@@ -13,7 +13,7 @@ from pathlib import Path
 
 import click
 
-from ...common import run_subprocess
+from ...common import env_root, run_subprocess
 
 
 def _find_port_holder(port):
@@ -221,7 +221,7 @@ def _port_process_hint(port):
 
 def _project_containers(base):
     """Return ``_list_containers`` entries owned by the Osh project *base*."""
-    resolved = Path(base).resolve()
+    resolved = env_root(base).resolve()
     return [
         c
         for c in _list_containers(show_all=True)
@@ -248,7 +248,7 @@ def _container_running_status(base, compose_cmd, service):
     Compose tool cannot answer ``ps --format json``).
     """
     returncode, out, _ = run_subprocess(
-        [*compose_cmd, "ps", "--format", "json", service], cwd=base
+        [*compose_cmd, "ps", "--format", "json", service], cwd=env_root(base)
     )
     if returncode != 0:
         return None, ""

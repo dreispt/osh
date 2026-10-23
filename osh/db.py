@@ -19,6 +19,7 @@ from . import config as _config
 from . import echo
 from .common import (
     decode_stderr,
+    env_root,
     find_project_repos,
     get_odoo_config_path,
     get_osh_odoo_config_path,
@@ -82,7 +83,8 @@ def get_current_branch(base):
     When the project root is not a git repository itself, the repositories
     discovered below it are considered: the branch name is returned when
     every repository is on the same branch, and ``None`` when they disagree
-    or no repository is found.
+    or no repository is found. A worktree checkout reads its own branch —
+    a linked worktree is always on a branch of its own.
     """
     branches = {
         branch
@@ -592,7 +594,7 @@ def _find_db_entry(cfg, branch):
 
 def _branch_db_name(base, branch):
     """Return the auto-generated database name for a git branch."""
-    return sanitize_db_name(f"{base.name}-{branch}")
+    return sanitize_db_name(f"{env_root(base).name}-{branch}")
 
 
 def resolve_test_db_name(base, current_db, test_db):
@@ -609,7 +611,7 @@ def resolve_test_db_name(base, current_db, test_db):
         if current:
             return current
     branch = resolve_branch(base, None)
-    return sanitize_db_name(f"{base.name}-{branch}-test")
+    return sanitize_db_name(f"{env_root(base).name}-{branch}-test")
 
 
 def get_database_version(base, db_name, ctx=None):

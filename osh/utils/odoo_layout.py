@@ -11,28 +11,29 @@ from pathlib import Path
 import click
 
 from .. import config, echo
-from ..common import discover_addons_paths
+from ..common import discover_addons_paths, env_root, worktree_source_addons
 
 
 def find_odoo_executable(base, *, required=False):
     """Return path to Odoo executable.
 
     Search order:
-    1. *base*/.venv/bin/odoo-bin or odoo (virtualenv)
-    2. *base*/.osh/odoo/odoo-bin (source checkout)
+    1. <env root>/.venv/bin/odoo-bin or odoo (virtualenv)
+    2. <env root>/.osh/odoo/odoo-bin (source checkout)
     3. First `odoo-bin` or `odoo` found in PATH.
 
     When *required* is True, raise a ClickException instead of returning None.
     """
+    env = env_root(base)
     # 1. virtualenv local - prefer odoo-bin over odoo
-    venv_dir = base / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    venv_dir = env / ".venv" / ("Scripts" if os.name == "nt" else "bin")
     for exe_name in ["odoo-bin", "odoo"]:
         venv_exe = venv_dir / exe_name
         if venv_exe.is_file():
             return str(venv_exe)
 
     # 2. source checkout under .osh/odoo
-    source_exe = base / ".osh" / "odoo" / "odoo-bin"
+    source_exe = env / ".osh" / "odoo" / "odoo-bin"
     if source_exe.is_file():
         return str(source_exe)
 
@@ -54,8 +55,14 @@ def build_addons_paths(base, *, include_themes=False):
     design-themes, discovered project addon parent directories, and any
     extra directories registered via ``osh init extra-addons`` — appended
     last so project modules take precedence on name collisions.
+
+    When *base* is a linked worktree checkout, project addons are
+    discovered there and addons directories missing or empty in the
+    worktree — uninitialized submodules — fall back to the source
+    repository's copy, appended after the worktree's own.
     """
     base = Path(base).resolve()
+    env = env_root(base)
     addons_paths = []
 
     odoo_dir = _get_odoo_base_dir(base)
@@ -64,20 +71,25 @@ def build_addons_paths(base, *, include_themes=False):
         if odoo_addons.exists():
             addons_paths.append(odoo_addons)
 
-    enterprise_dir = base / ".osh" / "enterprise"
+    enterprise_dir = env / ".osh" / "enterprise"
     if enterprise_dir.exists():
         addons_paths.append(enterprise_dir)
 
     if include_themes:
-        themes_dir = base / ".osh" / "design-themes"
+        themes_dir = env / ".osh" / "design-themes"
         if themes_dir.exists():
             addons_paths.append(themes_dir)
 
     addon_modules = discover_addons_paths(base)
-    if addon_modules:
+    source_modules = worktree_source_addons(base)
+    all_modules = addon_modules + source_modules
+    if all_modules:
         project_addons = sorted({addon.parent for addon in addon_modules})
+        # Source fill-in dirs go after the checkout's own, deduped.
+        seen = set(project_addons)
+        project_addons += sorted({addon.parent for addon in source_modules} - seen)
         addons_paths.extend(project_addons)
-        for name, parents in sorted(find_duplicate_modules(addon_modules).items()):
+        for name, parents in sorted(find_duplicate_modules(all_modules).items()):
             echo.warning(
                 f"Module '{name}' exists in {len(parents)} project directories "
                 f"({', '.join(str(p) for p in parents)}); Odoo loads the copy from "
@@ -85,7 +97,7 @@ def build_addons_paths(base, *, include_themes=False):
                 err=True,
             )
 
-    for path in registered_addon_paths(base):
+    for path in registered_addon_paths(env):
         if not path.is_dir():
             echo.warning(
                 f"Registered addon path '{path}' does not exist; "
@@ -144,16 +156,16 @@ def addon_path_entries(base):
 
 
 def resolve_addon_path(base, entry):
-    """Resolve a stored ``[addons] paths`` entry against *base*."""
+    """Resolve a stored ``[addons] paths`` entry against the env root."""
     path = Path(entry).expanduser()
-    return path.resolve() if path.is_absolute() else (Path(base) / path).resolve()
+    return path.resolve() if path.is_absolute() else (env_root(base) / path).resolve()
 
 
 def store_addon_path(base, path):
-    """Return *path* as a config entry — relative to *base* when inside it."""
+    """Return *path* as a config entry — relative to the env root when inside it."""
     resolved = Path(path).resolve()
     try:
-        return resolved.relative_to(Path(base).resolve()).as_posix()
+        return resolved.relative_to(env_root(base).resolve()).as_posix()
     except ValueError:
         return str(resolved)
 
@@ -165,15 +177,16 @@ def _get_odoo_base_dir(base):
     1. The .osh/odoo directory in the project
     2. Deriving from the Odoo executable location
     """
+    env = env_root(base)
     # First check the standard .osh/odoo location
-    odoo_dir = base / ".osh" / "odoo"
+    odoo_dir = env / ".osh" / "odoo"
     if odoo_dir.exists() and (odoo_dir / "addons").exists():
         return odoo_dir
 
     # If an executable is available, accept a plain .osh/odoo directory even
     # when it does not yet contain an addons/ subdirectory.
     if find_odoo_executable(base):
-        possible_odoo = base / ".osh" / "odoo"
+        possible_odoo = env / ".osh" / "odoo"
         if possible_odoo.exists():
             return possible_odoo
 

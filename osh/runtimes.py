@@ -31,6 +31,7 @@ import click
 
 from . import echo
 from .common import (
+    env_root,
     find_shell,
     format_cmd,
     get_odoo_config_path,
@@ -59,7 +60,7 @@ def copy_odoo_rc_to_osh_conf(base):
 
     Returns the path to ``.osh/odoo.conf`` regardless of whether a copy happened.
     """
-    odoo_rc = base / ".odoorc"
+    odoo_rc = get_odoo_config_path(base)
     osh_odoo_conf = get_osh_odoo_config_path(base)
     if odoo_rc.exists() and not osh_odoo_conf.exists():
         shutil.copy(odoo_rc, osh_odoo_conf)
@@ -480,7 +481,7 @@ class HostRuntime(Runtime):
         if not conf:
             return None
         path = Path(conf).expanduser()
-        return path if path.is_absolute() else Path(base) / path
+        return path if path.is_absolute() else env_root(base) / path
 
     def _configured_exe(self, base):
         """Return the configured command's executable token, or None."""
@@ -610,7 +611,7 @@ class HostRuntime(Runtime):
         if conf_option := options.get("odoo_conf"):
             conf_path = Path(conf_option).expanduser()
             if not conf_path.is_absolute():
-                conf_path = Path(base) / conf_path
+                conf_path = env_root(base) / conf_path
             if not conf_path.is_file():
                 d.add_error(f"Odoo config file '{conf_option}' does not exist.")
 
@@ -740,7 +741,7 @@ class HostRuntime(Runtime):
             desc = f"'{cmdline}' (pid {pid})"
             project = _pid_osh_project(pid)
             if project is not None:
-                if Path(project).resolve() == Path(base).resolve():
+                if Path(project).resolve() == env_root(base).resolve():
                     desc += " — this project's Odoo process"
                 else:
                     desc += (
@@ -1085,7 +1086,7 @@ def _looks_like_odoo(cmdline, extra_names=()):
 
 def _env_fingerprints_path(base):
     """Return the recorded environment input fingerprints file for *base*."""
-    return Path(base) / ".osh" / "cache" / "env-fingerprints.json"
+    return env_root(base) / ".osh" / "cache" / "env-fingerprints.json"
 
 
 def _load_env_fingerprints(base):

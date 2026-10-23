@@ -1,12 +1,11 @@
 """Virtualenv-managed runtime for Osh."""
 
 import re
-from pathlib import Path
 
 import click
 
 from ... import echo
-from ...common import get_venv_bin, run_subprocess, venv_env
+from ...common import env_root, get_venv_bin, run_subprocess, venv_env
 from ...runtimes import BuildInputs, HostRuntime
 from .python_versions import get_available_python_versions, get_python_requirements
 from .utils import init_project, resolve_installer
@@ -143,7 +142,7 @@ class VenvRuntime(HostRuntime):
 
     def _environment_inputs(self, base, **options):
         """Fingerprint the files init's pip installs consumed."""
-        if not (Path(base) / ".venv").is_dir():
+        if not (env_root(base) / ".venv").is_dir():
             return {}
         return {"venv": BuildInputs(paths=_requirement_files(base))}
 
@@ -209,7 +208,7 @@ class VenvRuntime(HostRuntime):
 
 def _requirement_files(base):
     """Return the files ``init`` pip-installs from, when present."""
-    base = Path(base)
+    base = env_root(base)
     files = sorted(path for path in base.glob("requirements*.txt") if path.is_file())
     files.extend(
         path

@@ -22,6 +22,7 @@ from pathlib import Path
 import click
 
 from ... import echo
+from ...common import env_root
 from ...db import install_filestore, run_in_runtime, run_psql_script
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content
@@ -168,7 +169,7 @@ def neutralize_with_sql(base, db_name, ctx=None):
 
 def run_project_neutralize_scripts(base, db_name, *, dry_run=False, ctx=None):
     """Run ``.osh/neutralize/*.sql`` scripts in sorted order."""
-    neutralize_dir = base / ".osh" / "neutralize"
+    neutralize_dir = env_root(base) / ".osh" / "neutralize"
     if not neutralize_dir.is_dir():
         return
 

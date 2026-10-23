@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from ...commands.helpers import Diagnostics
-from ...common import run_subprocess
+from ...common import env_root, run_subprocess
 from ...runtimes import BuildInputs
 from .discovery import _container_running_status
 from .utils import (
@@ -25,6 +25,9 @@ from .utils import (
 def diagnose(runtime, base, *, sections=None, **options):
     """Inspect Docker Compose environment and project configuration."""
     phase = options.get("phase", "doctor")
+    # The Compose stack and its inputs live under the env root — a
+    # worktree checkout is diagnosed through the source repository's.
+    base = env_root(base)
     d = Diagnostics(runtime.name, project=base)
 
     if sections is None:
@@ -182,6 +185,8 @@ def _environment_input_groups(base, compose_file=None, cfg=None):
     context directories are skipped: a service usually COPYs in addon
     sources, which the project mount overrides at run time anyway.
     """
+    # Build inputs are env-root files; a worktree fingerprints the source's.
+    base = env_root(base)
     resolved = _resolve_compose_file(base, compose_file, cfg=cfg)
     if not resolved:
         return {}
