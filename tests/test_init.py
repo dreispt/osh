@@ -34,7 +34,7 @@ from osh.sources import (
     update_osh_sources,
 )
 
-from .helpers import git, make_bare_repo
+from .helpers import git, make_bare_repo, make_worktree_project
 
 
 def _ensure_source(
@@ -1181,6 +1181,19 @@ class TestUpdateSources:
 
         assert _rev_parse(link) == first
 
+    def test_worktree_updates_env_root(self, tmp_path, patch_cache):
+        """A linked worktree updates the source repository's .osh clones."""
+        project, worktree = make_worktree_project(tmp_path)
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = _install_source_plan(
+            "odoo", "master", "cache", f"file://{bare}", project / ".osh"
+        )
+        pushed = self._push_commit(tmp_path, bare)
+
+        update_osh_sources(worktree, version="master")
+
+        assert _rev_parse(link) == pushed
+
     def test_global_mode_refreshes_cached_refs(self, tmp_path, patch_cache):
         bare = make_bare_repo(tmp_path, "odoo")
         _ensure_repo_cache("odoo", "master", f"file://{bare}")
@@ -1275,3 +1288,25 @@ class TestUpdateSourcesCli:
         assert _rev_parse(link) == pushed
         assert pushed != old
         assert _show_branch(link) == ""
+
+    def test_worktree_updates_env_root_clones(self, tmp_path, patch_cache, monkeypatch):
+        """``osh init --update-sources`` in a linked worktree does not fall
+        into the init flow — it updates the borrowed environment."""
+        project, worktree = make_worktree_project(tmp_path)
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = _install_source_plan(
+            "odoo", "master", "cache", f"file://{bare}", project / ".osh"
+        )
+        set_project_config(project, "init", "version", "master")
+        marker = tmp_path / "odoo" / "new-commit"
+        marker.write_text("x")
+        git(tmp_path / "odoo", "add", "-A")
+        git(tmp_path / "odoo", "commit", "-m", "new")
+        git(tmp_path / "odoo", "push", str(bare), "HEAD:master")
+        pushed = _rev_parse(tmp_path / "odoo")
+        monkeypatch.chdir(worktree)
+
+        result = CliRunner().invoke(main, ["init", "--update-sources"])
+
+        assert result.exit_code == 0, result.output
+        assert _rev_parse(link) == pushed

@@ -15,7 +15,7 @@ from pathlib import Path
 import click
 
 from . import echo
-from .common import run_subprocess
+from .common import env_root, run_subprocess
 
 DEFAULT_ODOO_URL = "https://github.com/odoo/odoo.git"
 DEFAULT_ENTERPRISE_URL = "git@github.com:odoo/enterprise.git"
@@ -624,7 +624,7 @@ def update_osh_sources(
         if pins:
             echo.warning("Source pins are ignored outside a project.", err=True)
         return
-    osh_dir = base / ".osh"
+    osh_dir = env_root(base) / ".osh"
     found = False
     for name in SOURCE_NAMES:
         link = osh_dir / name

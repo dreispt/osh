@@ -35,6 +35,7 @@ from ..cli_utils import (
     param_values,
 )
 from ..common import (
+    env_root,
     find_enclosing_project,
     find_nested_projects,
     setup_project_neutralize_scripts,
@@ -275,9 +276,10 @@ class Init(CommandHandler):
                 "--update-sources/--ref/--date."
             )
         did_update = False
-        if (self.update_sources or self.pins) and (self.target / ".osh").is_dir():
+        env_dir = env_root(self.target)
+        if (self.update_sources or self.pins) and (env_dir / ".osh").is_dir():
             update_osh_sources(
-                self.target,
+                env_dir,
                 version=version or get_project_config(self.target, "init", "version"),
                 pins=self.pins,
                 dry_run=self.dry_run,
@@ -345,7 +347,7 @@ class Init(CommandHandler):
         modifiers, so they never trigger status on their own.
         """
         return (
-            (self.target / ".osh").is_dir()
+            (env_root(self.target) / ".osh").is_dir()
             and self.version is None
             and self.directory is None
             and self.runtime_name is None
