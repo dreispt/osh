@@ -747,7 +747,8 @@ def _update_source_clone(link, name, version, pin, *, dry_run, force):
     branch when the checkout is detached).
     """
     resolved = link.resolve()
-    branch = _source_branch(resolved) or version
+    current_branch = _source_branch(resolved)
+    branch = current_branch or version
     kind, value = pin or ("rev", branch)
     if not value:
         echo.warning(
@@ -763,14 +764,22 @@ def _update_source_clone(link, name, version, pin, *, dry_run, force):
         )
         return
     repo = _resolving_repo(resolved, name)
-    target = _resolve_target(
-        repo, kind, value, branch, track_ref=repo != resolved, dry_run=dry_run
-    )
+    try:
+        target = _resolve_target(
+            repo, kind, value, branch, track_ref=repo != resolved, dry_run=dry_run
+        )
+    except click.ClickException as exc:
+        if current_branch is None and branch:
+            raise click.ClickException(
+                f"{exc} — the checkout is detached and '{branch}' comes from "
+                "the recorded init version; fix it in .osh/config.toml or "
+                "with 'osh init <version>'."
+            )
+        raise
     if target is None:
         return
     sha, mode, branch_name = target
     old_sha = _git_rev(resolved, "HEAD")
-    current_branch = _source_branch(resolved)
     already = (
         sha == old_sha
         and (mode == "detach") == (current_branch is None)
@@ -904,7 +913,9 @@ def _resolve_date(repo, value, branch, *, track_ref):
             )
     sha = _rev_list_before(repo, value)
     if not sha:
-        _deepen_until(repo, ref, lambda: _rev_list_before(repo, value))
+        # The wanted commit sits just past the shallow-since boundary —
+        # deepen a little first and grow exponentially for skewed dates.
+        _deepen_until(repo, ref, lambda: _rev_list_before(repo, value), depth=32)
         sha = _rev_list_before(repo, value)
     if not sha:
         raise click.ClickException(

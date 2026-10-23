@@ -1140,6 +1140,16 @@ class TestUpdateSources:
                 pins={"odoo": ("sha", "f" * 40)},
             )
 
+    def test_detached_clone_bad_version_hint(self, tmp_path, tmp_project, patch_cache):
+        """A detached clone falls back to the recorded version; a bogus
+        one is flagged as a config problem, not a git error."""
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        git(link, "switch", "--detach", _rev_parse(link))
+
+        with pytest.raises(click.ClickException, match="recorded init version"):
+            update_osh_sources(tmp_project, version="bogus-branch")
+
     def test_pin_branch_switches(self, tmp_path, tmp_project, patch_cache):
         bare = make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
         link = self._install(tmp_project, bare)
