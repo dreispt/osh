@@ -42,6 +42,10 @@ Each accepts a local checkout or a git URL. The defaults populate a
 central cache under `~/.cache/osh` shared across projects, so the second
 project on the same Odoo version initialises in seconds.
 
+The cache and the `.osh/` clones are snapshots — refresh them with
+`osh init --update-sources`, optionally pinned with `--ref`/`--date`
+(see [INIT.md](INIT.md#updating-odoo-sources)).
+
 ### Choosing the installer
 
 When [uv](https://github.com/astral-sh/uv) is on `PATH`, the virtualenv is

@@ -27,9 +27,15 @@ def write_stub_pip(venv_path):
     pip.chmod(0o755)
 
 
-def git(repo, *args):
+def git(repo, *args, env=None):
     """Run a git command in *repo*, failing loudly."""
-    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        env={**os.environ, **env} if env else None,
+    )
 
 
 def make_git_project(path, branch=None):

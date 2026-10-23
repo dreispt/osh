@@ -1,6 +1,7 @@
 """Tests for ``osh init`` source resolution."""
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from osh.db import get_project_config, set_project_config
 from osh.plugins.osh_runtime_venv.runtimes import VenvRuntime
 from osh.sources import (
     DEFAULT_ODOO_URL,
+    SOURCE_NAMES,
     _cache_has_branch,
     _ensure_repo_cache,
     _find_local_source,
@@ -27,9 +29,12 @@ from osh.sources import (
     _is_git_url,
     _resolve_source,
     _source_branch,
+    ensure_osh_sources,
+    parse_source_pins,
+    update_osh_sources,
 )
 
-from .helpers import make_bare_repo
+from .helpers import git, make_bare_repo, make_worktree_project
 
 
 def _ensure_source(
@@ -965,3 +970,353 @@ class TestGetInitParent:
 
     def test_no_parent(self, tmp_path):
         assert get_init_parent(tmp_path) is None
+
+
+def _rev_parse(repo, rev="HEAD"):
+    """Return the sha *rev* resolves to in *repo*."""
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", rev],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _show_branch(repo):
+    """Return the checked-out branch in *repo* ('' when detached)."""
+    return subprocess.run(
+        ["git", "-C", str(repo), "branch", "--show-current"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+class TestSourcePins:
+    """``parse_source_pins`` turns ``--ref``/``--date`` values into pins."""
+
+    def test_bare_ref_applies_to_all_sources(self):
+        pins = parse_source_pins(("19.0",), ())
+        assert pins == {name: ("rev", "19.0") for name in SOURCE_NAMES}
+
+    def test_full_hex_ref_is_a_sha(self):
+        sha = "a" * 40
+        pins = parse_source_pins((f"odoo={sha}",), ())
+        assert pins == {"odoo": ("sha", sha)}
+
+    def test_scoped_ref(self):
+        pins = parse_source_pins(("enterprise=19.0",), ())
+        assert pins == {"enterprise": ("rev", "19.0")}
+
+    def test_scoped_date(self):
+        pins = parse_source_pins((), ("odoo=2026-10-15",))
+        assert pins == {"odoo": ("date", "2026-10-15")}
+
+    def test_unknown_source_name(self):
+        with pytest.raises(click.ClickException, match="Unknown source 'foo'"):
+            parse_source_pins(("foo=19.0",), ())
+
+    def test_empty_value(self):
+        with pytest.raises(click.ClickException, match="Empty pin"):
+            parse_source_pins(("odoo=",), ())
+
+    def test_conflicting_pins(self):
+        with pytest.raises(click.ClickException, match="Conflicting"):
+            parse_source_pins(("odoo=19.0", "odoo=master"), ())
+        # A bare --ref and a bare --date cover the same sources
+        with pytest.raises(click.ClickException, match="Conflicting"):
+            parse_source_pins(("19.0",), ("2026-10-15",))
+
+
+class TestUpdateSources:
+    """``update_osh_sources`` refreshes cache refs and managed clones.
+
+    ``make_bare_repo`` leaves the work tree at ``tmp_path / "odoo"`` and
+    the bare remote at ``tmp_path / "odoo.git"``; commits pushed from the
+    work tree to the bare repo model upstream changes.
+    """
+
+    def _install(self, tmp_project, bare, branch="master"):
+        """Clone *bare* into the project's ``.osh/odoo`` via the cache."""
+        return _install_source_plan(
+            "odoo", branch, "cache", f"file://{bare}", tmp_project / ".osh"
+        )
+
+    def _push_commit(self, tmp_path, bare, branch="master", date=None):
+        """Commit on *branch* in the work tree and push it to *bare*."""
+        work = tmp_path / "odoo"
+        marker = work / f"commit-{len(list(work.iterdir()))}"
+        marker.write_text("x")
+        git(work, "add", "-A")
+        env = {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date} if date else None
+        git(work, "commit", "-m", marker.name, env=env)
+        git(work, "push", str(bare), f"HEAD:{branch}")
+        return _rev_parse(work)
+
+    def test_updates_clone_and_cache(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        old = _rev_parse(link)
+
+        pushed = self._push_commit(tmp_path, bare)
+        assert pushed != old
+
+        update_osh_sources(tmp_project, version="master")
+
+        assert _rev_parse(link) == pushed
+        assert _rev_parse(patch_cache / "odoo.git", "master") == pushed
+
+    def test_already_up_to_date(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        head = _rev_parse(link)
+
+        update_osh_sources(tmp_project, version="master")
+
+        assert _rev_parse(link) == head
+        assert _show_branch(link) == "master"
+
+    def test_skips_linked_source(self, tmp_path, tmp_project, patch_cache):
+        src = tmp_path / "odoo-src"
+        src.mkdir()
+        (src / "odoo-bin").touch()
+        (tmp_project / ".osh" / "odoo").symlink_to(src)
+
+        update_osh_sources(tmp_project, version="master")
+
+        assert (tmp_project / ".osh" / "odoo").is_symlink()
+        assert not (src / ".git").exists()
+
+    def test_dirty_clone_skipped_unless_forced(
+        self, tmp_path, tmp_project, patch_cache
+    ):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        old = _rev_parse(link)
+        pushed = self._push_commit(tmp_path, bare)
+        original = (link / "README").read_text()
+        (link / "README").write_text("dirty")
+
+        update_osh_sources(tmp_project, version="master")
+        assert _rev_parse(link) == old
+        assert (link / "README").read_text() == "dirty"
+
+        update_osh_sources(tmp_project, version="master", force=True)
+        assert _rev_parse(link) == pushed
+        assert (link / "README").read_text() == original
+
+    def test_pin_sha_detaches(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        first = _rev_parse(link)
+        self._push_commit(tmp_path, bare)
+
+        update_osh_sources(tmp_project, version="master", pins={"odoo": ("sha", first)})
+
+        assert _rev_parse(link) == first
+        assert _show_branch(link) == ""
+
+    def test_pin_sha_fetches_uncached_object(self, tmp_path, tmp_project, patch_cache):
+        """A sha absent from the depth-1 cache is fetched through it."""
+        bare = make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
+        link = self._install(tmp_project, bare)  # cache holds master only
+        target = _rev_parse(bare, "19.0")
+
+        update_osh_sources(
+            tmp_project, version="master", pins={"odoo": ("sha", target)}
+        )
+
+        assert _rev_parse(link) == target
+        assert _show_branch(link) == ""
+
+    def test_pin_sha_unknown_errors(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        self._install(tmp_project, bare)
+
+        with pytest.raises(click.ClickException, match="Could not fetch"):
+            update_osh_sources(
+                tmp_project,
+                version="master",
+                pins={"odoo": ("sha", "f" * 40)},
+            )
+
+    def test_detached_clone_bad_version_hint(self, tmp_path, tmp_project, patch_cache):
+        """A detached clone falls back to the recorded version; a bogus
+        one is flagged as a config problem, not a git error."""
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        git(link, "switch", "--detach", _rev_parse(link))
+
+        with pytest.raises(click.ClickException, match="recorded init version"):
+            update_osh_sources(tmp_project, version="bogus-branch")
+
+    def test_pin_branch_switches(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo", ("master", "19.0"))
+        link = self._install(tmp_project, bare)
+
+        update_osh_sources(
+            tmp_project, version="master", pins={"odoo": ("rev", "19.0")}
+        )
+
+        assert _show_branch(link) == "19.0"
+        assert _rev_parse(link) == _rev_parse(bare, "19.0")
+
+    def test_pin_tag_detaches(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        work = tmp_path / "odoo"
+        git(work, "tag", "v1.0")
+        git(work, "push", str(bare), "v1.0")
+        link = self._install(tmp_project, bare)
+        target = _rev_parse(bare, "v1.0")
+        self._push_commit(tmp_path, bare)
+
+        update_osh_sources(
+            tmp_project, version="master", pins={"odoo": ("rev", "v1.0")}
+        )
+
+        assert _rev_parse(link) == target
+        assert _show_branch(link) == ""
+
+    def test_pin_date_resolves_asof_commit(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        first = self._push_commit(tmp_path, bare, date="2026-10-05T10:00:00")
+        self._push_commit(tmp_path, bare, date="2026-10-15T10:00:00")
+
+        update_osh_sources(
+            tmp_project,
+            version="master",
+            pins={"odoo": ("date", "2026-10-10")},
+        )
+
+        assert _rev_parse(link) == first
+
+    def test_worktree_updates_env_root(self, tmp_path, patch_cache):
+        """A linked worktree updates the source repository's .osh clones."""
+        project, worktree = make_worktree_project(tmp_path)
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = _install_source_plan(
+            "odoo", "master", "cache", f"file://{bare}", project / ".osh"
+        )
+        pushed = self._push_commit(tmp_path, bare)
+
+        update_osh_sources(worktree, version="master")
+
+        assert _rev_parse(link) == pushed
+
+    def test_global_mode_refreshes_cached_refs(self, tmp_path, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        _ensure_repo_cache("odoo", "master", f"file://{bare}")
+        pushed = self._push_commit(tmp_path, bare)
+
+        update_osh_sources(None)
+
+        assert _rev_parse(patch_cache / "odoo.git", "master") == pushed
+
+    def test_dry_run_changes_nothing(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = self._install(tmp_project, bare)
+        self._push_commit(tmp_path, bare)
+        old = _rev_parse(link)
+
+        update_osh_sources(tmp_project, version="master", dry_run=True)
+
+        assert _rev_parse(link) == old
+        assert _rev_parse(patch_cache / "odoo.git", "master") == old
+
+    def test_fresh_clone_honours_pin(self, tmp_path, tmp_project, patch_cache):
+        bare = make_bare_repo(tmp_path, "odoo")
+        first = _rev_parse(tmp_path / "odoo")
+        self._push_commit(tmp_path, bare)
+
+        ensure_osh_sources(
+            tmp_project,
+            "master",
+            "ce",
+            odoo_source=f"file://{bare}",
+            pins={"odoo": ("sha", first)},
+        )
+
+        link = tmp_project / ".osh" / "odoo"
+        assert _rev_parse(link) == first
+        assert _show_branch(link) == ""
+
+
+class TestUpdateSourcesCli:
+    """``osh init --update-sources`` wiring."""
+
+    def test_updates_project_sources(
+        self, tmp_path, tmp_project, patch_cache, monkeypatch
+    ):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = _install_source_plan(
+            "odoo", "master", "cache", f"file://{bare}", tmp_project / ".osh"
+        )
+        set_project_config(tmp_project, "init", "version", "master")
+        marker = tmp_path / "odoo" / "new-commit"
+        marker.write_text("x")
+        git(tmp_path / "odoo", "add", "-A")
+        git(tmp_path / "odoo", "commit", "-m", "new")
+        git(tmp_path / "odoo", "push", str(bare), "HEAD:master")
+        pushed = _rev_parse(tmp_path / "odoo")
+        monkeypatch.chdir(tmp_project)
+
+        result = CliRunner().invoke(main, ["init", "--update-sources"])
+
+        assert result.exit_code == 0, result.output
+        assert _rev_parse(link) == pushed
+
+    def test_date_flag_implies_update(
+        self, tmp_path, tmp_project, patch_cache, monkeypatch
+    ):
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = _install_source_plan(
+            "odoo", "master", "cache", f"file://{bare}", tmp_project / ".osh"
+        )
+        set_project_config(tmp_project, "init", "version", "master")
+        old = _rev_parse(link)
+        marker = tmp_path / "odoo" / "newer"
+        marker.write_text("x")
+        git(tmp_path / "odoo", "add", "-A")
+        git(
+            tmp_path / "odoo",
+            "commit",
+            "-m",
+            "newer",
+            env={
+                "GIT_AUTHOR_DATE": "2026-10-05T10:00:00",
+                "GIT_COMMITTER_DATE": "2026-10-05T10:00:00",
+            },
+        )
+        git(tmp_path / "odoo", "push", str(bare), "HEAD:master")
+        pushed = _rev_parse(tmp_path / "odoo")
+        monkeypatch.chdir(tmp_project)
+
+        result = CliRunner().invoke(main, ["init", "--date", "odoo=2026-10-10"])
+
+        assert result.exit_code == 0, result.output
+        assert _rev_parse(link) == pushed
+        assert pushed != old
+        assert _show_branch(link) == ""
+
+    def test_worktree_updates_env_root_clones(self, tmp_path, patch_cache, monkeypatch):
+        """``osh init --update-sources`` in a linked worktree does not fall
+        into the init flow — it updates the borrowed environment."""
+        project, worktree = make_worktree_project(tmp_path)
+        bare = make_bare_repo(tmp_path, "odoo")
+        link = _install_source_plan(
+            "odoo", "master", "cache", f"file://{bare}", project / ".osh"
+        )
+        set_project_config(project, "init", "version", "master")
+        marker = tmp_path / "odoo" / "new-commit"
+        marker.write_text("x")
+        git(tmp_path / "odoo", "add", "-A")
+        git(tmp_path / "odoo", "commit", "-m", "new")
+        git(tmp_path / "odoo", "push", str(bare), "HEAD:master")
+        pushed = _rev_parse(tmp_path / "odoo")
+        monkeypatch.chdir(worktree)
+
+        result = CliRunner().invoke(main, ["init", "--update-sources"])
+
+        assert result.exit_code == 0, result.output
+        assert _rev_parse(link) == pushed
