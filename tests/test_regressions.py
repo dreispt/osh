@@ -39,3 +39,26 @@ def test_bare_init_binds_runtime_init_options(tmp_path, monkeypatch, user_config
     assert result.exit_code == 0, result.output
     assert calls and "odoo_source" in calls[0]
     assert get_project_config(target, "run", "runtime") == "venv"
+
+
+def test_duplicate_module_warning_skips_symlinked_copies(tmp_path, capsys):
+    """A module listed twice through a symlink aggregator is not a duplicate.
+
+    Doodba's ``odoo/auto/addons`` links each module into ``custom/src``, so
+    discovery found every module in two directories and commands like
+    ``osh odoo`` or ``osh db list`` printed hundreds of warnings — one per
+    module. The two entries resolve to the same directory and cannot
+    diverge; only genuinely different copies should be reported.
+    """
+    module = tmp_path / "custom" / "src" / "repo" / "l10n_dup"
+    module.mkdir(parents=True)
+    (module / "__manifest__.py").write_text("{'name': 'x'}\n")
+    aggregate = tmp_path / "auto" / "addons"
+    aggregate.mkdir(parents=True)
+    (aggregate / "l10n_dup").symlink_to(module)
+
+    from osh.utils.odoo_layout import build_addons_paths
+
+    build_addons_paths(tmp_path)
+
+    assert "exists in" not in capsys.readouterr().err

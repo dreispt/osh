@@ -103,14 +103,19 @@ def find_duplicate_modules(addon_modules):
 
     *addon_modules* is the list returned by `discover_addons_paths`. The dirs
     are sorted like the generated ``addons_path``, so the first one listed is
-    the copy Odoo loads. Nested ``setup/`` symlink dirs are already dropped
-    by the discovery, so only genuine same-name modules are reported.
+    the copy Odoo loads. Entries resolving to the same directory — symlink
+    aggregators like Doodba's ``auto/addons`` — are one copy, not a
+    duplicate. Nested ``setup/`` symlink dirs are already dropped by the
+    discovery, so only genuine same-name modules are reported.
     """
     by_name = {}
     for addon in addon_modules:
-        by_name.setdefault(addon.name, set()).add(addon.parent)
+        copies = by_name.setdefault(addon.name, {})
+        copies.setdefault(addon.resolve(), set()).add(addon.parent)
     return {
-        name: sorted(parents) for name, parents in by_name.items() if len(parents) > 1
+        name: sorted({p for parents in copies.values() for p in parents})
+        for name, copies in by_name.items()
+        if len(copies) > 1
     }
 
 
