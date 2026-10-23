@@ -556,6 +556,7 @@ def run_subprocess(
         run_kwargs["capture_output"] = True
     run_kwargs.update(kwargs)
 
+    echo.internal(f"Running: {cmd}")
     try:
         result = subprocess.run(args, **run_kwargs)
     except FileNotFoundError as exc:
