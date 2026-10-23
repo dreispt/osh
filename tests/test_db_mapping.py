@@ -370,11 +370,29 @@ def test_resolve_db_name_for_run_tty_prompt_create(tmp_project, pg_db, monkeypat
     pg_db.track(missing)
     set_project_config(tmp_project, "db", "default", missing)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    # No last used database: [c] is the default choice.
+    # No last used database: [n] is the default choice.
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "n")
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == missing
+    assert pg_db.exists(missing)
+
+
+def test_resolve_db_name_for_run_tty_prompt_copy(tmp_project, pg_db, monkeypatch):
+    """In TTY, the missing-db prompt can copy the last used database."""
+    from osh.db import get_last_db, resolve_db_name_for_run
+
+    previous = pg_db.create()
+    missing = pg_db.name()
+    pg_db.track(missing)
+    set_project_config(
+        tmp_project, "db", values={"default": missing, "last_db": previous}
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "c")
     result = resolve_db_name_for_run(tmp_project, verbose=False)
     assert result == missing
     assert pg_db.exists(missing)
+    assert get_last_db(tmp_project) == missing
 
 
 def test_legacy_last_key_fallback_and_migration(tmp_project):
