@@ -49,7 +49,6 @@ osh init <runtime> [VERSION] [DIRECTORY] [runtime options]
 
 | Option                                           | What it does                                                                                    |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `-r`, `--runtime NAME`                           | Select the runtime; `osh init NAME` is the equivalent subcommand form.                          |
 | `--ask`                                          | Ask which runtime to use — the menu with your default preselected.                              |
 | `--edition ce\|ee\|sh` (or `--ce`/`--ee`/`--sh`) | Edition to initialise; defaults to `$OSH_INIT_EDITION`, then the saved configuration.           |
 | `--dev` / `--no-dev`                             | Add dev-friendly Odoo config options (`limit_time_cpu=0`, `limit_time_real=0`); on by default.  |

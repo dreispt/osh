@@ -466,10 +466,7 @@ class MyRuntime(Runtime):
 - `get_init_options(cls)`: return a list of `click.Option` instances for
   the `osh init <name>` subcommand, on top of the common init
   options (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
-  On the compatibility `osh init --runtime=<name>` path they stay
-  parseable (hidden from `--help`) — a user passing one without
-  selecting the runtime gets a warning. The parsed values are passed to
-  `init()` as `**options`.
+  The parsed values are passed to `init()` as `**options`.
 
 - `get_stop_options(cls)`: return a list of `click.Option` instances that
   `osh stop` should accept; the parsed values are passed to

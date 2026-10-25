@@ -1,7 +1,7 @@
-"""Tests for ``osh init --runtime=<name>`` — runtime setup and switching.
+"""Tests for ``osh init <runtime>`` — runtime setup and switching.
 
 The runtime half of ``osh init`` runs the runtime's own setup and records
-it as the project's ``run.runtime``. ``--runtime=host`` is the way back
+it as the project's ``run.runtime``. ``osh init host`` is the way back
 to plain host execution.
 """
 
@@ -36,13 +36,11 @@ def _as_tty(monkeypatch):
 
 
 def test_init_runtime_venv_records_run_runtime(in_project, monkeypatch):
-    """``osh init --runtime=venv`` makes 'venv' the project's active runtime."""
+    """``osh init venv`` makes 'venv' the project's active runtime."""
     set_project_config(in_project, "init", "version", "19.0")
     calls = _init_runtime(in_project, monkeypatch, "venv")
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "venv", "--edition", "ce", "--yes"]
-    )
+    result = CliRunner().invoke(main, ["init", "venv", "--edition", "ce", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "Runtime 'venv' is ready." in result.output
@@ -50,96 +48,29 @@ def test_init_runtime_venv_records_run_runtime(in_project, monkeypatch):
     assert calls and calls[0][0] == in_project
 
 
-def test_init_runtime_foreign_option_warns_and_is_ignored(in_project, monkeypatch):
-    """A docker-only option with ``--runtime=venv`` warns it is ignored."""
-    set_project_config(in_project, "init", "version", "19.0")
-    calls = _init_runtime(in_project, monkeypatch, "venv")
-
-    result = CliRunner().invoke(
-        main,
-        [
-            "init",
-            "--runtime",
-            "venv",
-            "--service",
-            "odoo",
-            "--edition",
-            "ce",
-            "--yes",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "--service" in result.output
-    assert "ignored" in result.output
-    assert "service" not in calls[0][1]
-
-
-def test_init_runtime_option_without_runtime_warns(in_project, monkeypatch):
-    """A runtime option without ``--runtime`` warns it needs one."""
-    set_project_config(in_project, "init", "version", "19.0")
-
-    result = CliRunner().invoke(
-        main, ["init", "--service", "odoo", "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "--service requires --runtime" in result.output
-
-
 def test_init_runtime_host_records_host(in_project):
-    """``osh init --runtime=host`` switches the project back to the host."""
+    """``osh init host`` switches the project back to the host."""
     set_project_config(in_project, "init", "version", "19.0")
     set_project_config(in_project, "run", "runtime", "venv")
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "host", "--edition", "ce", "--yes"]
-    )
+    result = CliRunner().invoke(main, ["init", "host", "--edition", "ce", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert _active_runtime(in_project) == "host"
 
 
 def test_init_runtime_host_without_prior_runtime(in_project):
-    """``osh init --runtime=host`` works when no runtime was active."""
+    """``osh init host`` works when no runtime was active."""
     set_project_config(in_project, "init", "version", "19.0")
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "host", "--edition", "ce", "--yes"]
-    )
+    result = CliRunner().invoke(main, ["init", "host", "--edition", "ce", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert _active_runtime(in_project) == "host"
 
 
-def test_init_runtime_unknown_name_fails(in_project):
-    """An unknown ``--runtime`` name fails listing the available runtimes."""
-    result = CliRunner().invoke(
-        main, ["init", "19.0", "--runtime", "nope", "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code != 0
-    assert "No runtime named 'nope'" in result.output
-    assert _active_runtime(in_project) is None
-
-
-def test_init_runtime_clears_legacy_run_target(in_project, monkeypatch):
-    """Selecting a runtime removes a stale ``run.target`` entry."""
-    set_project_config(in_project, "init", "version", "19.0")
-    set_project_config(in_project, "run", "target", "docker")
-    _init_runtime(in_project, monkeypatch, "venv")
-
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "venv", "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _active_runtime(in_project) == "venv"
-    assert get_project_config(in_project, "run", "target") is None
-
-
 def test_init_runtime_on_fresh_project(tmp_path, monkeypatch):
-    """``osh init --runtime=venv`` on a new directory does both halves."""
+    """``osh init venv`` on a new directory does both halves."""
     target = tmp_path / "fresh"
     target.mkdir()
     (target / ".git").mkdir()
@@ -147,7 +78,7 @@ def test_init_runtime_on_fresh_project(tmp_path, monkeypatch):
 
     result = CliRunner().invoke(
         main,
-        ["init", "19.0", str(target), "--runtime", "venv", "--edition", "ce"],
+        ["init", "venv", "19.0", str(target), "--edition", "ce"],
     )
 
     assert result.exit_code == 0, result.output
@@ -199,34 +130,16 @@ def test_init_runtime_ask_forces_the_prompt(in_project, monkeypatch, user_config
     assert get_user_preference("runtime", section="init") == "venv"
 
 
-def test_init_runtime_ask_legacy_value_still_prompts(
-    in_project, monkeypatch, user_config
-):
-    """The legacy ``--runtime=ask`` value prompts like ``--ask``."""
-    set_project_config(in_project, "init", "version", "19.0")
-    _init_runtime(in_project, monkeypatch, "venv")
-    _as_tty(monkeypatch)
-
-    result = CliRunner().invoke(
-        main,
-        ["init", "--runtime", "ask", "--edition", "ce", "--yes"],
-        input="venv\n",
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _active_runtime(in_project) == "venv"
-
-
 def test_init_runtime_ask_and_runtime_conflict(in_project):
-    """``--ask`` together with ``--runtime=<name>`` is rejected."""
+    """``--ask`` together with a runtime subcommand is rejected."""
     set_project_config(in_project, "init", "version", "19.0")
 
     result = CliRunner().invoke(
-        main, ["init", "--ask", "--runtime", "venv", "--edition", "ce", "--yes"]
+        main, ["init", "venv", "--ask", "--edition", "ce", "--yes"]
     )
 
     assert result.exit_code != 0
-    assert "mutually exclusive" in result.output
+    assert "cannot be combined" in result.output
 
 
 def test_init_runtime_ask_needs_a_terminal(in_project, monkeypatch):
@@ -305,7 +218,7 @@ def _byo_odoo(tmp_path):
 
 
 def test_init_runtime_host_byo_command_and_conf(in_project, tmp_path):
-    """``--runtime=host`` records a bring-your-own command and base config.
+    """``osh init host`` records a bring-your-own command and base config.
 
     The host runtime manages no environment: the user supplies the Odoo
     run command a system init file would use, plus a base config file.
@@ -320,7 +233,6 @@ def test_init_runtime_host_byo_command_and_conf(in_project, tmp_path):
         main,
         [
             "init",
-            "--runtime",
             "host",
             "--edition",
             "ce",
@@ -349,7 +261,6 @@ def test_init_runtime_host_byo_command_must_resolve(in_project):
         main,
         [
             "init",
-            "--runtime",
             "host",
             "--edition",
             "ce",
@@ -372,7 +283,6 @@ def test_init_runtime_host_byo_conf_must_exist(in_project):
         main,
         [
             "init",
-            "--runtime",
             "host",
             "--edition",
             "ce",
@@ -396,7 +306,6 @@ def test_init_runtime_host_byo_command_with_config_warns(in_project, tmp_path):
         main,
         [
             "init",
-            "--runtime",
             "host",
             "--edition",
             "ce",
@@ -412,7 +321,7 @@ def test_init_runtime_host_byo_command_with_config_warns(in_project, tmp_path):
 
 
 def test_init_runtime_host_byo_values_survive_reinit(in_project, tmp_path):
-    """A later ``osh init --runtime=host`` keeps the recorded BYO values."""
+    """A later ``osh init host`` keeps the recorded BYO values."""
     set_project_config(in_project, "init", "version", "19.0")
     odoo_exe = _byo_odoo(tmp_path)
 
@@ -420,7 +329,6 @@ def test_init_runtime_host_byo_values_survive_reinit(in_project, tmp_path):
         main,
         [
             "init",
-            "--runtime",
             "host",
             "--edition",
             "ce",
@@ -431,38 +339,10 @@ def test_init_runtime_host_byo_values_survive_reinit(in_project, tmp_path):
     )
     assert result.exit_code == 0, result.output
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "host", "--edition", "ce", "--yes"]
-    )
+    result = CliRunner().invoke(main, ["init", "host", "--edition", "ce", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert get_project_config(in_project, "init", "odoo_command") == str(odoo_exe)
-
-
-def test_init_runtime_host_byo_options_stay_host_only(in_project, monkeypatch):
-    """``--odoo-command`` with another runtime warns and is not recorded."""
-    set_project_config(in_project, "init", "version", "19.0")
-    calls = _init_runtime(in_project, monkeypatch, "venv")
-
-    result = CliRunner().invoke(
-        main,
-        [
-            "init",
-            "--runtime",
-            "venv",
-            "--odoo-command",
-            "/usr/bin/odoo",
-            "--edition",
-            "ce",
-            "--yes",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "--odoo-command" in result.output
-    assert "ignored" in result.output
-    assert calls and calls[0][0] == in_project
-    assert get_project_config(in_project, "init", "odoo_command") is None
 
 
 def test_init_help_shows_core_options_and_runtime_commands():
@@ -470,7 +350,7 @@ def test_init_help_shows_core_options_and_runtime_commands():
     result = CliRunner().invoke(main, ["init", "--help"])
 
     assert result.exit_code == 0, result.output
-    assert "-r, --runtime" in result.output
+    assert "--runtime" not in result.output
     # Each registered runtime is listed as a subcommand; foreign options
     # are not shown.
     from osh.utils.plugin_loader import runtime_meta
@@ -498,7 +378,7 @@ def test_init_runtime_subcommand_help():
 
 
 def test_init_runtime_subcommand_selects_runtime(in_project, monkeypatch):
-    """``osh init venv`` selects the venv runtime, like ``--runtime=venv``."""
+    """``osh init venv`` selects the venv runtime."""
     set_project_config(in_project, "init", "version", "19.0")
     calls = _init_runtime(in_project, monkeypatch, "venv")
 
@@ -546,17 +426,3 @@ def test_init_runtime_subcommand_rejects_foreign_options(in_project):
     assert result.exit_code != 0
     assert "No such option" in result.output
     assert _active_runtime(in_project) is None
-
-
-def test_init_runtime_short_flag_matches_long_form(in_project, monkeypatch):
-    """``osh init -r venv`` behaves exactly like ``--runtime venv``."""
-    set_project_config(in_project, "init", "version", "19.0")
-    calls = _init_runtime(in_project, monkeypatch, "venv")
-
-    result = CliRunner().invoke(
-        main, ["init", "-r", "venv", "--edition", "ce", "--yes"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert _active_runtime(in_project) == "venv"
-    assert calls and calls[0][0] == in_project

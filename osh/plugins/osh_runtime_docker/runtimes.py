@@ -626,7 +626,7 @@ class DockerRuntime(Runtime):
         Idempotent and cheap once the stack is up: a ``compose ps`` probe
         short-circuits before ``compose up -d``. The cold start never
         rebuilds: run diagnostics already warn when the recorded build
-        inputs changed, and ``osh init --runtime=docker`` rebuilds the
+        inputs changed, and ``osh init docker`` rebuilds the
         image — the addon trees a stack COPYs in are shadowed by the
         project mount at run time anyway. When Osh owns the published
         host port — the generated stack or an ``osh odoo -p`` override —
@@ -663,7 +663,7 @@ class DockerRuntime(Runtime):
         run_command(docker_args, cwd=env_root(base), check=True, stream=True)
         # ``up`` does not rebuild the image on changed inputs, so a stale
         # record must not be blessed as built — the warning stays until
-        # ``osh init --runtime=docker`` rebuilds.
+        # ``osh init docker`` rebuilds.
         if not self._environment_changes(base, compose_file=compose_file):
             self._record_environment_fingerprints(base, compose_file=compose_file)
         _wait_for_db_ready(compose_cmd, cfg.get("db_service") or "db", base)

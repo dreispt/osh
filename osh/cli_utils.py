@@ -150,7 +150,7 @@ def handler_command_group(name, cls, *, group_cls=None):
     command = handler_command(name, cls)
     context_settings = {
         # Options are the default command's — the group must not reject
-        # them before they are routed (``osh init --runtime docker``).
+        # them before they are routed (``osh init docker``).
         "ignore_unknown_options": True,
         **(cls._cli_context_settings or {}),
     }
@@ -441,7 +441,7 @@ def merge_options(options, extra):
 
 def param_values(handler, params):
     """Return ``{name: value}`` for click *params* bound on *handler*."""
-    return {param.name: getattr(handler, param.name) for param in params}
+    return {param.name: getattr(handler, param.name, None) for param in params}
 
 
 def long_flag(param):

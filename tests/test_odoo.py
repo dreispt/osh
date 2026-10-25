@@ -456,7 +456,7 @@ def test_odoo_runs_the_configured_host_command(
 ):
     """A recorded ``--odoo-command`` replaces executable discovery.
 
-    ``osh init --runtime=host --odoo-command`` stores the run command a
+    ``osh init host --odoo-command`` stores the run command a
     system init file would use — arguments included — and ``osh odoo``
     execs it as the argv prefix.
     """

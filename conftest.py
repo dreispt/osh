@@ -87,7 +87,7 @@ def fake_odoo_executable(tmp_project):
     """Create a fake Odoo executable in ``tmp_project/.venv/bin/odoo``.
 
     A stub ``pip`` is included so the pre-existing ``.venv`` looks
-    complete to ``osh init --runtime=venv``.
+    complete to ``osh init venv``.
     """
     venv_bin = tmp_project / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)

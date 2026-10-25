@@ -18,7 +18,7 @@ def test_reinit_honors_service_saved_in_docker_toml(
 ):
     """Re-init failed on a service the project never had.
 
-    ``osh init --runtime=docker`` on a project whose ``.osh/docker.toml`` already
+    ``osh init docker`` on a project whose ``.osh/docker.toml`` already
     named the Odoo service (``app``, alongside ``db`` and ``mail`` in the
     project's compose file) failed with ``Service 'odoo' not found`` —
     init ignored the saved configuration and validated the default
@@ -32,7 +32,7 @@ def test_reinit_honors_service_saved_in_docker_toml(
         "service = 'app'\ncompose_file = 'compose.yaml'\n"
     )
 
-    result = CliRunner().invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = CliRunner().invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     docker_toml = (tmp_project / ".osh" / "docker.toml").read_text()
@@ -57,9 +57,7 @@ def test_streamed_command_output_is_not_styled(tmp_project, fake_docker, monkeyp
         "#1 [internal] load build definition from Dockerfile\n"
     )
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "19.0"], color=True
-    )
+    result = CliRunner().invoke(main, ["init", "docker", "19.0"], color=True)
 
     assert result.exit_code == 0, result.output
     assert "\x1b[" in result.output  # Osh messages are styled

@@ -148,7 +148,7 @@ class Runtime(ABC):
     def diagnose_sections_for_phase(self, phase):
         """Return the diagnose sections to run for *phase*.
 
-        ``None`` means "all sections". This is used by ``osh init --runtime``
+        ``None`` means "all sections". This is used by ``osh init <runtime>``
         and ``osh odoo`` to skip expensive checks that are only useful for a
         full diagnostics report.
         """
@@ -274,11 +274,11 @@ class Runtime(ABC):
         """Inspect the project and system for the active target.
 
         *sections* is an optional list of section names to detect. When omitted,
-        runtimes should detect everything. Callers such as ``osh init --runtime``
+        runtimes should detect everything. Callers such as ``osh init <runtime>``
         and ``osh odoo`` can use it to avoid expensive checks that are not needed
         for their phase.
 
-        Returns a ``Diagnostics`` object that ``osh init --runtime`` uses to
+        Returns a ``Diagnostics`` object that ``osh init <runtime>`` uses to
         plan actions and ask for confirmation, and ``osh odoo`` uses to check
         prerequisites.
         """
@@ -296,7 +296,7 @@ class Runtime(ABC):
     ):
         """Set up the environment. Return ``True`` if ready for use.
 
-        *todo* is the ``TodoPlan`` progress tracker ``osh init --runtime``
+        *todo* is the ``TodoPlan`` progress tracker ``osh init <runtime>``
         passes so runtimes can announce steps via ``todo.start()`` while running.
         """
         raise NotImplementedError
