@@ -356,9 +356,9 @@ def get_osh_odoo_config_path(base):
 def get_odoo_port(base, extra_confs=()):
     """Return the Odoo HTTP port configured for *base* (default ``8069``).
 
-    Reads ``http_port`` (or the legacy ``xmlrpc_port``) from the first
-    config defining it: ``.osh/odoo.conf``, ``.odoorc``, then
-    *extra_confs* (e.g. a runtime's configured base config).
+    Reads ``http_port`` from the first config defining it:
+    ``.osh/odoo.conf``, ``.odoorc``, then *extra_confs* (e.g. a
+    runtime's configured base config).
     """
     confs = (get_osh_odoo_config_path(base), get_odoo_config_path(base), *extra_confs)
     for conf in confs:
@@ -368,10 +368,9 @@ def get_odoo_port(base, extra_confs=()):
         cfg.read(conf, encoding="utf-8")
         if not cfg.has_section("options"):
             continue
-        for key in ("http_port", "xmlrpc_port"):
-            value = cfg["options"].get(key)
-            if value and str(value).strip().isdigit():
-                return int(str(value).strip())
+        value = cfg["options"].get("http_port")
+        if value and str(value).strip().isdigit():
+            return int(str(value).strip())
     return 8069
 
 

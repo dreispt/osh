@@ -51,6 +51,7 @@ the cost of the undeclared contract.
 
 import functools
 import importlib
+import importlib.metadata as _metadata
 import importlib.util
 import pkgutil
 import re
@@ -61,12 +62,6 @@ import click
 
 from .. import echo
 from ..config import tomllib
-
-try:
-    import importlib.metadata as _metadata
-except ImportError:  # pragma: no cover
-    _metadata = None
-
 
 #: Name of the marker file identifying a plugin package in a repository.
 PLUGIN_MARKER = "osh-plugin.toml"
@@ -338,41 +333,28 @@ def _iter_entry_points(group="osh.plugins"):
     (``"pkg.module"`` or ``"pkg.module:attr"``); a plugin declaring
     ``[tool.osh]`` gets the full lazy treatment.
     """
-    if _metadata is None:
-        return
     try:
         eps = _metadata.entry_points()
     except (ImportError, AttributeError, TypeError) as exc:
         echo.warning(f"Could not scan entry points: {exc}", err=True)
         return
-    try:
-        selected = eps.select(group=group)
-    except AttributeError:
-        selected = eps.get(group, [])
-    yield from selected
+    yield from eps.select(group=group)
 
 
 def _ep_meta(module_name):
     """Return the declared plugin metadata of an installed package.
 
-    Returns ``(meta, legacy)`` — *legacy* marks metadata coming from the
-    deprecated ``osh-plugin.toml`` marker; ``[tool.osh]`` in the package's
-    ``pyproject.toml`` is the canonical location. Uses
-    ``importlib.util.find_spec`` on the top-level package only, so the
-    plugin's module is never imported.
+    ``[tool.osh]`` in the package's ``pyproject.toml`` is the metadata
+    location. Uses ``importlib.util.find_spec`` on the top-level package
+    only, so the plugin's module is never imported.
     """
     try:
         spec = importlib.util.find_spec(module_name.split(".", 1)[0])
     except (ImportError, ValueError, AttributeError):
-        return {}, False
+        return {}
     if spec is None or not spec.origin:
-        return {}, False
-    package_dir = Path(spec.origin).parent
-    meta = _pyproject_meta(package_dir)
-    if meta:
-        return meta, False
-    marker_meta = plugin_meta(package_dir)
-    return marker_meta, bool(marker_meta)
+        return {}
+    return _pyproject_meta(Path(spec.origin).parent)
 
 
 def _pyproject_meta(package_dir):
