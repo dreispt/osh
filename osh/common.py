@@ -706,17 +706,18 @@ def worktree_source_addons(base):
 
 
 def get_odoo_data_dir(base):
-    """Return the Odoo data directory from ``.odoorc`` or the default location.
+    """Return the Odoo data directory from the project config or the default.
 
-    When *base* is None or ``.odoorc`` does not configure ``data_dir``, the
-    conventional default ``~/.local/share/Odoo`` is returned (only if it
-    exists, otherwise None).
+    Reads ``data_dir`` from ``.osh/odoo.conf``, then ``.odoorc``; when
+    neither configures it, the conventional default ``~/.local/share/Odoo``
+    is returned (only if it exists, otherwise None).
     """
     if base is not None:
-        odoo_rc = get_odoo_config_path(base)
-        if odoo_rc.exists():
+        for conf in (get_osh_odoo_config_path(base), get_odoo_config_path(base)):
+            if not conf.exists():
+                continue
             cfg = configparser.ConfigParser()
-            cfg.read(odoo_rc)
+            cfg.read(conf)
             value = cfg.get("options", "data_dir", fallback=None)
             if value:
                 return Path(value)
