@@ -17,11 +17,11 @@ import click
 from .. import echo
 
 
-@dataclass(init=False)
+@dataclass
 class Diagnostics:
     """Container for environment checks, plans and final command data."""
 
-    runtime: str
+    runtime: str = ""
     ready: bool = True
     project: Path | None = None
     target: str | None = None
@@ -31,30 +31,6 @@ class Diagnostics:
     info: dict[str, dict[str, Any]] = field(default_factory=dict)
     plan: list[str] = field(default_factory=list)
     command: list[str] | None = None
-
-    def __init__(
-        self,
-        runtime="",
-        ready=True,
-        project=None,
-        target=None,
-        errors=None,
-        warnings=None,
-        notes=None,
-        info=None,
-        plan=None,
-        command=None,
-    ):
-        self.runtime = runtime
-        self.ready = ready
-        self.project = project
-        self.target = target
-        self.errors = errors if errors is not None else []
-        self.warnings = warnings if warnings is not None else []
-        self.notes = notes if notes is not None else []
-        self.info = info if info is not None else {}
-        self.plan = plan if plan is not None else []
-        self.command = command
 
     def _default_topic(self):
         """Return the default topic for info entries."""
