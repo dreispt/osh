@@ -163,7 +163,8 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
 
 def neutralize_with_sql(base, db_name, ctx=None):
     """Run the bundled SQL fallback neutralization script."""
-    with importlib.resources.path("osh.data", "neutralize_fallback.sql") as script_path:
+    script = importlib.resources.files("osh.data") / "neutralize_fallback.sql"
+    with importlib.resources.as_file(script) as script_path:
         run_psql_script(base, db_name, script_path, ctx=ctx)
 
 

@@ -781,7 +781,11 @@ def _copy_bundled_neutralize_script(neutralize_dir, resource, name):
     An existing copy is refreshed so fixes to the bundled script reach the
     project on re-init; an identical file is left alone.
     """
-    content = importlib.resources.read_text("osh.data", resource)
+    content = (
+        importlib.resources.files("osh.data")
+        .joinpath(resource)
+        .read_text(encoding="utf-8")
+    )
     destination = neutralize_dir / name
     if destination.exists() and destination.read_text(encoding="utf-8") == content:
         return
