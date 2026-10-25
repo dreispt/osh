@@ -353,6 +353,21 @@ def get_osh_odoo_config_path(base):
     return env_root(base) / ".osh" / "odoo.conf"
 
 
+def _iter_conf_options(base, *extra_confs):
+    """Yield the ``options`` sections of each existing project config."""
+    for conf in (
+        get_osh_odoo_config_path(base),
+        get_odoo_config_path(base),
+        *extra_confs,
+    ):
+        if not conf.exists():
+            continue
+        cfg = configparser.ConfigParser()
+        cfg.read(conf, encoding="utf-8")
+        if cfg.has_section("options"):
+            yield cfg["options"]
+
+
 def get_odoo_port(base, extra_confs=()):
     """Return the Odoo HTTP port configured for *base* (default ``8069``).
 
@@ -360,15 +375,8 @@ def get_odoo_port(base, extra_confs=()):
     ``.osh/odoo.conf``, ``.odoorc``, then *extra_confs* (e.g. a
     runtime's configured base config).
     """
-    confs = (get_osh_odoo_config_path(base), get_odoo_config_path(base), *extra_confs)
-    for conf in confs:
-        if not conf.exists():
-            continue
-        cfg = configparser.ConfigParser()
-        cfg.read(conf, encoding="utf-8")
-        if not cfg.has_section("options"):
-            continue
-        value = cfg["options"].get("http_port")
+    for options in _iter_conf_options(base, *extra_confs):
+        value = options.get("http_port")
         if value and str(value).strip().isdigit():
             return int(str(value).strip())
     return 8069
@@ -713,12 +721,8 @@ def get_odoo_data_dir(base):
     is returned (only if it exists, otherwise None).
     """
     if base is not None:
-        for conf in (get_osh_odoo_config_path(base), get_odoo_config_path(base)):
-            if not conf.exists():
-                continue
-            cfg = configparser.ConfigParser()
-            cfg.read(conf)
-            value = cfg.get("options", "data_dir", fallback=None)
+        for options in _iter_conf_options(base):
+            value = options.get("data_dir", fallback=None)
             if value:
                 return Path(value)
     return DEFAULT_ODOO_DATA_DIR if DEFAULT_ODOO_DATA_DIR.exists() else None

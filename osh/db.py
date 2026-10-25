@@ -4,7 +4,6 @@ Tracks the preferred database per git branch in `.osh/config.toml` and provides
 shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 """
 
-import configparser
 import fnmatch
 import re
 import shlex
@@ -18,11 +17,10 @@ import click
 from . import config as _config
 from . import echo
 from .common import (
+    _iter_conf_options,
     decode_stderr,
     env_root,
     find_project_repos,
-    get_odoo_config_path,
-    get_osh_odoo_config_path,
     git_current_branch,
 )
 from .termui import choose
@@ -114,16 +112,9 @@ def get_pg_env(base):
     variables so tools like ``psql`` and ``pg_restore`` connect automatically
     to the same database Odoo uses.
     """
-    odoo_rc = get_osh_odoo_config_path(base)
-    if not odoo_rc.exists():
-        odoo_rc = get_odoo_config_path(base)
+    options = next(_iter_conf_options(base), None)
     env = {}
-    if not odoo_rc.exists():
-        return env
-
-    cfg = configparser.ConfigParser()
-    cfg.read(odoo_rc, encoding="utf-8")
-    if not cfg.has_section("options"):
+    if options is None:
         return env
 
     mapping = {
@@ -132,7 +123,6 @@ def get_pg_env(base):
         "db_user": "PGUSER",
         "db_password": "PGPASSWORD",
     }
-    options = cfg["options"]
     for key, var in mapping.items():
         value = options.get(key)
         if value:
