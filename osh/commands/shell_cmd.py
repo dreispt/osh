@@ -188,7 +188,7 @@ class ShellRun(CommandHandler):
     @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
         self.base = find_project_root(required=True)
-        self.runtime = self.backend = db_module.resolve_runtime(self.base)
+        self.runtime = db_module.resolve_runtime(self.base)
         check_run_diagnostics(
             self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )

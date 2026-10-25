@@ -28,8 +28,7 @@ from .remotes import newest_cache_for_remote, newest_cache_for_source
 # `osh backup restore` handler — extensions subclass DbRestore and override
 # step methods, calling super(). Command state is on ``self``: ``ctx``,
 # the parsed params plus ``base``, ``runtime``, ``dump_path`` and
-# ``db_name`` as ``run()`` fills them in; ``backend`` is a deprecated alias
-# of ``runtime``.
+# ``db_name`` as ``run()`` fills them in.
 class DbRestore(CommandHandler):
     """Restore a backup into the current branch's database and neutralize it.
 
@@ -123,7 +122,7 @@ class DbRestore(CommandHandler):
         self.base = find_project_root(required=True)
         self.dump_path = self.resolve_dump_path()
         self.db_name = self.resolve_target_db()
-        self.runtime = self.backend = resolve_runtime(self.base)
+        self.runtime = resolve_runtime(self.base)
         check_run_diagnostics(self.base, self.runtime, self.ctx)
         self.prepare_target()
         self.restore_dump()

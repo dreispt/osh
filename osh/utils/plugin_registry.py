@@ -373,7 +373,7 @@ def _pyproject_meta(package_dir):
         tool = _read_toml(pyproject).get("tool")
         meta = tool.get("osh") if isinstance(tool, dict) else None
         if isinstance(meta, dict):
-            return _normalize_meta(meta)
+            return meta
     return {}
 
 
@@ -418,11 +418,11 @@ def plugin_source_name(name):
 
 
 def plugin_meta(path):
-    """Return the metadata dict from a plugin package's ``osh-plugin.toml``."""
+    """Return the metadata dict from a built-in plugin's ``osh-plugin.toml``."""
     marker = path / PLUGIN_MARKER
     if not marker.is_file():
         return {}
-    return _normalize_meta(_read_toml(marker))
+    return _read_toml(marker)
 
 
 @functools.lru_cache(maxsize=256)
@@ -438,23 +438,6 @@ def _read_toml(path):
     except (OSError, ValueError) as exc:
         echo.warning(f"Could not parse {path}: {exc}", err=True)
         return {}
-
-
-def _normalize_meta(meta):
-    """Return *meta* with the legacy ``[backends]`` table merged into ``[runtimes]``.
-
-    The old section name is deprecated and scheduled for removal in a
-    later release. Returns a new dict; the parsed TOML is never mutated —
-    it may be shared through the ``_read_toml`` cache.
-    """
-    backends = meta.get("backends")
-    if not isinstance(backends, dict):
-        return meta
-    meta = dict(meta)
-    runtimes = meta.get("runtimes")
-    meta["runtimes"] = {**(runtimes if isinstance(runtimes, dict) else {}), **backends}
-    del meta["backends"]
-    return meta
 
 
 def min_osh_ok(requirement):

@@ -8,11 +8,7 @@ runtime as active, and ``osh stop`` drives ``stop``/``stop_by_name``/
 ``stop_all``.
 
 ``HostRuntime`` (the ``host`` runtime) is the built-in default, used when
-no other runtime is configured: it runs commands directly on the host. The
-legacy ``none`` name still resolves to it.
-
-``osh.backends`` and the ``Backend``/``HostBackend`` class names are
-deprecated aliases kept for plugins written against the old backend API.
+no other runtime is configured: it runs commands directly on the host.
 """
 
 import hashlib
@@ -108,8 +104,6 @@ class Runtime(ABC):
     """Unified base class for Osh init and execution runtimes."""
 
     runtime_type = "runtime"
-    # Deprecated alias kept for plugins written against the backend API.
-    backend_type = "backend"
     name = ""
     label = ""
     description = ""
@@ -861,12 +855,6 @@ class HostRuntime(Runtime):
                     f"Odoo process {pid} is still listening on port {port} "
                     "after SIGKILL."
                 )
-
-
-# Deprecated aliases kept for plugins written against the old backend API.
-Backend = Runtime
-HostBackend = HostRuntime
-NoneBackend = HostRuntime
 
 
 def _osh_managed_odoo_pids():

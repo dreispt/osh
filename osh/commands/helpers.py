@@ -44,10 +44,8 @@ class Diagnostics:
         info=None,
         plan=None,
         command=None,
-        backend=None,
     ):
-        # ``backend`` is the deprecated name of the ``runtime`` argument.
-        self.runtime = runtime or backend or ""
+        self.runtime = runtime
         self.ready = ready
         self.project = project
         self.target = target
@@ -57,15 +55,6 @@ class Diagnostics:
         self.info = info if info is not None else {}
         self.plan = plan if plan is not None else []
         self.command = command
-
-    @property
-    def backend(self):
-        """Deprecated alias for :attr:`runtime`."""
-        return self.runtime
-
-    @backend.setter
-    def backend(self, value):
-        self.runtime = value
 
     def _default_topic(self):
         """Return the default topic for info entries."""

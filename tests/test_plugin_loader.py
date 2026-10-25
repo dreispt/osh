@@ -178,22 +178,21 @@ def test_installed_plugin_runtimes_and_sources(pip_install, capsys):
     # stub until resolved.
     from osh.cli_utils import LazyCommand
 
-    ((src, stop),) = (e for e in groups["mybackend"] if e[1].name == "stop")
+    ((src, stop),) = (e for e in groups["myruntime"] if e[1].name == "stop")
     assert src == "repo-l" and isinstance(stop, LazyCommand)
 
     spec = plugin_registry.plugin_registry().specs["repo-l"]
     assert spec.resolve_command("db", "mysub").name == "mysub"
-    assert spec.resolve_command("mybackend", "stop").name == "stop"
+    assert spec.resolve_command("myruntime", "stop").name == "stop"
     assert capsys.readouterr().err == ""
 
 
 def test_runtime_name_collision_is_skipped(pip_install, capsys):
-    """A runtime named like the built-in host runtime is skipped."""
+    """A runtime redeclaring the built-in host runtime is skipped."""
     pip_install("repo_m")
 
     runtimes = plugin_loader.load_runtimes()
     assert runtimes["host"].__module__ == "osh.runtimes"
-    assert "none" not in runtimes
     assert "conflicts" in capsys.readouterr().err
 
 
@@ -305,14 +304,14 @@ def test_lazy_command_import_error_is_reported(pip_install):
 
 def test_lazy_runtime_imports_only_its_plugin(pip_install):
     """``get_runtime_class`` imports only the plugin declaring the runtime."""
-    pip_install("repo_backends")
+    pip_install("repo_runtimes")
 
-    cls = plugin_loader.get_runtime_class("a-backend")
+    cls = plugin_loader.get_runtime_class("a-runtime")
 
     assert cls.__name__ == "A"
     specs = plugin_loader.plugin_registry().specs
-    assert specs["osh-backend-a"].loaded
-    assert not specs["osh-backend-b"].loaded
+    assert specs["osh-runtime-a"].loaded
+    assert not specs["osh-runtime-b"].loaded
 
 
 def test_entry_point_attr_target_registers_without_load(pip_install):

@@ -3,16 +3,16 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "repo-backends"
+name = "repo-runtimes"
 version = "0.1.0"
 requires-python = ">=3.10"
 
 [project.entry-points."osh.plugins"]
-osh-backend-a = "osh_backend_a"
-osh-backend-b = "osh_backend_b"
+osh-runtime-a = "osh_runtime_a"
+osh-runtime-b = "osh_runtime_b"
 
 [tool.setuptools]
-packages = ["osh_backend_a", "osh_backend_b"]
+packages = ["osh_runtime_a", "osh_runtime_b"]
 
 [tool.setuptools.package-data]
 "*" = ["pyproject.toml"]

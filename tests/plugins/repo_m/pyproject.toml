@@ -19,5 +19,5 @@ repo_m = ["pyproject.toml"]
 
 [tool.osh]
 
-[tool.osh.backends]
-none = "None again."
+[tool.osh.runtimes]
+host = "Host again."

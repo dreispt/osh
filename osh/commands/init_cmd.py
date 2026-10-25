@@ -813,10 +813,6 @@ def run_runtime_init(
     return result
 
 
-# Deprecated alias kept for plugins written against the backend API.
-run_backend_init = run_runtime_init
-
-
 class TodoPlan:
     """Progress tracker for init steps.
 

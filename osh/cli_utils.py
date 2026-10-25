@@ -471,7 +471,3 @@ def format_runtimes_section(formatter, runtimes):
     ]
     with formatter.section("Runtimes"):
         formatter.write_dl(records)
-
-
-# Deprecated alias kept for plugins written against the backend API.
-format_backends_section = format_runtimes_section

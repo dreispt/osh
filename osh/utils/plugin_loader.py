@@ -181,13 +181,6 @@ def load_runtimes():
     return result
 
 
-# Deprecated aliases kept for plugins written against the old backend API
-# — scheduled for removal in a later release.
-get_backend_class = get_runtime_class
-backend_meta = runtime_meta
-load_backends = load_runtimes
-
-
 def get_source_class(scheme):
     """Return the ``BackupSource`` class for *scheme*, or ``None``.
 

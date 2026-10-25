@@ -20,8 +20,8 @@ repo_l = ["pyproject.toml"]
 [tool.osh]
 description = "Test plugin."
 
-[tool.osh.backends]
-mybackend = "My backend."
+[tool.osh.runtimes]
+myruntime = "My runtime."
 
 [tool.osh.sources]
 myscheme = "My source."
@@ -29,5 +29,5 @@ myscheme = "My source."
 [tool.osh.group_commands.db]
 mysub = "My sub."
 
-[tool.osh.group_commands.mybackend]
-stop = "Stop my backend."
+[tool.osh.group_commands.myruntime]
+stop = "Stop my runtime."

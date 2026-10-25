@@ -1389,7 +1389,3 @@ def _containerize_arg(arg, base):
     except (ValueError, OSError):
         return value
     return f"/mnt/extra-addons/{rel.as_posix()}"
-
-
-# Deprecated alias kept for plugins written against the backend API.
-DockerBackend = DockerRuntime

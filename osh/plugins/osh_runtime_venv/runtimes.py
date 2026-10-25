@@ -220,7 +220,3 @@ def _requirement_files(base):
         if path.is_file()
     )
     return files
-
-
-# Deprecated alias kept for plugins written against the backend API.
-VenvBackend = VenvRuntime

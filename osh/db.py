@@ -252,16 +252,6 @@ def run_in_runtime(
     return result
 
 
-# Deprecated aliases kept for plugins written against the old backend API
-# — scheduled for removal in a later release.
-normalize_backend_name = normalize_runtime_name
-get_active_backend_name = get_active_runtime_name
-set_active_backend_name = set_active_runtime_name
-deactivate_backend = deactivate_runtime
-resolve_backend = resolve_runtime
-run_in_backend = run_in_runtime
-
-
 def install_filestore(ctx, base, src_dir, db_name):
     """Install the contents of *src_dir* as the filestore of *db_name*.
 
