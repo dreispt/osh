@@ -6,6 +6,32 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Removed
+
+- The deprecated "backend" API aliases: the `osh.backends` module and the
+  `Backend`/`HostBackend`/`NoneBackend`/`DockerBackend`/`VenvBackend` class
+  names, `osh.db`'s `*_backend` helpers (`run_in_backend`, `resolve_backend`,
+  ...), `plugin_loader`'s `get_backend_class`/`backend_meta`/`load_backends`,
+  `cli_utils.format_backends_section`, `init_cmd.run_backend_init`, the
+  `backend` parameter on `Diagnostics` and `DbRestore`, and the
+  `[tool.osh.backends]` metadata table. Plugins must use the runtime names
+  introduced in 1.5.0/1.6.0.
+- The legacy `run.target` config key and the `none`/`local` runtime name
+  aliases — `run.runtime` and `host` are the only spellings.
+- The hidden `osh init -r/--runtime` option (and `--runtime=ask`) plus the
+  runtime init options merged onto plain `osh init`: runtime options now
+  only exist on `osh init <runtime>`, where foreign options are a parse
+  error instead of a warning.
+- The hidden `osh shell` and `osh db shell` aliases of `osh exec`/`osh db
+exec`; the exec handler's extension name is now `exec` — plugins using
+  `extends = ["shell"]` must switch to `extends = ["exec"]`.
+- The `osh-plugin.toml` marker support for pip-installed plugins — declare
+  the surface under `[tool.osh]` in `pyproject.toml` instead. Built-in
+  plugins keep using `osh-plugin.toml`.
+- The `init.target` project record (a duplicate of `run.runtime`) and the
+  pre-3.10 compatibility branches (`importlib.metadata` guards, the
+  `entry_points().get()` fallback) and Odoo ≤10's `xmlrpc_port` config key.
+
 ## 1.14.0 — 2026-10-23
 
 ### Added
