@@ -81,8 +81,7 @@ class OdooRun(CommandHandler):
     calling ``super()`` to keep the rest of the chain. Command state is
     on ``self``: ``ctx``, the parsed params (``dry_run``, ``extra_args``,
     ...) plus ``dev``, ``base``, ``runtime``, ``diagnostics``, ``db_name``
-    and ``env_spec`` as ``run()`` fills them in. ``backend`` is a deprecated
-    alias of ``runtime``.
+    and ``env_spec`` as ``run()`` fills them in.
     """
 
     _cli_name = "odoo"
