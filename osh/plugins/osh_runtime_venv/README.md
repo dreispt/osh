@@ -7,9 +7,9 @@ just executes on the host with whatever is already installed), `venv` sets
 up and maintains a Python virtualenv plus the Odoo source trees for the
 project.
 
-## What `osh init --runtime=venv` does
+## What `osh init venv` does
 
-For each requested edition `osh init --runtime=venv`:
+For each requested edition `osh init venv`:
 
 1. Clones the Odoo sources into `.osh/` — `odoo` always, plus `enterprise`
    and `design-themes` for the `ee` edition (`-c`/`-e`/`-d` flags control

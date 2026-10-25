@@ -6,7 +6,7 @@ Provides the `docker` runtime: Odoo and its tools (`psql`, `pg_dump`,
 ## Init
 
 ```bash
-osh init 19.0 --runtime=docker [--service odoo] [--command odoo] \
+osh init docker 19.0 [--service odoo] [--command odoo] \
     [--compose-file devel.yaml] [--dockerfile Dockerfile] [--port 8069]
 ```
 
@@ -29,7 +29,7 @@ variables are mapped to the usual `PG*` ones.
 
 ## Compose file and image resolution
 
-`osh init --runtime=docker` picks the Odoo container in this order:
+`osh init docker` picks the Odoo container in this order:
 
 - **`--compose-file <path>`** (or `$OSH_COMPOSE_FILE`, or `compose_file` in
   `.osh/docker.toml`): the file is used as-is — for example a Doodba
@@ -114,14 +114,14 @@ services it runs `compose build` when the fingerprint shows the inputs
 changed, and updates the record afterwards:
 
 ```bash
-osh init --runtime=docker   # rebuild the service images
+osh init docker   # rebuild the service images
 ```
 
 If the warning is a false positive — the inputs changed but the image
 is already current — `--fingerprint` only re-records the fingerprint:
 
 ```bash
-osh init --runtime=docker --fingerprint   # accept the inputs as built
+osh init docker --fingerprint   # accept the inputs as built
 ```
 
 Init updates the image but does not recreate a running container, so a
@@ -159,6 +159,6 @@ the configured/`--port` one on the generated stack, or the `osh odoo -p`
 override elsewhere; a foreign compose file's own mapping is left to it. If
 the holder is another Osh-managed project (identified via Compose labels),
 the error names that project and suggests `osh stop <name>` there or
-`osh init --runtime=docker --port <n>` here; otherwise it prints a generic
+`osh init docker --port <n>` here; otherwise it prints a generic
 actionable message. In both cases `osh stop` is the first suggested
 remedy.

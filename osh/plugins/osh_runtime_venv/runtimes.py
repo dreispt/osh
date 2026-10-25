@@ -16,7 +16,6 @@ class VenvRuntime(HostRuntime):
 
     name = "venv"
     label = "Python virtualenv"
-    runtime_type = "runtime"
     description = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
     help_text = (
         "Clones Odoo (and optionally Enterprise and design-themes) into ``.osh/``, "
@@ -220,7 +219,3 @@ def _requirement_files(base):
         if path.is_file()
     )
     return files
-
-
-# Deprecated alias kept for plugins written against the backend API.
-VenvBackend = VenvRuntime

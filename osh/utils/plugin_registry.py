@@ -2,8 +2,7 @@
 
 Stage 1 — discovery without import: ``PluginRegistry`` scans plugin
 *metadata* only — ``[tool.osh]`` in ``pyproject.toml`` for installed
-distributions (or the deprecated ``osh-plugin.toml`` marker), and
-``osh-plugin.toml`` files for built-in plugins — and the
+distributions, and ``osh-plugin.toml`` files for built-in plugins — and the
 loaders register lazy Click stubs (see ``osh.cli_utils.LazyCommand``).
 Plugin modules are never evaluated while commands are listed or
 ``osh --help`` renders.
@@ -14,7 +13,7 @@ command invoked, a handler it extends executed, its runtime selected, or
 its backup source scheme used.
 
 ``[tool.osh]`` in ``pyproject.toml`` declares a plugin's surface for
-stage 1 (the deprecated ``osh-plugin.toml`` marker holds the same keys)::
+stage 1::
 
     [tool.osh]
     description = "Short plugin description."
@@ -51,6 +50,7 @@ the cost of the undeclared contract.
 
 import functools
 import importlib
+import importlib.metadata as _metadata
 import importlib.util
 import pkgutil
 import re
@@ -61,12 +61,6 @@ import click
 
 from .. import echo
 from ..config import tomllib
-
-try:
-    import importlib.metadata as _metadata
-except ImportError:  # pragma: no cover
-    _metadata = None
-
 
 #: Name of the marker file identifying a plugin package in a repository.
 PLUGIN_MARKER = "osh-plugin.toml"
@@ -91,7 +85,6 @@ class PluginSpec:
     kind: str = "builtin"  # "builtin" | "entry_point"
     meta: dict = field(default_factory=dict)
     path: Path | None = None
-    legacy_marker: bool = False
     lazy: bool = True
     help_text: str = ""
     version: str = ""
@@ -257,16 +250,14 @@ class PluginRegistry:
 
     def _discover_entry_points(self):
         for ep in _iter_entry_points():
-            meta, legacy = _ep_meta(ep.value.split(":", 1)[0])
             self._add_spec(
                 ep.name,
                 ep.value,
                 kind="entry_point",
-                meta=meta,
+                meta=_ep_meta(ep.value.split(":", 1)[0]),
                 help_text=_ep_summary(ep),
                 version=_ep_version(ep),
                 package=_ep_package(ep),
-                legacy_marker=legacy,
             )
 
     def _add_spec(
@@ -280,7 +271,6 @@ class PluginRegistry:
         help_text="",
         version="",
         package="",
-        legacy_marker=False,
     ):
         if name in self.specs:
             echo.error(f"duplicate plugin source '{name}' ignored: {target_ref}")
@@ -306,7 +296,6 @@ class PluginRegistry:
             kind=kind,
             meta=meta,
             path=path,
-            legacy_marker=legacy_marker,
             lazy=lazy,
             help_text=help_text or str(meta.get("description", "")),
             version=version,
@@ -338,41 +327,28 @@ def _iter_entry_points(group="osh.plugins"):
     (``"pkg.module"`` or ``"pkg.module:attr"``); a plugin declaring
     ``[tool.osh]`` gets the full lazy treatment.
     """
-    if _metadata is None:
-        return
     try:
         eps = _metadata.entry_points()
     except (ImportError, AttributeError, TypeError) as exc:
         echo.warning(f"Could not scan entry points: {exc}", err=True)
         return
-    try:
-        selected = eps.select(group=group)
-    except AttributeError:
-        selected = eps.get(group, [])
-    yield from selected
+    yield from eps.select(group=group)
 
 
 def _ep_meta(module_name):
     """Return the declared plugin metadata of an installed package.
 
-    Returns ``(meta, legacy)`` — *legacy* marks metadata coming from the
-    deprecated ``osh-plugin.toml`` marker; ``[tool.osh]`` in the package's
-    ``pyproject.toml`` is the canonical location. Uses
-    ``importlib.util.find_spec`` on the top-level package only, so the
-    plugin's module is never imported.
+    ``[tool.osh]`` in the package's ``pyproject.toml`` is the metadata
+    location. Uses ``importlib.util.find_spec`` on the top-level package
+    only, so the plugin's module is never imported.
     """
     try:
         spec = importlib.util.find_spec(module_name.split(".", 1)[0])
     except (ImportError, ValueError, AttributeError):
-        return {}, False
+        return {}
     if spec is None or not spec.origin:
-        return {}, False
-    package_dir = Path(spec.origin).parent
-    meta = _pyproject_meta(package_dir)
-    if meta:
-        return meta, False
-    marker_meta = plugin_meta(package_dir)
-    return marker_meta, bool(marker_meta)
+        return {}
+    return _pyproject_meta(Path(spec.origin).parent)
 
 
 def _pyproject_meta(package_dir):
@@ -391,7 +367,7 @@ def _pyproject_meta(package_dir):
         tool = _read_toml(pyproject).get("tool")
         meta = tool.get("osh") if isinstance(tool, dict) else None
         if isinstance(meta, dict):
-            return _normalize_meta(meta)
+            return meta
     return {}
 
 
@@ -436,11 +412,11 @@ def plugin_source_name(name):
 
 
 def plugin_meta(path):
-    """Return the metadata dict from a plugin package's ``osh-plugin.toml``."""
+    """Return the metadata dict from a built-in plugin's ``osh-plugin.toml``."""
     marker = path / PLUGIN_MARKER
     if not marker.is_file():
         return {}
-    return _normalize_meta(_read_toml(marker))
+    return _read_toml(marker)
 
 
 @functools.lru_cache(maxsize=256)
@@ -456,23 +432,6 @@ def _read_toml(path):
     except (OSError, ValueError) as exc:
         echo.warning(f"Could not parse {path}: {exc}", err=True)
         return {}
-
-
-def _normalize_meta(meta):
-    """Return *meta* with the legacy ``[backends]`` table merged into ``[runtimes]``.
-
-    The old section name is deprecated and scheduled for removal in a
-    later release. Returns a new dict; the parsed TOML is never mutated —
-    it may be shared through the ``_read_toml`` cache.
-    """
-    backends = meta.get("backends")
-    if not isinstance(backends, dict):
-        return meta
-    meta = dict(meta)
-    runtimes = meta.get("runtimes")
-    meta["runtimes"] = {**(runtimes if isinstance(runtimes, dict) else {}), **backends}
-    del meta["backends"]
-    return meta
 
 
 def min_osh_ok(requirement):

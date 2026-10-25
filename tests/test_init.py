@@ -554,7 +554,7 @@ class TestInitRollback:
     """A failed or aborted init must not leave a stale ``.osh`` marker."""
 
     def test_failed_runtime_init_removes_new_osh_dir(self, tmp_path, monkeypatch):
-        """``osh init --runtime=venv`` failure removes the ``.osh`` it created."""
+        """``osh init venv`` failure removes the ``.osh`` it created."""
         target = tmp_path / "fresh"
         target.mkdir()
         (target / ".git").mkdir()
@@ -562,7 +562,7 @@ class TestInitRollback:
 
         result = CliRunner().invoke(
             main,
-            ["init", "19.0", str(target), "--edition", "ce", "--runtime", "venv"],
+            ["init", "venv", "19.0", str(target), "--edition", "ce"],
         )
 
         assert result.exit_code != 0
@@ -578,12 +578,11 @@ class TestInitRollback:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
                 "--edition",
                 "ce",
-                "--runtime",
-                "venv",
             ],
         )
 
@@ -598,12 +597,11 @@ class TestInitRollback:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
                 "--edition",
                 "ce",
-                "--runtime",
-                "venv",
             ],
         )
 

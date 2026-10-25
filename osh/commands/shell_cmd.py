@@ -161,11 +161,8 @@ class ShellRun(CommandHandler):
     # ``extra_args``) plus ``base``, ``runtime``, ``args``, ``db_name`` and
     # ``env_spec`` as ``run()`` fills them in; ``execute()`` dispatches on
     # ``use_db_env`` — set by ``db exec`` to enter the database
-    # environment instead of the project one. The handler name stays
-    # ``shell`` so existing ``extends = ["shell"]`` plugins keep working;
-    # ``exec`` is declared an alias so it resolves and extends too.
-    _cli_name = "shell"
-    _cli_aliases = ("exec",)
+    # environment instead of the project one.
+    _cli_name = "exec"
     _cli_context_settings = dict(ignore_unknown_options=True)
 
     dry_run = False
@@ -188,7 +185,7 @@ class ShellRun(CommandHandler):
     @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
         self.base = find_project_root(required=True)
-        self.runtime = self.backend = db_module.resolve_runtime(self.base)
+        self.runtime = db_module.resolve_runtime(self.base)
         check_run_diagnostics(
             self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )
@@ -232,10 +229,6 @@ class ShellRun(CommandHandler):
 
 
 exec_cmd = handler_command("exec", ShellRun)
-
-# ``osh shell`` keeps working as a hidden alias of ``osh exec``
-# (mirroring ``ShellRun._cli_aliases``).
-shell = handler_command("shell", ShellRun, hidden=True)
 
 
 def parse_explicit_db(extra_args):

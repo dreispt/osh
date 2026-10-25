@@ -75,37 +75,6 @@ def test_status_outside_project_still_initialises(tmp_path, monkeypatch):
     assert "Would create" in result.output
 
 
-def test_status_reads_legacy_run_target(in_project):
-    """Projects recorded with ``run.target`` (pre-runtime) still resolve."""
-    set_project_config(in_project, "run", "target", "venv")
-
-    result = CliRunner().invoke(main, ["init"])
-
-    assert result.exit_code == 0, result.output
-    assert "Active runtime: venv" in result.output
-
-
-def test_status_legacy_none_target_is_host(in_project):
-    """A legacy ``run.target = none`` is reported as the host runtime."""
-    set_project_config(in_project, "run", "target", "none")
-
-    result = CliRunner().invoke(main, ["init"])
-
-    assert result.exit_code == 0, result.output
-    assert "Active runtime: host" in result.output
-
-
-def test_run_runtime_takes_precedence_over_run_target(in_project):
-    """When both keys exist, ``run.runtime`` wins."""
-    set_project_config(in_project, "run", "target", "venv")
-    set_project_config(in_project, "run", "runtime", "docker")
-
-    result = CliRunner().invoke(main, ["init"])
-
-    assert result.exit_code == 0, result.output
-    assert "Active runtime: docker" in result.output
-
-
 def test_version_argument_reinitialises(in_project, monkeypatch):
     """``osh init 19.0`` is setup, not status: the version is recorded."""
     result = CliRunner().invoke(main, ["init", "19.0", "--edition", "ce", "--yes"])

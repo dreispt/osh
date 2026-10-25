@@ -1,4 +1,0 @@
-[tool.osh]
-
-[tool.osh.backends]
-a-backend = "A backend."

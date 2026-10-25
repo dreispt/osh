@@ -81,8 +81,7 @@ class OdooRun(CommandHandler):
     calling ``super()`` to keep the rest of the chain. Command state is
     on ``self``: ``ctx``, the parsed params (``dry_run``, ``extra_args``,
     ...) plus ``dev``, ``base``, ``runtime``, ``diagnostics``, ``db_name``
-    and ``env_spec`` as ``run()`` fills them in. ``backend`` is a deprecated
-    alias of ``runtime``.
+    and ``env_spec`` as ``run()`` fills them in.
     """
 
     _cli_name = "odoo"
@@ -125,7 +124,7 @@ class OdooRun(CommandHandler):
     @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
         self.base = find_project_root(required=True)
-        self.runtime = self.backend = resolve_runtime(self.base)
+        self.runtime = resolve_runtime(self.base)
         self.diagnostics = check_run_diagnostics(
             self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )

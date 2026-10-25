@@ -1,4 +1,4 @@
-"""Tests for ``osh init --runtime=docker`` — config and stack generation."""
+"""Tests for ``osh init docker`` — config and stack generation."""
 
 import click
 import pytest
@@ -13,13 +13,11 @@ from osh.plugins.osh_runtime_docker.runtimes import DockerRuntime
 def test_init_target_docker_via_main_writes_compose_file(
     tmp_project, fake_docker, monkeypatch
 ):
-    """``osh init --runtime=docker`` writes docker.toml and generates compose."""
+    """``osh init docker`` writes docker.toml and generates compose."""
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "app"]
-    )
+    result = runner.invoke(main, ["init", "docker", "19.0", "--service", "app"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -46,13 +44,11 @@ def test_init_target_docker_via_main_writes_compose_file(
 def test_init_docker_command_writes_config_and_compose(
     tmp_project, fake_docker, monkeypatch
 ):
-    """``osh init --runtime=docker`` generates ``.osh/docker-compose.yml`` and config."""
+    """``osh init docker`` generates ``.osh/docker-compose.yml`` and config."""
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["init", "docker", "19.0", "--service", "odoo"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -72,7 +68,7 @@ def test_init_docker_overwrites_existing_osh_compose(
     existing.write_text("existing: compose\n")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = runner.invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     compose_text = existing.read_text()
@@ -91,18 +87,14 @@ def test_init_docker_updates_compose_for_a_different_version(
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["init", "docker", "19.0", "--service", "odoo"])
     assert result.exit_code == 0, result.output
     compose = tmp_project / ".osh" / "docker-compose.yml"
     compose_text = compose.read_text()
     assert 'image: "odoo:19.0"' in compose_text
     assert "user: odoo" in compose_text
 
-    result = runner.invoke(
-        main, ["init", "--runtime", "docker", "20.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["init", "docker", "20.0", "--service", "odoo"])
     assert result.exit_code == 0, result.output
     compose_text = compose.read_text()
     assert 'image: "odoo:20.0"' in compose_text
@@ -115,9 +107,7 @@ def test_init_docker_includes_permission_fix(tmp_project, fake_docker, monkeypat
     monkeypatch.chdir(tmp_project)
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["init", "docker", "19.0", "--service", "odoo"])
 
     assert result.exit_code == 0, result.output
     compose_file = tmp_project / ".osh" / "docker-compose.yml"
@@ -140,7 +130,6 @@ def test_init_docker_persists_provided_compose_file(
         main,
         [
             "init",
-            "--runtime",
             "docker",
             "19.0",
             "--service",
@@ -164,9 +153,7 @@ def test_init_docker_detects_project_compose_file(
     (tmp_project / "compose.yaml").write_text("services:\n  odoo:\n")
 
     runner = CliRunner()
-    result = runner.invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "odoo"]
-    )
+    result = runner.invoke(main, ["init", "docker", "19.0", "--service", "odoo"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -180,7 +167,7 @@ def test_init_docker_detects_devel_yaml(tmp_project, fake_docker, monkeypatch):
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = runner.invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -196,7 +183,7 @@ def test_init_docker_compose_detection_precedence(
     (tmp_project / "devel.yaml").write_text("services:\n  odoo:\n")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = runner.invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -212,7 +199,7 @@ def test_init_docker_dockerfile_generates_build_compose(
     (tmp_project / "Dockerfile").write_text("FROM odoo:19.0\n")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = runner.invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     docker_toml = tmp_project / ".osh" / "docker.toml"
@@ -240,7 +227,6 @@ def test_init_docker_dockerfile_option(tmp_project, fake_docker, monkeypatch):
         main,
         [
             "init",
-            "--runtime",
             "docker",
             "19.0",
             "--dockerfile",
@@ -264,7 +250,7 @@ def test_init_docker_dockerfile_outside_project_errors(
 
     runner = CliRunner()
     result = runner.invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--dockerfile", "../Dockerfile"]
+        main, ["init", "docker", "19.0", "--dockerfile", "../Dockerfile"]
     )
 
     assert result.exit_code != 0
@@ -280,7 +266,7 @@ def test_reinit_keeps_configured_compose_file(tmp_project, fake_docker, monkeypa
     )
 
     runner = CliRunner()
-    result = runner.invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = runner.invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     assert (
@@ -302,7 +288,7 @@ def test_reinit_dockerfile_option_keeps_configured_compose(
     )
 
     result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--dockerfile", "Dockerfile"]
+        main, ["init", "docker", "19.0", "--dockerfile", "Dockerfile"]
     )
 
     assert result.exit_code == 0, result.output
@@ -320,11 +306,11 @@ def test_reinit_regenerates_stack_over_detected_compose(
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
 
-    result = runner.invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = runner.invoke(main, ["init", "docker", "19.0"])
     assert result.exit_code == 0, result.output
 
     (tmp_project / "compose.yaml").write_text("services:\n  odoo:\n")
-    result = runner.invoke(main, ["init", "--runtime", "docker", "20.0"])
+    result = runner.invoke(main, ["init", "docker", "20.0"])
 
     assert result.exit_code == 0, result.output
     docker_toml = (tmp_project / ".osh" / "docker.toml").read_text()
@@ -344,7 +330,7 @@ def test_reinit_ignores_dockerfile_outside_project(
         "service = 'odoo'\ndockerfile = '../Dockerfile'\n"
     )
 
-    result = CliRunner().invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = CliRunner().invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code == 0, result.output
     compose_text = (tmp_project / ".osh" / "docker-compose.yml").read_text()
@@ -360,7 +346,7 @@ def test_reinit_reports_missing_configured_compose_file(
     monkeypatch.chdir(tmp_project)
     (tmp_project / ".osh" / "docker.toml").write_text("compose_file = 'gone.yaml'\n")
 
-    result = CliRunner().invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = CliRunner().invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code != 0
     assert "gone.yaml" in result.output
@@ -371,7 +357,7 @@ def test_init_docker_missing_service_errors(tmp_project, fake_docker, monkeypatc
     monkeypatch.chdir(tmp_project)
     (tmp_project / "compose.yaml").write_text("services:\n  web:\n    image: web\n")
 
-    result = CliRunner().invoke(main, ["init", "--runtime", "docker", "19.0"])
+    result = CliRunner().invoke(main, ["init", "docker", "19.0"])
 
     assert result.exit_code != 0
     assert "Service 'odoo' not found in compose.yaml" in result.output
@@ -383,7 +369,7 @@ def test_init_docker_invalid_service_name_errors(tmp_project, fake_docker, monke
     monkeypatch.chdir(tmp_project)
 
     result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "bad name"]
+        main, ["init", "docker", "19.0", "--service", "bad name"]
     )
 
     assert result.exit_code != 0
@@ -399,9 +385,7 @@ def test_init_docker_custom_service_on_foreign_compose(
         "services:\n  app:\n    image: odoo:19.0\n"
     )
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "19.0", "--service", "app"]
-    )
+    result = CliRunner().invoke(main, ["init", "docker", "19.0", "--service", "app"])
 
     assert result.exit_code == 0, result.output
     docker_toml = (tmp_project / ".osh" / "docker.toml").read_text()
@@ -433,7 +417,7 @@ def test_init_docker_dockerfile_missing_errors(tmp_project, fake_docker, monkeyp
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["init", "--runtime", "docker", "19.0", "--dockerfile", "missing.Dockerfile"],
+        ["init", "docker", "19.0", "--dockerfile", "missing.Dockerfile"],
     )
 
     assert result.exit_code != 0
@@ -449,7 +433,6 @@ def test_init_docker_missing_compose_file_raises(tmp_project, fake_docker, monke
         main,
         [
             "init",
-            "--runtime",
             "docker",
             "19.0",
             "--service",
@@ -484,7 +467,7 @@ def test_init_docker_dry_run_does_not_write(tmp_project, docker_cli, monkeypatch
 
 
 def test_init_docker_writes_version_and_edition(tmp_project, fake_docker, monkeypatch):
-    """``osh init --runtime=docker`` persists the Odoo version and edition."""
+    """``osh init docker`` persists the Odoo version and edition."""
     monkeypatch.chdir(tmp_project)
 
     ent = tmp_project / "enterprise"
@@ -496,7 +479,6 @@ def test_init_docker_writes_version_and_edition(tmp_project, fake_docker, monkey
         main,
         [
             "init",
-            "--runtime",
             "docker",
             "19.0",
             "--service",
@@ -515,12 +497,10 @@ def test_init_docker_writes_version_and_edition(tmp_project, fake_docker, monkey
 
 
 def test_init_runtime_docker_records_run_runtime(in_project, fake_docker):
-    """``osh init --runtime=docker`` makes 'docker' the active runtime."""
+    """``osh init docker`` makes 'docker' the active runtime."""
     set_project_config(in_project, "init", "version", "19.0")
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "--edition", "ce", "--yes"]
-    )
+    result = CliRunner().invoke(main, ["init", "docker", "--edition", "ce", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert get_project_config(in_project, "run", "runtime") == "docker"
@@ -535,7 +515,6 @@ def test_init_runtime_passes_runtime_options(in_project, fake_docker):
         main,
         [
             "init",
-            "--runtime",
             "docker",
             "--service",
             "odoo",
@@ -569,12 +548,10 @@ def test_init_uses_stored_runtime_default(in_project, fake_docker, user_config):
 
 
 def test_init_explicit_runtime_becomes_default(in_project, fake_docker, user_config):
-    """``--runtime=<name>`` is remembered as the user's default."""
+    """``osh init <name>`` is remembered as the user's default."""
     set_project_config(in_project, "init", "version", "19.0")
 
-    result = CliRunner().invoke(
-        main, ["init", "--runtime", "docker", "--edition", "ce", "--yes"]
-    )
+    result = CliRunner().invoke(main, ["init", "docker", "--edition", "ce", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert get_user_preference("runtime", section="init") == "docker"

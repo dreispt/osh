@@ -1,4 +1,4 @@
-"""Tests for ``osh exec`` command implementation (``osh shell`` is its hidden alias)."""
+"""Tests for the ``osh exec`` command implementation."""
 
 import os
 import re
@@ -6,7 +6,7 @@ import re
 from click.testing import CliRunner
 
 from osh.cli import main
-from osh.commands.shell_cmd import build_dynamic_odoo_config, exec_cmd, shell
+from osh.commands.shell_cmd import build_dynamic_odoo_config, exec_cmd
 from osh.runtimes import HostRuntime
 
 
@@ -291,57 +291,3 @@ def test_exec_dry_run_does_not_record_last_used(tmp_project, branch_db, monkeypa
 
     assert result.exit_code == 0, result.output
     assert get_last_db(tmp_project) is None
-
-
-def test_shell_is_a_hidden_alias_of_exec(tmp_project, monkeypatch):
-    """``osh shell`` still works but is hidden from ``osh --help``."""
-    from osh.commands.db_cmd import db
-
-    assert main.commands["exec"] is exec_cmd
-    assert main.commands["shell"] is shell and shell.hidden
-    assert db.commands["shell"].hidden
-    assert "exec" in db.commands
-
-    _setup_venv(tmp_project)
-    _use_runtime(tmp_project, "venv")
-    monkeypatch.chdir(tmp_project)
-
-    calls = []
-    monkeypatch.setattr(
-        "osh.runtimes.os.execvpe",
-        lambda exe, args, env: calls.append((exe, list(args))),
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(main, ["shell", "psql", "-l"])
-
-    assert result.exit_code == 0, result.output
-    assert calls[0][1] == ["psql", "-l"]
-
-    result = runner.invoke(main, ["--help"])
-    assert "exec" in _listed_commands(result.output)
-    assert "shell" not in _listed_commands(result.output)
-
-    result = runner.invoke(main, ["db", "--help"])
-    assert "exec" in _listed_commands(result.output)
-    assert "shell" not in _listed_commands(result.output)
-
-
-def test_db_shell_is_a_hidden_alias_of_db_exec(tmp_project, monkeypatch):
-    """``osh db shell`` still dispatches to the ``db exec`` implementation."""
-    _setup_venv(tmp_project)
-    _use_runtime(tmp_project, "venv")
-    monkeypatch.chdir(tmp_project)
-    monkeypatch.setenv("SHELL", "/bin/zsh")
-
-    calls = []
-    monkeypatch.setattr(
-        "osh.runtimes.os.execvpe",
-        lambda exe, args, env: calls.append((exe, list(args), env)),
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(main, ["db", "shell", "psql"])
-
-    assert result.exit_code == 0, result.output
-    assert calls[0][1] == ["psql"]

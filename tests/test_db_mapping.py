@@ -138,8 +138,7 @@ def test_db_group_command_surface():
     assert "unset" in db.commands
     assert "copy" in db.commands
     assert "exec" in db.commands
-    # ``db shell`` remains as a hidden alias of ``db exec``.
-    assert "shell" in db.commands and db.commands["shell"].hidden
+    assert "shell" not in db.commands
     assert "use" not in db.commands
     assert "pin" not in db.commands
     assert "unpin" not in db.commands
@@ -395,17 +394,12 @@ def test_resolve_db_name_for_run_tty_prompt_copy(tmp_project, pg_db, monkeypatch
     assert get_last_db(tmp_project) == missing
 
 
-def test_legacy_last_key_fallback_and_migration(tmp_project):
-    """The legacy ``last`` key feeds last-used lookups and is migrated on write."""
-    from osh.config import get_project_config
+def test_last_db_roundtrip(tmp_project):
+    """``set_last_db`` records the most recently used database."""
     from osh.db import get_last_db, set_last_db
-
-    set_project_config(tmp_project, "db", "last", "old-db")
-    assert get_last_db(tmp_project) == "old-db"
 
     set_last_db(tmp_project, "new-db")
     assert get_last_db(tmp_project) == "new-db"
-    assert get_project_config(tmp_project, "db", "last") is None
 
 
 PSQL_L_SAMPLE = """\

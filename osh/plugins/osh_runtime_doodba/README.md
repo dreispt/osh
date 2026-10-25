@@ -28,7 +28,7 @@ model with Doodba's conventions on top.
 
 ```bash
 osh init doodba [--compose-file devel.yaml]
-# or: osh init --runtime=doodba
+# or: osh init doodba
 ```
 
 When the directory is not already a Doodba project, init offers to

@@ -353,25 +353,32 @@ def get_osh_odoo_config_path(base):
     return env_root(base) / ".osh" / "odoo.conf"
 
 
-def get_odoo_port(base, extra_confs=()):
-    """Return the Odoo HTTP port configured for *base* (default ``8069``).
-
-    Reads ``http_port`` (or the legacy ``xmlrpc_port``) from the first
-    config defining it: ``.osh/odoo.conf``, ``.odoorc``, then
-    *extra_confs* (e.g. a runtime's configured base config).
-    """
-    confs = (get_osh_odoo_config_path(base), get_odoo_config_path(base), *extra_confs)
-    for conf in confs:
+def _iter_conf_options(base, *extra_confs):
+    """Yield the ``options`` sections of each existing project config."""
+    for conf in (
+        get_osh_odoo_config_path(base),
+        get_odoo_config_path(base),
+        *extra_confs,
+    ):
         if not conf.exists():
             continue
         cfg = configparser.ConfigParser()
         cfg.read(conf, encoding="utf-8")
-        if not cfg.has_section("options"):
-            continue
-        for key in ("http_port", "xmlrpc_port"):
-            value = cfg["options"].get(key)
-            if value and str(value).strip().isdigit():
-                return int(str(value).strip())
+        if cfg.has_section("options"):
+            yield cfg["options"]
+
+
+def get_odoo_port(base, extra_confs=()):
+    """Return the Odoo HTTP port configured for *base* (default ``8069``).
+
+    Reads ``http_port`` from the first config defining it:
+    ``.osh/odoo.conf``, ``.odoorc``, then *extra_confs* (e.g. a
+    runtime's configured base config).
+    """
+    for options in _iter_conf_options(base, *extra_confs):
+        value = options.get("http_port")
+        if value and str(value).strip().isdigit():
+            return int(str(value).strip())
     return 8069
 
 
@@ -707,18 +714,15 @@ def worktree_source_addons(base):
 
 
 def get_odoo_data_dir(base):
-    """Return the Odoo data directory from ``.odoorc`` or the default location.
+    """Return the Odoo data directory from the project config or the default.
 
-    When *base* is None or ``.odoorc`` does not configure ``data_dir``, the
-    conventional default ``~/.local/share/Odoo`` is returned (only if it
-    exists, otherwise None).
+    Reads ``data_dir`` from ``.osh/odoo.conf``, then ``.odoorc``; when
+    neither configures it, the conventional default ``~/.local/share/Odoo``
+    is returned (only if it exists, otherwise None).
     """
     if base is not None:
-        odoo_rc = get_odoo_config_path(base)
-        if odoo_rc.exists():
-            cfg = configparser.ConfigParser()
-            cfg.read(odoo_rc)
-            value = cfg.get("options", "data_dir", fallback=None)
+        for options in _iter_conf_options(base):
+            value = options.get("data_dir", fallback=None)
             if value:
                 return Path(value)
     return DEFAULT_ODOO_DATA_DIR if DEFAULT_ODOO_DATA_DIR.exists() else None
@@ -781,7 +785,11 @@ def _copy_bundled_neutralize_script(neutralize_dir, resource, name):
     An existing copy is refreshed so fixes to the bundled script reach the
     project on re-init; an identical file is left alone.
     """
-    content = importlib.resources.read_text("osh.data", resource)
+    content = (
+        importlib.resources.files("osh.data")
+        .joinpath(resource)
+        .read_text(encoding="utf-8")
+    )
     destination = neutralize_dir / name
     if destination.exists() and destination.read_text(encoding="utf-8") == content:
         return

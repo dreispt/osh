@@ -70,8 +70,8 @@ its attributes, so re-export implementations living in submodules.
 what plugins install:
 
 1. **Metadata inspection** — at startup, `osh` scans plugin sources and
-   reads only plugin declarations (`[tool.osh]`/`osh-plugin.toml`) and
-   entry-point metadata.
+   reads only plugin declarations (`[tool.osh]` in `pyproject.toml`, or
+   `osh-plugin.toml` for built-in plugins) and entry-point metadata.
    Command, runtime and source names register as lightweight stubs; **no
    plugin module is imported**.
 2. **Import on use** — a plugin's module is imported only when needed:
@@ -101,10 +101,9 @@ Everything `pip install` can reach — PyPI, a git URL, a local directory
 The `[tool.osh]` table declares the plugin's command surface — the
 metadata needed to list and place commands without importing the plugin.
 For installed plugins it lives in the `pyproject.toml` co-located with
-the plugin package (or one of its parents in a source checkout); the
-deprecated `osh-plugin.toml` marker inside the package holds the same
-keys and is still read as a fallback — built-in plugins use it since
-they have no `pyproject.toml` of their own. All keys are optional:
+the plugin package (or one of its parents in a source checkout);
+built-in plugins use `osh-plugin.toml` instead, since they have no
+`pyproject.toml` of their own. All keys are optional:
 
 ```toml
 [tool.osh]
@@ -466,10 +465,7 @@ class MyRuntime(Runtime):
 - `get_init_options(cls)`: return a list of `click.Option` instances for
   the `osh init <name>` subcommand, on top of the common init
   options (`--edition`, `--dev`, `--save`, `--yes`, `--dry-run`, ...).
-  On the compatibility `osh init --runtime=<name>` path they stay
-  parseable (hidden from `--help`) — a user passing one without
-  selecting the runtime gets a warning. The parsed values are passed to
-  `init()` as `**options`.
+  The parsed values are passed to `init()` as `**options`.
 
 - `get_stop_options(cls)`: return a list of `click.Option` instances that
   `osh stop` should accept; the parsed values are passed to
@@ -620,7 +616,7 @@ extension target to declare under `extends`:
 | ----------------------- | ------------------------------------------------ | --------------------------- |
 | `init`                  | `osh init`                                       | `Init` (`init_cmd`)         |
 | `odoo`                  | `osh odoo`                                       | `OdooRun` (`odoo_cmd`)      |
-| `shell`                 | `osh exec` (`osh shell` alias)                   | `ShellRun` (`shell_cmd`)    |
+| `exec`                  | `osh exec`                                       | `ShellRun` (`shell_cmd`)    |
 | `db`, `db.<sub>`        | `osh db show`/`list`/`set`/`copy`/`exec`/`unset` | `Db` (`db_cmd`)             |
 | `stop`                  | `osh stop`                                       | `Stop` (`stop_cmd`)         |
 | `config`, `config.show` | `osh config show`                                | `Config` (`config_cmd`)     |

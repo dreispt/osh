@@ -29,7 +29,7 @@ def test_diagnose_quiet_until_requirements_change_after_init(tmp_project):
     requirements.write_text("pip\n")
     result = CliRunner().invoke(
         main,
-        ["init", "19.0", str(tmp_project), "--runtime", "venv", "-c", str(odoo_src)],
+        ["init", "venv", "19.0", str(tmp_project), "-c", str(odoo_src)],
     )
     assert result.exit_code == 0
 
@@ -55,10 +55,9 @@ def test_init_fingerprint_accepts_inputs_without_reinstall(tmp_project, monkeypa
     calls = real_commands(monkeypatch)
     init = [
         "init",
+        "venv",
         "19.0",
         str(tmp_project),
-        "--runtime",
-        "venv",
         "-c",
         str(odoo_src),
     ]
@@ -88,7 +87,7 @@ class TestInitCommand:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["init", "19.0", str(tmp_project), "--runtime", "venv", "--edition", "ee"],
+            ["init", "venv", "19.0", str(tmp_project), "--edition", "ee"],
         )
 
         assert result.exit_code == 0
@@ -108,10 +107,9 @@ class TestInitCommand:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
-                "--runtime",
-                "venv",
                 "-c",
                 str(odoo_src),
                 "-e",
@@ -135,10 +133,9 @@ class TestInitCommand:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
-                "--runtime",
-                "venv",
                 "-c",
                 str(odoo_src),
                 "--themes-source",
@@ -168,7 +165,7 @@ class TestInitCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "master", str(tmp_project), "--runtime", "venv", "--sh"]
+            main, ["init", "venv", "master", str(tmp_project), "--sh"]
         )
 
         assert result.exit_code == 0
@@ -197,10 +194,9 @@ class TestInitCommand:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
-                "--runtime",
-                "venv",
                 "-c",
                 str(odoo_src),
                 "-e",
@@ -229,10 +225,9 @@ class TestInitCommand:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
-                "--runtime",
-                "venv",
                 "-c",
                 str(odoo_src),
                 "--installer",
@@ -245,9 +240,9 @@ class TestInitCommand:
         assert any(call[2:5] == ["-r", *project_req_arg] for call in calls)
 
     def test_reinit_skips_package_installs(self, tmp_project, monkeypatch):
-        """A repeated `osh init --runtime=venv` does not reinstall packages.
+        """A repeated `osh init venv` does not reinstall packages.
 
-        The user runs `osh init --runtime=venv` on an already-initialised project —
+        The user runs `osh init venv` on an already-initialised project —
         with unchanged requirements the slow pip installs are skipped;
         editing requirements.txt makes them run again.
         """
@@ -260,10 +255,9 @@ class TestInitCommand:
         runner = CliRunner()
         init = [
             "init",
+            "venv",
             "19.0",
             str(tmp_project),
-            "--runtime",
-            "venv",
             "-c",
             str(odoo_src),
         ]
@@ -293,10 +287,9 @@ class TestInitCommand:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
-                "--runtime",
-                "venv",
                 "-c",
                 str(odoo_src),
             ],
@@ -316,10 +309,9 @@ class TestInitCommand:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(tmp_project),
-                "--runtime",
-                "venv",
                 "-c",
                 str(odoo_src),
             ],
@@ -340,10 +332,9 @@ class TestInstaller:
     def _init_args(self, tmp_project, odoo_src):
         return [
             "init",
+            "venv",
             "19.0",
             str(tmp_project),
-            "--runtime",
-            "venv",
             "-c",
             str(odoo_src),
         ]
@@ -472,7 +463,13 @@ class TestInitEdition:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv"]
+            main,
+            [
+                "init",
+                "venv",
+                "19.0",
+                str(tmp_project),
+            ],
         )
 
         assert result.exit_code == 0
@@ -485,9 +482,7 @@ class TestInitEdition:
         self._make_local_sources(tmp_project)
 
         runner = CliRunner()
-        result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--ee"]
-        )
+        result = runner.invoke(main, ["init", "venv", "19.0", str(tmp_project), "--ee"])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -499,9 +494,7 @@ class TestInitEdition:
         self._make_local_sources(tmp_project)
 
         runner = CliRunner()
-        result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--sh"]
-        )
+        result = runner.invoke(main, ["init", "venv", "19.0", str(tmp_project), "--sh"])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -526,9 +519,7 @@ class TestInitEdition:
         self._make_local_sources(tmp_project)
 
         runner = CliRunner()
-        result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--ce"]
-        )
+        result = runner.invoke(main, ["init", "venv", "19.0", str(tmp_project), "--ce"])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -545,7 +536,7 @@ class TestInitEdition:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["init", "19.0", str(tmp_project), "--runtime", "venv", "--sh"],
+            ["init", "venv", "19.0", str(tmp_project), "--sh"],
             input="\n",
         )
 
@@ -561,7 +552,13 @@ class TestInitEdition:
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "ee"})
         result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv"]
+            main,
+            [
+                "init",
+                "venv",
+                "19.0",
+                str(tmp_project),
+            ],
         )
 
         assert result.exit_code == 0
@@ -574,9 +571,7 @@ class TestInitEdition:
         self._make_local_sources(tmp_project)
 
         runner = CliRunner(env={"OSH_INIT_EDITION": "sh"})
-        result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv", "--ce"]
-        )
+        result = runner.invoke(main, ["init", "venv", "19.0", str(tmp_project), "--ce"])
 
         assert result.exit_code == 0
         assert (tmp_project / ".osh" / "odoo").is_symlink()
@@ -592,7 +587,13 @@ class TestInitEdition:
 
         runner = CliRunner()
         result = runner.invoke(
-            main, ["init", "19.0", str(tmp_project), "--runtime", "venv"]
+            main,
+            [
+                "init",
+                "venv",
+                "19.0",
+                str(tmp_project),
+            ],
         )
 
         assert result.exit_code == 0
@@ -620,10 +621,9 @@ class TestInitEdition:
             main,
             [
                 "init",
+                "venv",
                 "19.0",
                 str(target),
-                "--runtime",
-                "venv",
                 "--yes",
                 "-c",
                 str(odoo_src),
@@ -635,12 +635,12 @@ class TestInitEdition:
 
 
 def test_runtime_init_reuses_recorded_version(tmp_project):
-    """``osh init --runtime=<name>`` resolves the version the same way."""
+    """``osh init <name>`` resolves the version the same way."""
     set_project_config(tmp_project, "init", "version", "18.0")
     make_odoo_source(tmp_project / "odoo")
 
     result = CliRunner().invoke(
-        main, ["init", str(tmp_project), "--runtime", "venv", "--edition", "ce"]
+        main, ["init", "venv", str(tmp_project), "--edition", "ce"]
     )
 
     assert result.exit_code == 0, result.output

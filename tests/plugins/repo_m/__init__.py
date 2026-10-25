@@ -1,8 +1,7 @@
-"""Plugin redeclaring the built-in 'none' backend."""
+"""Plugin redeclaring the built-in 'host' runtime."""
 
-from osh.backends import Backend
+from osh.runtimes import Runtime
 
 
-class NoneAgain(Backend):
-    name = "none"
-    backend_type = "backend"
+class HostAgain(Runtime):
+    name = "host"

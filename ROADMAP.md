@@ -7,15 +7,6 @@ This document tracks planned improvements and future development work for the Os
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
 - Graduate the built-in `osh_backup` plugin (`osh backup get`, `osh backup restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
 
-## Deprecated compatibility aliases
-
-To be removed in a later release, once the plugin ecosystem has had time to migrate:
-
-- `osh.backends` (`Backend`/`HostBackend`/`NoneBackend`), the `osh.db` `*_backend` helpers, `plugin_loader`'s `get_backend_class`/`load_backends`/`backend_meta`, and the `[backends]` table.
-- The `none`/`local` runtime name aliases.
-- The `init.target` record written by `osh init --runtime=<name>`.
-- The `osh-plugin.toml` marker — deprecated: `[tool.osh]` in `pyproject.toml` is the canonical declaration. Removal needs a replacement channel for the built-in plugins under `osh/plugins/`, which have no `pyproject.toml` of their own today.
-
 ## Plugin test discovery
 
 - Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_runtime_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.

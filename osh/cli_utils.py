@@ -47,8 +47,8 @@ class ExtensibleCommand(click.Command):
             # Method-level extension targets keep their own lazy trigger:
             # ``extends = ["db.list"]`` imports the plugin only when the
             # ``db list`` command is composed. Aliases are targets too —
-            # ``extends = ["db.exec"]`` fires for ``db shell`` and vice
-            # versa, since both dispatch to the same method.
+            # ``extends`` on any declared alias resolves to the same
+            # subcommand.
             from .handlers import _alias_specs, _declared_name, _subcommand_methods
             from .utils.plugin_loader import ensure_declared
 
@@ -150,7 +150,7 @@ def handler_command_group(name, cls, *, group_cls=None):
     command = handler_command(name, cls)
     context_settings = {
         # Options are the default command's — the group must not reject
-        # them before they are routed (``osh init --runtime docker``).
+        # them before they are routed (``osh init docker``).
         "ignore_unknown_options": True,
         **(cls._cli_context_settings or {}),
     }
@@ -441,7 +441,7 @@ def merge_options(options, extra):
 
 def param_values(handler, params):
     """Return ``{name: value}`` for click *params* bound on *handler*."""
-    return {param.name: getattr(handler, param.name) for param in params}
+    return {param.name: getattr(handler, param.name, None) for param in params}
 
 
 def long_flag(param):
@@ -471,7 +471,3 @@ def format_runtimes_section(formatter, runtimes):
     ]
     with formatter.section("Runtimes"):
         formatter.write_dl(records)
-
-
-# Deprecated alias kept for plugins written against the backend API.
-format_backends_section = format_runtimes_section

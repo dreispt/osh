@@ -8,11 +8,7 @@ runtime as active, and ``osh stop`` drives ``stop``/``stop_by_name``/
 ``stop_all``.
 
 ``HostRuntime`` (the ``host`` runtime) is the built-in default, used when
-no other runtime is configured: it runs commands directly on the host. The
-legacy ``none`` name still resolves to it.
-
-``osh.backends`` and the ``Backend``/``HostBackend`` class names are
-deprecated aliases kept for plugins written against the old backend API.
+no other runtime is configured: it runs commands directly on the host.
 """
 
 import hashlib
@@ -107,9 +103,6 @@ class BuildInputs:
 class Runtime(ABC):
     """Unified base class for Osh init and execution runtimes."""
 
-    runtime_type = "runtime"
-    # Deprecated alias kept for plugins written against the backend API.
-    backend_type = "backend"
     name = ""
     label = ""
     description = ""
@@ -154,7 +147,7 @@ class Runtime(ABC):
     def diagnose_sections_for_phase(self, phase):
         """Return the diagnose sections to run for *phase*.
 
-        ``None`` means "all sections". This is used by ``osh init --runtime``
+        ``None`` means "all sections". This is used by ``osh init <runtime>``
         and ``osh odoo`` to skip expensive checks that are only useful for a
         full diagnostics report.
         """
@@ -280,11 +273,11 @@ class Runtime(ABC):
         """Inspect the project and system for the active target.
 
         *sections* is an optional list of section names to detect. When omitted,
-        runtimes should detect everything. Callers such as ``osh init --runtime``
+        runtimes should detect everything. Callers such as ``osh init <runtime>``
         and ``osh odoo`` can use it to avoid expensive checks that are not needed
         for their phase.
 
-        Returns a ``Diagnostics`` object that ``osh init --runtime`` uses to
+        Returns a ``Diagnostics`` object that ``osh init <runtime>`` uses to
         plan actions and ask for confirmation, and ``osh odoo`` uses to check
         prerequisites.
         """
@@ -302,7 +295,7 @@ class Runtime(ABC):
     ):
         """Set up the environment. Return ``True`` if ready for use.
 
-        *todo* is the ``TodoPlan`` progress tracker ``osh init --runtime``
+        *todo* is the ``TodoPlan`` progress tracker ``osh init <runtime>``
         passes so runtimes can announce steps via ``todo.start()`` while running.
         """
         raise NotImplementedError
@@ -437,7 +430,6 @@ class HostRuntime(Runtime):
 
     name = "host"
     label = "Host"
-    runtime_type = "runtime"
     host_executable = True
     description = "Run Odoo directly on the host (default)."
     help_text = (
@@ -861,12 +853,6 @@ class HostRuntime(Runtime):
                     f"Odoo process {pid} is still listening on port {port} "
                     "after SIGKILL."
                 )
-
-
-# Deprecated aliases kept for plugins written against the old backend API.
-Backend = Runtime
-HostBackend = HostRuntime
-NoneBackend = HostRuntime
 
 
 def _osh_managed_odoo_pids():

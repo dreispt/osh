@@ -400,9 +400,10 @@ def _generated_compose_content(version, port=8069, dockerfile=None, service="odo
     import importlib.resources
 
     _validate_service_name(service)
-    template = importlib.resources.read_text(
-        "osh.plugins.osh_runtime_docker.data",
-        "docker-compose-build.yml" if dockerfile else "docker-compose.yml",
+    template = (
+        importlib.resources.files("osh.plugins.osh_runtime_docker.data")
+        .joinpath("docker-compose-build.yml" if dockerfile else "docker-compose.yml")
+        .read_text(encoding="utf-8")
     )
     # JSON string syntax is valid YAML, so this safely quotes values with
     # spaces or special characters. Placeholders absent from the selected

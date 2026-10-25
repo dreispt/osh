@@ -27,12 +27,12 @@
 # db. To set that up:
 #
 #   cd ~/work/my-project
-#   osh init 19.0 --runtime=venv    # prompts: edition (first run), proceed
+#   osh init venv 19.0    # prompts: edition (first run), proceed
 #   osh odoo --stop-after-init      # creates my-project-19.0 (prompt: c)
 #   osh db uninstall web_responsive --yes   # needs osh-contrib
 #
 # A bare `osh init` asks which runtime to use only on the very first run
-# (the answer is remembered; `--runtime=ask` asks again) — once a project
+# (the answer is remembered; `--ask` asks again) — once a project
 # is initialized it reports status instead. The tape opens on that
 # status report, then re-runs the venv init (idempotent — re-init skips
 # the pip reinstall when requirements are unchanged) and installs the
@@ -59,7 +59,7 @@ Show
 Type "# Initialize the venv runtime"
 Enter
 Sleep 600ms
-Type "osh init 19.0 --runtime=venv"
+Type "osh init venv 19.0"
 Enter
 Sleep 1500ms
 Enter

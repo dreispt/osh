@@ -4,7 +4,6 @@ Tracks the preferred database per git branch in `.osh/config.toml` and provides
 shared helpers for running PostgreSQL CLI tools with credentials from `.odoorc`.
 """
 
-import configparser
 import fnmatch
 import re
 import shlex
@@ -18,11 +17,10 @@ import click
 from . import config as _config
 from . import echo
 from .common import (
+    _iter_conf_options,
     decode_stderr,
     env_root,
     find_project_repos,
-    get_odoo_config_path,
-    get_osh_odoo_config_path,
     git_current_branch,
 )
 from .termui import choose
@@ -114,16 +112,9 @@ def get_pg_env(base):
     variables so tools like ``psql`` and ``pg_restore`` connect automatically
     to the same database Odoo uses.
     """
-    odoo_rc = get_osh_odoo_config_path(base)
-    if not odoo_rc.exists():
-        odoo_rc = get_odoo_config_path(base)
+    options = next(_iter_conf_options(base), None)
     env = {}
-    if not odoo_rc.exists():
-        return env
-
-    cfg = configparser.ConfigParser()
-    cfg.read(odoo_rc, encoding="utf-8")
-    if not cfg.has_section("options"):
+    if options is None:
         return env
 
     mapping = {
@@ -132,7 +123,6 @@ def get_pg_env(base):
         "db_user": "PGUSER",
         "db_password": "PGPASSWORD",
     }
-    options = cfg["options"]
     for key, var in mapping.items():
         value = options.get(key)
         if value:
@@ -140,40 +130,21 @@ def get_pg_env(base):
     return env
 
 
-_LEGACY_RUNTIME_NAMES = {"none": "host", "local": "host"}
-
-
-def normalize_runtime_name(name):
-    """Return *name*, mapping the legacy ``none``/``local`` names to ``host``."""
-    return _LEGACY_RUNTIME_NAMES.get(name, name)
-
-
 def get_active_runtime_name(base, default="host"):
-    """Return the project's active runtime name.
-
-    Reads ``run.runtime``, falling back to the legacy ``run.target`` key.
-    """
-    name = get_project_config(base, "run", "runtime") or get_project_config(
-        base, "run", "target", fallback=default
-    )
-    return normalize_runtime_name(name)
+    """Return the project's active runtime name (``run.runtime``)."""
+    return get_project_config(base, "run", "runtime", fallback=default)
 
 
 def set_active_runtime_name(base, name):
-    """Record *name* as the project's active runtime (``run.runtime``).
-
-    The legacy ``run.target`` key is removed so the two never disagree.
-    """
+    """Record *name* as the project's active runtime (``run.runtime``)."""
     set_project_config(base, "run", "runtime", name)
-    if get_project_config(base, "run", "target") is not None:
-        unset_project_config(base, "run", "target")
 
 
 def deactivate_runtime(base):
     """Record ``host`` as the active runtime; return the previous name.
 
     Returns ``None`` when no managed runtime was active. ``osh init
-    --runtime=host`` is the user-facing spelling; this helper keeps the
+    host`` is the user-facing spelling; this helper keeps the
     ``run.runtime`` bookkeeping in one place for callers that need it.
     """
     previous = get_active_runtime_name(base, default=None)
@@ -186,10 +157,10 @@ def deactivate_runtime(base):
 def resolve_runtime(base, default="host"):
     """Instantiate the runtime configured for *base*.
 
-    The active runtime is the ``run.runtime`` (or legacy ``run.target``) recorded in the project config
-    by ``osh init --runtime=<name>``, falling back to
-    *default*. This is the supported way for commands and plugins to obtain
-    the active runtime instance.
+    The active runtime is the ``run.runtime`` recorded in the project
+    config by ``osh init <name>``, falling back to *default*. This is the
+    supported way for commands and plugins to obtain the active runtime
+    instance.
     """
     from .utils.plugin_loader import get_runtime_class
 
@@ -252,16 +223,6 @@ def run_in_runtime(
     return result
 
 
-# Deprecated aliases kept for plugins written against the old backend API
-# — scheduled for removal in a later release.
-normalize_backend_name = normalize_runtime_name
-get_active_backend_name = get_active_runtime_name
-set_active_backend_name = set_active_runtime_name
-deactivate_backend = deactivate_runtime
-resolve_backend = resolve_runtime
-run_in_backend = run_in_runtime
-
-
 def install_filestore(ctx, base, src_dir, db_name):
     """Install the contents of *src_dir* as the filestore of *db_name*.
 
@@ -269,11 +230,10 @@ def install_filestore(ctx, base, src_dir, db_name):
     identically on host and container runtimes — the destination may live in
     a container volume unreachable from the host.
     """
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
+    dest_path = filestore_path(base, db_name)
+    if dest_path is None:
         echo.warning("could not determine Odoo data_dir; filestore not installed.")
         return
-    dest_path = f"{data_dir}/filestore/{db_name}"
     dest = shlex.quote(dest_path)
     script = f"rm -rf {dest} && mkdir -p {dest} && tar -xf - -C {dest}"
     with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
@@ -299,10 +259,9 @@ def export_filestore(ctx, base, db_name, dest_dir):
     container volume unreachable from the host. Returns False when the data
     dir or the database filestore cannot be found.
     """
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
+    src = filestore_path(base, db_name)
+    if src is None:
         return False
-    src = f"{data_dir}/filestore/{db_name}"
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
@@ -396,6 +355,59 @@ def run_psql_script(base, db_name, script_path, ctx=None):
         )
 
 
+def psql(base, db_name, sql, *, field_separator=None, variables=None, ctx=None):
+    """Run *sql* via psql and return ``(returncode, stdout, stderr)``.
+
+    The SQL is piped through stdin rather than ``-c`` so large statements
+    cannot hit the per-argument size limit. It must also go through stdin
+    for ``:'key'`` references to work at all: psql interpolates variables
+    only into input read from stdin or a file, never into ``-c``.
+
+    *variables* are passed as ``psql -v key=value`` assignments so the
+    statement can reference them as ``:'key'`` — psql quotes them as SQL
+    literals using the server connection's escaping rules, so no value
+    ever needs manual escaping.
+
+    Trade-off: ``-v`` values land in the ``psql`` argv, which is
+    world-readable via ``/proc/<pid>/cmdline`` while the query runs. If a
+    value ever is sensitive, use ``\\getenv`` (psql 14+) with
+    ``run_in_runtime(env=...)`` instead.
+
+    ``run_in_runtime`` supplies the ``PG*`` connection variables from the
+    project Odoo config.
+    """
+    # ON_ERROR_STOP makes psql exit non-zero on SQL errors, like -c does.
+    args = ["psql", "-d", db_name, "-t", "-A", "-v", "ON_ERROR_STOP=1"]
+    for key, value in (variables or {}).items():
+        args += ["-v", f"{key}={value}"]
+    if field_separator:
+        args += ["-F", field_separator]
+    returncode, stdout, stderr = run_in_runtime(ctx, base, args, input=sql)
+    if returncode is None:
+        raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
+    return returncode, stdout, stderr
+
+
+def psql_rows(base, db_name, sql, **kwargs):
+    """Run *sql* like :func:`psql`, returning ``(returncode, rows, stderr)``.
+
+    *rows* is a list of field lists split on the effective field separator
+    (``field_separator`` if given, else psql's default ``|``).
+    """
+    returncode, stdout, stderr = psql(base, db_name, sql, **kwargs)
+    sep = kwargs.get("field_separator") or "|"
+    rows = [line.split(sep) for line in stdout.splitlines()]
+    return returncode, rows, stderr
+
+
+def filestore_path(base, db_name):
+    """Return the filestore path for *db_name* inside the runtime, or None."""
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
+    if data_dir is None:
+        return None
+    return f"{data_dir}/filestore/{db_name}"
+
+
 def resolve_db_name(base, verbose=False, branch=None):
     """Resolve the database name for the current context.
 
@@ -413,14 +425,8 @@ def resolve_db_name(base, verbose=False, branch=None):
 
 
 def get_last_db(base):
-    """Return the last used database name recorded for the project, or None.
-
-    The legacy ``last`` key written by older Osh versions is honoured so
-    upgraded projects keep their last-used record.
-    """
-    return get_project_config(base, "db", "last_db") or get_project_config(
-        base, "db", "last"
-    )
+    """Return the last used database name recorded for the project, or None."""
+    return get_project_config(base, "db", "last_db")
 
 
 def set_last_db(base, db_name):
@@ -429,8 +435,6 @@ def set_last_db(base, db_name):
         return
     cfg = load_osh_config(base)
     cfg.set("db", "last_db", db_name)
-    # Migrate: drop the pre-rename key written by older versions.
-    cfg.remove("db", "last")
     save_osh_config(base, cfg)
 
 
@@ -510,12 +514,10 @@ def link_filestore(ctx, base, src_db, dst_db):
     filestore (dangling when its database is missing) is replaced,
     matching ``copy_db``'s replace-the-target semantics.
     """
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
+    src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
+    if src is None:
         echo.warning("could not determine Odoo data_dir; filestore not linked.")
         return
-    store = f"{data_dir}/filestore"
-    src, dst = f"{store}/{src_db}", f"{store}/{dst_db}"
     returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", src])
     if returncode != 0:
         return

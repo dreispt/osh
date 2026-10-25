@@ -251,7 +251,7 @@ def test_init_fingerprint_accepts_inputs_without_rebuild(
     (fake_docker / "calls.log").write_text("")
     result = CliRunner().invoke(
         main,
-        ["init", "--runtime", "docker", "19.0", "--service", "odoo", "--fingerprint"],
+        ["init", "docker", "19.0", "--service", "odoo", "--fingerprint"],
     )
     assert result.exit_code == 0, result.output
     calls = (fake_docker / "calls.log").read_text().splitlines()

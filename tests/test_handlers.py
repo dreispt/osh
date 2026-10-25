@@ -20,7 +20,6 @@ def test_core_commands_resolve_to_their_handlers():
     from osh.commands import config_cmd, db_cmd, init_cmd, shell_cmd, stop_cmd
 
     expected = {
-        "shell": shell_cmd.ShellRun,
         "exec": shell_cmd.ShellRun,
         "init": init_cmd.Init,
         "stop": stop_cmd.Stop,
@@ -29,7 +28,6 @@ def test_core_commands_resolve_to_their_handlers():
         "db.list": db_cmd.Db,
         "db.set": db_cmd.Db,
         "db.copy": db_cmd.Db,
-        "db.shell": db_cmd.Db,
         "db.exec": db_cmd.Db,
         "db.unset": db_cmd.Db,
         "config": config_cmd.Config,
@@ -345,8 +343,8 @@ def test_core_command_extensions_run_through_the_command(pip_install, in_project
     assert "Configuration file" in result.output
 
 
-def test_db_shell_shares_shell_preparation(monkeypatch, tmp_project):
-    """``db shell`` reuses ``osh shell``'s steps, swapping ``env`` for ``db_env``."""
+def test_db_exec_shares_exec_preparation(monkeypatch, tmp_project):
+    """``db exec`` reuses ``osh exec``'s steps, swapping ``env`` for ``db_env``."""
     from osh.commands.db_cmd import db
 
     seen = {}

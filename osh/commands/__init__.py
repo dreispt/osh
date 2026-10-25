@@ -11,7 +11,6 @@ COMMANDS = [
     stop_cmd.stop,
     odoo_cmd.odoo,
     shell_cmd.exec_cmd,
-    shell_cmd.shell,
     db_cmd.db,
     config_cmd.config,
 ]

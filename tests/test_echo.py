@@ -8,7 +8,7 @@ from osh.db import set_project_config
 
 def test_cli_echo_output_colored_in_terminal(tmp_project, monkeypatch):
     """A real ``osh`` command prints styled categories to a terminal."""
-    set_project_config(tmp_project, "run", "target", "nosuchruntime")
+    set_project_config(tmp_project, "run", "runtime", "nosuchruntime")
     monkeypatch.chdir(tmp_project)
 
     result = CliRunner().invoke(main, ["init"], color=True)

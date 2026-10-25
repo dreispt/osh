@@ -2,7 +2,7 @@
 
 from ... import echo
 from ...commands.db_cmd import Db
-from ...db import resolve_runtime, run_in_runtime
+from ...db import filestore_path, resolve_runtime, run_in_runtime
 
 
 class DanglingFilestores(Db):
@@ -35,7 +35,7 @@ def remove_filestore(ctx, base, db_name):
     On container runtimes the removal runs inside the container, where the
     data dir volume is mounted.
     """
-    path = _filestore_path(base, db_name)
+    path = filestore_path(base, db_name)
     if path is None:
         echo.warning("could not determine Odoo data_dir; filestore not removed.")
         return
@@ -47,19 +47,11 @@ def remove_filestore(ctx, base, db_name):
 
 def filestore_exists(ctx, base, db_name):
     """Return True when *db_name* has a filestore directory."""
-    path = _filestore_path(base, db_name)
+    path = filestore_path(base, db_name)
     if path is None:
         return False
     returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", path])
     return returncode == 0
-
-
-def _filestore_path(base, db_name):
-    """Return the filestore path for *db_name* inside the runtime, or None."""
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
-        return None
-    return f"{data_dir}/filestore/{db_name}"
 
 
 def list_filestore_dirs(ctx, base):

@@ -1,26 +1,25 @@
-"""Plugin contributing a backend, a backup source and group commands."""
+"""Plugin contributing a runtime, a backup source and group commands."""
 
 import click
 
-from osh.backends import Backend
+from osh.runtimes import Runtime
 from osh.backup_sources import BackupSource
 from osh.handlers import CommandHandler, subcommand
 
 
-class MyBackend(Backend):
-    name = "mybackend"
-    backend_type = "backend"
+class MyRuntime(Runtime):
+    name = "myruntime"
 
 
-class MyBackendCommands(CommandHandler):
-    """``osh mybackend`` group — the plugin's own command group."""
+class MyRuntimeCommands(CommandHandler):
+    """``osh myruntime`` group — the plugin's own command group."""
 
-    _cli_name = "mybackend"
+    _cli_name = "myruntime"
 
     @subcommand
     @click.argument("project", required=False)
     def stop(self):
-        """Stop my backend's resources."""
+        """Stop my runtime's resources."""
 
 
 class MySource(BackupSource):

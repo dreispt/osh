@@ -133,10 +133,8 @@ def get_runtime_class(name):
     Only the plugin declaring *name* is imported — resolving the ``venv``
     runtime never touches the ``docker`` plugin.
     """
-    from ..db import normalize_runtime_name
     from ..runtimes import HostRuntime, Runtime
 
-    name = normalize_runtime_name(name)
     if name == "host":
         return HostRuntime
     ensure_declared("runtimes", name)
@@ -179,13 +177,6 @@ def load_runtimes():
         if getattr(cls, "name", None):
             _register_runtime(result, source, cls)
     return result
-
-
-# Deprecated aliases kept for plugins written against the old backend API
-# — scheduled for removal in a later release.
-get_backend_class = get_runtime_class
-backend_meta = runtime_meta
-load_backends = load_runtimes
 
 
 def get_source_class(scheme):
@@ -277,13 +268,6 @@ def warn_unresolved_meta():
                     f"{name}.{alias}" for alias in _alias_specs(attrs.get("aliases"))
                 )
     for spec in registry.specs.values():
-        if spec.legacy_marker:
-            echo.warning(
-                f"plugin '{spec.name}' declares its surface in "
-                "osh-plugin.toml — move it to [tool.osh] in "
-                "pyproject.toml; the marker is deprecated.",
-                err=True,
-            )
         min_osh = spec.meta.get("min_osh")
         if min_osh:
             if _version_tuple(str(min_osh)) == (0, 0, 0):
@@ -441,14 +425,8 @@ def _module_subclasses(module, base):
 
 
 def _register_runtime(result, source, runtime):
-    """Register *runtime* in *result* unless its name is taken.
-
-    Legacy names count as their current one: a plugin runtime named
-    ``none`` conflicts with the built-in ``host`` runtime.
-    """
-    from ..db import normalize_runtime_name
-
-    name = normalize_runtime_name(runtime.name)
+    """Register *runtime* in *result* unless its name is taken."""
+    name = runtime.name
     if name in result:
         echo.error(
             f"runtime '{runtime.name}' from '{source}' conflicts with "
