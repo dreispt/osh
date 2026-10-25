@@ -617,7 +617,7 @@ extension target to declare under `extends`:
 | ----------------------- | ------------------------------------------------ | --------------------------- |
 | `init`                  | `osh init`                                       | `Init` (`init_cmd`)         |
 | `odoo`                  | `osh odoo`                                       | `OdooRun` (`odoo_cmd`)      |
-| `shell`                 | `osh exec` (`osh shell` alias)                   | `ShellRun` (`shell_cmd`)    |
+| `exec`                  | `osh exec`                                       | `ShellRun` (`shell_cmd`)    |
 | `db`, `db.<sub>`        | `osh db show`/`list`/`set`/`copy`/`exec`/`unset` | `Db` (`db_cmd`)             |
 | `stop`                  | `osh stop`                                       | `Stop` (`stop_cmd`)         |
 | `config`, `config.show` | `osh config show`                                | `Config` (`config_cmd`)     |

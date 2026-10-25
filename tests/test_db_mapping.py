@@ -138,8 +138,7 @@ def test_db_group_command_surface():
     assert "unset" in db.commands
     assert "copy" in db.commands
     assert "exec" in db.commands
-    # ``db shell`` remains as a hidden alias of ``db exec``.
-    assert "shell" in db.commands and db.commands["shell"].hidden
+    assert "shell" not in db.commands
     assert "use" not in db.commands
     assert "pin" not in db.commands
     assert "unpin" not in db.commands

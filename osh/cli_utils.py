@@ -47,8 +47,8 @@ class ExtensibleCommand(click.Command):
             # Method-level extension targets keep their own lazy trigger:
             # ``extends = ["db.list"]`` imports the plugin only when the
             # ``db list`` command is composed. Aliases are targets too —
-            # ``extends = ["db.exec"]`` fires for ``db shell`` and vice
-            # versa, since both dispatch to the same method.
+            # ``extends`` on any declared alias resolves to the same
+            # subcommand.
             from .handlers import _alias_specs, _declared_name, _subcommand_methods
             from .utils.plugin_loader import ensure_declared
 

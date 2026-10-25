@@ -155,10 +155,9 @@ class Db(CommandHandler):
 
     @subcommand(
         name="exec",
-        aliases={"shell": {"hidden": True}},
         context_settings=dict(ignore_unknown_options=True),
     )
-    def shell(self):
+    def exec(self):
         """Enter the database environment or run a command in it.
 
         Without arguments this opens an interactive shell where the database
@@ -185,9 +184,8 @@ class Db(CommandHandler):
         ).run()
 
     @classmethod
-    def shell_options(cls):
-        """``db exec`` (and the hidden ``db shell``) take ``osh exec``'s
-        parameters verbatim."""
+    def exec_options(cls):
+        """``db exec`` takes ``osh exec``'s parameters verbatim."""
         return ShellRun.get_options()
 
     @subcommand
