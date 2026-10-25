@@ -396,7 +396,7 @@ def psql_rows(base, db_name, sql, **kwargs):
     """
     returncode, stdout, stderr = psql(base, db_name, sql, **kwargs)
     sep = kwargs.get("field_separator") or "|"
-    rows = [line.split(sep) for line in stdout.splitlines() if line]
+    rows = [line.split(sep) for line in stdout.splitlines()]
     return returncode, rows, stderr
 
 
