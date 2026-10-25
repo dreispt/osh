@@ -803,10 +803,9 @@ def run_runtime_init(
 
     if not dry_run:
         set_active_runtime_name(target, runtime.name)
-        init_values = {"target": runtime.name}
-        init_values.update(
-            {key: str(value) for key, value in options.items() if value is not None}
-        )
+        init_values = {
+            key: str(value) for key, value in options.items() if value is not None
+        }
         set_project_config(target, "init", values=init_values)
         echo.success(f"Runtime '{runtime.name}' is ready.")
 

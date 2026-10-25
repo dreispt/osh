@@ -133,10 +133,8 @@ def get_runtime_class(name):
     Only the plugin declaring *name* is imported — resolving the ``venv``
     runtime never touches the ``docker`` plugin.
     """
-    from ..db import normalize_runtime_name
     from ..runtimes import HostRuntime, Runtime
 
-    name = normalize_runtime_name(name)
     if name == "host":
         return HostRuntime
     ensure_declared("runtimes", name)
@@ -434,14 +432,8 @@ def _module_subclasses(module, base):
 
 
 def _register_runtime(result, source, runtime):
-    """Register *runtime* in *result* unless its name is taken.
-
-    Legacy names count as their current one: a plugin runtime named
-    ``none`` conflicts with the built-in ``host`` runtime.
-    """
-    from ..db import normalize_runtime_name
-
-    name = normalize_runtime_name(runtime.name)
+    """Register *runtime* in *result* unless its name is taken."""
+    name = runtime.name
     if name in result:
         echo.error(
             f"runtime '{runtime.name}' from '{source}' conflicts with "

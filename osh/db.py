@@ -140,40 +140,21 @@ def get_pg_env(base):
     return env
 
 
-_LEGACY_RUNTIME_NAMES = {"none": "host", "local": "host"}
-
-
-def normalize_runtime_name(name):
-    """Return *name*, mapping the legacy ``none``/``local`` names to ``host``."""
-    return _LEGACY_RUNTIME_NAMES.get(name, name)
-
-
 def get_active_runtime_name(base, default="host"):
-    """Return the project's active runtime name.
-
-    Reads ``run.runtime``, falling back to the legacy ``run.target`` key.
-    """
-    name = get_project_config(base, "run", "runtime") or get_project_config(
-        base, "run", "target", fallback=default
-    )
-    return normalize_runtime_name(name)
+    """Return the project's active runtime name (``run.runtime``)."""
+    return get_project_config(base, "run", "runtime", fallback=default)
 
 
 def set_active_runtime_name(base, name):
-    """Record *name* as the project's active runtime (``run.runtime``).
-
-    The legacy ``run.target`` key is removed so the two never disagree.
-    """
+    """Record *name* as the project's active runtime (``run.runtime``)."""
     set_project_config(base, "run", "runtime", name)
-    if get_project_config(base, "run", "target") is not None:
-        unset_project_config(base, "run", "target")
 
 
 def deactivate_runtime(base):
     """Record ``host`` as the active runtime; return the previous name.
 
     Returns ``None`` when no managed runtime was active. ``osh init
-    --runtime=host`` is the user-facing spelling; this helper keeps the
+    host`` is the user-facing spelling; this helper keeps the
     ``run.runtime`` bookkeeping in one place for callers that need it.
     """
     previous = get_active_runtime_name(base, default=None)
@@ -186,10 +167,10 @@ def deactivate_runtime(base):
 def resolve_runtime(base, default="host"):
     """Instantiate the runtime configured for *base*.
 
-    The active runtime is the ``run.runtime`` (or legacy ``run.target``) recorded in the project config
-    by ``osh init --runtime=<name>``, falling back to
-    *default*. This is the supported way for commands and plugins to obtain
-    the active runtime instance.
+    The active runtime is the ``run.runtime`` recorded in the project
+    config by ``osh init <name>``, falling back to *default*. This is the
+    supported way for commands and plugins to obtain the active runtime
+    instance.
     """
     from .utils.plugin_loader import get_runtime_class
 
