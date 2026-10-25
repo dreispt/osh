@@ -230,11 +230,10 @@ def install_filestore(ctx, base, src_dir, db_name):
     identically on host and container runtimes — the destination may live in
     a container volume unreachable from the host.
     """
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
+    dest_path = filestore_path(base, db_name)
+    if dest_path is None:
         echo.warning("could not determine Odoo data_dir; filestore not installed.")
         return
-    dest_path = f"{data_dir}/filestore/{db_name}"
     dest = shlex.quote(dest_path)
     script = f"rm -rf {dest} && mkdir -p {dest} && tar -xf - -C {dest}"
     with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
@@ -260,10 +259,9 @@ def export_filestore(ctx, base, db_name, dest_dir):
     container volume unreachable from the host. Returns False when the data
     dir or the database filestore cannot be found.
     """
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
+    src = filestore_path(base, db_name)
+    if src is None:
         return False
-    src = f"{data_dir}/filestore/{db_name}"
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".tar") as tar_file:
@@ -355,6 +353,59 @@ def run_psql_script(base, db_name, script_path, ctx=None):
         raise RuntimeError(
             f"Failed to run SQL script on '{db_name}': {decode_stderr(stderr)}"
         )
+
+
+def psql(base, db_name, sql, *, field_separator=None, variables=None, ctx=None):
+    """Run *sql* via psql and return ``(returncode, stdout, stderr)``.
+
+    The SQL is piped through stdin rather than ``-c`` so large statements
+    cannot hit the per-argument size limit. It must also go through stdin
+    for ``:'key'`` references to work at all: psql interpolates variables
+    only into input read from stdin or a file, never into ``-c``.
+
+    *variables* are passed as ``psql -v key=value`` assignments so the
+    statement can reference them as ``:'key'`` — psql quotes them as SQL
+    literals using the server connection's escaping rules, so no value
+    ever needs manual escaping.
+
+    Trade-off: ``-v`` values land in the ``psql`` argv, which is
+    world-readable via ``/proc/<pid>/cmdline`` while the query runs. If a
+    value ever is sensitive, use ``\\getenv`` (psql 14+) with
+    ``run_in_runtime(env=...)`` instead.
+
+    ``run_in_runtime`` supplies the ``PG*`` connection variables from the
+    project Odoo config.
+    """
+    # ON_ERROR_STOP makes psql exit non-zero on SQL errors, like -c does.
+    args = ["psql", "-d", db_name, "-t", "-A", "-v", "ON_ERROR_STOP=1"]
+    for key, value in (variables or {}).items():
+        args += ["-v", f"{key}={value}"]
+    if field_separator:
+        args += ["-F", field_separator]
+    returncode, stdout, stderr = run_in_runtime(ctx, base, args, input=sql)
+    if returncode is None:
+        raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
+    return returncode, stdout, stderr
+
+
+def psql_rows(base, db_name, sql, **kwargs):
+    """Run *sql* like :func:`psql`, returning ``(returncode, rows, stderr)``.
+
+    *rows* is a list of field lists split on the effective field separator
+    (``field_separator`` if given, else psql's default ``|``).
+    """
+    returncode, stdout, stderr = psql(base, db_name, sql, **kwargs)
+    sep = kwargs.get("field_separator") or "|"
+    rows = [line.split(sep) for line in stdout.splitlines() if line]
+    return returncode, rows, stderr
+
+
+def filestore_path(base, db_name):
+    """Return the filestore path for *db_name* inside the runtime, or None."""
+    data_dir = resolve_runtime(base).odoo_data_dir(base)
+    if data_dir is None:
+        return None
+    return f"{data_dir}/filestore/{db_name}"
 
 
 def resolve_db_name(base, verbose=False, branch=None):
@@ -463,12 +514,10 @@ def link_filestore(ctx, base, src_db, dst_db):
     filestore (dangling when its database is missing) is replaced,
     matching ``copy_db``'s replace-the-target semantics.
     """
-    data_dir = resolve_runtime(base).odoo_data_dir(base)
-    if data_dir is None:
+    src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
+    if src is None:
         echo.warning("could not determine Odoo data_dir; filestore not linked.")
         return
-    store = f"{data_dir}/filestore"
-    src, dst = f"{store}/{src_db}", f"{store}/{dst_db}"
     returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", src])
     if returncode != 0:
         return
