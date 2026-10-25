@@ -2,8 +2,7 @@
 
 Stage 1 — discovery without import: ``PluginRegistry`` scans plugin
 *metadata* only — ``[tool.osh]`` in ``pyproject.toml`` for installed
-distributions (or the deprecated ``osh-plugin.toml`` marker), and
-``osh-plugin.toml`` files for built-in plugins — and the
+distributions, and ``osh-plugin.toml`` files for built-in plugins — and the
 loaders register lazy Click stubs (see ``osh.cli_utils.LazyCommand``).
 Plugin modules are never evaluated while commands are listed or
 ``osh --help`` renders.
@@ -14,7 +13,7 @@ command invoked, a handler it extends executed, its runtime selected, or
 its backup source scheme used.
 
 ``[tool.osh]`` in ``pyproject.toml`` declares a plugin's surface for
-stage 1 (the deprecated ``osh-plugin.toml`` marker holds the same keys)::
+stage 1::
 
     [tool.osh]
     description = "Short plugin description."
@@ -86,7 +85,6 @@ class PluginSpec:
     kind: str = "builtin"  # "builtin" | "entry_point"
     meta: dict = field(default_factory=dict)
     path: Path | None = None
-    legacy_marker: bool = False
     lazy: bool = True
     help_text: str = ""
     version: str = ""
@@ -252,16 +250,14 @@ class PluginRegistry:
 
     def _discover_entry_points(self):
         for ep in _iter_entry_points():
-            meta, legacy = _ep_meta(ep.value.split(":", 1)[0])
             self._add_spec(
                 ep.name,
                 ep.value,
                 kind="entry_point",
-                meta=meta,
+                meta=_ep_meta(ep.value.split(":", 1)[0]),
                 help_text=_ep_summary(ep),
                 version=_ep_version(ep),
                 package=_ep_package(ep),
-                legacy_marker=legacy,
             )
 
     def _add_spec(
@@ -275,7 +271,6 @@ class PluginRegistry:
         help_text="",
         version="",
         package="",
-        legacy_marker=False,
     ):
         if name in self.specs:
             echo.error(f"duplicate plugin source '{name}' ignored: {target_ref}")
@@ -301,7 +296,6 @@ class PluginRegistry:
             kind=kind,
             meta=meta,
             path=path,
-            legacy_marker=legacy_marker,
             lazy=lazy,
             help_text=help_text or str(meta.get("description", "")),
             version=version,

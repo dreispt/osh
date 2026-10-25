@@ -268,13 +268,6 @@ def warn_unresolved_meta():
                     f"{name}.{alias}" for alias in _alias_specs(attrs.get("aliases"))
                 )
     for spec in registry.specs.values():
-        if spec.legacy_marker:
-            echo.warning(
-                f"plugin '{spec.name}' declares its surface in "
-                "osh-plugin.toml — move it to [tool.osh] in "
-                "pyproject.toml; the marker is deprecated.",
-                err=True,
-            )
         min_osh = spec.meta.get("min_osh")
         if min_osh:
             if _version_tuple(str(min_osh)) == (0, 0, 0):

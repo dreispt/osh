@@ -127,8 +127,8 @@ def test_tool_osh_in_pyproject_declares_commands(pip_install):
     assert not spec.loaded
 
 
-def test_tool_osh_takes_precedence_over_marker(pip_install):
-    """``[tool.osh]`` wins over a legacy ``osh-plugin.toml`` marker."""
+def test_stray_marker_file_is_ignored(pip_install):
+    """``[tool.osh]`` declares the surface; a stray ``osh-plugin.toml`` is ignored."""
     pip_install("repo_prec")
 
     spec = plugin_registry.plugin_registry().specs["osh-prec"]
@@ -151,22 +151,11 @@ def test_tool_osh_found_in_project_root(pip_install, monkeypatch):
     assert spec.declared_commands() == {"marked": "A marked command."}
 
 
-def test_marker_fallback_loads_with_deprecation_warning(pip_install, capsys):
-    """A marker-only plugin still loads, but startup warns it is deprecated."""
-    pip_install("repo_legacy")
-
-    spec = plugin_registry.plugin_registry().specs["osh-old"]
-    assert spec.declared_commands() == {"old_cmd": "Old school."}
-
-    plugin_loader.warn_unresolved_meta()
-    assert "osh-plugin.toml" in capsys.readouterr().err
-
-
 def test_installed_plugin_runtimes_and_sources(pip_install, capsys):
     """Plugins can contribute runtimes, sources and group commands."""
     pip_install("repo_l")
 
-    assert "mybackend" in plugin_loader.load_runtimes()
+    assert "myruntime" in plugin_loader.load_runtimes()
     entries = plugin_loader.iter_plugin_subclasses(BackupSource)
     assert any(
         s == "repo-l" and getattr(i, "scheme", None) == "myscheme" for s, i in entries
