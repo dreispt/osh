@@ -9,7 +9,6 @@ from osh.handlers import CommandHandler, subcommand
 
 class MyRuntime(Runtime):
     name = "myruntime"
-    runtime_type = "runtime"
 
 
 class MyRuntimeCommands(CommandHandler):

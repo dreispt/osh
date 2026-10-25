@@ -14,7 +14,6 @@ def test_docker_runtime_is_registered():
     runtimes = load_runtimes()
     assert "docker" in runtimes
     assert runtimes["docker"].name == "docker"
-    assert runtimes["docker"].runtime_type == "runtime"
 
 
 def test_load_runtimes_warns_on_name_collision(monkeypatch, capsys):

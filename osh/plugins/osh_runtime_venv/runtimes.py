@@ -16,7 +16,6 @@ class VenvRuntime(HostRuntime):
 
     name = "venv"
     label = "Python virtualenv"
-    runtime_type = "runtime"
     description = "Clone Odoo sources, create a Python virtualenv, and install Odoo."
     help_text = (
         "Clones Odoo (and optionally Enterprise and design-themes) into ``.osh/``, "

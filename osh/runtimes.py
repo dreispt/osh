@@ -103,7 +103,6 @@ class BuildInputs:
 class Runtime(ABC):
     """Unified base class for Osh init and execution runtimes."""
 
-    runtime_type = "runtime"
     name = ""
     label = ""
     description = ""
@@ -431,7 +430,6 @@ class HostRuntime(Runtime):
 
     name = "host"
     label = "Host"
-    runtime_type = "runtime"
     host_executable = True
     description = "Run Odoo directly on the host (default)."
     help_text = (

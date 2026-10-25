@@ -65,7 +65,6 @@ class DockerRuntime(Runtime):
 
     name = "docker"
     label = "Docker Compose"
-    runtime_type = "runtime"
     description = (
         "Run Odoo inside a Docker Compose stack; uses the project's compose "
         "file or Dockerfile when present, generates one otherwise."
