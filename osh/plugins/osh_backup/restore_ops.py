@@ -9,12 +9,9 @@ commands work identically on host and container runtimes — no host file
 path ever reaches the execution environment.
 """
 
-import contextlib
 import importlib.resources
 import shlex
-import sys
 import tempfile
-import threading
 import time
 import zipfile
 from pathlib import Path
@@ -24,6 +21,7 @@ import click
 from ... import echo
 from ...common import env_root
 from ...db import install_filestore, run_in_runtime, run_psql_script
+from ...termui import human_duration, human_size, stdin_progress
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content
 
@@ -200,59 +198,15 @@ def _run_db_tool(ctx, base, argv, error_msg, *, stdin_path=None):
     if stdin_path is None:
         returncode, _, stderr = run_in_runtime(ctx, base, argv)
     else:
-        with open(stdin_path, "rb") as stdin, _stdin_progress(stdin, stdin_path):
+        with (
+            open(stdin_path, "rb") as stdin,
+            stdin_progress(stdin, stdin_path, f"Restoring {stdin_path.name}"),
+        ):
             returncode, _, stderr = run_in_runtime(ctx, base, argv, stdin=stdin)
     if returncode is None:
         raise click.ClickException(f"{error_msg}: command not found")
     if returncode != 0:
         raise click.ClickException(f"{error_msg}: {stderr}")
-
-
-@contextlib.contextmanager
-def _stdin_progress(stream, path):
-    """Show a progress bar while a child process consumes *stream* on stdin.
-
-    The child's stdin shares *stream*'s file offset, so polling ``tell()``
-    reports how much of the dump the restore tool has read — no data is
-    copied through Python. ``click.progressbar`` stays hidden when stderr
-    is not a TTY.
-    """
-    try:
-        total = path.stat().st_size
-    except OSError:
-        total = 0
-    if not total:
-        yield
-        return
-
-    done = threading.Event()
-
-    def _poll():
-        last = 0
-        while not done.wait(0.2):
-            pos = stream.tell()
-            if pos > last:
-                bar.update(pos - last)
-                last = pos
-        pos = stream.tell()
-        if pos > last:
-            bar.update(pos - last)
-
-    with click.progressbar(
-        length=total,
-        label=f"Restoring {path.name}",
-        fill_char="=",
-        empty_char=" ",
-        bar_template="%(label)s  [%(bar)s]  %(info)s",
-        file=sys.stderr,
-    ) as bar:
-        poller = threading.Thread(target=_poll, daemon=True)
-        poller.start()
-        try:
-            yield
-        finally:
-            done.set()
-            poller.join(timeout=1)
 
 
 def _dump_suffix(path):
@@ -263,33 +217,12 @@ def _dump_suffix(path):
     return path.suffix
 
 
-def _human_size(nbytes):
-    """Return *nbytes* as a human-readable size (e.g. ``512 MB``)."""
-    size = float(nbytes)
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024:
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
-
-
-def _human_duration(seconds):
-    """Return *seconds* as a human-readable duration (e.g. ``1m 5s``)."""
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes, secs = divmod(int(seconds), 60)
-    if minutes < 60:
-        return f"{minutes}m {secs}s"
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}h {minutes}m {secs}s"
-
-
 def _report_dump_restored(started, dump_path):
     """Report the elapsed time and size of the restored dump."""
     elapsed = time.monotonic() - started
     echo.success(
-        f"Dump restored in {_human_duration(elapsed)} "
-        f"(dump size: {_human_size(dump_path.stat().st_size)})",
+        f"Dump restored in {human_duration(elapsed)} "
+        f"(dump size: {human_size(dump_path.stat().st_size)})",
         err=True,
     )
 

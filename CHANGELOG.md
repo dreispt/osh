@@ -6,6 +6,16 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Changed
+
+- `osh db copy` and the missing-database copy option clone idle databases
+  via `CREATE DATABASE ... TEMPLATE` — near-instant even for large
+  databases. When the source has open connections a prompt offers to
+  close them for the fast clone, keep them for the slower
+  `pg_dump`/`pg_restore` copy, or abort; non-interactive runs keep the
+  connections. The dump/restore path now streams through a temp file so
+  both halves show progress.
+
 ### Removed
 
 - The deprecated "backend" API aliases: the `osh.backends` module and the
