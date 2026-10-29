@@ -10,6 +10,7 @@ import shlex
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 import click
@@ -23,7 +24,7 @@ from .common import (
     find_project_repos,
     git_current_branch,
 )
-from .termui import choose
+from .termui import choose, file_progress, human_duration, stdin_progress
 
 
 def sanitize_db_name(name):
@@ -321,22 +322,146 @@ def create_db(base, db_name, ctx=None):
 
 
 def copy_db(base, from_db, to_db, ctx=None):
-    """Copy *from_db* to *to_db*, replacing the target if it exists."""
-    drop_db(base, to_db, ctx=ctx)
-    create_db(base, to_db, ctx=ctx)
-    pipeline = (
-        f"pg_dump -Fc {shlex.quote(from_db)}"
-        f" | pg_restore --no-owner -d {shlex.quote(to_db)}"
+    """Copy *from_db* to *to_db*, replacing the target if it exists.
+
+    ``CREATE DATABASE ... TEMPLATE`` — a fast filesystem-level clone — is
+    used when nothing else is connected to *from_db*. Open connections
+    prompt on a TTY: either close them for the clone, or take the slower
+    ``pg_dump``/``pg_restore`` path — which streams through a host temp
+    file so both halves show progress, and works on a live database.
+    """
+    if from_db == to_db:
+        raise click.ClickException("Source and target database are the same.")
+    started = time.monotonic()
+    maintenance = _maintenance_db(base, ctx=ctx)
+    fast_clone = maintenance is not None and _ensure_source_idle(
+        base, maintenance, from_db, ctx=ctx
     )
-    returncode, _, stderr = run_in_runtime(ctx, base, ["sh", "-c", pipeline])
-    if returncode is None:
-        raise RuntimeError(
-            "Could not locate `pg_dump` or `pg_restore`. Is PostgreSQL installed?"
-        )
+    drop_db(base, to_db, ctx=ctx)
+    if not fast_clone or not _template_copy(base, maintenance, from_db, to_db, ctx=ctx):
+        _dump_restore_copy(base, from_db, to_db, ctx=ctx)
+    echo.success(
+        f"Copied database '{from_db}' to '{to_db}' "
+        f"in {human_duration(time.monotonic() - started)}",
+        err=True,
+    )
+
+
+def _maintenance_db(base, ctx=None):
+    """Return a database name usable for maintenance queries, or None."""
+    for name in ("postgres", "template1"):
+        returncode, _, _ = psql(base, name, "SELECT 1", ctx=ctx)
+        if returncode == 0:
+            return name
+    return None
+
+
+def _ensure_source_idle(base, maintenance, from_db, ctx=None):
+    """Ensure no client session holds *from_db* open for a TEMPLATE clone.
+
+    Returns True when the source has no connections, or — on a TTY — when
+    the user picks ``[c]`` and closing them succeeds. Returns False to
+    take the pg_dump/pg_restore path, also the non-interactive default.
+    """
+    returncode, stdout, _ = psql(
+        base,
+        maintenance,
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = :'db'",
+        variables={"db": from_db},
+        ctx=ctx,
+    )
     if returncode != 0:
-        raise RuntimeError(
-            f"Could not copy database '{from_db}' to '{to_db}': {stderr}"
+        return False
+    try:
+        connections = int(stdout.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return False
+    if not connections:
+        return True
+    if not sys.stdin.isatty():
+        echo.info(
+            f"Database '{from_db}' is in use by {connections} connection(s); "
+            "using pg_dump/pg_restore.",
+            err=True,
         )
+        return False
+    choice = choose(
+        f"Database '{from_db}' is in use by {connections} connection(s).",
+        [
+            ("c", f"Close them and clone '{from_db}' (fast)"),
+            ("s", "Keep them and copy with pg_dump/pg_restore (slower)"),
+            ("a", "Abort"),
+        ],
+        default="s",
+        prompt="Choice",
+        case_sensitive=False,
+    )
+    if choice == "a":
+        raise click.Abort()
+    if choice != "c":
+        return False
+    returncode, _, _ = psql(
+        base,
+        maintenance,
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
+        " WHERE datname = :'db' AND pid <> pg_backend_pid()",
+        variables={"db": from_db},
+        ctx=ctx,
+    )
+    return returncode == 0
+
+
+def _template_copy(base, maintenance, from_db, to_db, ctx=None):
+    """Clone *from_db* into *to_db* via ``CREATE DATABASE ... TEMPLATE``."""
+    returncode, _, stderr = psql(
+        base,
+        maintenance,
+        'CREATE DATABASE :"to" TEMPLATE :"from"',
+        variables={"to": to_db, "from": from_db},
+        ctx=ctx,
+    )
+    if returncode != 0:
+        echo.warning(
+            f"Could not clone '{from_db}' ({stderr.strip()})"
+            " — falling back to pg_dump/pg_restore.",
+            err=True,
+        )
+        return False
+    return True
+
+
+def _dump_restore_copy(base, from_db, to_db, ctx=None):
+    """Copy via ``pg_dump`` into a temp file restored by ``pg_restore``."""
+    create_db(base, to_db, ctx=ctx)
+    with tempfile.NamedTemporaryFile(prefix="osh-dump-", suffix=".dump") as dump:
+        dump_path = Path(dump.name)
+        with file_progress(dump_path, f"Dumping '{from_db}'"):
+            returncode, _, stderr = run_in_runtime(
+                ctx,
+                base,
+                ["pg_dump", "-Fc", from_db],
+                stdout=dump,
+            )
+        if returncode is None:
+            raise RuntimeError("Could not locate `pg_dump`. Is PostgreSQL installed?")
+        if returncode != 0:
+            raise RuntimeError(f"Could not dump database '{from_db}': {stderr}")
+        dump.seek(0)
+        with stdin_progress(dump, dump_path, f"Restoring '{to_db}'"):
+            returncode, _, stderr = run_in_runtime(
+                ctx,
+                base,
+                ["pg_restore", "--no-owner", "-d", to_db],
+                stdin=dump,
+            )
+        if returncode is None:
+            raise RuntimeError(
+                "Could not locate `pg_restore`. Is PostgreSQL installed?"
+            )
+        if returncode != 0:
+            raise RuntimeError(
+                f"Could not copy database '{from_db}' to '{to_db}': {stderr}"
+            )
 
 
 def run_psql_script(base, db_name, script_path, ctx=None):

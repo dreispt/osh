@@ -1,14 +1,17 @@
-"""Interactive terminal prompts shared by Osh commands.
+"""Interactive terminal prompts and progress display shared by Osh commands.
 
 ``choose`` renders a pick-one list navigated with the arrow keys — the
 current row is highlighted — when stdin is a real ANSI-capable POSIX
 terminal, and falls back to a numbered (or ``[k]``-keyed) ``click.prompt``
 otherwise: pipes, ``CliRunner`` tests, ``TERM=dumb`` and Windows all get
-the typed prompt.
+the typed prompt. ``stdin_progress``/``file_progress`` render transfer
+progress for commands whose work happens inside a child process.
 """
 
+import contextlib
 import os
 import sys
+import threading
 
 import click
 
@@ -24,6 +27,7 @@ _CLEAR_BELOW = "\x1b[J"  # clear from cursor to end of screen
 _HIDE_CURSOR = "\x1b[?25l"
 _SHOW_CURSOR = "\x1b[?25h"
 _HINT = "(↑/↓ move · Enter select · Esc quit)"
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 # Multi-byte keys as terminals encode them in raw mode.
 _ESCAPE_SEQUENCES = {
@@ -90,6 +94,116 @@ def can_menu():
     except (OSError, termios.error, ValueError):
         # CliRunner's stdin reports a TTY but has no real fd.
         return False
+
+
+def human_size(nbytes):
+    """Return *nbytes* as a human-readable size (e.g. ``512 MB``)."""
+    size = float(nbytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def human_duration(seconds):
+    """Return *seconds* as a human-readable duration (e.g. ``1m 5s``)."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m {secs}s"
+
+
+@contextlib.contextmanager
+def stdin_progress(stream, path, label):
+    """Show a progress bar while a child process consumes *stream* on stdin.
+
+    The child's stdin shares *stream*'s file offset, so polling ``tell()``
+    reports how much of the file at *path* has been read — no data is
+    copied through Python. ``click.progressbar`` stays hidden when stderr
+    is not a TTY.
+    """
+    try:
+        total = path.stat().st_size
+    except OSError:
+        total = 0
+    if not total:
+        yield
+        return
+
+    done = threading.Event()
+
+    def _poll():
+        last = 0
+        while not done.wait(0.2):
+            pos = stream.tell()
+            if pos > last:
+                bar.update(pos - last)
+                last = pos
+        pos = stream.tell()
+        if pos > last:
+            bar.update(pos - last)
+
+    with click.progressbar(
+        length=total,
+        label=label,
+        fill_char="=",
+        empty_char=" ",
+        bar_template="%(label)s  [%(bar)s]  %(info)s",
+        file=sys.stderr,
+    ) as bar:
+        poller = threading.Thread(target=_poll, daemon=True)
+        poller.start()
+        try:
+            yield
+        finally:
+            done.set()
+            poller.join(timeout=1)
+
+
+@contextlib.contextmanager
+def file_progress(path, label):
+    """Show a spinner and growing size while a child process writes *path*.
+
+    For transfers whose total is unknown — e.g. ``pg_dump`` streamed to a
+    file — where a determinate bar cannot render. Hidden when stderr is
+    not a TTY; the final size remains on screen when done.
+    """
+    if not sys.stderr.isatty():
+        yield
+        return
+    done = threading.Event()
+
+    def _poll():
+        frame = 0
+        while not done.wait(0.15):
+            frame += 1
+            sys.stderr.write(
+                f"\r{_CLEAR_LINE}{label}  "
+                f"{_SPINNER[frame % len(_SPINNER)]} {human_size(_path_size(path))}"
+            )
+            sys.stderr.flush()
+
+    poller = threading.Thread(target=_poll, daemon=True)
+    poller.start()
+    try:
+        yield
+    finally:
+        done.set()
+        poller.join(timeout=1)
+        sys.stderr.write(f"\r{_CLEAR_LINE}{label}  {human_size(_path_size(path))}\n")
+        sys.stderr.flush()
+
+
+def _path_size(path):
+    """Return *path*'s size in bytes, or 0 when it cannot be stat'ed."""
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
 
 
 def _run_menu(title, options, index, file):

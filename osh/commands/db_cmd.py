@@ -144,14 +144,19 @@ class Db(CommandHandler):
     @click.argument("from_db")
     @click.argument("to_db")
     def copy(self):
-        """Copy a PostgreSQL database to a new name, replacing the target if it exists."""
+        """Copy a PostgreSQL database to a new name, replacing the target if it exists.
+
+        An idle source is cloned near-instantly via ``CREATE DATABASE ...
+        TEMPLATE``. When other sessions hold the source open, you are asked
+        to close them for the fast clone or keep them and copy with
+        ``pg_dump``/``pg_restore`` (which shows progress bars).
+        """
         self.base = find_project_root(required=True)
         from_name = sanitize_db_name(self.from_db)
         to_name = sanitize_db_name(self.to_db)
         if not db_exists(self.base, from_name, ctx=self.ctx):
             raise click.ClickException(f"Source database '{from_name}' does not exist.")
         copy_db(self.base, from_name, to_name, ctx=self.ctx)
-        echo.success(f"Copied database '{from_name}' to '{to_name}'")
 
     @subcommand(
         name="exec",

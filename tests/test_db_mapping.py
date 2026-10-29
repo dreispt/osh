@@ -1,8 +1,10 @@
 """Tests for branch-to-database mapping resolution."""
 
+import contextlib
 import importlib
 import shutil
 import subprocess
+import time
 
 import click
 import pytest
@@ -173,7 +175,7 @@ def test_db_drop_comes_from_plugin():
 
 
 def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):
-    """`osh db copy` copies a real database to a new name."""
+    """`osh db copy` clones an idle database via CREATE DATABASE TEMPLATE."""
     from osh.commands.db_cmd import db
 
     src = pg_db.create()
@@ -181,10 +183,14 @@ def test_copy_command_copies_db(tmp_project, pg_db, monkeypatch):
     pg_db.track(dst)
     monkeypatch.chdir(tmp_project)
     runner = CliRunner()
-    result = runner.invoke(db, ["copy", src, dst])
+    with _spy_db_tools(monkeypatch) as calls:
+        result = runner.invoke(db, ["copy", src, dst])
     assert result.exit_code == 0
     assert f"Copied database '{src}' to '{dst}'" in result.output
     assert pg_db.exists(dst)
+    tools = {argv[0] for argv, _ in calls}
+    assert not tools & {"pg_dump", "pg_restore"}
+    assert any("TEMPLATE" in kwargs.get("input", "") for _, kwargs in calls)
 
 
 def test_copy_command_refuses_missing_source(tmp_project, pg_db, monkeypatch):
@@ -196,6 +202,129 @@ def test_copy_command_refuses_missing_source(tmp_project, pg_db, monkeypatch):
     result = runner.invoke(db, ["copy", pg_db.name(), pg_db.name()])
     assert result.exit_code != 0
     assert "Source database" in result.output
+
+
+def test_copy_db_open_connection_non_tty_uses_dump_restore(
+    tmp_project, pg_db, monkeypatch
+):
+    """A source with open connections copies via pg_dump in non-TTY mode."""
+    from osh.db import copy_db
+
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    with _open_connection(src), _spy_db_tools(monkeypatch) as calls:
+        copy_db(tmp_project, src, dst)
+    assert pg_db.exists(dst)
+    tools = {argv[0] for argv, _ in calls}
+    assert tools >= {"pg_dump", "pg_restore"}
+
+
+def test_copy_db_prompt_close_connections(tmp_project, pg_db, monkeypatch):
+    """Choosing ``[c]`` closes the open connections and clones the source."""
+    from osh.db import copy_db
+
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "c")
+    with _open_connection(src):
+        copy_db(tmp_project, src, dst)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and _connection_count(src):
+            time.sleep(0.05)
+        assert not _connection_count(src)
+    assert pg_db.exists(dst)
+
+
+def test_copy_db_prompt_slow_copy_keeps_connections(tmp_project, pg_db, monkeypatch):
+    """Choosing ``[s]`` keeps the open connections and copies anyway."""
+    from osh.db import copy_db
+
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "s")
+    with _open_connection(src):
+        copy_db(tmp_project, src, dst)
+        assert _connection_count(src) == 1
+    assert pg_db.exists(dst)
+
+
+def test_copy_db_prompt_abort_preserves_target(tmp_project, pg_db, monkeypatch):
+    """Aborting the connection prompt leaves the target untouched."""
+    from osh.db import copy_db
+
+    src = pg_db.create()
+    dst = pg_db.create()
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "a")
+    with _open_connection(src), pytest.raises(click.Abort):
+        copy_db(tmp_project, src, dst)
+    assert pg_db.exists(dst)
+
+
+def test_copy_db_rejects_same_source_and_target(tmp_project, pg_db):
+    """Copying a database onto itself is rejected before anything drops."""
+    from osh.db import copy_db
+
+    src = pg_db.create()
+    with pytest.raises(click.ClickException, match="same"):
+        copy_db(tmp_project, src, src)
+    assert pg_db.exists(src)
+
+
+@contextlib.contextmanager
+def _spy_db_tools(monkeypatch):
+    """Record ``(argv, kwargs)`` passed to ``osh.db.run_in_runtime``."""
+    import osh.db as osh_db
+
+    calls = []
+    real_run = osh_db.run_in_runtime
+
+    def spy(ctx, base, argv, *args, **kwargs):
+        calls.append((argv, kwargs))
+        return real_run(ctx, base, argv, *args, **kwargs)
+
+    monkeypatch.setattr(osh_db, "run_in_runtime", spy)
+    yield calls
+
+
+def _connection_count(db_name):
+    """Return the number of sessions connected to *db_name*."""
+    result = subprocess.run(
+        [
+            "psql",
+            "-d",
+            "postgres",
+            "-tAc",
+            f"SELECT count(*) FROM pg_stat_activity WHERE datname = '{db_name}'",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return int(result.stdout.strip() or 0)
+
+
+@contextlib.contextmanager
+def _open_connection(db_name):
+    """Hold a client connection to *db_name* open for the block."""
+    proc = subprocess.Popen(
+        ["psql", "-d", db_name],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not _connection_count(db_name):
+            time.sleep(0.05)
+        yield proc
+    finally:
+        proc.terminate()
 
 
 def test_drop_command_drops_db_filestore_and_last_db(
