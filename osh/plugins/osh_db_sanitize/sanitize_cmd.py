@@ -36,6 +36,7 @@ class DbSanitize(CommandHandler):
 
     \b
       osh db sanitize
+      osh db sanitize trim             # only the trim group
       osh db sanitize -d prod_copy
       osh db sanitize --list
       osh db sanitize --no-anonymize --keep-days 90 --vacuum
@@ -45,6 +46,7 @@ class DbSanitize(CommandHandler):
 
     _cli_name = "db.sanitize"
 
+    steps = ()
     database = None
     no_anonymize = False
     no_trim = False
@@ -58,6 +60,7 @@ class DbSanitize(CommandHandler):
     dry_run = False
     force = False
 
+    @click.argument("steps", nargs=-1, type=str)
     @click.option(
         "-d",
         "--database",
@@ -130,6 +133,7 @@ class DbSanitize(CommandHandler):
     )
     def run(self):
         self.vars = self.parse_variables()
+        self.only = self.parse_steps()
         self.base = find_project_root(required=True)
         if self.list_only:
             self.list_scripts()
@@ -140,10 +144,27 @@ class DbSanitize(CommandHandler):
                 f"Database '{self.db_name}' does not exist — nothing to sanitize."
             )
         self.check_neutralized()
-        if not self.no_anonymize:
+        if self.step_enabled("anonymize"):
             self.anonymize()
-        if not self.no_trim:
+        if self.step_enabled("trim"):
             self.trim()
+
+    def parse_steps(self):
+        """Validate the positional STEPS — group names to run."""
+        groups = ("anonymize", "trim")
+        unknown = set(self.steps) - set(groups)
+        if unknown:
+            raise click.UsageError(
+                f"Unknown step(s): {', '.join(sorted(unknown))} "
+                f"— pick from {', '.join(groups)}."
+            )
+        return set(self.steps)
+
+    def step_enabled(self, name):
+        """Whether a sanitize step runs: STEPS whitelist wins, else --no-*."""
+        if self.only:
+            return name in self.only
+        return not getattr(self, f"no_{name}")
 
     def parse_variables(self):
         """Turn ``--var NAME=VALUE`` pairs into the injection dict."""
