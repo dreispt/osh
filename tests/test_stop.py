@@ -157,6 +157,50 @@ def test_stop_host_skips_sigkill_when_pid_was_reused(in_project, monkeypatch):
     assert "pid reused" in result.output
 
 
+def test_stop_port_option_kills_listener_on_unconfigured_port(
+    in_project, odoo_port, tmp_path, spawn
+):
+    """``osh stop -p`` targets an Odoo listening off the configured port.
+
+    ``osh odoo -p PORT`` leaves no listener on the configured port — the
+    process is only reachable by naming its port explicitly.
+    """
+    port = _free_port()
+    proc = spawn(_odoo_argv(tmp_path, port), port)
+
+    result = CliRunner().invoke(main, ["stop", "-p", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert f"Stopping Odoo process {proc.pid}" in result.output
+    proc.wait(timeout=5)
+
+
+def test_stop_port_option_venv_does_not_warn(in_project, tmp_path, spawn):
+    """``-p`` is inherited by ``venv`` — no 'applies to host' warning."""
+    set_project_config(in_project, "run", "runtime", "venv")
+    port = _free_port()
+    proc = spawn(_odoo_argv(tmp_path, port), port)
+
+    result = CliRunner().invoke(main, ["stop", "-p", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert "applies to" not in result.output
+    assert f"Stopping Odoo process {proc.pid}" in result.output
+    proc.wait(timeout=5)
+
+
+def test_stop_list_port_option_reports_listener(in_project, tmp_path, spawn):
+    """``osh stop --list -p`` reports the holder of the given port."""
+    port = _free_port()
+    proc = spawn(_odoo_argv(tmp_path, port), port)
+
+    result = CliRunner().invoke(main, ["stop", "--list", "-p", str(port)])
+
+    assert result.exit_code == 0, result.output
+    assert f"Would stop Odoo process {proc.pid}" in result.output
+    assert proc.poll() is None
+
+
 def test_stop_warns_when_port_check_fails(in_project, odoo_port, monkeypatch):
     """A failing ``lsof`` is reported instead of silently reporting no listener."""
     monkeypatch.setattr("osh.runtimes.shutil.which", lambda tool: "/usr/bin/lsof")
