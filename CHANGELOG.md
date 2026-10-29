@@ -8,51 +8,44 @@ section collects the release notes for the next version as changes land on
 
 ### Added
 
-- `osh stop -p/--http-port PORT` targets an Odoo process listening on a
-  port other than the configured one — needed for servers started with
-  `osh odoo -p`, which leave no listener on the project's port and used
-  to report "Nothing to stop". `osh stop --list -p` reports the holder,
-  and the `osh odoo` port-in-use error now points at the flag. Shared
-  by the `host` and `venv` runtimes.
+- Stop an Odoo server left running on a port other than the configured
+  one: `osh stop -p 8169` finds and stops it instead of reporting
+  "Nothing to stop" — the case for servers started with `osh odoo -p`.
+  `osh stop --list -p` reports what holds the port, and the `osh odoo`
+  port-in-use error now points at the flag.
 
 ### Changed
 
-- `osh odoo` no longer injects the `--dev` default into Odoo subcommands
-  (`shell`, `i18n`, `scaffold`, ...), whose parsers reject server options —
-  `osh odoo i18n export` works without having to pass `--no-dev`.
-- `osh db copy` and the missing-database copy option clone idle databases
-  via `CREATE DATABASE ... TEMPLATE` — near-instant even for large
-  databases. When the source has open connections a prompt offers to
-  close them for the fast clone, keep them for the slower
-  `pg_dump`/`pg_restore` copy, or abort; non-interactive runs keep the
-  connections. The dump/restore path now streams through a temp file so
-  both halves show progress.
+- Odoo subcommands such as `osh odoo i18n export`, `shell` or `scaffold`
+  no longer fail with `unrecognized arguments: --dev=all` — the dev-mode
+  default is only added when starting a server.
+- `osh db copy` (and the copy option in the missing-database prompt) is
+  near-instant for idle databases — they are cloned directly instead of
+  being dumped and restored. When the source database is in use, you are
+  offered a choice: close its connections for the fast clone, or keep
+  them for the slower dump/restore copy — which now shows progress on
+  both halves.
 
 ### Removed
 
-- The deprecated "backend" API aliases: the `osh.backends` module and the
-  `Backend`/`HostBackend`/`NoneBackend`/`DockerBackend`/`VenvBackend` class
-  names, `osh.db`'s `*_backend` helpers (`run_in_backend`, `resolve_backend`,
-  ...), `plugin_loader`'s `get_backend_class`/`backend_meta`/`load_backends`,
-  `cli_utils.format_backends_section`, `init_cmd.run_backend_init`, the
-  `backend` parameter on `Diagnostics` and `DbRestore`, and the
-  `[tool.osh.backends]` metadata table. Plugins must use the runtime names
-  introduced in 1.5.0/1.6.0.
-- The legacy `run.target` config key and the `none`/`local` runtime name
-  aliases — `run.runtime` and `host` are the only spellings.
-- The hidden `osh init -r/--runtime` option (and `--runtime=ask`) plus the
-  runtime init options merged onto plain `osh init`: runtime options now
-  only exist on `osh init <runtime>`, where foreign options are a parse
-  error instead of a warning.
-- The hidden `osh shell` and `osh db shell` aliases of `osh exec`/`osh db
-exec`; the exec handler's extension name is now `exec` — plugins using
-  `extends = ["shell"]` must switch to `extends = ["exec"]`.
-- The `osh-plugin.toml` marker support for pip-installed plugins — declare
-  the surface under `[tool.osh]` in `pyproject.toml` instead. Built-in
+- The deprecated "backend" API names for plugin authors (`osh.backends`,
+  the `Backend`/`*Backend` classes, `*_backend` helpers and the
+  `[tool.osh.backends]` metadata table) — plugins must use the `runtime`
+  names introduced in 1.5.0/1.6.0.
+- The legacy `run.target` config key and the `none`/`local` runtime
+  names — use `run.runtime` and `host` instead.
+- The hidden `osh init -r/--runtime` option and the runtime init options
+  accepted by plain `osh init` — use `osh init <runtime>`; unknown
+  options are now a parse error instead of a warning.
+- The hidden `osh shell` and `osh db shell` aliases — use `osh exec` and
+  `osh db exec`. Plugin authors extending the command must use the new
+  `exec` extension name.
+- The `osh-plugin.toml` marker for pip-installed plugins — declare the
+  plugin under `[tool.osh]` in `pyproject.toml` instead. Built-in
   plugins keep using `osh-plugin.toml`.
-- The `init.target` project record (a duplicate of `run.runtime`) and the
-  pre-3.10 compatibility branches (`importlib.metadata` guards, the
-  `entry_points().get()` fallback) and Odoo ≤10's `xmlrpc_port` config key.
+- The `init.target` project record (a duplicate of `run.runtime`), the
+  Python <3.10 compatibility code, and Odoo ≤10's `xmlrpc_port` config
+  key.
 
 ## 1.14.0 — 2026-10-23
 
