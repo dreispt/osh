@@ -78,14 +78,21 @@ def resolve_sql_scripts(base, kind, *, bundled=None):
 def filter_sql_scripts(scripts, *, only=(), skip=()):
     """Apply ``--script``/``--skip`` selections to resolved *scripts*.
 
-    *only* restricts the set to the named scripts, *skip* drops names;
-    an unknown name is a usage error naming the resolved set.
+    Names match the full filename (``080_mail_message.sql``), its stem
+    (``080_mail_message``) or its ``NN_<name>`` tail
+    (``mail_message``, ``identity``) — tail matches also work as
+    prefixes (``auditlog`` picks ``030_auditlog_log.sql``). An unknown
+    name is a usage error naming the resolved set.
     """
     names = [script.name for script in scripts]
-    unknown = sorted({*only, *skip} - set(names))
+    unknown = [
+        arg
+        for arg in (*only, *skip)
+        if not any(_script_matches(script, arg) for script in scripts)
+    ]
     if unknown:
         raise click.UsageError(
-            f"Unknown script(s): {', '.join(unknown)}"
+            f"Unknown script(s): {', '.join(sorted(set(unknown)))}"
             + (f" — resolved set: {', '.join(names)}" if names else "")
         )
     wanted = set(only)
@@ -93,8 +100,18 @@ def filter_sql_scripts(scripts, *, only=(), skip=()):
     return [
         script
         for script in scripts
-        if (not wanted or script.name in wanted) and script.name not in dropped
+        if (not wanted or any(_script_matches(script, a) for a in wanted))
+        and not any(_script_matches(script, a) for a in dropped)
     ]
+
+
+def _script_matches(script, arg):
+    """Whether *arg* names *script* (filename, stem, tail or prefix)."""
+    stem = script.name[: -len(".sql")] if script.name.endswith(".sql") else script.name
+    if arg in (script.name, stem):
+        return True
+    _, sep, tail = stem.partition("_")
+    return bool(sep) and (tail == arg or tail.startswith(arg) or arg.startswith(tail))
 
 
 def run_sql_scripts(
