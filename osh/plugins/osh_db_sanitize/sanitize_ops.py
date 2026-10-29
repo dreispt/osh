@@ -7,6 +7,8 @@ names carry the table they clean, which is what ``--table`` and
 ``--keep-days`` or the ``[trim] keep_days`` project setting.
 """
 
+import os
+
 import click
 
 from ... import echo
@@ -15,9 +17,12 @@ from ...termui import human_size
 
 
 def resolve_keep_days(base, keep_days):
-    """Effective retention days: flag > ``[trim] keep_days`` > 30."""
+    """Effective retention days: flag > ``$OSH_KEEP_DAYS`` > ``[trim] keep_days`` > 30."""
     if keep_days is not None:
         return keep_days
+    env_value = os.environ.get("OSH_KEEP_DAYS")
+    if env_value:
+        return int(env_value)
     config = load_osh_config(base)
     if not config.has_section("trim"):
         return 30
