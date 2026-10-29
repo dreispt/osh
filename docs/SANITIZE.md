@@ -126,22 +126,28 @@ scripts themselves.
 
 ## The bundled scripts
 
-### `osh/data/anonymize/000_default.sql`
+### `osh/data/anonymize/`
 
-Deterministic, id-derived values, so the result stays coherent across
+Two levels, so a partial scrub (`--script`) can leave addresses intact:
+
+`010_identity.sql` — names, emails, phones, logins and identifiers:
+deterministic, id-derived values, so the result stays coherent across
 runs and every reference still joins:
 
 - `res_partner` — `name` → `Partner <id>`, `email` →
-  `partner<id>@example.local`; phone, mobile, address fields and VAT
-  masked with `x` at the original length (`website` is not PII and is
-  left alone)
+  `partner<id>@example.local`; phone, mobile and VAT masked with `x`
+  at the original length; `firstname`/`lastname` (OCA
+  `partner_firstname`) masked (`website` is not PII and is left alone)
 - `res_users` — `login` → `user<id>` (keeps uniqueness); passwords left
   untouched so you are not locked out
 - `res_partner_bank` — `acc_number` stubbed
-- `hr_employee` — private fields masked (skipped when `hr` is not
-  installed)
+- `hr_employee` — name, private email/phone, emergency contact and
+  document IDs masked or stubbed (skipped when `hr` is not installed)
 
+`050_address.sql` — street, city and zip on `res_partner` and
+`hr_employee` private address fields, masked at the original length.
 Ends by setting `ir_config_parameter database.is_anonymized = true`.
+
 Every statement sits in a `DO` block guarded by `to_regclass()`/column
 checks, so one script serves every Odoo version and module set.
 

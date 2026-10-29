@@ -1,7 +1,7 @@
--- Osh bundled anonymization profile.
--- Rewrites PII to deterministic, id-derived values so the result stays
--- coherent across runs and references. Every statement is wrapped in a
--- DO block guarded by to_regclass()/column checks, so one script serves
+-- Anonymize level 1: identity — names, emails, phones, logins and
+-- identifier numbers. Deterministic, id-derived values so the result
+-- stays coherent across runs and references. Every statement sits in a
+-- DO block guarded by to_regclass()/column checks so one script serves
 -- every Odoo version and module set.
 
 DO $$
@@ -27,21 +27,14 @@ BEGIN
         UPDATE res_partner SET mobile = repeat('x', length(mobile)) WHERE mobile IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'res_partner' AND column_name = 'street') THEN
-        UPDATE res_partner SET street = repeat('x', length(street)) WHERE street IS NOT NULL;
-        UPDATE res_partner SET street2 = repeat('x', length(street2)) WHERE street2 IS NOT NULL;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'res_partner' AND column_name = 'city') THEN
-        UPDATE res_partner SET city = repeat('x', length(city)) WHERE city IS NOT NULL;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'res_partner' AND column_name = 'zip') THEN
-        UPDATE res_partner SET zip = repeat('x', length(zip)) WHERE zip IS NOT NULL;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'vat') THEN
         UPDATE res_partner SET vat = repeat('x', length(vat)) WHERE vat IS NOT NULL;
+    END IF;
+    -- OCA partner-contact's partner_firstname splits the name.
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'res_partner' AND column_name = 'lastname') THEN
+        UPDATE res_partner SET lastname = repeat('x', length(lastname)) WHERE lastname IS NOT NULL;
+        UPDATE res_partner SET firstname = repeat('x', length(firstname)) WHERE firstname IS NOT NULL;
     END IF;
 END $$;
 
@@ -69,7 +62,7 @@ BEGIN
     END IF;
 END $$;
 
--- Private employee data — guarded: hr may not be installed.
+-- Employee identity — guarded: hr may not be installed.
 DO $$
 BEGIN
     IF to_regclass('hr_employee') IS NULL THEN
@@ -88,16 +81,6 @@ BEGIN
         UPDATE hr_employee SET private_phone = repeat('x', length(private_phone)) WHERE private_phone IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'hr_employee' AND column_name = 'private_street') THEN
-        UPDATE hr_employee SET private_street = repeat('x', length(private_street)) WHERE private_street IS NOT NULL;
-        UPDATE hr_employee SET private_street2 = repeat('x', length(private_street2)) WHERE private_street2 IS NOT NULL;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'hr_employee' AND column_name = 'private_city') THEN
-        UPDATE hr_employee SET private_city = repeat('x', length(private_city)) WHERE private_city IS NOT NULL;
-        UPDATE hr_employee SET private_zip = repeat('x', length(private_zip)) WHERE private_zip IS NOT NULL;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'emergency_contact') THEN
         UPDATE hr_employee SET emergency_contact = repeat('x', length(emergency_contact)) WHERE emergency_contact IS NOT NULL;
         UPDATE hr_employee SET emergency_phone = repeat('x', length(emergency_phone)) WHERE emergency_phone IS NOT NULL;
@@ -110,16 +93,4 @@ BEGIN
                 WHERE table_name = 'hr_employee' AND column_name = 'passport_id') THEN
         UPDATE hr_employee SET passport_id = repeat('x', length(passport_id)) WHERE passport_id IS NOT NULL;
     END IF;
-END $$;
-
--- Mark the database as anonymized.
-DO $$
-BEGIN
-    IF to_regclass('ir_config_parameter') IS NULL THEN
-        RETURN;
-    END IF;
-    INSERT INTO ir_config_parameter (key, value)
-    VALUES ('database.is_anonymized', 'true')
-        ON CONFLICT (key) DO
-           UPDATE SET value = 'true';
 END $$;
