@@ -69,11 +69,22 @@ def test_sanitize_step_argument_selects_groups(in_project, pg_db):
 
 
 def test_sanitize_step_argument_rejects_unknown(in_project):
-    """An unknown step name is a usage error."""
+    """An unknown group name is a usage error."""
     result = CliRunner().invoke(sanitize, ["bogus"])
 
     assert result.exit_code != 0
-    assert "Unknown step(s): bogus" in result.output
+    assert "Unknown group(s): bogus" in result.output
+
+
+def test_sanitize_identity_group_runs_only_identity_level(in_project, pg_db):
+    """`osh db sanitize identity` runs only the identity anonymize level."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name, "identity", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would run anonymize script: 010_identity.sql" in result.output
+    assert "050_address.sql" not in result.output
+    assert "trim script" not in result.output
 
 
 def test_restore_anonymize_trim_invokes_db_sanitize(
