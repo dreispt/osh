@@ -480,7 +480,9 @@ def run_psql_script(base, db_name, script_path, ctx=None):
         )
 
 
-def psql(base, db_name, sql, *, field_separator=None, variables=None, ctx=None):
+def psql(
+    base, db_name, sql, *, field_separator=None, variables=None, env=None, ctx=None
+):
     """Run *sql* via psql and return ``(returncode, stdout, stderr)``.
 
     The SQL is piped through stdin rather than ``-c`` so large statements
@@ -499,7 +501,9 @@ def psql(base, db_name, sql, *, field_separator=None, variables=None, ctx=None):
     ``run_in_runtime(env=...)`` instead.
 
     ``run_in_runtime`` supplies the ``PG*`` connection variables from the
-    project Odoo config.
+    project Odoo config; *env* merges extra variables into the psql
+    process environment, so ``\\getenv`` can pick them up inside scripts
+    (psql 14+).
     """
     # ON_ERROR_STOP makes psql exit non-zero on SQL errors, like -c does.
     args = ["psql", "-d", db_name, "-t", "-A", "-v", "ON_ERROR_STOP=1"]
@@ -507,7 +511,7 @@ def psql(base, db_name, sql, *, field_separator=None, variables=None, ctx=None):
         args += ["-v", f"{key}={value}"]
     if field_separator:
         args += ["-F", field_separator]
-    returncode, stdout, stderr = run_in_runtime(ctx, base, args, input=sql)
+    returncode, stdout, stderr = run_in_runtime(ctx, base, args, input=sql, env=env)
     if returncode is None:
         raise click.ClickException("Could not locate `psql`. Is PostgreSQL installed?")
     return returncode, stdout, stderr

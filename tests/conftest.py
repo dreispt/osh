@@ -351,6 +351,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
         "restore": [],
         "neutralize": [],
         "sql_neutralize": [],
+        "neutralize_scripts": [],
         "dropped": [],
         "created": [],
     }
@@ -385,6 +386,10 @@ def patched_restore(monkeypatch, in_project, pg_db):
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_ops.neutralize_with_sql",
         lambda base, db, **kw: state["sql_neutralize"].append(db),
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.run_project_neutralize_scripts",
+        lambda base, db, **kw: state["neutralize_scripts"].append(db),
     )
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_cmd.odoo",

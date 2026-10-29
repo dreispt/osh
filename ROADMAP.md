@@ -15,6 +15,10 @@ This document tracks planned improvements and future development work for the Os
 
 Reuse the source repository's `.osh` environment when commands run from a linked git worktree; uninitialized submodules fall back to the source checkout's addons. Design: [docs/WORKTREES.md](docs/WORKTREES.md).
 
+## Database sanitize
+
+`osh db sanitize` scrubs PII (bundled anonymize profile plus centrally maintained SQL scripts layered `~/.config/osh/` → `.osh/`) and trims space from big tables (a configurable watchlist of truncate/age policies) — the same steps are exposed as `osh backup restore --anonymize --trim`, and the layered resolver replaces today's copy-at-init neutralize scripts. Design: [docs/SANITIZE.md](docs/SANITIZE.md).
+
 ## Multiple Odoo versions per environment
 
 Let one project carry several Odoo versions side by side and switch between them: `osh init -v 19.0` initialises a new version's environment, and `osh init -v 18.0` initialises or switches to another — each version keeps its own environment under a versioned `.osh/` subdir (`.osh/19.0`, `.osh/18.0`), with the venv moving inside it (`.osh/19.0/.venv`) instead of the project root. The recorded project version becomes per-branch state: a git branch maps to a database _and_ to an Odoo version, so `osh odoo` and `osh exec` resolve the binaries for the branch's target version. Existing projects need detection of the old flat `.osh/` layout versus the new versioned one, plus a migration path offered to the user (e.g. move `.venv` and friends under `.osh/<current-version>/` on the next `osh init`). Other open points: what else is per-version (`odoo.conf`, `docker.toml`, the active runtime, neutralize scripts) versus project-wide.

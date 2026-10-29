@@ -271,9 +271,9 @@ class OdooRun(CommandHandler):
         if port and _port_in_use(port):
             raise click.ClickException(
                 f"Port {port} is already in use.\n"
-                f"Run 'osh stop -p {port}' to stop it ('--list' to see "
-                "what holds it), or pass --http-port=<port> to use "
-                "another one."
+                f"Run 'osh stop --list -p {port}' to see what holds it or "
+                f"'osh stop -p {port}' to stop it, or pass "
+                "--http-port=<port> to use another one."
             )
 
     def _resolved_http_port(self):

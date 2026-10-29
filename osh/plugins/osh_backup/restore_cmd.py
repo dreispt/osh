@@ -18,7 +18,7 @@ from ...db import (
     sanitize_db_name,
     set_last_db,
 )
-from ...handlers import CommandHandler
+from ...handlers import CommandHandler, resolve
 from ...utils.odoo_layout import find_odoo_executable
 from ...utils.version import get_version_tuple
 from . import restore_ops
@@ -57,8 +57,8 @@ class DbRestore(CommandHandler):
     determined, `osh backup restore` warns and continues without the filestore.
 
     After the dump is restored, the database is neutralized. Odoo 16.0+ uses
-    `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
-    scripts.
+    `odoo-bin neutralize -d <db>`; older versions get the bundled SQL
+    fallback script instead.
 
     Once the restore (and neutralization) completes, plugins extending the
     ``backup.restore`` handler through ``post_restore()`` run — e.g. to record
@@ -67,11 +67,13 @@ class DbRestore(CommandHandler):
 
     Neutralization hooks:
 
-    Custom `.sql` scripts inside `.osh/neutralize/` run after the built-in
-    neutralization step, in sorted order. Use numeric prefixes to control the
-    order (e.g. `000_default.sql`, `100_anonymize_partners.sql`). Global
-    defaults can be placed in `~/.config/osh/neutralize/` and are copied to
-    `.osh/neutralize/` during `osh init`.
+    `.sql` scripts run after the built-in neutralization step, resolved in
+    sorted order from layered sources — bundled defaults, user scripts in
+    `~/.config/osh/neutralize/`, then project scripts in `.osh/neutralize/`.
+    A same-named script in a later layer overrides, so drop a file in
+    `~/.config/osh/neutralize/` to maintain defaults centrally or in
+    `.osh/neutralize/` for project-specific hooks. Use numeric prefixes to
+    control the order (e.g. `100_anonymize_partners.sql`).
 
     Examples:
 
@@ -91,6 +93,11 @@ class DbRestore(CommandHandler):
     dump = None
     force = False
     no_neutralize = False
+    anonymize = False
+    trim = False
+    keep_days = None
+    scripts = ()
+    skips = ()
     target_db = None
     dry_run = False
 
@@ -104,6 +111,35 @@ class DbRestore(CommandHandler):
         "--no-neutralize",
         is_flag=True,
         help="Skip neutralizing the database after restoring.",
+    )
+    @click.option(
+        "--anonymize",
+        is_flag=True,
+        help="Scrub PII after neutralizing (see 'osh db sanitize').",
+    )
+    @click.option(
+        "--trim",
+        is_flag=True,
+        help="Delete low-value rows from big tables after neutralizing "
+        "(see 'osh db sanitize').",
+    )
+    @click.option(
+        "--keep-days",
+        type=int,
+        default=None,
+        help="Days of rows to keep for 'age' trim policies (default: 30).",
+    )
+    @click.option(
+        "--script",
+        "scripts",
+        multiple=True,
+        help="Run only the named neutralize scripts (repeatable).",
+    )
+    @click.option(
+        "--skip",
+        "skips",
+        multiple=True,
+        help="Drop the named neutralize scripts from the run (repeatable).",
     )
     @click.option(
         "-d",
@@ -128,6 +164,7 @@ class DbRestore(CommandHandler):
         self.restore_dump()
         if not self.no_neutralize:
             self.neutralize()
+        self.sanitize()
         self.run_post_restore()
         if not self.dry_run:
             set_last_db(self.base, self.db_name)
@@ -193,7 +230,12 @@ class DbRestore(CommandHandler):
             # after restore.
             self.odoo_neutralize(dry_run=True)
             restore_ops.run_project_neutralize_scripts(
-                self.base, self.db_name, dry_run=True, ctx=self.ctx
+                self.base,
+                self.db_name,
+                only=self.scripts,
+                skip=self.skips,
+                dry_run=True,
+                ctx=self.ctx,
             )
             return
 
@@ -225,8 +267,33 @@ class DbRestore(CommandHandler):
             restore_ops.neutralize_with_sql(self.base, self.db_name, ctx=self.ctx)
 
         restore_ops.run_project_neutralize_scripts(
-            self.base, self.db_name, dry_run=self.dry_run, ctx=self.ctx
+            self.base,
+            self.db_name,
+            only=self.scripts,
+            skip=self.skips,
+            dry_run=self.dry_run,
+            ctx=self.ctx,
         )
+
+    def sanitize(self):
+        """Run the ``db.sanitize`` handler when --anonymize/--trim ask for it.
+
+        Order: restore → neutralize → anonymize → trim → post_restore.
+        ``--force`` carries over — the database was just restored and
+        neutralized, so the sanitize safety prompt is already satisfied.
+        """
+        if not (self.anonymize or self.trim):
+            return
+        handler = resolve("db.sanitize")(
+            self.env,
+            database=self.db_name,
+            no_anonymize=not self.anonymize,
+            no_trim=not self.trim,
+            keep_days=self.keep_days,
+            dry_run=self.dry_run,
+            force=True,
+        )
+        handler.run()
 
     def odoo_neutralize(self, *, dry_run):
         """Run ``odoo neutralize -d <db_name>`` through ``osh odoo``."""

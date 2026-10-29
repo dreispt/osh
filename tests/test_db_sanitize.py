@@ -1,0 +1,187 @@
+"""Tests for ``osh db sanitize`` and the restore ``--anonymize``/``--trim`` wiring."""
+
+from click.testing import CliRunner
+
+from osh.cli_utils import handler_command
+from osh.plugins.osh_backup import restore_cmd
+from osh.plugins.osh_backup.restore_cmd import DbRestore
+from osh.plugins.osh_db_sanitize.sanitize_cmd import DbSanitize
+
+restore = handler_command("restore", DbRestore)
+sanitize = handler_command("sanitize", DbSanitize)
+
+
+def test_sanitize_list_shows_resolved_scripts(in_project):
+    """``osh db sanitize --list`` shows the bundled anonymize profile."""
+    result = CliRunner().invoke(sanitize, ["--list"])
+
+    assert result.exit_code == 0, result.output
+    assert "anonymize:" in result.output
+    assert "010_identity.sql  (bundled)" in result.output
+
+
+def test_sanitize_missing_database_errors(in_project, pg_db):
+    """Sanitizing a database that does not exist is an error."""
+    result = CliRunner().invoke(sanitize, ["-d", pg_db.name(), "--force"])
+
+    assert result.exit_code != 0
+    assert "does not exist" in result.output
+
+
+def test_sanitize_dry_run_previews_scripts_and_trim(in_project, pg_db):
+    """``--dry-run`` names the scripts without writing anything."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name, "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would run anonymize script: 010_identity.sql (bundled)" in result.output
+
+
+def test_sanitize_force_runs_on_real_database(in_project, pg_db):
+    """A full run on an empty database: guarded scripts no-op, absent tables skip."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name, "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert "Running anonymize script: 010_identity.sql" in result.output
+    assert "Running trim script: 080_mail_message.sql" in result.output
+    assert "Database size:" in result.output
+    assert "reclaimed" in result.output
+
+
+def test_sanitize_warns_and_confirms_on_unneutralized_db(in_project, pg_db):
+    """Without ``--force``, an unneutralized database warns and asks."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name], input="n\n")
+
+    assert result.exit_code != 0
+    assert "does not look neutralized" in result.output
+
+
+def test_sanitize_step_argument_selects_groups(in_project, pg_db):
+    """`osh db sanitize trim` runs only the trim group."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name, "trim", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "anonymize script" not in result.output
+    assert "Would run trim script: 010_ir_logging.sql" in result.output
+
+
+def test_sanitize_step_argument_rejects_unknown(in_project):
+    """An unknown group name is a usage error."""
+    result = CliRunner().invoke(sanitize, ["bogus"])
+
+    assert result.exit_code != 0
+    assert "Unknown group(s): bogus" in result.output
+
+
+def test_sanitize_identity_group_runs_only_identity_level(in_project, pg_db):
+    """`osh db sanitize identity` runs only the identity anonymize level."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name, "identity", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Would run anonymize script: 010_identity.sql" in result.output
+    assert "050_address.sql" not in result.output
+    assert "trim script" not in result.output
+
+
+def test_restore_anonymize_trim_invokes_db_sanitize(
+    patched_restore, in_project, monkeypatch
+):
+    """``--anonymize``/``--trim`` delegate to the ``db.sanitize`` handler."""
+    calls = []
+
+    class StubSanitize:
+        def __init__(self, env=None, **params):
+            calls.append(params)
+
+        def run(self):
+            pass
+
+    real_resolve = restore_cmd.resolve
+    monkeypatch.setattr(
+        restore_cmd,
+        "resolve",
+        lambda name: StubSanitize if name == "db.sanitize" else real_resolve(name),
+    )
+    dump = in_project / "dump.sql"
+    dump.write_text("SELECT 1;")
+
+    result = CliRunner().invoke(
+        restore, [str(dump), "--anonymize", "--trim", "--keep-days", "7"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        {
+            "database": patched_restore["db_name"],
+            "no_anonymize": False,
+            "no_trim": False,
+            "keep_days": 7,
+            "dry_run": False,
+            "force": True,
+        }
+    ]
+
+
+def test_restore_without_sanitize_flags_skips(patched_restore, in_project, monkeypatch):
+    """A plain restore does not touch ``db.sanitize``."""
+    monkeypatch.setattr(
+        restore_cmd,
+        "resolve",
+        lambda name: (_ for _ in ()).throw(AssertionError("resolve called")),
+    )
+    dump = in_project / "dump.sql"
+    dump.write_text("SELECT 1;")
+
+    result = CliRunner().invoke(restore, [str(dump)])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_sanitize_var_reaches_script(in_project, pg_db):
+    """``--var name=value`` is readable as osh.<name> inside script DO blocks."""
+    name = pg_db.create()
+    script_dir = in_project / ".osh" / "anonymize"
+    script_dir.mkdir(parents=True)
+    (script_dir / "050_var_check.sql").write_text(
+        "DO $$\n"
+        "BEGIN\n"
+        "    IF current_setting('osh.testvar', true) IS NULL THEN\n"
+        "        RAISE EXCEPTION 'osh.testvar not set';\n"
+        "    END IF;\n"
+        "END $$;\n"
+    )
+
+    result = CliRunner().invoke(
+        sanitize, ["-d", name, "--force", "--no-trim", "--var", "testvar=hello"]
+    )
+    assert result.exit_code == 0, result.output
+
+    # Without the --var, the same script fails on the missing setting.
+    result = CliRunner().invoke(sanitize, ["-d", name, "--force", "--no-trim"])
+    assert result.exit_code != 0
+    assert "osh.testvar not set" in result.output
+
+
+def test_sanitize_var_rejects_bad_syntax(in_project):
+    """``--var`` without NAME=VALUE fails as a usage error."""
+    result = CliRunner().invoke(sanitize, ["--var", "novalue"])
+
+    assert result.exit_code != 0
+    assert "NAME=VALUE" in result.output
+
+
+def test_restore_script_selection_forwards(patched_restore, in_project):
+    """``--script``/``--skip`` reach the neutralize script runner."""
+    dump = in_project / "dump.sql"
+    dump.write_text("SELECT 1;")
+
+    result = CliRunner().invoke(
+        restore, [str(dump), "--script", "900_clear_assets.sql"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert patched_restore["neutralize_scripts"]
