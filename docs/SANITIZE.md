@@ -216,21 +216,21 @@ copy` need the same treatment without a restore.
 
 ## Tasks
 
-- [ ] Shared script resolver (`osh/data/<kind>/` <
+- [x] Shared script resolver (`osh/data/<kind>/` <
       `~/.config/osh/<kind>/` < `.osh/<kind>/`, name-based override,
       sorted, source layer tracked)
-- [ ] Migrate `run_project_neutralize_scripts` onto the resolver; drop
+- [x] Migrate `run_project_neutralize_scripts` onto the resolver; drop
       `setup_project_neutralize_scripts` from `osh init` (existing
       `.osh/neutralize/` copies keep working as project overrides)
-- [ ] `osh/data/anonymize/` bundled profile (guarded `DO` blocks)
-- [ ] Bundled trim watchlist + `[trim]` config.toml reader
-- [ ] `osh_db_sanitize` plugin: `db.sanitize` handler +
+- [x] `osh/data/anonymize/` bundled profile (guarded `DO` blocks)
+- [x] Bundled trim watchlist + `[trim]` config.toml reader
+- [x] `osh_db_sanitize` plugin: `db.sanitize` handler +
       `osh-plugin.toml` `[group_commands.db]` entry
-- [ ] `--list`/`--script`/`--skip` on `osh db sanitize` and
+- [x] `--list`/`--script`/`--skip` on `osh db sanitize` and
       `osh backup restore` (neutralize set)
-- [ ] `osh backup restore`: `--anonymize`/`--trim`/`--keep-days`
+- [x] `osh backup restore`: `--anonymize`/`--trim`/`--keep-days`
       flags wired to `db.sanitize`
-- [ ] Size report (`pg_total_relation_size` before/after) and
+- [x] Size report (`pg_total_relation_size` before/after) and
       `--dry-run` preview
-- [ ] Tests at the command level, mirroring the restore test setup
-- [ ] CHANGELOG entry
+- [x] Tests at the command level, mirroring the restore test setup
+- [x] CHANGELOG entry

@@ -155,7 +155,8 @@ needs its generated name typed out. An existing target is only replaced
 with `--force` (or after confirmation) — never silently. The copy's
 filestore is linked onto the source's by default so attachments resolve
 right away (`--filestore copy` for an independent copy,
-`--filestore none` to leave it alone).
+`--filestore none` to leave it alone). `osh db sanitize` scrubs PII and
+trims big tables on a restored or copied dump.
 
 ## Where the addons come from
 
