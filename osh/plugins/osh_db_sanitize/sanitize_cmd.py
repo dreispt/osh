@@ -96,7 +96,8 @@ class DbSanitize(CommandHandler):
         "--table",
         "tables",
         multiple=True,
-        help="Restrict trimming to the named tables (repeatable).",
+        help="Restrict trimming to the scripts covering the named tables "
+        "(repeatable).",
     )
     @click.option(
         "--script",
