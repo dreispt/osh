@@ -18,12 +18,16 @@ from . import sanitize_ops
 class DbSanitize(CommandHandler):
     """Scrub PII and delete low-value rows from a database.
 
-    Two steps run by default: **anonymize** rewrites personal data with
+    Two groups run by default: **anonymize** rewrites personal data with
     deterministic placeholder values; **trim** deletes rows from big,
     low-value tables (logs, mail queues, old chatter). The database must
     exist and should be neutralized — sanitizing a non-sanitized dump is
     irreversible, so the command warns and asks for confirmation unless
     ``--force``.
+
+    The optional ``STEPS`` pick which groups run — ``anonymize`` or
+    ``trim``, both when omitted. ``--no-anonymize``/``--no-trim``
+    deselect a group.
 
     SQL scripts resolve at run time from layered sources — bundled
     defaults, ``~/.config/osh/<kind>/`` (central, all projects), then
@@ -60,7 +64,7 @@ class DbSanitize(CommandHandler):
     dry_run = False
     force = False
 
-    @click.argument("steps", nargs=-1, type=str)
+    @click.argument("steps", nargs=-1, metavar="[anonymize|trim]")
     @click.option(
         "-d",
         "--database",
