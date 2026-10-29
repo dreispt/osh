@@ -53,8 +53,10 @@ def script_tables(scripts):
 def filter_tables(scripts, tables):
     """Keep scripts whose table stem matches a ``--table`` name.
 
-    An argument matches a script's table when it equals the stem or is a
-    prefix of it — ``--table auditlog`` selects ``030_auditlog_log.sql``.
+    An argument matches when it and a script's table stem are prefixes
+    of each other — ``--table auditlog`` selects
+    ``030_auditlog_log.sql``, and ``--table auditlog_log_line`` selects
+    it too (the script covers that table).
     """
     if not tables:
         return scripts
@@ -63,13 +65,15 @@ def filter_tables(scripts, tables):
         script
         for script in scripts
         if any(
-            table.startswith(wanted_name)
+            table.startswith(wanted_name) or wanted_name.startswith(table)
             for table in script_tables([script])
             for wanted_name in wanted
         )
     ]
     known = {t for script in scripts for t in script_tables([script])}
-    unknown = {w for w in wanted if not any(t.startswith(w) for t in known)}
+    unknown = {
+        w for w in wanted if not any(t.startswith(w) or w.startswith(t) for t in known)
+    }
     if unknown:
         raise click.UsageError(
             f"No resolved script covers: {', '.join(sorted(unknown))}"
