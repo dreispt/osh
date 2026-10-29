@@ -97,8 +97,20 @@ def filter_sql_scripts(scripts, *, only=(), skip=()):
     ]
 
 
-def run_sql_scripts(base, kind, db_name, scripts, *, dry_run=False, ctx=None):
-    """Run resolved *scripts* against *db_name* via psql, in order."""
+def run_sql_scripts(
+    base, kind, db_name, scripts, *, variables=None, dry_run=False, ctx=None
+):
+    """Run resolved *scripts* against *db_name* via psql, in order.
+
+    *variables* are set as ``osh.<name>`` session parameters before the
+    script body — psql variable substitution does not reach inside
+    ``$$`` bodies, so scripts read them with
+    ``current_setting('osh.<name>')``. E.g. the trim scripts use
+    ``osh.keep_days`` for the retention window.
+    """
+    prelude = "".join(
+        f"SET osh.{key} = '{value}';\n" for key, value in (variables or {}).items()
+    )
     for script in scripts:
         if dry_run:
             echo.info(
@@ -107,7 +119,9 @@ def run_sql_scripts(base, kind, db_name, scripts, *, dry_run=False, ctx=None):
             )
             continue
         echo.info(f"Running {kind} script: {script.name}", err=True)
-        returncode, _, stderr = psql(base, db_name, script.read_text(), ctx=ctx)
+        returncode, _, stderr = psql(
+            base, db_name, prelude + script.read_text(), ctx=ctx
+        )
         if returncode != 0:
             raise click.ClickException(
                 f"Failed to run {kind} script {script.name} on "

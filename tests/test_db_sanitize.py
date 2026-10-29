@@ -44,7 +44,9 @@ def test_sanitize_force_runs_on_real_database(in_project, pg_db):
 
     assert result.exit_code == 0, result.output
     assert "Running anonymize script: 000_default.sql" in result.output
-    assert "Reclaimed:" in result.output
+    assert "Running trim script: 080_mail_message.sql" in result.output
+    assert "Database size:" in result.output
+    assert "reclaimed" in result.output
 
 
 def test_sanitize_warns_and_confirms_on_unneutralized_db(in_project, pg_db):

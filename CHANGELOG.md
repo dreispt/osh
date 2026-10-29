@@ -9,7 +9,7 @@ section collects the release notes for the next version as changes land on
 ### Added
 
 - `osh db sanitize` scrubs a database for development use: `--anonymize`
-  rewrites PII to deterministic placeholders (partners, users, bank
+  rewrites PII with deterministic placeholders (partners, users, bank
   accounts, employees) and `--trim` deletes low-value rows from big
   tables (logs, mail queues, old chatter). Both steps run by default;
   `--no-anonymize`/`--no-trim` pick one. The database must exist and
