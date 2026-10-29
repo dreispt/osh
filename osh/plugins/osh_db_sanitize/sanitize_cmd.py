@@ -29,8 +29,8 @@ class DbSanitize(CommandHandler):
     defaults, ``~/.config/osh/<kind>/`` (central, all projects), then
     ``.osh/<kind>/`` (this project) — merged by filename, later layers
     overriding. ``--list`` shows the resolved set, ``--script``/``--skip``
-    select from it, and ``[trim]`` entries in ``.osh/config.toml``
-    override the trim watchlist.
+    select from it, and ``[trim] keep_days`` in ``.osh/config.toml``
+    sets the retention default.
 
     Examples:
 
@@ -40,7 +40,7 @@ class DbSanitize(CommandHandler):
       osh db sanitize --list
       osh db sanitize --no-anonymize --keep-days 90 --vacuum
       osh db sanitize --table mail_message --keep-days 7
-      osh db sanitize --script 000_default.sql --force
+      osh db sanitize --script 010_identity.sql --force
     """
 
     _cli_name = "db.sanitize"
