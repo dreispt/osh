@@ -60,6 +60,23 @@ immediately instead of leaving the copy looking blank.
   now takes care of the new database's filestore, so attachments —
   asset bundles, images — resolve right away instead of the copied
   database rendering blank pages.
+- `osh db sanitize` scrubs a database for development use: `--anonymize`
+  rewrites PII to deterministic placeholders (partners, users, bank
+  accounts, employees) and `--trim` deletes low-value rows from big
+  tables (logs, mail queues, old chatter). Both steps run by default;
+  `--no-anonymize`/`--no-trim` pick one. The database must exist and
+  the command warns unless it looks neutralized or `--force` is given.
+  `osh backup restore --anonymize --trim` runs the same steps after
+  neutralizing.
+- SQL script steps — neutralize, anonymize, trim — now resolve at run
+  time from layered sources: bundled defaults, `~/.config/osh/<kind>/`
+  for scripts shared across all your projects, and `.osh/<kind>/` for
+  project-specific ones. A same-named file in a later layer overrides.
+  `osh init` no longer copies scripts into projects, so centrally
+  maintained script fixes apply everywhere immediately.
+  `osh db sanitize --list` shows the resolved set with its source, and
+  `--script`/`--skip` pick from it on `osh db sanitize` and
+  `osh backup restore`.
 
 ### Changed
 

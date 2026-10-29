@@ -44,10 +44,13 @@ vacuum` reclaims dead tuples. Neither deletes rows.
   time, so centrally maintained script fixes reach every project without
   a re-init. `.osh/neutralize/` stays as the project layer — copies
   already sitting there keep working as overrides.
-- **Scripts are listable and selectable.** Every script-running command
-  grows `--list` (show the resolved set with its source layer, no DB
-  access), `--script NAME` (repeatable, run only these) and `--skip
-NAME` (repeatable, drop these from the resolved set).
+- **Scripts are listable and selectable.** `--list` shows the resolved
+  set with its source layer (no DB access), `--script NAME` (repeatable)
+  runs only these, and `--skip NAME` (repeatable) drops these from the
+  resolved set. `osh backup restore` gets `--script`/`--skip` on the
+  neutralize set but not `--list` — the flag was deliberately removed
+  there (it collided with `osh backup list`), and `--dry-run` already
+  previews the scripts that would run.
 - **Trimming is a table watchlist with per-table policies.**
   `truncate` empties a table; `age:<column>` deletes rows older than
   `--keep-days` (default 30). A bundled default list ships with osh;
@@ -80,8 +83,8 @@ osh backup restore DUMP --script 020_partners.sql --skip 900_clear_assets.sql
   from the resolved set. Both also exist on `osh backup restore`, where
   they apply to the neutralize set.
 - `--list` — print the resolved scripts in run order with their source
-  layer (bundled/user/project) and exit; needs no database. Same flag
-  on `osh backup restore`.
+  layer (bundled/user/project) and exit; needs no database. Sanitize
+  only — restore previews via `--dry-run` instead.
 - `--dry-run` — print each watchlist table present, its
   `pg_total_relation_size`, the exact SQL per policy, and the
   anonymize scripts by name. No writes.
@@ -166,8 +169,10 @@ after `neutralize()` it invokes the `db.sanitize` handler through
 `resolve("db.sanitize")` with the matching steps enabled — order:
 restore → neutralize → anonymize → trim → `post_restore`. `--dry-run`
 previews the sanitize statements like the rest of the flow.
-`--script`/`--skip`/`--list` on restore apply to the neutralize
-script set resolved the same way.
+`--script`/`--skip` on restore apply to the neutralize script set
+resolved the same way. `--list` is _not_ added to restore — the flag
+was deliberately removed there because it collided with `osh backup
+list`; `--dry-run` already previews the scripts that would run.
 
 ## Safety model
 
