@@ -53,6 +53,7 @@ class DbSanitize(CommandHandler):
     scripts = ()
     skips = ()
     list_only = False
+    variables = ()
     vacuum = False
     dry_run = False
     force = False
@@ -104,6 +105,15 @@ class DbSanitize(CommandHandler):
         help="Print the resolved scripts with their source layer and exit.",
     )
     @click.option(
+        "--var",
+        "variables",
+        multiple=True,
+        metavar="NAME=VALUE",
+        help="Inject a variable into the scripts as session setting "
+        "osh.<name> (repeatable); scripts read it via "
+        "current_setting('osh.<name>').",
+    )
+    @click.option(
         "--vacuum",
         is_flag=True,
         help="VACUUM ANALYZE the trimmed tables afterwards.",
@@ -119,6 +129,7 @@ class DbSanitize(CommandHandler):
         help="Sanitize without asking for confirmation.",
     )
     def run(self):
+        self.vars = self.parse_variables()
         self.base = find_project_root(required=True)
         if self.list_only:
             self.list_scripts()
@@ -133,6 +144,16 @@ class DbSanitize(CommandHandler):
             self.anonymize()
         if not self.no_trim:
             self.trim()
+
+    def parse_variables(self):
+        """Turn ``--var NAME=VALUE`` pairs into the injection dict."""
+        variables = {}
+        for item in self.variables:
+            name, eq, value = item.partition("=")
+            if not eq or not name:
+                raise click.UsageError(f"--var expects NAME=VALUE, got '{item}'.")
+            variables[name] = value
+        return variables
 
     def list_scripts(self):
         """Print the resolved anonymize and trim scripts and exit."""
@@ -189,6 +210,7 @@ class DbSanitize(CommandHandler):
             "anonymize",
             self.db_name,
             scripts,
+            variables=self.vars or None,
             dry_run=self.dry_run,
             ctx=self.ctx,
         )
@@ -217,7 +239,7 @@ class DbSanitize(CommandHandler):
             "trim",
             self.db_name,
             scripts,
-            variables={"keep_days": str(keep_days)},
+            variables={"keep_days": str(keep_days), **self.vars},
             dry_run=self.dry_run,
             ctx=self.ctx,
         )
