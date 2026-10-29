@@ -132,12 +132,13 @@ Deterministic, id-derived values, so the result stays coherent across
 runs and every reference still joins:
 
 - `res_partner` — `name` → `Partner <id>`, `email` →
-  `partner<id>@example.local`; phone, mobile, address fields, VAT and
-  website cleared
+  `partner<id>@example.local`; phone, mobile, address fields and VAT
+  masked with `x` at the original length (`website` is not PII and is
+  left alone)
 - `res_users` — `login` → `user<id>` (keeps uniqueness); passwords left
   untouched so you are not locked out
 - `res_partner_bank` — `acc_number` stubbed
-- `hr_employee` — private fields scrubbed (skipped when `hr` is not
+- `hr_employee` — private fields masked (skipped when `hr` is not
   installed)
 
 Ends by setting `ir_config_parameter database.is_anonymized = true`.
