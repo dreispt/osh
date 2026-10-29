@@ -77,7 +77,7 @@ class DbSanitize(CommandHandler):
         type=int,
         default=None,
         help="Days of rows to keep for 'age' trim policies (default: 30, "
-        "or the [trim] keep_days project setting).",
+        "or $OSH_KEEP_DAYS, or the [trim] keep_days project setting).",
     )
     @click.option(
         "--table",

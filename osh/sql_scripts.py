@@ -98,7 +98,7 @@ def filter_sql_scripts(scripts, *, only=(), skip=()):
 
 
 def run_sql_scripts(
-    base, kind, db_name, scripts, *, variables=None, dry_run=False, ctx=None
+    base, kind, db_name, scripts, *, variables=None, env=None, dry_run=False, ctx=None
 ):
     """Run resolved *scripts* against *db_name* via psql, in order.
 
@@ -107,6 +107,9 @@ def run_sql_scripts(
     ``$$`` bodies, so scripts read them with
     ``current_setting('osh.<name>')``. E.g. the trim scripts use
     ``osh.keep_days`` for the retention window.
+
+    *env* merges extra variables into the psql process environment, so
+    scripts can read ambient variables with ``\\getenv`` (psql 14+).
     """
     prelude = "".join(
         f"SET osh.{key} = '{value}';\n" for key, value in (variables or {}).items()
@@ -120,7 +123,7 @@ def run_sql_scripts(
             continue
         echo.info(f"Running {kind} script: {script.name}", err=True)
         returncode, _, stderr = psql(
-            base, db_name, prelude + script.read_text(), ctx=ctx
+            base, db_name, prelude + script.read_text(), env=env, ctx=ctx
         )
         if returncode != 0:
             raise click.ClickException(

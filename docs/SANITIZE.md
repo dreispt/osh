@@ -55,8 +55,13 @@ vacuum` reclaims dead tuples. Neither deletes rows.
   `osh/data/trim/NN_<table>.sql` scripts truncate queues/logs and
   delete old rows — same resolver, same guards, overridable per layer.
   Scripts read `current_setting('osh.keep_days')`, filled from
-  `--keep-days` or `[trim] keep_days` (default 30); `--table` selects
-  by script name and `--vacuum` vacuums the tables scripts name.
+  `--keep-days` > `$OSH_KEEP_DAYS` > `[trim] keep_days` (default 30);
+  `--table` selects by script name and `--vacuum` vacuums the tables
+  scripts name.
+- **Scripts see injected variables.** `run_sql_scripts(variables=…)`
+  prepends `SET osh.<name>` so `current_setting('osh.<name>')` works
+  inside `DO` blocks (psql `:`-substitution can't reach them). Ambient
+  env vars reach scripts via `env=` + psql's `\getenv`.
 - **Safety:** targets the resolved branch database, warns when the
   database does not look neutralized, asks for confirmation unless
   `--force`, and `--dry-run` previews every statement with per-table
