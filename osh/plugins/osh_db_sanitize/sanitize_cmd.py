@@ -12,6 +12,7 @@ from ...sql_scripts import (
     resolve_sql_scripts,
     run_sql_scripts,
 )
+from ...termui import human_size
 from . import sanitize_ops
 
 
@@ -25,8 +26,9 @@ class DbSanitize(CommandHandler):
     irreversible, so the command warns and asks for confirmation unless
     ``--force``.
 
-    The optional ``STEPS`` pick which groups run — ``anonymize`` or
-    ``trim``, both when omitted. ``--no-anonymize``/``--no-trim``
+    The optional ``GROUPS`` pick which groups run — ``anonymize`` and
+    ``trim``, or the finer anonymize levels ``identity`` and
+    ``address``. All run when omitted; ``--no-anonymize``/``--no-trim``
     deselect a group.
 
     SQL scripts resolve at run time from layered sources — bundled
@@ -41,6 +43,7 @@ class DbSanitize(CommandHandler):
     \b
       osh db sanitize
       osh db sanitize trim             # only the trim group
+      osh db sanitize identity         # only the identity level
       osh db sanitize -d prod_copy
       osh db sanitize --list
       osh db sanitize --no-anonymize --keep-days 90 --vacuum
@@ -50,7 +53,9 @@ class DbSanitize(CommandHandler):
 
     _cli_name = "db.sanitize"
 
-    steps = ()
+    LEVELS = ("identity", "address")
+
+    groups = ()
     database = None
     no_anonymize = False
     no_trim = False
@@ -64,7 +69,7 @@ class DbSanitize(CommandHandler):
     dry_run = False
     force = False
 
-    @click.argument("steps", nargs=-1, metavar="[anonymize|trim]")
+    @click.argument("groups", nargs=-1, metavar="[GROUP]")
     @click.option(
         "-d",
         "--database",
@@ -137,7 +142,7 @@ class DbSanitize(CommandHandler):
     )
     def run(self):
         self.vars = self.parse_variables()
-        self.only = self.parse_steps()
+        self.only = self.parse_groups()
         self.base = find_project_root(required=True)
         if self.list_only:
             self.list_scripts()
@@ -148,27 +153,38 @@ class DbSanitize(CommandHandler):
                 f"Database '{self.db_name}' does not exist — nothing to sanitize."
             )
         self.check_neutralized()
-        if self.step_enabled("anonymize"):
+        if self.group_enabled("anonymize"):
             self.anonymize()
-        if self.step_enabled("trim"):
+        if self.group_enabled("trim"):
             self.trim()
 
-    def parse_steps(self):
-        """Validate the positional STEPS — group names to run."""
-        groups = ("anonymize", "trim")
-        unknown = set(self.steps) - set(groups)
+    def parse_groups(self):
+        """Validate the positional GROUP arguments — names of groups to run."""
+        valid = ("anonymize", "trim") + self.LEVELS
+        unknown = set(self.groups) - set(valid)
         if unknown:
             raise click.UsageError(
-                f"Unknown step(s): {', '.join(sorted(unknown))} "
-                f"— pick from {', '.join(groups)}."
+                f"Unknown group(s): {', '.join(sorted(unknown))} "
+                f"— pick from {', '.join(valid)}."
             )
-        return set(self.steps)
+        return set(self.groups)
 
-    def step_enabled(self, name):
-        """Whether a sanitize step runs: STEPS whitelist wins, else --no-*."""
+    def group_enabled(self, name):
+        """Whether a sanitize group runs: GROUP whitelist wins, else --no-*.
+
+        The ``identity``/``address`` levels imply the ``anonymize`` group.
+        """
         if self.only:
+            if name == "anonymize":
+                return bool(self.only & {"anonymize", *self.LEVELS})
             return name in self.only
         return not getattr(self, f"no_{name}")
+
+    def plan_label(self):
+        """Comma-separated names of the enabled groups, for the prompt."""
+        return " + ".join(
+            name for name in ("anonymize", "trim") if self.group_enabled(name)
+        )
 
     def parse_variables(self):
         """Turn ``--var NAME=VALUE`` pairs into the injection dict."""
@@ -217,7 +233,9 @@ class DbSanitize(CommandHandler):
                     "irreversible."
                 )
             click.confirm(
-                f"Sanitize database '{self.db_name}'?", default=False, abort=True
+                f"Sanitize database '{self.db_name}' ({self.plan_label()})?",
+                default=False,
+                abort=True,
             )
 
     def anonymize(self):
@@ -227,6 +245,9 @@ class DbSanitize(CommandHandler):
             only=self.scripts,
             skip=self.skips,
         )
+        levels = self.only & set(self.LEVELS)
+        if levels:
+            scripts = sanitize_ops.filter_tables(scripts, tuple(levels))
         if not scripts:
             echo.info("No anonymize scripts to run.")
             return
@@ -254,6 +275,8 @@ class DbSanitize(CommandHandler):
         if not scripts:
             echo.info("No trim scripts to run.")
             return
+        tables = sanitize_ops.script_tables(scripts)
+        sizes = None if self.dry_run else self._table_sizes(tables)
         before = (
             None
             if self.dry_run
@@ -276,5 +299,36 @@ class DbSanitize(CommandHandler):
                 ctx=self.ctx,
             )
         if not self.dry_run:
+            self._report_tables(tables, sizes)
             after = sanitize_ops.database_size(self.base, self.db_name, ctx=self.ctx)
             echo.info(sanitize_ops.report_reclaimed(before, after), err=True)
+            reclaimed = max((before or 0) - (after or 0), 0)
+            if not reclaimed and not self.vacuum:
+                echo.info(
+                    "Space is not reclaimed until vacuum — run again "
+                    "with --vacuum or 'osh db vacuum'.",
+                    err=True,
+                )
+
+    def _table_sizes(self, tables):
+        """``pg_total_relation_size`` for each existing table in *tables*."""
+        return {
+            table: sanitize_ops.relation_size(
+                self.base, self.db_name, table, ctx=self.ctx
+            )
+            for table in tables
+            if sanitize_ops.table_exists(self.base, self.db_name, table, ctx=self.ctx)
+        }
+
+    def _report_tables(self, tables, before_sizes):
+        """Print the before->after size for each trimmed table."""
+        for table in tables:
+            if table not in (before_sizes or {}):
+                continue
+            after = sanitize_ops.relation_size(
+                self.base, self.db_name, table, ctx=self.ctx
+            )
+            echo.info(
+                f"  {table}: {human_size(before_sizes[table])} -> {human_size(after)}",
+                err=True,
+            )

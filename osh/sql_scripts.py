@@ -120,6 +120,7 @@ def run_sql_scripts(
                 f"Would run {kind} script: {script.name} ({script.layer})",
                 err=True,
             )
+            echo.info(prelude + script.read_text(), err=True)
             continue
         echo.info(f"Running {kind} script: {script.name}", err=True)
         returncode, _, stderr = psql(
