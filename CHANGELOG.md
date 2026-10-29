@@ -61,7 +61,7 @@ immediately instead of leaving the copy looking blank.
   asset bundles, images — resolve right away instead of the copied
   database rendering blank pages.
 - `osh db sanitize` scrubs a database for development use: `--anonymize`
-  rewrites PII to deterministic placeholders (partners, users, bank
+  rewrites PII with deterministic placeholders (partners, users, bank
   accounts, employees) and `--trim` deletes low-value rows from big
   tables (logs, mail queues, old chatter). Both steps run by default;
   `--no-anonymize`/`--no-trim` pick one. The database must exist and

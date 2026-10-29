@@ -194,31 +194,40 @@ class DbSanitize(CommandHandler):
         )
 
     def trim(self):
-        """Run the trim watchlist and the resolved trim scripts."""
-        plan = sanitize_ops.resolve_watchlist(
-            self.base, self.keep_days, tables=self.tables
+        """Run the resolved trim scripts with the keep-days variable."""
+        keep_days = sanitize_ops.resolve_keep_days(self.base, self.keep_days)
+        scripts = sanitize_ops.filter_tables(
+            filter_sql_scripts(
+                resolve_sql_scripts(self.base, "trim"),
+                only=self.scripts,
+                skip=self.skips,
+            ),
+            self.tables,
         )
-        reclaimed = sanitize_ops.run_trim(
+        if not scripts:
+            echo.info("No trim scripts to run.")
+            return
+        before = (
+            None
+            if self.dry_run
+            else sanitize_ops.database_size(self.base, self.db_name, ctx=self.ctx)
+        )
+        run_sql_scripts(
             self.base,
+            "trim",
             self.db_name,
-            plan,
-            vacuum=self.vacuum,
+            scripts,
+            variables={"keep_days": str(keep_days)},
             dry_run=self.dry_run,
             ctx=self.ctx,
         )
-        scripts = filter_sql_scripts(
-            resolve_sql_scripts(self.base, "trim"),
-            only=self.scripts,
-            skip=self.skips,
-        )
-        if scripts:
-            run_sql_scripts(
+        if self.vacuum:
+            sanitize_ops.vacuum_tables(
                 self.base,
-                "trim",
                 self.db_name,
-                scripts,
-                dry_run=self.dry_run,
+                sanitize_ops.script_tables(scripts),
                 ctx=self.ctx,
             )
         if not self.dry_run:
-            echo.info(f"Reclaimed: {reclaimed} bytes", err=True)
+            after = sanitize_ops.database_size(self.base, self.db_name, ctx=self.ctx)
+            echo.info(sanitize_ops.report_reclaimed(before, after), err=True)
