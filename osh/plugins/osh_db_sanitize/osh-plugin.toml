@@ -1,0 +1,4 @@
+description = "Anonymize and trim restored databases for development."
+
+[group_commands.db]
+sanitize = "Scrub PII and delete low-value rows from a database."
