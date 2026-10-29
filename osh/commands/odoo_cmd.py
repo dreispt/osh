@@ -52,8 +52,10 @@ class OdooRun(CommandHandler):
     config, and passing ``--db-filter`` overrides the one ``osh`` injects –
     same as calling ``odoo-bin`` directly.
 
-    Dev mode is on by default: ``--dev=all`` is appended unless you pass
-    ``--dev`` yourself or use ``--no-dev``. The default can be changed with
+    Dev mode is on by default for server runs: ``--dev=all`` is appended
+    unless you pass ``--dev`` yourself or use ``--no-dev``. It is never
+    injected for Odoo subcommands (``shell``, ``i18n``, ``scaffold``, ...),
+    which reject the option. The default can be changed with
     ``osh config odoo dev <value>`` (``off`` disables the injection).
     With dev mode on, a database Odoo creates on this run gets demo data
     (``--with-demo`` on Odoo 19+, the default before it); pass
@@ -129,7 +131,7 @@ class OdooRun(CommandHandler):
             self.base, self.runtime, self.ctx, compose_file=self.compose_file
         )
         self.extra_args, self.dev = _with_dev_default(
-            self.base, self.extra_args, no_dev=self.no_dev
+            self.base, self.extra_args, no_dev=self.no_dev or self.has_subcommand
         )
         self.publish_http_port()
         self.db_name = self.resolve_db()

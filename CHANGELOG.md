@@ -8,6 +8,9 @@ section collects the release notes for the next version as changes land on
 
 ### Changed
 
+- `osh odoo` no longer injects the `--dev` default into Odoo subcommands
+  (`shell`, `i18n`, `scaffold`, ...), whose parsers reject server options —
+  `osh odoo i18n export` works without having to pass `--no-dev`.
 - `osh db copy` and the missing-database copy option clone idle databases
   via `CREATE DATABASE ... TEMPLATE` — near-instant even for large
   databases. When the source has open connections a prompt offers to

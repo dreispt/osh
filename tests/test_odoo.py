@@ -398,6 +398,48 @@ def test_odoo_dry_run_shows_injected_dev(
     assert "--dev=all" in result.output
 
 
+def test_odoo_subcommand_skips_dev_injection(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """``osh odoo i18n export`` and other subcommands get no ``--dev``.
+
+    Odoo subcommand parsers reject server options, so the dev default
+    must not be appended to them.
+    """
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(
+        odoo, ["i18n", "export", "-d", "somedb", "-o", "mod.pot", "my_module"]
+    )
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "i18n" in final_args
+    assert not any(a.startswith("--dev") for a in final_args)
+
+
+def test_odoo_subcommand_explicit_dev_passthrough(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    test_db,
+    capture_execvp,
+):
+    """An explicit ``--dev`` on a subcommand run is still passed through."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(odoo, ["shell", "--dev=xml"])
+
+    assert result.exit_code == 0, result.output
+    _, final_args, _ = capture_execvp[0]
+    assert "--dev=xml" in final_args
+    assert "--dev=all" not in final_args
+
+
 def test_odoo_config_dev_off_suppresses_injection(
     tmp_project,
     monkeypatch,
