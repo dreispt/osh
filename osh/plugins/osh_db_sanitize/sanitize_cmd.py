@@ -47,7 +47,7 @@ class DbSanitize(CommandHandler):
       osh db sanitize -d prod_copy
       osh db sanitize --list
       osh db sanitize --no-anonymize --keep-days 90 --vacuum
-      osh db sanitize --table mail_message --keep-days 7
+      osh db sanitize --script mail_message --keep-days 7
       osh db sanitize --script 010_identity.sql --force
     """
 
@@ -60,7 +60,6 @@ class DbSanitize(CommandHandler):
     no_anonymize = False
     no_trim = False
     keep_days = None
-    tables = ()
     scripts = ()
     skips = ()
     list_only = False
@@ -93,17 +92,11 @@ class DbSanitize(CommandHandler):
         "or $OSH_KEEP_DAYS, or the [trim] keep_days project setting).",
     )
     @click.option(
-        "--table",
-        "tables",
-        multiple=True,
-        help="Restrict trimming to the scripts covering the named tables "
-        "(repeatable).",
-    )
-    @click.option(
         "--script",
         "scripts",
         multiple=True,
-        help="Run only the named resolved scripts (repeatable).",
+        help="Run only the named scripts (repeatable); accepts full "
+        "filenames, stems or table names.",
     )
     @click.option(
         "--skip",
@@ -248,7 +241,7 @@ class DbSanitize(CommandHandler):
         )
         levels = self.only & set(self.LEVELS)
         if levels:
-            scripts = sanitize_ops.filter_tables(scripts, tuple(levels))
+            scripts = filter_sql_scripts(scripts, only=tuple(levels))
         if not scripts:
             echo.info("No anonymize scripts to run.")
             return
@@ -265,13 +258,10 @@ class DbSanitize(CommandHandler):
     def trim(self):
         """Run the resolved trim scripts with the keep-days variable."""
         keep_days = sanitize_ops.resolve_keep_days(self.base, self.keep_days)
-        scripts = sanitize_ops.filter_tables(
-            filter_sql_scripts(
-                resolve_sql_scripts(self.base, "trim"),
-                only=self.scripts,
-                skip=self.skips,
-            ),
-            self.tables,
+        scripts = filter_sql_scripts(
+            resolve_sql_scripts(self.base, "trim"),
+            only=self.scripts,
+            skip=self.skips,
         )
         if not scripts:
             echo.info("No trim scripts to run.")

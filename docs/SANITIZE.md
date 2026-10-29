@@ -22,7 +22,7 @@ osh db sanitize -d prod_copy         # pick the target explicitly
 osh db sanitize --no-anonymize       # trim only (keep partner data)
 osh db sanitize --no-trim            # anonymize only
 osh db sanitize --keep-days 90       # keep 90 days in age-based trims
-osh db sanitize --table mail_message # trim only that table
+osh db sanitize --script mail_message # trim only that table
 osh db sanitize --list               # show resolved scripts, no DB access
 osh db sanitize --dry-run            # preview the scripts and their SQL
 osh db sanitize --vacuum             # VACUUM ANALYZE trimmed tables after
@@ -35,20 +35,19 @@ non-sanitized dump is irreversible — and asks for confirmation either
 way; `--force` skips the prompt. When done, the report prints the
 database size before and after and how much was reclaimed.
 
-| Flag                           | Effect                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `GROUPS` (positional)          | Group(s) to run: `anonymize`, `trim`, or the finer `identity`/`address` levels |
-| `-d`, `--database`             | Target database (default: the branch database)                                 |
-| `--no-anonymize` / `--no-trim` | Run only one step                                                              |
-| `--keep-days N`                | Retention for age-based trims (default 30)                                     |
-| `--table NAME`                 | Trim only the named tables (repeatable, matches `NN_<table>.sql` stems)        |
-| `--script NAME`                | Run only the named scripts (repeatable)                                        |
-| `--skip NAME`                  | Drop named scripts from the run (repeatable)                                   |
-| `--var NAME=VALUE`             | Inject `osh.<name>` for scripts to read (repeatable)                           |
-| `--list`                       | Print the resolved scripts with their source layer and exit                    |
-| `--vacuum`                     | `VACUUM ANALYZE` the tables named by the scripts that ran                      |
-| `--dry-run`                    | Print the scripts and the SQL they would run; no writes                        |
-| `--force`                      | Skip the safety prompt                                                         |
+| Flag                           | Effect                                                                           |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `GROUPS` (positional)          | Group(s) to run: `anonymize`, `trim`, or the finer `identity`/`address` levels   |
+| `-d`, `--database`             | Target database (default: the branch database)                                   |
+| `--no-anonymize` / `--no-trim` | Run only one step                                                                |
+| `--keep-days N`                | Retention for age-based trims (default 30)                                       |
+| `--script NAME`                | Run only the named scripts (repeatable); accepts filenames, stems or table names |
+| `--skip NAME`                  | Drop named scripts from the run (repeatable)                                     |
+| `--var NAME=VALUE`             | Inject `osh.<name>` for scripts to read (repeatable)                             |
+| `--list`                       | Print the resolved scripts with their source layer and exit                      |
+| `--vacuum`                     | `VACUUM ANALYZE` the tables named by the scripts that ran                        |
+| `--dry-run`                    | Print the scripts and the SQL they would run; no writes                          |
+| `--force`                      | Skip the safety prompt                                                           |
 
 ## Where scripts come from
 
