@@ -17,6 +17,7 @@ the database shrinks.
 
 ```console
 osh db sanitize                      # anonymize + trim the branch database
+osh db sanitize trim                 # only the trim group (deselect with --no-*)
 osh db sanitize -d prod_copy         # pick the target explicitly
 osh db sanitize --no-anonymize       # trim only (keep partner data)
 osh db sanitize --no-trim            # anonymize only
@@ -36,6 +37,7 @@ database size before and after and how much was reclaimed.
 
 | Flag                           | Effect                                                                  |
 | ------------------------------ | ----------------------------------------------------------------------- |
+| `STEPS` (positional)           | Group(s) to run: `anonymize`, `trim` (default: both)                    |
 | `-d`, `--database`             | Target database (default: the branch database)                          |
 | `--no-anonymize` / `--no-trim` | Run only one step                                                       |
 | `--keep-days N`                | Retention for age-based trims (default 30)                              |

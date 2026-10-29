@@ -58,6 +58,24 @@ def test_sanitize_warns_and_confirms_on_unneutralized_db(in_project, pg_db):
     assert "does not look neutralized" in result.output
 
 
+def test_sanitize_step_argument_selects_groups(in_project, pg_db):
+    """`osh db sanitize trim` runs only the trim group."""
+    name = pg_db.create()
+    result = CliRunner().invoke(sanitize, ["-d", name, "trim", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "anonymize script" not in result.output
+    assert "Would run trim script: 010_ir_logging.sql" in result.output
+
+
+def test_sanitize_step_argument_rejects_unknown(in_project):
+    """An unknown step name is a usage error."""
+    result = CliRunner().invoke(sanitize, ["bogus"])
+
+    assert result.exit_code != 0
+    assert "Unknown step(s): bogus" in result.output
+
+
 def test_restore_anonymize_trim_invokes_db_sanitize(
     patched_restore, in_project, monkeypatch
 ):
