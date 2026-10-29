@@ -61,7 +61,11 @@ vacuum` reclaims dead tuples. Neither deletes rows.
 - **Scripts see injected variables.** `run_sql_scripts(variables=…)`
   prepends `SET osh.<name>` so `current_setting('osh.<name>')` works
   inside `DO` blocks (psql `:`-substitution can't reach them). Ambient
-  env vars reach scripts via `env=` + psql's `\getenv`.
+  env vars reach scripts via `env=` + psql's `\getenv`. `osh db sanitize`
+  exposes this as `--var NAME=VALUE` (repeatable) on top of the
+  built-in `osh.keep_days`. Example: a `.osh/anonymize/050_extra.sql`
+  doing ``SET domain via `current_setting('osh.domain')` `` is run as
+  `osh db sanitize --var domain=example.test`.
 - **Safety:** targets the resolved branch database, warns when the
   database does not look neutralized, asks for confirmation unless
   `--force`, and `--dry-run` previews every statement with per-table

@@ -112,6 +112,39 @@ def test_restore_without_sanitize_flags_skips(patched_restore, in_project, monke
     assert result.exit_code == 0, result.output
 
 
+def test_sanitize_var_reaches_script(in_project, pg_db):
+    """``--var name=value`` is readable as osh.<name> inside script DO blocks."""
+    name = pg_db.create()
+    script_dir = in_project / ".osh" / "anonymize"
+    script_dir.mkdir(parents=True)
+    (script_dir / "050_var_check.sql").write_text(
+        "DO $$\n"
+        "BEGIN\n"
+        "    IF current_setting('osh.testvar', true) IS NULL THEN\n"
+        "        RAISE EXCEPTION 'osh.testvar not set';\n"
+        "    END IF;\n"
+        "END $$;\n"
+    )
+
+    result = CliRunner().invoke(
+        sanitize, ["-d", name, "--force", "--no-trim", "--var", "testvar=hello"]
+    )
+    assert result.exit_code == 0, result.output
+
+    # Without the --var, the same script fails on the missing setting.
+    result = CliRunner().invoke(sanitize, ["-d", name, "--force", "--no-trim"])
+    assert result.exit_code != 0
+    assert "osh.testvar not set" in result.output
+
+
+def test_sanitize_var_rejects_bad_syntax(in_project):
+    """``--var`` without NAME=VALUE fails as a usage error."""
+    result = CliRunner().invoke(sanitize, ["--var", "novalue"])
+
+    assert result.exit_code != 0
+    assert "NAME=VALUE" in result.output
+
+
 def test_restore_script_selection_forwards(patched_restore, in_project):
     """``--script``/``--skip`` reach the neutralize script runner."""
     dump = in_project / "dump.sql"
