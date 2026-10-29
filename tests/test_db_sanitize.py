@@ -17,7 +17,7 @@ def test_sanitize_list_shows_resolved_scripts(in_project):
 
     assert result.exit_code == 0, result.output
     assert "anonymize:" in result.output
-    assert "000_default.sql  (bundled)" in result.output
+    assert "010_identity.sql  (bundled)" in result.output
 
 
 def test_sanitize_missing_database_errors(in_project, pg_db):
@@ -34,7 +34,7 @@ def test_sanitize_dry_run_previews_scripts_and_trim(in_project, pg_db):
     result = CliRunner().invoke(sanitize, ["-d", name, "--dry-run"])
 
     assert result.exit_code == 0, result.output
-    assert "Would run anonymize script: 000_default.sql (bundled)" in result.output
+    assert "Would run anonymize script: 010_identity.sql (bundled)" in result.output
 
 
 def test_sanitize_force_runs_on_real_database(in_project, pg_db):
@@ -43,7 +43,7 @@ def test_sanitize_force_runs_on_real_database(in_project, pg_db):
     result = CliRunner().invoke(sanitize, ["-d", name, "--force"])
 
     assert result.exit_code == 0, result.output
-    assert "Running anonymize script: 000_default.sql" in result.output
+    assert "Running anonymize script: 010_identity.sql" in result.output
     assert "Running trim script: 080_mail_message.sql" in result.output
     assert "Database size:" in result.output
     assert "reclaimed" in result.output
