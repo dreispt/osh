@@ -20,31 +20,28 @@ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'phone') THEN
-        UPDATE res_partner SET phone = NULL;
+        UPDATE res_partner SET phone = repeat('x', length(phone)) WHERE phone IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'mobile') THEN
-        UPDATE res_partner SET mobile = NULL;
+        UPDATE res_partner SET mobile = repeat('x', length(mobile)) WHERE mobile IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'street') THEN
-        UPDATE res_partner SET street = NULL, street2 = NULL;
+        UPDATE res_partner SET street = repeat('x', length(street)) WHERE street IS NOT NULL;
+        UPDATE res_partner SET street2 = repeat('x', length(street2)) WHERE street2 IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'city') THEN
-        UPDATE res_partner SET city = NULL;
+        UPDATE res_partner SET city = repeat('x', length(city)) WHERE city IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'zip') THEN
-        UPDATE res_partner SET zip = NULL;
+        UPDATE res_partner SET zip = repeat('x', length(zip)) WHERE zip IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'res_partner' AND column_name = 'vat') THEN
-        UPDATE res_partner SET vat = NULL;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'res_partner' AND column_name = 'website') THEN
-        UPDATE res_partner SET website = NULL;
+        UPDATE res_partner SET vat = repeat('x', length(vat)) WHERE vat IS NOT NULL;
     END IF;
 END $$;
 
@@ -88,27 +85,30 @@ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'private_phone') THEN
-        UPDATE hr_employee SET private_phone = NULL;
+        UPDATE hr_employee SET private_phone = repeat('x', length(private_phone)) WHERE private_phone IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'private_street') THEN
-        UPDATE hr_employee SET private_street = NULL, private_street2 = NULL;
+        UPDATE hr_employee SET private_street = repeat('x', length(private_street)) WHERE private_street IS NOT NULL;
+        UPDATE hr_employee SET private_street2 = repeat('x', length(private_street2)) WHERE private_street2 IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'private_city') THEN
-        UPDATE hr_employee SET private_city = NULL, private_zip = NULL;
+        UPDATE hr_employee SET private_city = repeat('x', length(private_city)) WHERE private_city IS NOT NULL;
+        UPDATE hr_employee SET private_zip = repeat('x', length(private_zip)) WHERE private_zip IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'emergency_contact') THEN
-        UPDATE hr_employee SET emergency_contact = NULL, emergency_phone = NULL;
+        UPDATE hr_employee SET emergency_contact = repeat('x', length(emergency_contact)) WHERE emergency_contact IS NOT NULL;
+        UPDATE hr_employee SET emergency_phone = repeat('x', length(emergency_phone)) WHERE emergency_phone IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'identification_id') THEN
-        UPDATE hr_employee SET identification_id = NULL;
+        UPDATE hr_employee SET identification_id = repeat('x', length(identification_id)) WHERE identification_id IS NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'hr_employee' AND column_name = 'passport_id') THEN
-        UPDATE hr_employee SET passport_id = NULL;
+        UPDATE hr_employee SET passport_id = repeat('x', length(passport_id)) WHERE passport_id IS NOT NULL;
     END IF;
 END $$;
 
