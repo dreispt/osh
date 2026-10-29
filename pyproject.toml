@@ -59,7 +59,7 @@ include-package-data = true
 exclude = ["tests", "tests.*", "*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
-osh = ["plugins/*/osh-plugin.toml", "plugins/osh_runtime_docker/data/*.yml", "data/*.sql", "skills/*/SKILL.md"]
+osh = ["plugins/*/osh-plugin.toml", "plugins/osh_runtime_docker/data/*.yml", "data/*.sql", "data/*/*.sql", "skills/*/SKILL.md"]
 
 [tool.black]
 line-length = 88
