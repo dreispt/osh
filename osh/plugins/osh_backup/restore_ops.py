@@ -20,7 +20,7 @@ import click
 
 from ... import echo
 from ...db import install_filestore, run_in_runtime, run_psql_script
-from ...sqlscripts import filter_sql_scripts, resolve_sql_scripts, run_sql_scripts
+from ...sql_scripts import filter_sql_scripts, resolve_sql_scripts, run_sql_scripts
 from ...termui import human_duration, human_size, stdin_progress
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content

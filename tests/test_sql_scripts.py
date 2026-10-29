@@ -1,8 +1,8 @@
-"""Tests for the layered SQL script resolver in ``osh.sqlscripts``."""
+"""Tests for the layered SQL script resolver in ``osh.sql_scripts``."""
 
 import pytest
 
-from osh.sqlscripts import filter_sql_scripts, resolve_sql_scripts, run_sql_scripts
+from osh.sql_scripts import filter_sql_scripts, resolve_sql_scripts, run_sql_scripts
 
 
 @pytest.fixture
@@ -10,7 +10,7 @@ def user_dir(tmp_path, monkeypatch):
     """Redirect ``~/.config/osh/<kind>`` to a temporary directory."""
     directory = tmp_path / "user-scripts"
     monkeypatch.setattr(
-        "osh.sqlscripts.get_user_scripts_dir", lambda kind: directory / kind
+        "osh.sql_scripts.get_user_scripts_dir", lambda kind: directory / kind
     )
     return directory
 

@@ -6,7 +6,7 @@ from ... import echo
 from ...common import find_project_root
 from ...db import db_exists, psql_rows, resolve_db_name, sanitize_db_name
 from ...handlers import CommandHandler
-from ...sqlscripts import (
+from ...sql_scripts import (
     echo_sql_scripts,
     filter_sql_scripts,
     resolve_sql_scripts,
