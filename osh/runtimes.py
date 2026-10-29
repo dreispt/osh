@@ -459,6 +459,20 @@ class HostRuntime(Runtime):
             ),
         ]
 
+    @classmethod
+    def get_stop_options(cls):
+        """``-p/--http-port`` for an Odoo started on a non-configured port."""
+        return [
+            click.Option(
+                ["-p", "--http-port"],
+                metavar="PORT",
+                type=int,
+                help="HTTP port the project's Odoo is listening on, when "
+                "different from the configured one (e.g. started with "
+                "'osh odoo -p PORT').",
+            ),
+        ]
+
     def odoo_command(self, base):
         """Return the ``--odoo-command`` recorded at init as an argv list."""
         command = get_project_config(base, "init", "odoo_command")
@@ -799,9 +813,14 @@ class HostRuntime(Runtime):
             except OSError as exc:
                 echo.warning(f"Could not kill pid {pid}: {exc}")
 
-    def stop(self, ctx, base, *, dry_run=False, **options):
-        """Stop an Odoo process left listening on the project's HTTP port."""
-        port = self.odoo_port(base)
+    def stop(self, ctx, base, *, dry_run=False, http_port=None, **options):
+        """Stop an Odoo process left listening on the project's HTTP port.
+
+        *http_port* — ``osh stop -p`` — overrides the configured port for
+        servers started with an explicit ``osh odoo -p PORT``, which leave
+        no listener on the configured one.
+        """
+        port = http_port or self.odoo_port(base)
         extra_names = self._odoo_process_names(base)
         listeners = _port_listeners(port)
         if not listeners:

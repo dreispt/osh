@@ -25,7 +25,9 @@ class Stop(CommandHandler):
 
     Without arguments, delegates teardown to the project's active runtime:
     the ``host``/``venv`` runtimes terminate a host Odoo process on the
-    project's HTTP port, ``docker`` runs ``docker compose down``.
+    project's HTTP port — ``-p/--http-port`` targets a different port, for
+    servers started with ``osh odoo -p`` — ``docker`` runs ``docker
+    compose down``.
 
     NAME stops another project's resources: a path to a project directory
     uses that project's recorded runtime; a Compose project name (as shown
@@ -43,6 +45,7 @@ class Stop(CommandHandler):
 
     \b
       osh stop                # stop this project's runtime resources
+      osh stop -p 8169        # stop the Odoo holding a non-default port
       osh stop --list         # report port holders and would-be targets
       osh stop other-project  # stop another project's stack by name
       osh stop --all          # stop every Osh-managed runtime resource
@@ -103,12 +106,13 @@ class Stop(CommandHandler):
         options = param_values(self, runtime.get_stop_options())
         if self.list_only:
             runtime.stop(self.ctx, base, dry_run=True, **options)
-            self._report_foreign_port_holders(runtime, base)
+            port = options.get("http_port") or runtime.odoo_port(base)
+            self._report_foreign_port_holders(runtime, base, port)
             return
         runtime.stop(self.ctx, base, **options)
 
-    def _report_foreign_port_holders(self, runtime, base):
-        """Report holders of the project's port the active runtime can't see.
+    def _report_foreign_port_holders(self, runtime, base, port):
+        """Report holders of *port* the active runtime can't see.
 
         The runtime's own ``stop(dry_run=True)`` covers the holders it can
         act on; this adds what other runtimes see — e.g. a Docker stack
@@ -116,7 +120,6 @@ class Stop(CommandHandler):
         gives the complete picture of what blocks the port. Holder
         implementations are deduplicated like ``--all``'s teardown.
         """
-        port = runtime.odoo_port(base)
         if port is None:
             return
         seen = {type(runtime).port_holders, Runtime.port_holders}
@@ -191,10 +194,21 @@ class Stop(CommandHandler):
         param_source = getattr(self.ctx, "get_parameter_source", None)
         if param_source is None:
             return
-        for runtime_cls in load_runtimes().values():
+        runtimes = load_runtimes().values()
+        # Options the selected runtime accepts — including inherited ones,
+        # like ``venv`` sharing the host runtime's ``-p`` — must not warn.
+        accepted = {
+            param.name
+            for runtime_cls in runtimes
+            if runtime_cls.name in selected
+            for param in runtime_cls.get_stop_options()
+        }
+        for runtime_cls in runtimes:
             if runtime_cls.name in selected:
                 continue
             for param in runtime_cls.get_stop_options():
+                if param.name in accepted:
+                    continue
                 if param_source(param.name) != click.core.ParameterSource.COMMANDLINE:
                     continue
                 hint = (

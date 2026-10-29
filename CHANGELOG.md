@@ -6,6 +6,15 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Added
+
+- `osh stop -p/--http-port PORT` targets an Odoo process listening on a
+  port other than the configured one — needed for servers started with
+  `osh odoo -p`, which leave no listener on the project's port and used
+  to report "Nothing to stop". `osh stop --list -p` reports the holder,
+  and the `osh odoo` port-in-use error now points at the flag. Shared
+  by the `host` and `venv` runtimes.
+
 ### Changed
 
 - `osh odoo` no longer injects the `--dev` default into Odoo subcommands
