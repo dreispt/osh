@@ -57,8 +57,8 @@ class DbRestore(CommandHandler):
     determined, `osh backup restore` warns and continues without the filestore.
 
     After the dump is restored, the database is neutralized. Odoo 16.0+ uses
-    `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
-    scripts.
+    `odoo-bin neutralize -d <db>`; older versions get the bundled SQL
+    fallback script instead.
 
     Once the restore (and neutralization) completes, plugins extending the
     ``backup.restore`` handler through ``post_restore()`` run — e.g. to record
@@ -67,11 +67,13 @@ class DbRestore(CommandHandler):
 
     Neutralization hooks:
 
-    Custom `.sql` scripts inside `.osh/neutralize/` run after the built-in
-    neutralization step, in sorted order. Use numeric prefixes to control the
-    order (e.g. `000_default.sql`, `100_anonymize_partners.sql`). Global
-    defaults can be placed in `~/.config/osh/neutralize/` and are copied to
-    `.osh/neutralize/` during `osh init`.
+    `.sql` scripts run after the built-in neutralization step, resolved in
+    sorted order from layered sources — bundled defaults, user scripts in
+    `~/.config/osh/neutralize/`, then project scripts in `.osh/neutralize/`.
+    A same-named script in a later layer overrides, so drop a file in
+    `~/.config/osh/neutralize/` to maintain defaults centrally or in
+    `.osh/neutralize/` for project-specific hooks. Use numeric prefixes to
+    control the order (e.g. `100_anonymize_partners.sql`).
 
     Examples:
 
