@@ -91,7 +91,7 @@ full session.
 | `osh exec`                 | Enter the project's runtime environment or run a command in it                               |
 | `osh stop`                 | Stop whatever the active runtime left running                                                |
 | `osh test`                 | Run Odoo tests for project modules                                                           |
-| `osh db`                   | List, show, set, copy, drop, exec, or unset project databases                                |
+| `osh db`                   | List, show, set, copy, drop, exec, sanitize, or unset project databases                      |
 | `osh backup`               | Get, list, or restore database backups, and register named remote sources                    |
 | `osh config`               | View or change osh settings for this project                                                 |
 

@@ -147,7 +147,8 @@ osh db exec pg_dump -Fc myproject-main > backup.dump
 
 `osh test` runs Odoo tests for the project's modules, chaining install
 and test runs. `osh db copy from_db to_db` clones a database when you
-want to experiment on a copy.
+want to experiment on a copy, and `osh db sanitize` scrubs PII and trims
+big tables on a restored or copied dump.
 
 ## Where the addons come from
 
