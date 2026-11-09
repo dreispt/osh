@@ -660,3 +660,27 @@ def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "Odoo 18.0" in result.output
     assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+
+class TestPythonVersionResolution:
+    """Odoo series below 16 resolve a supported Python for the venv."""
+
+    def test_odoo_14_recommends_python_37(self):
+        """Odoo 14.0 maps to its documented Python 3.7+ requirement."""
+        from osh.plugins.osh_runtime_venv.python_versions import get_python_requirements
+
+        requirements = get_python_requirements("14.0")
+        assert requirements["recommended"] == "3.7"
+        assert "3.7" in requirements["supported"]
+        # A bare major version resolves the same series.
+        assert get_python_requirements("14")["recommended"] == "3.7"
+
+    def test_odoo_14_rejects_the_running_python(self, monkeypatch):
+        """An unsupported running interpreter is not silently reused for 14.0."""
+        import click
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        monkeypatch.setattr(python_versions, "_find_python", lambda *args: None)
+        with pytest.raises(click.ClickException, match="Python 3.7"):
+            python_versions.resolve_python_for_odoo("14.0")

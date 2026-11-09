@@ -19,6 +19,9 @@ import click
 # ``MIN_PY_VERSION`` / ``MAX_PY_VERSION`` values in ``odoo/odoo/release.py``.
 # Keep this table updated for new Odoo releases.
 ODOO_PYTHON_VERSIONS = {
+    "13.0": {"recommended": "3.7", "supported": ["3.6", "3.7", "3.8"]},
+    "14.0": {"recommended": "3.7", "supported": ["3.7", "3.8", "3.9", "3.10"]},
+    "15.0": {"recommended": "3.10", "supported": ["3.7", "3.8", "3.9", "3.10"]},
     "16.0": {"recommended": "3.10", "supported": ["3.10"]},
     "17.0": {"recommended": "3.10", "supported": ["3.10", "3.11", "3.12"]},
     "18.0": {"recommended": "3.12", "supported": ["3.10", "3.11", "3.12"]},
@@ -30,8 +33,9 @@ ODOO_PYTHON_VERSIONS = {
 def _canonical_odoo_version(version):
     """Return the series key used in ``ODOO_PYTHON_VERSIONS`` for a branch name.
 
-    ``master`` is returned as-is. Numeric series such as ``18.0`` or
-    ``saas-18.2`` are collapsed to their major.zero form (``18.0``).
+    ``master`` is returned as-is. Numeric series such as ``18.0``,
+    ``saas-18.2`` or a bare ``18`` are collapsed to their major.zero form
+    (``18.0``).
     """
     if not version:
         return "master"
@@ -39,9 +43,12 @@ def _canonical_odoo_version(version):
     if normalized == "master":
         return "master"
     match = re.search(r"(\d+)\.(\d+)", normalized)
-    if not match:
-        return "master"
-    return f"{match.group(1)}.0"
+    if match:
+        return f"{match.group(1)}.0"
+    match = re.fullmatch(r"(\d+)", normalized)
+    if match:
+        return f"{match.group(1)}.0"
+    return "master"
 
 
 def get_python_requirements(version):
@@ -117,7 +124,7 @@ def get_available_python_versions():
     Detects ``python3.X`` binaries on PATH and versions installed via pyenv.
     """
     versions = set()
-    for minor in range(8, 15):
+    for minor in range(6, 15):
         name = f"python3.{minor}"
         if shutil.which(name):
             versions.add(f"3.{minor}")
