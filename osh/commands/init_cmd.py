@@ -737,7 +737,10 @@ def run_runtime_init(
             key: str(value) for key, value in options.items() if value is not None
         }
         set_project_config(target, "init", values=init_values)
-        echo.success(f"Runtime '{runtime.name}' is ready.")
+        if result is False:
+            echo.warning(f"Runtime '{runtime.name}' is not ready; see warnings above.")
+        else:
+            echo.success(f"Runtime '{runtime.name}' is ready.")
 
     return result
 

@@ -793,3 +793,33 @@ class TestPythonVersionResolution:
         )
         assert result.exit_code != 0
         assert "not supported" in result.output
+
+    def test_failed_install_does_not_skip_reinstall(self, tmp_project):
+        """A failed package install reports not-ready and retries on re-run."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        # An uninstallable project requirement makes the install step fail.
+        (tmp_project / "requirements.txt").write_text(
+            "osh-test-package-that-does-not-exist\n"
+        )
+        init = [
+            "init",
+            "venv",
+            "19.0",
+            str(tmp_project),
+            "-c",
+            str(odoo_src),
+        ]
+        runner = CliRunner()
+        result = runner.invoke(main, init)
+        # Init stays non-fatal but must not claim the runtime is ready.
+        assert result.exit_code == 0
+        assert "not ready" in result.output
+
+        # The failed run must not leave a fingerprint claiming the
+        # environment was built — the next init reinstalls.
+        (tmp_project / "requirements.txt").unlink()
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert "skipping reinstall" not in result.output
+        assert "Installing Odoo" in result.output
+        assert "is ready" in result.output

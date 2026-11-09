@@ -186,7 +186,7 @@ class VenvRuntime(HostRuntime):
         if options.get("fingerprint") and not dry_run:
             echo.info("Updating the build-input fingerprint.", err=True)
             self._record_environment_fingerprints(target)
-        init_project(
+        result = init_project(
             target,
             version=version,
             edition=edition,
@@ -204,9 +204,9 @@ class VenvRuntime(HostRuntime):
                 self._environment_changes(target, missing_is_change=True)
             ),
         )
-        if not dry_run:
+        if not dry_run and result:
             self._record_environment_fingerprints(target)
-        return True
+        return result
 
     def odoo_command(self, base):
         """The venv always runs its own ``.venv/bin/odoo``."""

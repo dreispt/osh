@@ -71,7 +71,9 @@ def init_project(
         # ``osh init`` announces the project directory itself once the
         # runtime reports back — flag only the degraded outcome here.
         echo.warning("Odoo setup incomplete; see warnings above.")
-    return True
+    # A failed smoke test stays non-fatal (the environment itself built
+    # fine); a failed install means the environment is not ready.
+    return env_ready
 
 
 def _prepare_target_dir(target):
