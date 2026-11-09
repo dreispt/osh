@@ -161,11 +161,16 @@ class VenvRuntime(HostRuntime):
 
     def _add_init_plans(self, todo, **options):
         """Record planned init actions (without doing work)."""
+        target = options.get("target")
+        installer = resolve_installer(target, options.get("installer"))
         todo.add_plan("Sources: resolve Odoo sources for the selected edition")
         todo.add_plan(
-            f"Virtualenv: {_venv_python_plan(options.get('target'), options.get('version', ''), options.get('python'))}"
+            f"Virtualenv: {_venv_python_plan(target, options.get('version', ''), options.get('python'))}"
         )
-        todo.add_plan("Packages: install Odoo and requirements into the virtualenv")
+        todo.add_plan(
+            "Packages: install Odoo and requirements into the virtualenv "
+            f"with {installer}"
+        )
         todo.add_plan("Smoke test: run an Odoo --version check")
 
     def init(
