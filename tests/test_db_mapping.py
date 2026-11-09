@@ -615,6 +615,23 @@ def test_list_command_reports_missing_psql(tmp_project, monkeypatch):
     assert "psql" in result.output
 
 
+def test_resolve_db_name_for_run_tty_prompt_select_existing(
+    tmp_project, pg_db, monkeypatch
+):
+    """In TTY, the missing-db prompt can pick any existing database."""
+    from osh.db import resolve_db_name_for_run
+
+    existing = pg_db.create()
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    answers = iter(["s", existing])
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: next(answers))
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == existing
+    assert get_project_config(tmp_project, "db", "default") == existing
+
+
 def test_resolve_db_name_for_run_tty_prompt_abort(tmp_project, pg_db, monkeypatch):
     """In TTY, the missing-db prompt can be aborted without side effects."""
     from osh.db import resolve_db_name_for_run

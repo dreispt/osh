@@ -6,6 +6,8 @@ from .. import echo
 from ..cli_utils import handler_group
 from ..common import env_root, find_project_root
 from ..db import (
+    _list_db_names,
+    _psql_table_split,
     copy_db,
     db_exists,
     resolve_branch,
@@ -219,32 +221,6 @@ class Db(CommandHandler):
 
 
 db = handler_group("db", Db)
-
-
-def _psql_table_split(output):
-    """Split ``psql -l`` output at the ``---+---`` separator line.
-
-    Returns ``(lines, sep_index)``; *sep_index* is None when the output
-    does not look like a ``psql -l`` table.
-    """
-    lines = output.splitlines()
-    sep = next(
-        (
-            i
-            for i, line in enumerate(lines)
-            if line.strip() and set(line.strip()) <= {"-", "+"}
-        ),
-        None,
-    )
-    return lines, sep
-
-
-def _list_db_names(output):
-    """Return the database names listed in ``psql -l`` output."""
-    lines, sep = _psql_table_split(output)
-    if sep is None:
-        return []
-    return [line.split("|", 1)[0].strip() for line in lines[sep + 1 :] if "|" in line]
 
 
 def _filter_db_listing(output, prefix):
