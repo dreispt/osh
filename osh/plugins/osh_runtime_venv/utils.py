@@ -221,18 +221,18 @@ def _setup_environment(
             err=True,
         )
         _create_venv(venv_path, resolved["exe"], installer)
+        # Seed build helpers up front: ``uv venv`` ships no pip, and
+        # ``python -m venv`` no longer bundles setuptools/wheel — sdists
+        # need them to build and old Odoo needs ``pkg_resources``.
+        seed = ["setuptools", "wheel"]
         if installer == "uv":
-            # Mirror ``uv venv --seed``: pip always, setuptools/wheel on
-            # Python <3.12 where older Odoo needs ``pkg_resources``.
-            seed = ["pip"]
-            if tuple(int(p) for p in resolved["version"].split(".")[:2]) < (3, 12):
-                seed += ["setuptools", "wheel"]
-            echo.info(
-                f"Installing {', '.join(seed)} into the virtualenv\u2026",
-                err=True,
-            )
-            if not _install(installer, venv_path, "install", *seed):
-                return False
+            seed.insert(0, "pip")
+        echo.info(
+            f"Installing {', '.join(seed)} into the virtualenv\u2026",
+            err=True,
+        )
+        if not _install(installer, venv_path, "install", *seed):
+            return False
 
     # Skip the installs on a reused venv when the recorded
     # build-input fingerprint already covers the requirement files.
