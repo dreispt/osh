@@ -205,18 +205,20 @@ def resolve_python_for_odoo(version, python=None):
             message = (
                 f"Python {recommended} (supported: {supported}) is required for "
                 f"Odoo {version}, but it is not installed.\n\n"
-                f"Install it with pyenv:\n\n"
-                f"  pyenv install {recommended}\n\n"
-                f"Then make sure `python{recommended}` is on your PATH or "
-                f"activate it with `pyenv shell {recommended}`."
+                f"Install it with `pyenv install {recommended}` (`pyenv "
+                f"versions` lists installed ones), or reuse an interpreter "
+                f"you already have via `--python` (a `major.minor` version "
+                f"or a path, e.g. `osh init venv --python 3.10`)."
             )
         else:
             message = (
                 f"Python {recommended} (supported: {supported}) is required for "
                 f"Odoo {version}, but it is not installed.\n\n"
-                f"Install pyenv (https://github.com/pyenv/pyenv) and run:\n\n"
-                f"  pyenv install {recommended}\n\n"
-                f"Then make sure `python{recommended}` is available on your PATH."
+                f"Install pyenv (https://github.com/pyenv/pyenv), then run "
+                f"`pyenv install {recommended}` (`pyenv versions` lists "
+                f"installed ones) — or reuse an interpreter you already "
+                f"have via `--python` (a `major.minor` version or a path, "
+                f"e.g. `osh init venv --python 3.10`)."
             )
         raise click.ClickException(message)
 
