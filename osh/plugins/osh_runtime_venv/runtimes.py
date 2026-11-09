@@ -53,6 +53,15 @@ class VenvRuntime(HostRuntime):
                 "PATH and pip otherwise (default). The choice is remembered "
                 "for later re-inits.",
             ),
+            click.Option(
+                ["--python"],
+                envvar="OSH_VENV_PYTHON",
+                metavar="PYTHON",
+                help="Python interpreter for the virtualenv: a ``major.minor`` "
+                "version (e.g. ``3.11``) or a path/executable name. Must be a "
+                "supported version for the Odoo series. Defaults to the "
+                "recommended/supported automatic pick.",
+            ),
         ]
 
     _DIAGNOSE_SECTIONS = HostRuntime._DIAGNOSE_SECTIONS + (
@@ -178,6 +187,7 @@ class VenvRuntime(HostRuntime):
             pins=options.get("pins"),
             todo=todo,
             installer=options.get("installer"),
+            python=options.get("python"),
             env_changed=lambda: bool(
                 self._environment_changes(target, missing_is_change=True)
             ),

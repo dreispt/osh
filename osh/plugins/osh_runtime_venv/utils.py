@@ -30,6 +30,7 @@ def init_project(
     env_changed=None,
     installer=None,
     pins=None,
+    python=None,
 ):
     """Initialise *target* for an Odoo project using local sources."""
     _prepare_target_dir(target)
@@ -61,6 +62,7 @@ def init_project(
         todo=todo,
         env_changed=env_changed,
         installer=installer,
+        python=python,
     )
     todo.start()
     smoke_ok = _run_init_smoke_test(target, env_ready)
@@ -179,14 +181,16 @@ def _setup_environment(
     todo,
     env_changed=None,
     installer=None,
+    python=None,
 ):
     """Create a virtualenv and install Odoo sources into it.
 
     *installer* selects the package installer — ``"uv"``, ``"pip"`` or
-    ``"auto"``/None (uv when on PATH, pip otherwise). *env_changed* is an
-    optional predicate telling whether the recorded build-input fingerprint
-    differs from the current inputs — installs are skipped when it reports
-    no change.
+    ``"auto"``/None (uv when on PATH, pip otherwise). *python* is an
+    explicit interpreter request (``--python``) overriding the automatic
+    resolution. *env_changed* is an optional predicate telling whether the
+    recorded build-input fingerprint differs from the current inputs —
+    installs are skipped when it reports no change.
     """
     from osh.commands.init_cmd import TodoPlan
 
@@ -201,26 +205,27 @@ def _setup_environment(
     venv_existed = venv_path.exists()
     if venv_existed:
         echo.info(f"Using existing virtual environment at {venv_path}", err=True)
+        _report_venv_python(venv_path)
     else:
-        python = resolve_python_for_odoo(version)
+        resolved = resolve_python_for_odoo(version, python=python)
 
-        if python["version"] != python["recommended"]:
+        if resolved["version"] != resolved["recommended"]:
             echo.warning(
-                f"Python {python['recommended']} is recommended for Odoo {version}; "
-                f"using {python['version']} instead."
+                f"Python {resolved['recommended']} is recommended for Odoo {version}; "
+                f"using {resolved['version']} instead."
             )
         echo.info(
             f"Creating virtual environment at {venv_path} "
-            f"with Python {python['version']} ({python['exe']}) "
+            f"with Python {resolved['version']} ({resolved['exe']}) "
             f"using {installer}\u2026",
             err=True,
         )
-        _create_venv(venv_path, python["exe"], installer)
+        _create_venv(venv_path, resolved["exe"], installer)
         if installer == "uv":
             # Mirror ``uv venv --seed``: pip always, setuptools/wheel on
             # Python <3.12 where older Odoo needs ``pkg_resources``.
             seed = ["pip"]
-            if tuple(int(p) for p in python["version"].split(".")[:2]) < (3, 12):
+            if tuple(int(p) for p in resolved["version"].split(".")[:2]) < (3, 12):
                 seed += ["setuptools", "wheel"]
             echo.info(
                 f"Installing {', '.join(seed)} into the virtualenv\u2026",
@@ -322,6 +327,22 @@ def _find_odoo_executable_in_venv(venv_path):
         if exe.is_file():
             return exe
     return None
+
+
+def _report_venv_python(venv_path):
+    """Report the Python version and location inside *venv_path*."""
+    bin_dir = venv_path / "bin"
+    for name in ("python", "python3"):
+        python = bin_dir / name
+        if not python.is_file():
+            continue
+        returncode, stdout, _ = run_subprocess([str(python), "--version"])
+        if returncode == 0 and stdout.strip():
+            version = stdout.strip()
+            if version.lower().startswith("python "):
+                version = version[7:]
+            echo.info(f"Virtualenv Python {version} at {python}", err=True)
+        return
 
 
 def _get_venv_python(exe):

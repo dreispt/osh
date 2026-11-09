@@ -684,3 +684,85 @@ class TestPythonVersionResolution:
         monkeypatch.setattr(python_versions, "_find_python", lambda *args: None)
         with pytest.raises(click.ClickException, match="Python 3.7"):
             python_versions.resolve_python_for_odoo("14.0")
+
+    def test_explicit_python_version_is_used(self, monkeypatch):
+        """``--python 3.10`` resolves that interpreter for Odoo 14.0."""
+        from pathlib import Path
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        monkeypatch.setattr(
+            python_versions,
+            "_find_python",
+            lambda version, *args: Path(f"/usr/bin/python{version}"),
+        )
+        monkeypatch.setattr(python_versions, "_interpreter_version", lambda exe: "3.10")
+        result = python_versions.resolve_python_for_odoo("14.0", python="3.10")
+        assert result["version"] == "3.10"
+        assert result["exe"] == Path("/usr/bin/python3.10")
+
+    def test_explicit_python_must_be_supported(self, monkeypatch):
+        """``--python`` rejects an interpreter outside the supported list."""
+        from pathlib import Path
+
+        import click
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        monkeypatch.setattr(
+            python_versions,
+            "_find_python",
+            lambda version, *args: Path(f"/usr/bin/python{version}"),
+        )
+        monkeypatch.setattr(python_versions, "_interpreter_version", lambda exe: "3.14")
+        with pytest.raises(click.ClickException, match="not supported"):
+            python_versions.resolve_python_for_odoo("14.0", python="3.14")
+
+    def test_explicit_python_missing_interpreter(self):
+        """``--python`` reports clearly when the interpreter does not exist."""
+        import click
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        with pytest.raises(click.ClickException, match="Could not find"):
+            python_versions.resolve_python_for_odoo(
+                "14.0", python="/nonexistent/python3.7"
+            )
+
+    def test_reinit_reports_venv_python(self, tmp_project):
+        """Re-running ``osh init venv`` reports the venv's Python version/path."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        init = [
+            "init",
+            "venv",
+            "19.0",
+            str(tmp_project),
+            "-c",
+            str(odoo_src),
+        ]
+        runner = CliRunner()
+        assert runner.invoke(main, init).exit_code == 0
+
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert "Virtualenv Python" in result.output
+        assert ".venv" in result.output
+
+    def test_init_rejects_unsupported_python(self, tmp_project):
+        """``--python`` fails init when the interpreter is not supported."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        result = CliRunner().invoke(
+            main,
+            [
+                "init",
+                "venv",
+                "14.0",
+                str(tmp_project),
+                "-c",
+                str(odoo_src),
+                "--python",
+                "3.14",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not supported" in result.output

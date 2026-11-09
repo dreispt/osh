@@ -149,11 +149,13 @@ def get_available_python_versions():
     return sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".")))
 
 
-def resolve_python_for_odoo(version):
+def resolve_python_for_odoo(version, python=None):
     """Resolve a Python interpreter for the requested Odoo branch.
 
     Prefers the recommended version, then the running interpreter when it is a
-    supported version, then any other supported version. Returns a dict with
+    supported version, then any other supported version. *python* is an
+    explicit request — a ``major.minor`` version or an interpreter path —
+    validated against the supported list. Returns a dict with
     keys:
 
     - ``exe``: ``Path`` of the selected interpreter.
@@ -164,6 +166,8 @@ def resolve_python_for_odoo(version):
     Raises ``click.ClickException`` if no suitable interpreter is available.
     """
     requirements = get_python_requirements(version)
+    if python:
+        return _resolve_explicit_python(requirements, python, version)
     if requirements is None:
         # Unknown version: fall back to the running interpreter.
         current = _current_python_exe()
@@ -223,3 +227,59 @@ def resolve_python_for_odoo(version):
         "recommended": requirements["recommended"],
         "supported": requirements["supported"],
     }
+
+
+def _resolve_explicit_python(requirements, requested, odoo_version):
+    """Resolve an explicit ``--python`` request for *odoo_version*.
+
+    *requirements* is the ``get_python_requirements`` result for the Odoo
+    series, or None when the version is unknown — an explicit pick is then
+    accepted unchecked, like the running-interpreter fallback.
+    """
+    exe = _find_requested_python(requested)
+    if exe is None:
+        raise click.ClickException(
+            f"Could not find a Python interpreter for '{requested}'."
+        )
+    version = _interpreter_version(exe)
+    if version is None:
+        raise click.ClickException(f"Could not determine the version of {exe}.")
+    if requirements and version not in requirements["supported"]:
+        supported = ", ".join(requirements["supported"])
+        raise click.ClickException(
+            f"Python {version} is not supported for Odoo {odoo_version}. "
+            f"Supported versions: {supported}."
+        )
+    return {
+        "exe": exe,
+        "version": version,
+        "recommended": requirements["recommended"] if requirements else version,
+        "supported": requirements["supported"] if requirements else [version],
+    }
+
+
+def _find_requested_python(requested):
+    """Return the interpreter *requested* names, or None.
+
+    A ``major.minor`` version resolves like the automatic pick; anything
+    else is treated as a path or an executable name on ``PATH``.
+    """
+    if re.fullmatch(r"\d+\.\d+", requested):
+        return _find_python(requested)
+    candidate = Path(requested).expanduser()
+    if candidate.is_file():
+        return candidate
+    found = shutil.which(requested)
+    return Path(found) if found else None
+
+
+def _interpreter_version(exe):
+    """Return the ``major.minor`` version reported by *exe*, or None."""
+    try:
+        result = subprocess.run(
+            [str(exe), "--version"], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return None
+    match = re.search(r"(\d+\.\d+)", result.stdout + result.stderr)
+    return match.group(1) if match else None
