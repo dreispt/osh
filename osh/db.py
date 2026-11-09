@@ -348,19 +348,17 @@ def copy_db(base, from_db, to_db, ctx=None):
 
 
 def list_db_names(base, ctx=None):
-    """Return the names of existing non-template databases.
+    """Return this project's database names, like ``osh db list``.
 
-    Uses ``psql -l`` inside the runtime, like ``osh db list``. Returns an
-    empty list when the listing fails.
+    Runs ``psql -l`` inside the runtime and keeps only names under the
+    generated ``<project>-`` prefix, matching ``osh db list`` without
+    ``--all``. Returns an empty list when the listing fails.
     """
     returncode, stdout, _ = run_in_runtime(ctx, base, ["psql", "-l"])
     if returncode != 0:
         return []
-    return [
-        name
-        for name in _list_db_names(stdout)
-        if name not in ("template0", "template1")
-    ]
+    prefix = f"{sanitize_db_name(env_root(base).name)}-"
+    return [name for name in _list_db_names(stdout) if name.startswith(prefix)]
 
 
 def _psql_table_split(output):
