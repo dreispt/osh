@@ -314,7 +314,7 @@ class DoodbaRuntime(_docker_runtimes.DockerRuntime):
         else:
             d.add_plan("Compose file: use the detected Doodba dev file")
 
-    def _add_init_plans(self, todo):
+    def _add_init_plans(self, todo, **options):
         """Record the Doodba init steps."""
         todo.add_plan("Layout: verify or scaffold the Doodba project")
         todo.add_plan("Config: write .osh/docker.toml (Doodba conventions)")

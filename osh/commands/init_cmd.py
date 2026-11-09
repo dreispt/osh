@@ -708,7 +708,9 @@ def run_runtime_init(
         raise click.ClickException("\n".join(diagnostics.errors))
 
     todo = TodoPlan(diagnostics)
-    todo.execute_plan(runtime, runtime.name)
+    todo.execute_plan(
+        runtime, runtime.name, **{**options, "target": target, "version": version}
+    )
 
     confirmed = False
     if not dry_run and not assume_yes and todo.plan and sys.stdin.isatty():
@@ -758,9 +760,9 @@ class TodoPlan:
         """Record a planned action for the init process."""
         self.plan.append(item)
 
-    def execute_plan(self, runtime, runtime_name: str) -> None:
+    def execute_plan(self, runtime, runtime_name: str, **options) -> None:
         """Add runtime plans on top of the diagnostics plans and display them."""
-        runtime._add_init_plans(self)
+        runtime._add_init_plans(self, **options)
         # Display planned actions
         if self.plan:
             echo.info(f"Planned actions for {runtime_name}:")

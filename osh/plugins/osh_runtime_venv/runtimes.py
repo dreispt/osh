@@ -1,14 +1,19 @@
 """Virtualenv-managed runtime for Osh."""
 
 import re
+from pathlib import Path
 
 import click
 
 from ... import echo
 from ...common import env_root, get_venv_bin, run_subprocess, venv_env
 from ...runtimes import BuildInputs, HostRuntime
-from .python_versions import get_available_python_versions, get_python_requirements
-from .utils import init_project, resolve_installer
+from .python_versions import (
+    get_available_python_versions,
+    get_python_requirements,
+    resolve_python_for_odoo,
+)
+from .utils import init_project, resolve_installer, venv_python_version
 
 
 class VenvRuntime(HostRuntime):
@@ -154,10 +159,12 @@ class VenvRuntime(HostRuntime):
             return {}
         return {"venv": BuildInputs(paths=_requirement_files(base))}
 
-    def _add_init_plans(self, todo):
+    def _add_init_plans(self, todo, **options):
         """Record planned init actions (without doing work)."""
         todo.add_plan("Sources: resolve Odoo sources for the selected edition")
-        todo.add_plan("Virtualenv: create a Python virtualenv at .venv")
+        todo.add_plan(
+            f"Virtualenv: {_venv_python_plan(options.get('target'), options.get('version', ''), options.get('python'))}"
+        )
         todo.add_plan("Packages: install Odoo and requirements into the virtualenv")
         todo.add_plan("Smoke test: run an Odoo --version check")
 
@@ -229,3 +236,20 @@ def _requirement_files(base):
         if path.is_file()
     )
     return files
+
+
+def _venv_python_plan(target, version, python):
+    """Describe the Python the init plan will use for the virtualenv."""
+    if target is None:
+        return "create a Python virtualenv at .venv"
+    venv_path = Path(target) / ".venv"
+    if venv_path.is_dir():
+        py_version, py_exe = venv_python_version(venv_path)
+        if py_version:
+            return f"reuse the existing .venv (Python {py_version} at {py_exe})"
+        return "reuse the existing .venv"
+    resolved = resolve_python_for_odoo(version, python=python)
+    return (
+        f"create a Python {resolved['version']} virtualenv at .venv "
+        f"({resolved['exe']})"
+    )

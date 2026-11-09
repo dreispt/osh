@@ -203,7 +203,7 @@ class DockerRuntime(Runtime):
             base, compose_file or (cfg or {}).get("compose_file"), cfg=cfg
         )
 
-    def _add_init_plans(self, todo):
+    def _add_init_plans(self, todo, **options):
         """Record planned init actions (without doing work)."""
         todo.add_plan("Config: write .osh/docker.toml with service and compose tool")
         todo.add_plan("Sources: ensure Odoo sources for the selected edition")

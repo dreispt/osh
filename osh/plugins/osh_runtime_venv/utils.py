@@ -329,20 +329,33 @@ def _find_odoo_executable_in_venv(venv_path):
     return None
 
 
-def _report_venv_python(venv_path):
-    """Report the Python version and location inside *venv_path*."""
-    bin_dir = venv_path / "bin"
+def venv_python_version(venv_path):
+    """Return ``(version, exe)`` of the Python inside *venv_path*.
+
+    *version* is the full ``major.minor.micro`` string reported by
+    ``python --version``; either element is None when no interpreter is
+    found or its version cannot be determined.
+    """
+    bin_dir = Path(venv_path) / "bin"
     for name in ("python", "python3"):
         python = bin_dir / name
         if not python.is_file():
             continue
         returncode, stdout, _ = run_subprocess([str(python), "--version"])
-        if returncode == 0 and stdout.strip():
-            version = stdout.strip()
-            if version.lower().startswith("python "):
-                version = version[7:]
-            echo.info(f"Virtualenv Python {version} at {python}", err=True)
-        return
+        if returncode != 0 or not stdout.strip():
+            return None, python
+        version = stdout.strip()
+        if version.lower().startswith("python "):
+            version = version[7:]
+        return version, python
+    return None, None
+
+
+def _report_venv_python(venv_path):
+    """Report the Python version and location inside *venv_path*."""
+    version, python = venv_python_version(venv_path)
+    if version:
+        echo.info(f"Virtualenv Python {version} at {python}", err=True)
 
 
 def _get_venv_python(exe):
