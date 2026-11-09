@@ -655,6 +655,17 @@ def test_gitless_branch_is_default(tmp_project):
     assert resolve_db_name(tmp_project) == "project-default"
 
 
+def test_db_set_without_name_prompts_existing_database(tmp_project, pg_db, monkeypatch):
+    """`osh db set` without a name opens the database picker."""
+    existing = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: existing)
+    result = CliRunner().invoke(db, ["set"])
+    assert result.exit_code == 0, result.output
+    assert existing in result.output
+    assert get_project_config(tmp_project, "db", "default") == existing
+
+
 def test_db_set_gitless_uses_default_branch(tmp_project, monkeypatch):
     """`osh db set` in a git-less project maps the ``default`` branch."""
     monkeypatch.chdir(tmp_project)

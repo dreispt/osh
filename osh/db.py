@@ -675,15 +675,28 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
         set_last_db(base, db_name)
         return "copy", db_name
     if choice == "s":
-        selected = choose(
-            "Select a database:",
-            [(name, name) for name in db_names],
-            prompt="Database",
-            case_sensitive=False,
-        )
+        selected = choose_db_name(base, ctx=ctx, names=db_names)
         set_project_config(base, "db", branch, selected)
         return "use", selected
     return "create", db_name
+
+
+def choose_db_name(base, ctx=None, *, names=None):
+    """Interactively pick an existing database and return its name.
+
+    *names* may carry an already-fetched ``list_db_names`` result to avoid
+    listing twice.
+    """
+    if names is None:
+        names = list_db_names(base, ctx=ctx)
+    if not names:
+        raise click.ClickException("No databases found.")
+    return choose(
+        "Select a database:",
+        [(name, name) for name in names],
+        prompt="Database",
+        case_sensitive=False,
+    )
 
 
 def link_filestore(ctx, base, src_db, dst_db):
