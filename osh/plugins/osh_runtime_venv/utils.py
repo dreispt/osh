@@ -146,11 +146,10 @@ def _create_venv(venv_path, python, installer):
     """Create a virtualenv at *venv_path* using interpreter *python*.
 
     With the ``uv`` installer, ``uv venv`` creates it; the seed packages —
-    pip, and setuptools/wheel on Python <3.12 — are installed explicitly
-    afterwards so the venv ends up seeded like ``uv venv --seed`` and stays
-    usable by the pip installer too. With ``pip``, the standard ``venv``
-    module is used: ``venv.create`` when *python* is the running
-    interpreter, ``python -m venv`` otherwise.
+    pip, setuptools and wheel — are installed explicitly afterwards so the
+    venv ends up usable by the pip installer too. With ``pip``, the
+    standard ``venv`` module is used: ``venv.create`` when *python* is the
+    running interpreter, ``python -m venv`` otherwise.
     """
     if installer == "uv":
         returncode, _, _ = run_subprocess(
@@ -226,7 +225,10 @@ def _setup_environment(
         # Seed build helpers up front: ``uv venv`` ships no pip, and
         # ``python -m venv`` no longer bundles setuptools/wheel — sdists
         # need them to build and old Odoo needs ``pkg_resources``.
-        seed = ["setuptools", "wheel"]
+        # setuptools 81 removed ``pkg_resources`` entirely, which older
+        # Odoo releases still import at runtime; the ceiling applies
+        # universally since no series needs newer setuptools.
+        seed = ["setuptools<81", "wheel"]
         if installer == "uv":
             seed.insert(0, "pip")
         echo.info(
