@@ -161,3 +161,28 @@ def test_export_filestore_never_extracts_link_members(tmp_path, monkeypatch):
     assert (dest / "ok.txt").read_bytes() == b"ok"
     assert not (outside / "pwned.txt").exists()
     # The payload lands in a real directory, never through the skipped link.
+    assert (dest / "escape" / "pwned.txt").read_bytes() == b"pwned"
+
+
+def test_backup_get_odoosh_rejects_unsafe_backup_name(tmp_path, monkeypatch):
+    """``?backup=`` reaches the remote command line — metacharacters refused.
+
+    The name is interpolated into ssh/scp arguments evaluated by the
+    remote shell; anything outside a plain filename charset is rejected
+    before any command runs.
+    """
+    monkeypatch.chdir(tmp_path)
+    from osh.cli_utils import handler_command
+    from osh.plugins.osh_backup.backup_cmd import DbGet
+
+    get = handler_command("get", DbGet)
+    result = CliRunner().invoke(
+        get,
+        [
+            "odoosh://123@my-project-master-123.dev.odoo.com?backup=x;id.sql.gz",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Unsafe backup file name" in result.output
