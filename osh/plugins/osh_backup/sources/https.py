@@ -218,3 +218,7 @@ class HttpSource(HttpsSource):
     description = (
         "Download a backup from an Odoo /web/database/backup endpoint over HTTP."
     )
+    help_text = (
+        "Like https://, but unencrypted: the master password and the backup "
+        "contents travel in cleartext. Prefer https:// whenever possible."
+    )
