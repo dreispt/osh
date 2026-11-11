@@ -2,6 +2,7 @@
 
 import gzip
 import re
+import shlex
 import shutil
 import tempfile
 import zipfile
@@ -37,6 +38,9 @@ Use --ssh-key to authenticate with a specific private key.
     FILESTORE_DIR = "/home/odoo/data/filestore"
     BUILD_ID_RE = re.compile(r"-([0-9]+)(\.dev\.odoo\.com)?$", re.IGNORECASE)
     DB_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}-(.+)-\d+_daily\.sql\.gz$")
+    # Remote filenames land in an SSH remote command line — restrict them
+    # to a plain basename charset (covers odoo.sh daily dump names).
+    REMOTE_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
     def __init__(
         self,
@@ -118,6 +122,7 @@ Use --ssh-key to authenticate with a specific private key.
         if self._remote_file:
             return self._remote_file
         if self.backup_name:
+            self._check_remote_file(self.backup_name)
             self._remote_file = self.backup_name
             self._db_name = self._parse_db_name(self.backup_name)
             return self._remote_file
@@ -141,8 +146,17 @@ Use --ssh-key to authenticate with a specific private key.
             raise SourceError(f"No daily backups found in {self.BACKUP_DIR}.")
         files.sort()
         self._remote_file = files[-1]
+        self._check_remote_file(self._remote_file)
         self._db_name = self._parse_db_name(self._remote_file)
         return self._remote_file
+
+    @staticmethod
+    def _check_remote_file(remote_file):
+        """Reject remote filenames unsafe for the SSH command line."""
+        if not OdooshSource.REMOTE_FILE_RE.match(remote_file):
+            raise SourceError(
+                f"Unsafe backup file name '{remote_file}' on the remote host."
+            )
 
     def _parse_db_name(self, remote_file):
         match = self.DB_NAME_RE.match(remote_file)
@@ -184,7 +198,7 @@ Use --ssh-key to authenticate with a specific private key.
 
     def _download_filestore(self, filestore_dir):
         ssh_args = self._ssh_args()
-        remote_cmd = f"tar cz -C {self.FILESTORE_DIR} {self.db_name}"
+        remote_cmd = f"tar cz -C {self.FILESTORE_DIR} {shlex.quote(self.db_name)}"
         run_shell_pipeline(
             [
                 ["ssh", *ssh_args, self.ssh_target, remote_cmd],

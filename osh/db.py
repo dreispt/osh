@@ -284,6 +284,11 @@ def export_filestore(ctx, base, db_name, dest_dir):
                     continue
                 if member.name in ("", "."):
                     continue
+                # Only plain files and directories are extracted — link
+                # members (symlink/hardlink) could redirect a later member
+                # outside dest_dir.
+                if not (member.isfile() or member.isdir()):
+                    continue
                 tar.extract(member, dest_dir)
     return True
 

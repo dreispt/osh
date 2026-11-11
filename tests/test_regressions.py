@@ -90,3 +90,99 @@ def test_deleted_working_directory_reports_a_clean_error(tmp_path):
     assert result.returncode != 0
     assert "Traceback" not in result.stderr
     assert "no longer exists" in result.stderr
+
+
+def test_release_py_version_info_is_parsed_without_executing(tmp_path):
+    """Version detection parses ``version_info`` instead of exec'ing the file.
+
+    Odoo's ``release.py`` computes ``version`` from a ``version_info``
+    tuple. The file lives in a checkout that may come from an untrusted
+    source, so reading it must never execute code.
+    """
+    release = tmp_path / "odoo" / "odoo" / "release.py"
+    release.parent.mkdir(parents=True)
+    marker = tmp_path / "executed"
+    release.write_text(
+        "version_info = (18, 0, 0, FINAL, 0, '')\n"
+        f"open({str(marker)!r}, 'w').write('x')\n"
+    )
+
+    from osh.utils.version import detect_project_version
+
+    version, _source = detect_project_version(tmp_path)
+
+    assert version == "18.0"
+    assert not marker.exists()
+
+
+def test_export_filestore_never_extracts_link_members(tmp_path, monkeypatch):
+    """A filestore tar must not let link members write outside dest_dir.
+
+    ``export_filestore`` extracts the archive produced inside the runtime;
+    a corrupted or hostile tar could plant a symlink and then write
+    through it. Only regular files and directories are extracted.
+    """
+    import io
+    import tarfile
+
+    from osh import db as db_module
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        link = tarfile.TarInfo("escape")
+        link.type = tarfile.SYMTYPE
+        link.linkname = str(outside)
+        tar.addfile(link)
+        payload = b"pwned"
+        member = tarfile.TarInfo("escape/pwned.txt")
+        member.size = len(payload)
+        tar.addfile(member, io.BytesIO(payload))
+        ok = tarfile.TarInfo("ok.txt")
+        ok.size = 2
+        tar.addfile(ok, io.BytesIO(b"ok"))
+    tar_bytes = buf.getvalue()
+
+    monkeypatch.setattr(
+        db_module, "filestore_path", lambda base, name: "/nonexistent/fs"
+    )
+
+    def fake_run(ctx, base, argv, **kwargs):
+        kwargs["stdout"].write(tar_bytes)
+        kwargs["stdout"].flush()
+        return 0, "", ""
+
+    monkeypatch.setattr(db_module, "run_in_runtime", fake_run)
+
+    dest = tmp_path / "dest"
+    assert db_module.export_filestore(None, tmp_path, "mydb", dest)
+
+    assert (dest / "ok.txt").read_bytes() == b"ok"
+    assert not (outside / "pwned.txt").exists()
+    # The payload lands in a real directory, never through the skipped link.
+    assert (dest / "escape" / "pwned.txt").read_bytes() == b"pwned"
+
+
+def test_backup_get_odoosh_rejects_unsafe_backup_name(tmp_path, monkeypatch):
+    """``?backup=`` reaches the remote command line — metacharacters refused.
+
+    The name is interpolated into ssh/scp arguments evaluated by the
+    remote shell; anything outside a plain filename charset is rejected
+    before any command runs.
+    """
+    monkeypatch.chdir(tmp_path)
+    from osh.cli_utils import handler_command
+    from osh.plugins.osh_backup.backup_cmd import DbGet
+
+    get = handler_command("get", DbGet)
+    result = CliRunner().invoke(
+        get,
+        [
+            "odoosh://123@my-project-master-123.dev.odoo.com?backup=x;id.sql.gz",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Unsafe backup file name" in result.output
