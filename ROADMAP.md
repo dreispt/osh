@@ -9,15 +9,22 @@ This document tracks planned improvements and future development work for the Os
 
 ## Plugin test discovery
 
-- Move each plugin's tests into its own plugin directory (e.g. `osh/plugins/osh_runtime_docker/tests/`) instead of the top-level `tests/` directory, and add a mechanism to discover and run them — similar to what is already implemented in `dreispt/osh-contrib`.
-
-## Git worktree support
-
-Reuse the source repository's `.osh` environment when commands run from a linked git worktree; uninitialized submodules fall back to the source checkout's addons. Design: [docs/WORKTREES.md](docs/WORKTREES.md).
+Built-in plugin tests already live in their plugin directories
+(`osh/plugins/<plugin>/tests/`) and run under the same `pytest`
+invocation as the top-level suite. What remains is discovering and
+running tests shipped by third-party entry-point plugins — similar to
+what is already implemented in `dreispt/osh-contrib`.
 
 ## Multiple Odoo versions per environment
 
 Let one project carry several Odoo versions side by side and switch between them: `osh init -v 19.0` initialises a new version's environment, and `osh init -v 18.0` initialises or switches to another — each version keeps its own environment under a versioned `.osh/` subdir (`.osh/19.0`, `.osh/18.0`), with the venv moving inside it (`.osh/19.0/.venv`) instead of the project root. The recorded project version becomes per-branch state: a git branch maps to a database _and_ to an Odoo version, so `osh odoo` and `osh exec` resolve the binaries for the branch's target version. Existing projects need detection of the old flat `.osh/` layout versus the new versioned one, plus a migration path offered to the user (e.g. move `.venv` and friends under `.osh/<current-version>/` on the next `osh init`). Other open points: what else is per-version (`odoo.conf`, `docker.toml`, the active runtime, neutralize scripts) versus project-wide.
+
+## uv fallback for unpackagable sdists
+
+`uv pip install` rejects a few very old source distributions (e.g.
+`pypdf2==1.26.0`, tarballs without `ustar` headers) that `pip` handles
+fine. Today the docs suggest `--installer pip`; consider automatically
+retrying the requirements install with pip when uv fails on an sdist.
 
 ## Switch ports on Docker
 
