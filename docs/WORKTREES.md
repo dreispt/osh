@@ -90,8 +90,8 @@ $ osh apps update      # fingerprints and updates only changed modules
 Both sessions drive the same environment — same Odoo code, same venv,
 same stack — but run against `myproject-fix-portal-count` and
 `myproject-fix-customer-dedup` respectively. A nonexistent branch
-database triggers the usual prompt, including the option to copy the
-last used one.
+database triggers the usual prompt, including the options to copy the
+last used one (fast linked filestore, or a full independent copy).
 
 What's checkout-local vs. shared:
 

@@ -69,7 +69,9 @@ The first time `osh odoo` runs you'll notice you never named a database.
 `osh` derives one from the project directory and current git branch —
 `my-odoo-project-feature-x` — and injects it as both the `-d` argument
 and the `--db-filter`. If the database doesn't exist yet, you're asked
-whether to create it or reuse the last one.
+what to do: reuse the last one, create a new one, copy the last one —
+with its filestore linked for speed or fully copied for isolation — or
+pick any other database the project owns.
 
 Switch branches and the database name follows: `main` never touches
 `feature-x`'s data, and `feature-x` never boots against `main`'s stale
@@ -147,7 +149,10 @@ osh db exec pg_dump -Fc myproject-main > backup.dump
 
 `osh test` runs Odoo tests for the project's modules, chaining install
 and test runs. `osh db copy from_db to_db` clones a database when you
-want to experiment on a copy.
+want to experiment on a copy — the copy's filestore is linked onto the
+source's by default so attachments resolve right away
+(`--filestore copy` for an independent copy, `--filestore none` to
+leave it alone).
 
 ## Where the addons come from
 
