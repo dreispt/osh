@@ -4,7 +4,6 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from .. import echo
 from ..common import run_subprocess
 
 
@@ -78,19 +77,17 @@ def read_release_version(release_file):
 
     text = release_file.read_text()
 
-    # Real Odoo release.py computes `version` from `version_info`.  Execute it
-    # with a minimal builtins mapping so the computed value is available.
-    namespace = {"__builtins__": {"str": str}}
-    try:
-        exec(text, namespace)  # noqa: S102
-    except (SyntaxError, NameError, ValueError, TypeError, AttributeError) as exc:
-        echo.internal(f"Could not execute {release_file}: {exc}", err=True)
-    else:
-        version = namespace.get("version")
-        if version is not None:
-            return str(version)
+    # Real Odoo release.py computes ``version`` from ``version_info``
+    # (``version_info = (18, 0, 0, FINAL, 0, '')``). Parse the leading
+    # major/minor ints literally instead of executing the file — checkouts
+    # found under the project may come from untrusted sources.
+    match = re.search(r"^version_info\s*=\s*\(([^)]*)\)", text, re.MULTILINE)
+    if match:
+        numbers = re.findall(r"\d+", match.group(1))
+        if len(numbers) >= 2:
+            return ".".join(numbers[:2])
 
-    # Fallback for release files that simply set `version = "..."`.
+    # Simple checkouts may just set ``version = "..."``.
     match = re.search(
         r'^version\s*=\s*(["\'])([^"\']+)\1\s*(?:#.*)?$',
         text,

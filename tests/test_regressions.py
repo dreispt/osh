@@ -90,3 +90,26 @@ def test_deleted_working_directory_reports_a_clean_error(tmp_path):
     assert result.returncode != 0
     assert "Traceback" not in result.stderr
     assert "no longer exists" in result.stderr
+
+
+def test_release_py_version_info_is_parsed_without_executing(tmp_path):
+    """Version detection parses ``version_info`` instead of exec'ing the file.
+
+    Odoo's ``release.py`` computes ``version`` from a ``version_info``
+    tuple. The file lives in a checkout that may come from an untrusted
+    source, so reading it must never execute code.
+    """
+    release = tmp_path / "odoo" / "odoo" / "release.py"
+    release.parent.mkdir(parents=True)
+    marker = tmp_path / "executed"
+    release.write_text(
+        "version_info = (18, 0, 0, FINAL, 0, '')\n"
+        f"open({str(marker)!r}, 'w').write('x')\n"
+    )
+
+    from osh.utils.version import detect_project_version
+
+    version, _source = detect_project_version(tmp_path)
+
+    assert version == "18.0"
+    assert not marker.exists()
