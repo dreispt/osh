@@ -6,8 +6,30 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 1.15.0 — 2026-11-11
+
+Pick your database, pick your Python. `osh init venv` now shows you the
+exact interpreter and installer it will use before it touches anything,
+and keeps older Odoo projects working by giving new virtualenvs the
+packaging pieces they still need. And when a branch has no database
+yet, you can simply pick one from the list instead of starting from
+scratch — `osh db list` finally shows just your project's databases.
+Under the hood, this release also hardens backup restores and remote
+fetches against unsafe archive entries and file names.
+
 ### Added
 
+- Pick an existing database when a branch has none yet: the
+  missing-database prompt can now list the project's databases and let
+  you choose one, and the same picker is available any time with
+  `osh db set`. Only databases matching the project prefix are offered.
+  `osh db list` shows the same project-scoped view by default — pass
+  `--all` to see every database on the server.
+- Choose the Python interpreter for `osh init venv` with `--python`
+  (a `major.minor` version like `3.11`, or a path). The init plan now
+  shows the exact Python version and whether packages will be installed
+  with `uv` or `pip` before asking to proceed, and re-running init
+  reports the virtualenv's actual interpreter.
 - Stop an Odoo server left running on a port other than the configured
   one: `osh stop -p 8169` finds and stops it instead of reporting
   "Nothing to stop" — the case for servers started with `osh odoo -p`.
@@ -16,6 +38,12 @@ section collects the release notes for the next version as changes land on
 
 ### Changed
 
+- New virtualenvs come with `setuptools` and `wheel` preinstalled —
+  `setuptools` is kept below version 81 so older Odoo releases that
+  still rely on `pkg_resources` keep working.
+- When the package installer cannot handle a source package (for example
+  very old sdists), the output now suggests retrying with
+  `--installer pip`.
 - Odoo subcommands such as `osh odoo i18n export`, `shell` or `scaffold`
   no longer fail with `unrecognized arguments: --dev=all` — the dev-mode
   default is only added when starting a server.
@@ -25,6 +53,20 @@ section collects the release notes for the next version as changes land on
   offered a choice: close its connections for the fast clone, or keep
   them for the slower dump/restore copy — which now shows progress on
   both halves.
+
+### Fixed
+
+- `osh init venv` no longer reports the runtime as ready after a failed
+  package install — a later run retries the install instead of wrongly
+  skipping it.
+- Reading the Odoo version from a checkout no longer executes the
+  checkout's `release.py` file.
+- Restoring a filestore ignores archive entries that could write
+  outside the target directory.
+- `osh backup get odoosh://...?backup=` rejects remote file names that
+  are unsafe for the remote command line.
+- `osh backup get` over plain `http://` now warns in its help that the
+  master password and backup contents travel unencrypted.
 
 ### Removed
 
