@@ -226,6 +226,7 @@ def test_odoo_missing_db_prompt_new_runs(
     assert f"[u] Use the last used database '{previous}'" in result.output
     assert f"[n] New database '{missing}'" in result.output
     assert f"[c] Copy database '{missing}' from '{previous}'" in result.output
+    assert f"[f] Full copy '{missing}' from '{previous}'" in result.output
     assert len(capture_execvp) == 1
     # A not-yet-created database must not replace the recorded last used one.
     assert get_last_db(tmp_project) == previous
@@ -276,6 +277,54 @@ def test_odoo_missing_db_prompt_copy_last_db(
     assert get_last_db(tmp_project) == missing
     assert len(capture_execvp) == 1
     assert "--with-demo" not in capture_execvp[0][1]
+
+
+def test_odoo_missing_db_prompt_full_copy(
+    tmp_project,
+    monkeypatch,
+    fake_odoo_executable,
+    osh_source_dirs,
+    pg_db,
+    capture_execvp,
+    tmp_path,
+):
+    """Choosing ``[f]`` copies the database and its filestore for real.
+
+    Unlike ``[c]``'s shared symlink, the full copy gives the new database
+    an independent filestore directory.
+    """
+    from click.testing import _NamedTextIOWrapper
+
+    from osh.config import set_project_config
+    from osh.db import get_last_db
+
+    previous = pg_db.create()
+    missing = pg_db.name()
+    pg_db.track(missing)
+    set_project_config(
+        tmp_project,
+        "db",
+        values={"default": missing, "last_db": previous},
+    )
+    set_project_config(tmp_project, "init", "version", "19.0")
+    data_dir = tmp_path / "data"
+    source_store = data_dir / "filestore" / previous
+    source_store.mkdir(parents=True)
+    (source_store / "attachment.bin").write_text("x")
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
+    monkeypatch.setattr("click.prompt", lambda *a, **kw: "f")
+
+    result = CliRunner().invoke(odoo, [])
+
+    assert result.exit_code == 0, result.output
+    assert pg_db.exists(missing)
+    copied = data_dir / "filestore" / missing
+    assert copied.is_dir() and not copied.is_symlink()
+    assert (copied / "attachment.bin").exists()
+    assert get_last_db(tmp_project) == missing
+    assert len(capture_execvp) == 1
 
 
 def test_odoo_missing_db_prompt_use_last_db(

@@ -150,6 +150,15 @@ class Db(CommandHandler):
     @subcommand
     @click.argument("from_db")
     @click.argument("to_db")
+    @click.option(
+        "--filestore",
+        type=click.Choice(["link", "copy", "none"]),
+        default="link",
+        show_default=True,
+        help="What to do with the target's filestore: 'link' symlinks it "
+        "onto the source's (fast, shared), 'copy' gives the target its "
+        "own copy (slower, isolated), 'none' leaves it alone.",
+    )
     def copy(self):
         """Copy a PostgreSQL database to a new name, replacing the target if it exists.
 
@@ -158,15 +167,18 @@ class Db(CommandHandler):
         to close them for the fast clone or keep them and copy with
         ``pg_dump``/``pg_restore`` (which shows progress bars).
 
-        The new database's filestore is linked onto the source's, so
-        attachments — asset bundles, images — resolve without a rebuild.
+        The new database's filestore is linked onto the source's by
+        default, so attachments — asset bundles, images — resolve
+        without a rebuild. ``--filestore copy`` gives the target its own
+        independent copy instead (slower, isolated), and
+        ``--filestore none`` leaves the filestore alone.
         """
         self.base = find_project_root(required=True)
         from_name = sanitize_db_name(self.from_db)
         to_name = sanitize_db_name(self.to_db)
         if not db_exists(self.base, from_name, ctx=self.ctx):
             raise click.ClickException(f"Source database '{from_name}' does not exist.")
-        copy_db(self.base, from_name, to_name, ctx=self.ctx)
+        copy_db(self.base, from_name, to_name, ctx=self.ctx, filestore=self.filestore)
 
     @subcommand(
         name="exec",

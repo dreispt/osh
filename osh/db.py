@@ -318,6 +318,29 @@ def link_filestore(ctx, base, src_db, dst_db):
         echo.warning(f"could not link filestore for '{dst_db}': {stderr}")
 
 
+def copy_filestore(ctx, base, src_db, dst_db):
+    """Copy *src_db*'s filestore onto *dst_db*'s inside the runtime.
+
+    Best effort like ``link_filestore``: warns when the data dir cannot
+    be determined or the copy fails, and skips silently when the source
+    has no filestore. Unlike the link, the target gets its own
+    independent copy — slower and larger, but isolated from the source.
+    """
+    src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
+    if src is None:
+        echo.warning("could not determine Odoo data_dir; filestore not copied.")
+        return
+    returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", src])
+    if returncode != 0:
+        return
+    script = (
+        f"rm -rf {shlex.quote(dst)} && cp -Rp {shlex.quote(src)} {shlex.quote(dst)}"
+    )
+    returncode, _, stderr = run_in_runtime(ctx, base, ["sh", "-c", script])
+    if returncode != 0:
+        echo.warning(f"could not copy filestore for '{dst_db}': {stderr}")
+
+
 def db_exists(base, db_name, ctx=None, *, dry_run=False):
     """Return True if the PostgreSQL database exists.
 
@@ -351,7 +374,7 @@ def create_db(base, db_name, ctx=None):
         )
 
 
-def copy_db(base, from_db, to_db, ctx=None):
+def copy_db(base, from_db, to_db, ctx=None, *, filestore="link"):
     """Copy *from_db* to *to_db*, replacing the target if it exists.
 
     ``CREATE DATABASE ... TEMPLATE`` — a fast filesystem-level clone — is
@@ -360,8 +383,10 @@ def copy_db(base, from_db, to_db, ctx=None):
     ``pg_dump``/``pg_restore`` path — which streams through a host temp
     file so both halves show progress, and works on a live database.
 
-    The target's filestore is then linked onto the source's, so copied
-    attachments (asset bundles, images) resolve on the new database.
+    *filestore* controls what happens to the target's filestore:
+    ``"link"`` (default) symlinks it onto the source's so copied
+    attachments resolve immediately; ``"copy"`` gives the target its own
+    independent copy; ``"none"`` leaves it untouched.
     """
     if from_db == to_db:
         raise click.ClickException("Source and target database are the same.")
@@ -373,7 +398,10 @@ def copy_db(base, from_db, to_db, ctx=None):
     drop_db(base, to_db, ctx=ctx)
     if not fast_clone or not _template_copy(base, maintenance, from_db, to_db, ctx=ctx):
         _dump_restore_copy(base, from_db, to_db, ctx=ctx)
-    link_filestore(ctx, base, from_db, to_db)
+    if filestore == "link":
+        link_filestore(ctx, base, from_db, to_db)
+    elif filestore == "copy":
+        copy_filestore(ctx, base, from_db, to_db)
     echo.success(
         f"Copied database '{from_db}' to '{to_db}' "
         f"in {human_duration(time.monotonic() - started)}",
@@ -671,9 +699,9 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     Returns ``("use", last_db)`` when a database is picked — the branch is
     re-mapped to it — ``("create", db_name)`` for a new empty
     database, or ``("copy", db_name)`` after copying the last used database
-    (including a filestore symlink) onto *db_name*. The "create" database
-    itself is left for the caller (or Odoo) to create. ``[a] Abort`` raises
-    ``click.Abort``.
+    onto *db_name* — with its filestore linked (``[c]``) or fully copied
+    (``[f]``). The "create" database itself is left for the caller (or
+    Odoo) to create. ``[a] Abort`` raises ``click.Abort``.
     """
     last_db_exists = bool(last_db) and db_exists(base, last_db, ctx=ctx)
     db_names = list_db_names(base, ctx=ctx)
@@ -683,6 +711,13 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     options.append(("n", f"New database '{db_name}'"))
     if last_db_exists:
         options.append(("c", f"Copy database '{db_name}' from '{last_db}'"))
+        options.append(
+            (
+                "f",
+                f"Full copy '{db_name}' from '{last_db}' "
+                "(database + filestore copy)",
+            )
+        )
     if db_names:
         options.append(("s", "Select an existing database"))
     options.append(("a", "Abort"))
@@ -701,8 +736,14 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     if choice == "u":
         set_project_config(base, "db", branch, last_db)
         return "use", last_db
-    if choice == "c":
-        copy_db(base, last_db, db_name, ctx=ctx)
+    if choice in ("c", "f"):
+        copy_db(
+            base,
+            last_db,
+            db_name,
+            ctx=ctx,
+            filestore="copy" if choice == "f" else "link",
+        )
         set_last_db(base, db_name)
         return "copy", db_name
     if choice == "s":
