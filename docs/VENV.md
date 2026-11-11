@@ -59,6 +59,12 @@ remembered in `.osh/config.toml` and reused by later `osh init venv`
 runs; if a project built with uv is opened on a machine without it, init
 warns and falls back to pip.
 
+Very old sdists can also trip uv: `pypdf2==1.26.0` (resolved for older
+Odoo dependency sets) is a tarball without `ustar` headers that uv
+rejects with "Failed to download and build". If init fails that way,
+pass `--installer pip` (or set `OSH_VENV_INSTALLER=pip`) so it uses
+the classic `venv` + `pip` path.
+
 ## How commands run
 
 `osh odoo`, `osh exec`, `osh db` and `osh test` run on the host with the

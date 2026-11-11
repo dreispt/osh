@@ -1,14 +1,19 @@
 """Virtualenv-managed runtime for Osh."""
 
 import re
+from pathlib import Path
 
 import click
 
 from ... import echo
 from ...common import env_root, get_venv_bin, run_subprocess, venv_env
 from ...runtimes import BuildInputs, HostRuntime
-from .python_versions import get_available_python_versions, get_python_requirements
-from .utils import init_project, resolve_installer
+from .python_versions import (
+    get_available_python_versions,
+    get_python_requirements,
+    resolve_python_for_odoo,
+)
+from .utils import init_project, resolve_installer, venv_python_version
 
 
 class VenvRuntime(HostRuntime):
@@ -52,6 +57,15 @@ class VenvRuntime(HostRuntime):
                 "shares a cache across projects. 'auto' uses uv when it is on "
                 "PATH and pip otherwise (default). The choice is remembered "
                 "for later re-inits.",
+            ),
+            click.Option(
+                ["--python"],
+                envvar="OSH_VENV_PYTHON",
+                metavar="PYTHON",
+                help="Python interpreter for the virtualenv: a ``major.minor`` "
+                "version (e.g. ``3.11``) or a path/executable name. Must be a "
+                "supported version for the Odoo series. Defaults to the "
+                "recommended/supported automatic pick.",
             ),
         ]
 
@@ -145,11 +159,18 @@ class VenvRuntime(HostRuntime):
             return {}
         return {"venv": BuildInputs(paths=_requirement_files(base))}
 
-    def _add_init_plans(self, todo):
+    def _add_init_plans(self, todo, **options):
         """Record planned init actions (without doing work)."""
+        target = options.get("target")
+        installer = resolve_installer(target, options.get("installer"))
         todo.add_plan("Sources: resolve Odoo sources for the selected edition")
-        todo.add_plan("Virtualenv: create a Python virtualenv at .venv")
-        todo.add_plan("Packages: install Odoo and requirements into the virtualenv")
+        todo.add_plan(
+            f"Virtualenv: {_venv_python_plan(target, options.get('version', ''), options.get('python'))}"
+        )
+        todo.add_plan(
+            "Packages: install Odoo and requirements into the virtualenv "
+            f"with {installer}"
+        )
         todo.add_plan("Smoke test: run an Odoo --version check")
 
     def init(
@@ -165,7 +186,7 @@ class VenvRuntime(HostRuntime):
         if options.get("fingerprint") and not dry_run:
             echo.info("Updating the build-input fingerprint.", err=True)
             self._record_environment_fingerprints(target)
-        init_project(
+        result = init_project(
             target,
             version=version,
             edition=edition,
@@ -178,13 +199,14 @@ class VenvRuntime(HostRuntime):
             pins=options.get("pins"),
             todo=todo,
             installer=options.get("installer"),
+            python=options.get("python"),
             env_changed=lambda: bool(
                 self._environment_changes(target, missing_is_change=True)
             ),
         )
-        if not dry_run:
+        if not dry_run and result:
             self._record_environment_fingerprints(target)
-        return True
+        return result
 
     def odoo_command(self, base):
         """The venv always runs its own ``.venv/bin/odoo``."""
@@ -219,3 +241,20 @@ def _requirement_files(base):
         if path.is_file()
     )
     return files
+
+
+def _venv_python_plan(target, version, python):
+    """Describe the Python the init plan will use for the virtualenv."""
+    if target is None:
+        return "create a Python virtualenv at .venv"
+    venv_path = Path(target) / ".venv"
+    if venv_path.is_dir():
+        py_version, py_exe = venv_python_version(venv_path)
+        if py_version:
+            return f"reuse the existing .venv (Python {py_version} at {py_exe})"
+        return "reuse the existing .venv"
+    resolved = resolve_python_for_odoo(version, python=python)
+    return (
+        f"create a Python {resolved['version']} virtualenv at .venv "
+        f"({resolved['exe']})"
+    )

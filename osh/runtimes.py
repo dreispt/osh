@@ -153,11 +153,13 @@ class Runtime(ABC):
         """
         return None
 
-    def _add_init_plans(self, todo):
+    def _add_init_plans(self, todo, **options):
         """Add runtime-specific init plans to the TodoPlan.
 
         Runtimes can override this to add their own planned actions.
-        The default implementation adds no plans.
+        The default implementation adds no plans. *options* carries the
+        init parameters (``target``, ``version`` and the runtime's own
+        options) so plans can describe what will actually happen.
         """
         pass
 
@@ -621,7 +623,7 @@ class HostRuntime(Runtime):
             if not conf_path.is_file():
                 d.add_error(f"Odoo config file '{conf_option}' does not exist.")
 
-    def _add_init_plans(self, todo):
+    def _add_init_plans(self, todo, **options):
         """The ``host`` runtime manages no environment — nothing to install."""
         todo.add_plan(
             "Nothing to install: the 'host' runtime runs commands on the host"

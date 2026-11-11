@@ -642,15 +642,23 @@ def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
     make_odoo_source(tmp_project / "odoo")
     # Which interpreters exist is environment-dependent; this test is
     # about version recording, so pin the pick to the running Python.
+    # Both the init plan and the venv setup resolve through their own
+    # module-level import, so patch each one.
     running = f"{sys.version_info.major}.{sys.version_info.minor}"
-    monkeypatch.setattr(
-        "osh.plugins.osh_runtime_venv.utils.resolve_python_for_odoo",
-        lambda version, python=None: {
+
+    def resolve(version, python=None):
+        return {
             "exe": Path(sys.executable),
             "version": running,
             "recommended": running,
             "supported": [running],
-        },
+        }
+
+    monkeypatch.setattr(
+        "osh.plugins.osh_runtime_venv.utils.resolve_python_for_odoo", resolve
+    )
+    monkeypatch.setattr(
+        "osh.plugins.osh_runtime_venv.runtimes.resolve_python_for_odoo", resolve
     )
 
     result = CliRunner().invoke(
@@ -660,3 +668,158 @@ def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "Odoo 18.0" in result.output
     assert get_project_config(tmp_project, "init", "version") == "18.0"
+
+
+class TestPythonVersionResolution:
+    """Odoo series below 16 resolve a supported Python for the venv."""
+
+    def test_odoo_14_recommends_python_37(self):
+        """Odoo 14.0 maps to its documented Python 3.7+ requirement."""
+        from osh.plugins.osh_runtime_venv.python_versions import get_python_requirements
+
+        requirements = get_python_requirements("14.0")
+        assert requirements["recommended"] == "3.7"
+        assert "3.7" in requirements["supported"]
+        # A bare major version resolves the same series.
+        assert get_python_requirements("14")["recommended"] == "3.7"
+
+    def test_odoo_14_rejects_the_running_python(self, monkeypatch):
+        """An unsupported running interpreter is not silently reused for 14.0."""
+        import click
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        monkeypatch.setattr(python_versions, "_find_python", lambda *args: None)
+        with pytest.raises(click.ClickException, match="Python 3.7"):
+            python_versions.resolve_python_for_odoo("14.0")
+
+    def test_explicit_python_version_is_used(self, monkeypatch):
+        """``--python 3.10`` resolves that interpreter for Odoo 14.0."""
+        from pathlib import Path
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        monkeypatch.setattr(
+            python_versions,
+            "_find_python",
+            lambda version, *args: Path(f"/usr/bin/python{version}"),
+        )
+        monkeypatch.setattr(python_versions, "_interpreter_version", lambda exe: "3.10")
+        result = python_versions.resolve_python_for_odoo("14.0", python="3.10")
+        assert result["version"] == "3.10"
+        assert result["exe"] == Path("/usr/bin/python3.10")
+
+    def test_explicit_python_must_be_supported(self, monkeypatch):
+        """``--python`` rejects an interpreter outside the supported list."""
+        from pathlib import Path
+
+        import click
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        monkeypatch.setattr(
+            python_versions,
+            "_find_python",
+            lambda version, *args: Path(f"/usr/bin/python{version}"),
+        )
+        monkeypatch.setattr(python_versions, "_interpreter_version", lambda exe: "3.14")
+        with pytest.raises(click.ClickException, match="not supported"):
+            python_versions.resolve_python_for_odoo("14.0", python="3.14")
+
+    def test_explicit_python_missing_interpreter(self):
+        """``--python`` reports clearly when the interpreter does not exist."""
+        import click
+
+        from osh.plugins.osh_runtime_venv import python_versions
+
+        with pytest.raises(click.ClickException, match="Could not find"):
+            python_versions.resolve_python_for_odoo(
+                "14.0", python="/nonexistent/python3.7"
+            )
+
+    def test_reinit_reports_venv_python(self, tmp_project):
+        """Re-running ``osh init venv`` reports the venv's Python version/path."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        init = [
+            "init",
+            "venv",
+            "19.0",
+            str(tmp_project),
+            "-c",
+            str(odoo_src),
+        ]
+        runner = CliRunner()
+        assert runner.invoke(main, init).exit_code == 0
+
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert "Virtualenv Python" in result.output
+        assert ".venv" in result.output
+        # The plan reports the reuse instead of a fresh interpreter pick.
+        assert "reuse the existing .venv" in result.output
+
+    def test_init_plan_shows_python_version(self, tmp_project):
+        """The init plan names the Python version the venv will use."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        result = CliRunner().invoke(
+            main,
+            [
+                "init",
+                "venv",
+                "19.0",
+                str(tmp_project),
+                "-c",
+                str(odoo_src),
+            ],
+        )
+        assert result.exit_code == 0
+        assert "virtualenv at .venv (" in result.output
+
+    def test_init_rejects_unsupported_python(self, tmp_project):
+        """``--python`` fails init when the interpreter is not supported."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        result = CliRunner().invoke(
+            main,
+            [
+                "init",
+                "venv",
+                "14.0",
+                str(tmp_project),
+                "-c",
+                str(odoo_src),
+                "--python",
+                "3.14",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not supported" in result.output
+
+    def test_failed_install_does_not_skip_reinstall(self, tmp_project):
+        """A failed package install reports not-ready and retries on re-run."""
+        odoo_src = make_odoo_source(tmp_project / "odoo")
+        # An uninstallable project requirement makes the install step fail.
+        (tmp_project / "requirements.txt").write_text(
+            "osh-test-package-that-does-not-exist\n"
+        )
+        init = [
+            "init",
+            "venv",
+            "19.0",
+            str(tmp_project),
+            "-c",
+            str(odoo_src),
+        ]
+        runner = CliRunner()
+        result = runner.invoke(main, init)
+        # Init stays non-fatal but must not claim the runtime is ready.
+        assert result.exit_code == 0
+        assert "not ready" in result.output
+
+        # The failed run must not leave a fingerprint claiming the
+        # environment was built — the next init reinstalls.
+        (tmp_project / "requirements.txt").unlink()
+        result = runner.invoke(main, init)
+        assert result.exit_code == 0
+        assert "skipping reinstall" not in result.output
+        assert "Installing Odoo" in result.output
+        assert "is ready" in result.output
