@@ -347,6 +347,46 @@ def copy_db(base, from_db, to_db, ctx=None):
     )
 
 
+def list_db_names(base, ctx=None):
+    """Return this project's database names, like ``osh db list``.
+
+    Runs ``psql -l`` inside the runtime and keeps only names under the
+    generated ``<project>-`` prefix, matching ``osh db list`` without
+    ``--all``. Returns an empty list when the listing fails.
+    """
+    returncode, stdout, _ = run_in_runtime(ctx, base, ["psql", "-l"])
+    if returncode != 0:
+        return []
+    prefix = f"{sanitize_db_name(env_root(base).name)}-"
+    return [name for name in _list_db_names(stdout) if name.startswith(prefix)]
+
+
+def _psql_table_split(output):
+    """Split ``psql -l`` output at the ``---+---`` separator line.
+
+    Returns ``(lines, sep_index)``; *sep_index* is None when the output
+    does not look like a ``psql -l`` table.
+    """
+    lines = output.splitlines()
+    sep = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.strip() and set(line.strip()) <= {"-", "+"}
+        ),
+        None,
+    )
+    return lines, sep
+
+
+def _list_db_names(output):
+    """Return the database names listed in ``psql -l`` output."""
+    lines, sep = _psql_table_split(output)
+    if sep is None:
+        return []
+    return [line.split("|", 1)[0].strip() for line in lines[sep + 1 :] if "|" in line]
+
+
 def _maintenance_db(base, ctx=None):
     """Return a database name usable for maintenance queries, or None."""
     for name in ("postgres", "template1"):
@@ -594,25 +634,32 @@ def resolve_db_name_for_run(base, verbose=False, ctx=None, dry_run=False):
 def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
     """Prompt the user when the branch's database is missing.
 
-    Returns ``("use", last_db)`` when the last used database is picked — the
-    branch is re-mapped to it — ``("create", db_name)`` for a new empty
+    Returns ``("use", last_db)`` when a database is picked — the branch is
+    re-mapped to it — ``("create", db_name)`` for a new empty
     database, or ``("copy", db_name)`` after copying the last used database
     (including a filestore symlink) onto *db_name*. The "create" database
     itself is left for the caller (or Odoo) to create. ``[a] Abort`` raises
     ``click.Abort``.
     """
     last_db_exists = bool(last_db) and db_exists(base, last_db, ctx=ctx)
+    db_names = list_db_names(base, ctx=ctx)
     options = []
     if last_db_exists:
         options.append(("u", f"Use the last used database '{last_db}'"))
     options.append(("n", f"New database '{db_name}'"))
     if last_db_exists:
         options.append(("c", f"Copy database '{db_name}' from '{last_db}'"))
+    if db_names:
+        options.append(("s", "Select an existing database"))
     options.append(("a", "Abort"))
 
     echo.warning(f"Database '{db_name}' does not exist.")
     choice = choose(
-        None, options, default=options[0][0], prompt="Choice", case_sensitive=False
+        None,
+        options,
+        default=options[0][0],
+        prompt="Choice",
+        case_sensitive=False,
     )
 
     if choice == "a":
@@ -625,7 +672,29 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
         link_filestore(ctx, base, last_db, db_name)
         set_last_db(base, db_name)
         return "copy", db_name
+    if choice == "s":
+        selected = choose_db_name(base, ctx=ctx, names=db_names)
+        set_project_config(base, "db", branch, selected)
+        return "use", selected
     return "create", db_name
+
+
+def choose_db_name(base, ctx=None, *, names=None):
+    """Interactively pick an existing database and return its name.
+
+    *names* may carry an already-fetched ``list_db_names`` result to avoid
+    listing twice.
+    """
+    if names is None:
+        names = list_db_names(base, ctx=ctx)
+    if not names:
+        raise click.ClickException("No databases found.")
+    return choose(
+        "Select a database:",
+        [(name, name) for name in names],
+        prompt="Database",
+        case_sensitive=False,
+    )
 
 
 def link_filestore(ctx, base, src_db, dst_db):

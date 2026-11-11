@@ -615,6 +615,25 @@ def test_list_command_reports_missing_psql(tmp_project, monkeypatch):
     assert "psql" in result.output
 
 
+def test_resolve_db_name_for_run_tty_prompt_select_existing(
+    tmp_project, pg_db, monkeypatch
+):
+    """In TTY, the missing-db prompt can pick any existing database."""
+    import uuid
+
+    from osh.db import resolve_db_name_for_run
+
+    existing = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    missing = pg_db.name()
+    set_project_config(tmp_project, "db", "default", missing)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    answers = iter(["s", existing])
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: next(answers))
+    result = resolve_db_name_for_run(tmp_project, verbose=False)
+    assert result == existing
+    assert get_project_config(tmp_project, "db", "default") == existing
+
+
 def test_resolve_db_name_for_run_tty_prompt_abort(tmp_project, pg_db, monkeypatch):
     """In TTY, the missing-db prompt can be aborted without side effects."""
     from osh.db import resolve_db_name_for_run
@@ -636,6 +655,32 @@ def test_gitless_branch_is_default(tmp_project):
     # tmp_project's .git is an empty directory: not a usable repository.
     assert resolve_branch(tmp_project, None) == "default"
     assert resolve_db_name(tmp_project) == "project-default"
+
+
+def test_list_db_names_filters_to_project_prefix(tmp_project, pg_db):
+    """The database picker only offers names under the project prefix."""
+    import uuid
+
+    from osh.db import list_db_names
+
+    mine = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    pg_db.create()
+    names = list_db_names(tmp_project)
+    assert mine in names
+    assert all(name.startswith("project-") for name in names)
+
+
+def test_db_set_without_name_prompts_existing_database(tmp_project, pg_db, monkeypatch):
+    """`osh db set` without a name opens the database picker."""
+    import uuid
+
+    existing = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr("click.prompt", lambda *args, **kwargs: existing)
+    result = CliRunner().invoke(db, ["set"])
+    assert result.exit_code == 0, result.output
+    assert existing in result.output
+    assert get_project_config(tmp_project, "db", "default") == existing
 
 
 def test_db_set_gitless_uses_default_branch(tmp_project, monkeypatch):

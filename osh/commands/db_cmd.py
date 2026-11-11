@@ -6,6 +6,9 @@ from .. import echo
 from ..cli_utils import handler_group
 from ..common import env_root, find_project_root
 from ..db import (
+    _list_db_names,
+    _psql_table_split,
+    choose_db_name,
     copy_db,
     db_exists,
     resolve_branch,
@@ -113,7 +116,7 @@ class Db(CommandHandler):
         return []
 
     @subcommand
-    @click.argument("db_name")
+    @click.argument("db_name", required=False)
     @click.option(
         "--branch",
         help="Branch to use the database for (defaults to current "
@@ -127,16 +130,20 @@ class Db(CommandHandler):
         branch fall back to the generated ``<project>-<branch>`` database name.
 
         The name is sanitized before it is stored to keep it safe for PostgreSQL
-        and Odoo's ``--db-filter``.
+        and Odoo's ``--db-filter``. When *db_name* is omitted, an interactive
+        picker lists the existing databases.
 
         Examples:
 
         \b
           osh db set myproject-main
+          osh db set
           osh db set myproject-shared --branch staging
           osh db set shared-db --branch "feature/*"
         """
         self.base = find_project_root(required=True)
+        if self.db_name is None:
+            self.db_name = choose_db_name(self.base, ctx=self.ctx)
         self.branch, self.value = _set_branch_db(self.base, self.db_name, self.branch)
         echo.success(f"Branch '{self.branch}' will use database '{self.value}'")
 
@@ -219,32 +226,6 @@ class Db(CommandHandler):
 
 
 db = handler_group("db", Db)
-
-
-def _psql_table_split(output):
-    """Split ``psql -l`` output at the ``---+---`` separator line.
-
-    Returns ``(lines, sep_index)``; *sep_index* is None when the output
-    does not look like a ``psql -l`` table.
-    """
-    lines = output.splitlines()
-    sep = next(
-        (
-            i
-            for i, line in enumerate(lines)
-            if line.strip() and set(line.strip()) <= {"-", "+"}
-        ),
-        None,
-    )
-    return lines, sep
-
-
-def _list_db_names(output):
-    """Return the database names listed in ``psql -l`` output."""
-    lines, sep = _psql_table_split(output)
-    if sep is None:
-        return []
-    return [line.split("|", 1)[0].strip() for line in lines[sep + 1 :] if "|" in line]
 
 
 def _filter_db_listing(output, prefix):

@@ -355,14 +355,15 @@ def test_odoo_port_in_use_points_at_stop_list(
     capture_execvp,
     held_port,
 ):
-    """A busy HTTP port fails fast and points at ``osh stop --list``."""
+    """A busy HTTP port fails fast and points at ``osh stop``."""
     monkeypatch.chdir(tmp_project)
     port = held_port()
     result = CliRunner().invoke(odoo, ["--http-port", str(port)])
 
     assert result.exit_code != 0
     assert f"Port {port} is already in use" in result.output
-    assert "osh stop --list" in result.output
+    assert f"osh stop -p {port}" in result.output
+    assert "--list" in result.output
     assert capture_execvp == []
 
 

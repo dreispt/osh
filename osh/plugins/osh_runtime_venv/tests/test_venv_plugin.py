@@ -1,6 +1,8 @@
 """Tests for the built-in venv runtime plugin."""
 
 import shutil
+import sys
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -634,10 +636,22 @@ class TestInitEdition:
         assert (target / ".osh" / "odoo").is_symlink()
 
 
-def test_runtime_init_reuses_recorded_version(tmp_project):
+def test_runtime_init_reuses_recorded_version(tmp_project, monkeypatch):
     """``osh init <name>`` resolves the version the same way."""
     set_project_config(tmp_project, "init", "version", "18.0")
     make_odoo_source(tmp_project / "odoo")
+    # Which interpreters exist is environment-dependent; this test is
+    # about version recording, so pin the pick to the running Python.
+    running = f"{sys.version_info.major}.{sys.version_info.minor}"
+    monkeypatch.setattr(
+        "osh.plugins.osh_runtime_venv.utils.resolve_python_for_odoo",
+        lambda version, python=None: {
+            "exe": Path(sys.executable),
+            "version": running,
+            "recommended": running,
+            "supported": [running],
+        },
+    )
 
     result = CliRunner().invoke(
         main, ["init", "venv", str(tmp_project), "--edition", "ce"]
