@@ -6,6 +6,13 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Changed
+
+- `osh db copy` now links the new database's filestore onto the
+  source's — copied attachments (asset bundles, images) resolve
+  immediately instead of leaving pages blank until Odoo rebuilds them.
+  The missing-database prompt's copy option shares the same behavior.
+
 ## 1.15.0 — 2026-11-11
 
 Pick your database, pick your Python. `osh init venv` now shows you the

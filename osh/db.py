@@ -293,6 +293,31 @@ def export_filestore(ctx, base, db_name, dest_dir):
     return True
 
 
+def link_filestore(ctx, base, src_db, dst_db):
+    """Symlink *dst_db*'s filestore onto *src_db*'s inside the runtime.
+
+    Best effort for database copies: warns when the data dir cannot be
+    determined or the link fails, and skips silently when the source has
+    no filestore. A relative target keeps the link valid on host and
+    container runtimes alike — the two directories always sit side by
+    side in the same filestore root. An existing *dst_db* filestore
+    (dangling when its database is missing) is replaced, matching
+    ``copy_db``'s replace-the-target semantics.
+    """
+    src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
+    if src is None:
+        echo.warning("could not determine Odoo data_dir; filestore not linked.")
+        return
+    returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", src])
+    if returncode != 0:
+        return
+    quoted_dst = shlex.quote(dst)
+    script = f"rm -rf {quoted_dst} && ln -s {shlex.quote(src_db)} {quoted_dst}"
+    returncode, _, stderr = run_in_runtime(ctx, base, ["sh", "-c", script])
+    if returncode != 0:
+        echo.warning(f"could not link filestore for '{dst_db}': {stderr}")
+
+
 def db_exists(base, db_name, ctx=None, *, dry_run=False):
     """Return True if the PostgreSQL database exists.
 
@@ -334,6 +359,9 @@ def copy_db(base, from_db, to_db, ctx=None):
     prompt on a TTY: either close them for the clone, or take the slower
     ``pg_dump``/``pg_restore`` path — which streams through a host temp
     file so both halves show progress, and works on a live database.
+
+    The target's filestore is then linked onto the source's, so copied
+    attachments (asset bundles, images) resolve on the new database.
     """
     if from_db == to_db:
         raise click.ClickException("Source and target database are the same.")
@@ -345,6 +373,7 @@ def copy_db(base, from_db, to_db, ctx=None):
     drop_db(base, to_db, ctx=ctx)
     if not fast_clone or not _template_copy(base, maintenance, from_db, to_db, ctx=ctx):
         _dump_restore_copy(base, from_db, to_db, ctx=ctx)
+    link_filestore(ctx, base, from_db, to_db)
     echo.success(
         f"Copied database '{from_db}' to '{to_db}' "
         f"in {human_duration(time.monotonic() - started)}",
@@ -674,7 +703,6 @@ def _prompt_for_missing_db(base, branch, db_name, last_db, ctx=None):
         return "use", last_db
     if choice == "c":
         copy_db(base, last_db, db_name, ctx=ctx)
-        link_filestore(ctx, base, last_db, db_name)
         set_last_db(base, db_name)
         return "copy", db_name
     if choice == "s":
@@ -700,31 +728,6 @@ def choose_db_name(base, ctx=None, *, names=None):
         prompt="Database",
         case_sensitive=False,
     )
-
-
-def link_filestore(ctx, base, src_db, dst_db):
-    """Symlink *dst_db*'s filestore onto *src_db*'s inside the runtime.
-
-    Best effort for the missing-database copy option: warns when the data
-    dir cannot be determined or the link fails, and skips silently when
-    the source has no filestore. A relative target keeps the link valid on
-    host and container runtimes alike — the two directories always sit
-    side by side in the same filestore root. An existing *dst_db*
-    filestore (dangling when its database is missing) is replaced,
-    matching ``copy_db``'s replace-the-target semantics.
-    """
-    src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
-    if src is None:
-        echo.warning("could not determine Odoo data_dir; filestore not linked.")
-        return
-    returncode, _, _ = run_in_runtime(ctx, base, ["test", "-d", src])
-    if returncode != 0:
-        return
-    quoted_dst = shlex.quote(dst)
-    script = f"rm -rf {quoted_dst} && ln -s {shlex.quote(src_db)} {quoted_dst}"
-    returncode, _, stderr = run_in_runtime(ctx, base, ["sh", "-c", script])
-    if returncode != 0:
-        echo.warning(f"could not link filestore for '{dst_db}': {stderr}")
 
 
 def _raise_missing_db_error(base, branch, db_name, last_db):

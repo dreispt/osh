@@ -157,6 +157,9 @@ class Db(CommandHandler):
         TEMPLATE``. When other sessions hold the source open, you are asked
         to close them for the fast clone or keep them and copy with
         ``pg_dump``/``pg_restore`` (which shows progress bars).
+
+        The new database's filestore is linked onto the source's, so
+        attachments — asset bundles, images — resolve without a rebuild.
         """
         self.base = find_project_root(required=True)
         from_name = sanitize_db_name(self.from_db)
