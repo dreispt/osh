@@ -277,6 +277,80 @@ def test_copy_db_rejects_same_source_and_target(tmp_project, pg_db):
     assert pg_db.exists(src)
 
 
+def test_copy_command_links_source_filestore(tmp_project, pg_db, monkeypatch, tmp_path):
+    """`osh db copy` links the target filestore onto the source's.
+
+    Copied attachment rows (asset bundles, images) resolve only when the
+    new database's filestore directory exists; the copy links it onto
+    the source's — the same behavior as the missing-database prompt.
+    """
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    data_dir = tmp_path / "data"
+    source_store = data_dir / "filestore" / src
+    source_store.mkdir(parents=True)
+    (source_store / "attachment.bin").write_text("x")
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", src, dst])
+
+    assert result.exit_code == 0, result.output
+    assert pg_db.exists(dst)
+    linked = data_dir / "filestore" / dst
+    assert linked.is_symlink() and linked.readlink().name == src
+    assert (linked / "attachment.bin").exists()
+
+
+def test_copy_command_filestore_copy_gives_independent_filestore(
+    tmp_project, pg_db, monkeypatch, tmp_path
+):
+    """`osh db copy --filestore copy` gives the target its own filestore.
+
+    Unlike the default link, the copy is a real directory — attachments
+    written through the new database never touch the source's files.
+    """
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    data_dir = tmp_path / "data"
+    source_store = data_dir / "filestore" / src
+    source_store.mkdir(parents=True)
+    (source_store / "attachment.bin").write_text("x")
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", src, dst, "--filestore", "copy"])
+
+    assert result.exit_code == 0, result.output
+    assert pg_db.exists(dst)
+    copied = data_dir / "filestore" / dst
+    assert copied.is_dir() and not copied.is_symlink()
+    assert (copied / "attachment.bin").read_text() == "x"
+
+
+def test_copy_command_filestore_none_leaves_target_empty(
+    tmp_project, pg_db, monkeypatch, tmp_path
+):
+    """`osh db copy --filestore none` skips the filestore entirely."""
+    src = pg_db.create()
+    dst = pg_db.name()
+    pg_db.track(dst)
+    data_dir = tmp_path / "data"
+    source_store = data_dir / "filestore" / src
+    source_store.mkdir(parents=True)
+    (source_store / "attachment.bin").write_text("x")
+    (tmp_project / ".odoorc").write_text(f"[options]\ndata_dir = {data_dir}\n")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", src, dst, "--filestore", "none"])
+
+    assert result.exit_code == 0, result.output
+    assert pg_db.exists(dst)
+    assert not (data_dir / "filestore" / dst).exists()
+
+
 @contextlib.contextmanager
 def _spy_db_tools(monkeypatch):
     """Record ``(argv, kwargs)`` passed to ``osh.db.run_in_runtime``."""

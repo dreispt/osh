@@ -6,6 +6,15 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Changed
+
+- `osh db copy` now takes care of the new database's filestore:
+  `--filestore link` (the default) symlinks it onto the source's so
+  copied attachments (asset bundles, images) resolve immediately,
+  `--filestore copy` gives the target its own independent copy, and
+  `--filestore none` skips it. The missing-database prompt offers the
+  same choice — `[c]` for the fast linked copy, `[f]` for a full copy.
+
 ## 1.15.0 — 2026-11-11
 
 Pick your database, pick your Python. `osh init venv` now shows you the
