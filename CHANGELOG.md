@@ -18,6 +18,10 @@ section collects the release notes for the next version as changes land on
   `--help`/`--dry-run`/`--verbose` discovery path and points at
   `osh skill`.
 
+- `osh init info` reports the environment Osh has resolved for the
+  project — roots, runtime, Odoo version/edition, the branch's
+  database, config file paths and the venv interpreter — in one
+  read-only call, with `--json` for machine-readable output.
 - `--json` flags on `osh db show`, `osh db list`, `osh config show`,
   `osh backup list` and `osh stop --list` emit stable JSON on stdout
   for scripts and AI agents.

@@ -1338,3 +1338,36 @@ def test_dash_c_missing_directory_is_an_error(tmp_path):
 
     assert result.exit_code != 0
     assert "Cannot change to directory" in result.output
+
+
+def test_init_info_reports_resolved_facts(tmp_project, monkeypatch):
+    """`osh init info` prints the resolved environment as key/value lines."""
+    set_project_config(tmp_project, "init", "version", "19.0")
+    set_project_config(tmp_project, "init", "edition", "ce")
+    set_project_config(tmp_project, "db", "default", "mydb")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(main, ["init", "info"])
+
+    assert result.exit_code == 0, result.output
+    assert f"project: {tmp_project}" in result.output
+    assert "runtime: host" in result.output
+    assert "odoo_version: 19.0" in result.output
+    assert "database: mydb" in result.output
+
+
+def test_init_info_json(tmp_project, monkeypatch):
+    """`osh init info --json` emits the same facts as a JSON document."""
+    set_project_config(tmp_project, "init", "version", "19.0")
+    set_project_config(tmp_project, "db", "default", "mydb")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(main, ["init", "info", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["project"] == str(tmp_project)
+    assert payload["runtime"] == "host"
+    assert payload["odoo_version"] == "19.0"
+    assert payload["database"] == "mydb"
+    assert payload["config_file"].endswith(".osh/config.toml")

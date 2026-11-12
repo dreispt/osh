@@ -58,6 +58,7 @@ from ..utils.plugin_loader import get_runtime_class, runtime_meta
 from ..utils.version import KNOWN_ODOO_SERIES, detect_project_version
 from .extra_addons_cmd import extra_addons
 from .helpers import Diagnostics
+from .init_info_cmd import info
 
 
 class Init(CommandHandler):
@@ -470,6 +471,7 @@ def _runtime_init_help(name):
 
 init = handler_command_group("init", Init, group_cls=RuntimeInitGroup)
 init.add_command(extra_addons)
+init.add_command(info)
 
 
 def _status_report(ctx, target):
