@@ -151,10 +151,11 @@ osh db exec pg_dump -Fc myproject-main > backup.dump
 and test runs. `osh db copy from_db to_db` clones a database when you
 want to experiment on a copy — `--to-current` targets the current
 branch's database and `--from-current` snapshots it, so neither side
-needs its generated name typed out. The copy's filestore is linked
-onto the source's by default so attachments resolve right away
-(`--filestore copy` for an independent copy, `--filestore none` to
-leave it alone).
+needs its generated name typed out. An existing target is only replaced
+with `--force` (or after confirmation) — never silently. The copy's
+filestore is linked onto the source's by default so attachments resolve
+right away (`--filestore copy` for an independent copy,
+`--filestore none` to leave it alone).
 
 ## Where the addons come from
 
