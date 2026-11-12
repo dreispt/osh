@@ -22,6 +22,9 @@ section collects the release notes for the next version as changes land on
   `osh db copy prod-dump --to-current` seeds the branch's database
   without typing its generated name. A lone positional fills whichever
   side no flag claimed; conflicting or missing sides are usage errors.
+- `osh db copy` no longer replaces an existing target silently: a TTY
+  asks first, a pipe fails with instructions, `--no-input` exits 3, and
+  `--force` skips the check — matching `db drop`/`backup restore`.
 
 - `osh init info` reports the environment Osh has resolved for the
   project — roots, runtime, Odoo version/edition, the branch's
