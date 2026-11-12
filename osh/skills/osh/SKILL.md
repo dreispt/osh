@@ -46,7 +46,8 @@ and diagnose instead of guessing.
    and 2 (usage), so you know to supply the missing input or flags.
 2. **Machine-readable output.** Read-only commands offer `--json`
    (`db show`, `db list`, `config show`, `backup list`,
-   `stop --list`, `init info`) — prefer it over parsing human text.
+   `backup remote list`, `stop --list`, `init info`,
+   `init extra-addons list`) — prefer it over parsing human text.
    `osh init info` reports the resolved environment (roots, runtime,
    version, database, config paths) in one call, and `osh -C DIR` runs
    any command from another directory.

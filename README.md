@@ -31,6 +31,7 @@ Docker) so `osh odoo` just works.
 > **Note:** `osh` is not related to or affiliated with Odoo S.A. or its `odoo.sh` service.
 
 **Contents:** [Quick start](#quick-start) · [Guide](docs/GETTING-STARTED.md) · [Commands](#commands) ·
+[Scripting](docs/SCRIPTING.md) ·
 [Runtimes](#runtimes) · [Design principles](#design-principles) ·
 [Plugins](#plugins) · [Contributing](#contributing) · [License](#license)
 

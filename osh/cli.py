@@ -142,6 +142,10 @@ def main(ctx, silent, verbose, debug, no_input, directories):  # noqa: D401
     do. `--verbose` prints the commands being run, `--debug` adds exit
     codes and timing — use them to diagnose failures.
 
+    Exit codes: 0 success, 1 error/abort, 2 usage error, 3 interactive
+    input required (`--no-input` / `OSH_NO_INPUT`). See
+    docs/SCRIPTING.md for the scripting contract.
+
     Plugins add commands and runtimes; they are Python packages installed
     into the osh environment (e.g. `pipx inject osh osh-contrib`, or
     `pip install` when osh was installed with pip). See docs/PLUGINS.md for
