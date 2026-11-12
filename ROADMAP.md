@@ -19,9 +19,11 @@ Remaining gaps:
 - **`stop --list --all --json`.** The structured report is per-project
   today; aggregating it across projects is doable if agents ever manage
   more than one.
-- **`osh doctor` with `--json`.** The revived doctor (see below) doubles
-  as the agent health check — worth giving it `--json` output from the
-  start.
+- **`osh doctor` with `--json`.** `osh init info` already covers the
+  read side (resolved facts); a revived doctor would add live health
+  checks on top — venv Python runs, Postgres reachable, `odoo.conf`
+  parses, Docker daemon up, addons paths resolve — reusing the
+  `Runtime.diagnose` machinery. Worth `--json` output from the start.
 
 ## Plugin API improvements
 
