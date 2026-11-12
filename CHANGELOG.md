@@ -17,6 +17,11 @@ section collects the release notes for the next version as changes land on
   opencode, gemini, copilot). `osh --help` now also explains the
   `--help`/`--dry-run`/`--verbose` discovery path and points at
   `osh skill`.
+- `osh db copy` accepts `--from-current` and `--to-current` to use the
+  current branch's resolved database as the copy source or target, so
+  `osh db copy prod-dump --to-current` seeds the branch's database
+  without typing its generated name. A lone positional fills whichever
+  side no flag claimed; conflicting or missing sides are usage errors.
 
 ## 1.15.1 — 2026-11-12
 

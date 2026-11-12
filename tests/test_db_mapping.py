@@ -204,6 +204,53 @@ def test_copy_command_refuses_missing_source(tmp_project, pg_db, monkeypatch):
     assert "Source database" in result.output
 
 
+def test_copy_to_current_targets_the_branch_database(tmp_project, pg_db, monkeypatch):
+    """`osh db copy SRC --to-current` copies onto the branch's resolved db."""
+    src = pg_db.create()
+    target = resolve_db_name(tmp_project)
+    pg_db.track(target)
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", src, "--to-current"])
+
+    assert result.exit_code == 0
+    assert f"Copied database '{src}' to '{target}'" in result.output
+    assert pg_db.exists(target)
+
+
+def test_copy_from_current_uses_the_branch_database(tmp_project, pg_db, monkeypatch):
+    """`osh db copy --from-current DST` snapshots the branch's database."""
+    src = resolve_db_name(tmp_project)
+    pg_db.track(src)
+    pg_db.create(src)
+    dst = pg_db.name()
+    pg_db.track(dst)
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", "--from-current", dst])
+
+    assert result.exit_code == 0
+    assert f"Copied database '{src}' to '{dst}'" in result.output
+    assert pg_db.exists(dst)
+
+
+def test_copy_current_flags_reject_ambiguous_targets(tmp_project, pg_db, monkeypatch):
+    """Conflicting or incomplete --*-current/positional combos are usage errors."""
+    monkeypatch.chdir(tmp_project)
+    runner = CliRunner()
+    name = pg_db.name()
+    for args in (
+        ["copy"],
+        ["copy", "--to-current"],
+        ["copy", "--from-current"],
+        ["copy", "--from-current", "--to-current"],
+        ["copy", name, "other", "--from-current"],
+        ["copy", name, "other", "--to-current"],
+    ):
+        result = runner.invoke(db, args)
+        assert result.exit_code == 2, args
+
+
 def test_copy_db_open_connection_non_tty_uses_dump_restore(
     tmp_project, pg_db, monkeypatch
 ):
