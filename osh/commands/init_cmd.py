@@ -30,6 +30,7 @@ from ..cli_utils import (
     handler_command_group,
     merge_options,
     param_values,
+    require_input,
 )
 from ..common import (
     env_root,
@@ -608,8 +609,10 @@ def resolve_init_inputs(
             f"'{target}' is not a git repository. "
             "It is recommended to initialise Osh inside a git project."
         )
-        if not assume_yes and not click.confirm("Continue anyway?", default=False):
-            raise click.ClickException("Aborted.")
+        if not assume_yes:
+            require_input("the 'Continue anyway?' confirmation")
+            if not click.confirm("Continue anyway?", default=False):
+                raise click.ClickException("Aborted.")
 
     if ctx.get_parameter_source("edition") == click.core.ParameterSource.DEFAULT:
         edition = _default_edition(target) or edition
@@ -716,6 +719,7 @@ def run_runtime_init(
 
     confirmed = False
     if not dry_run and not assume_yes and todo.plan and sys.stdin.isatty():
+        require_input("the 'Proceed with initialization?' confirmation")
         if not click.confirm("Proceed with initialization?", default=True):
             raise click.ClickException("Aborted.")
         confirmed = True
@@ -828,12 +832,10 @@ def _check_nesting(target, *, assume_yes, dry_run):
                 "A nested project gets its own environment, and commands "
                 "run inside it will no longer use the parent's."
             )
-            if (
-                not dry_run
-                and not assume_yes
-                and not click.confirm("Create a nested Osh project?", default=False)
-            ):
-                raise click.ClickException("Aborted.")
+            if not dry_run and not assume_yes:
+                require_input("the 'Create a nested Osh project?' confirmation")
+                if not click.confirm("Create a nested Osh project?", default=False):
+                    raise click.ClickException("Aborted.")
 
     if target == Path.home().resolve():
         echo.warning(
@@ -841,12 +843,10 @@ def _check_nesting(target, *, assume_yes, dry_run):
             "picked up by every directory under it that has no project of "
             "its own."
         )
-        if (
-            not dry_run
-            and not assume_yes
-            and not click.confirm("Initialise an Osh project here?", default=False)
-        ):
-            raise click.ClickException("Aborted.")
+        if not dry_run and not assume_yes:
+            require_input("the 'Initialise an Osh project here?' confirmation")
+            if not click.confirm("Initialise an Osh project here?", default=False):
+                raise click.ClickException("Aborted.")
 
     nested = find_nested_projects(target)
     if nested:
@@ -916,6 +916,7 @@ def _ask_version(detected):
     is an open value (``saas-19.4``-style branches included). Other
     terminals keep the plain free-text prompt.
     """
+    require_input("choosing the Odoo version")
     if not can_menu():
         if detected:
             return click.prompt("Odoo version", default=detected)

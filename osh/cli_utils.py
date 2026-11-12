@@ -2,8 +2,59 @@
 
 import inspect
 import json
+import os
 
 import click
+
+# Set by the root ``--no-input`` flag; ``OSH_NO_INPUT`` works without it.
+_no_input = False
+
+
+def set_no_input(enabled):
+    """Record whether interactive prompts are disabled for this process."""
+    global _no_input
+    _no_input = enabled
+
+
+def no_input():
+    """Return True when interactive prompts must not be shown.
+
+    True when ``osh --no-input`` was passed or ``OSH_NO_INPUT`` is set to
+    a truthy value (anything but empty, ``0``, ``false`` or ``no``).
+    """
+    if _no_input:
+        return True
+    return os.environ.get("OSH_NO_INPUT", "").strip().lower() not in (
+        "",
+        "0",
+        "false",
+        "no",
+    )
+
+
+class InputRequired(click.ClickException):
+    """Raised when a command needs interactive input that is disabled.
+
+    Exits with code 3 — distinct from 1 (error/abort) and 2 (usage) — so
+    scripts and agents can tell "supply the missing input or flags" apart
+    from an actual failure.
+    """
+
+    exit_code = 3
+
+
+def require_input(what):
+    """Raise :class:`InputRequired` when prompts are disabled.
+
+    *what* names the decision being asked, e.g. ``"the 'Proceed?'
+    confirmation"`` — it appears in the error message so the caller knows
+    which flag or answer to supply.
+    """
+    if no_input():
+        raise InputRequired(
+            f"{what} requires interactive input, but input is disabled "
+            "(--no-input / OSH_NO_INPUT)."
+        )
 
 
 def emit_json(payload):

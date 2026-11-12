@@ -3,6 +3,7 @@
 import click
 
 from ... import echo
+from ...cli_utils import require_input
 from ...common import find_project_root
 from ...db import (
     db_exists,
@@ -67,6 +68,7 @@ class DbDrop(CommandHandler):
                 prompt = f"Drop database '{name}' and its filestore?"
             else:
                 prompt = f"Remove filestore for '{name}'?"
+            require_input(f"confirmation '{prompt}'")
             click.confirm(prompt, default=False, abort=True)
         if exists:
             drop_db(base, name, ctx=ctx)

@@ -28,6 +28,10 @@ section collects the release notes for the next version as changes land on
 - `osh -C DIR` (repeatable, like `git -C`) runs any command as if
   invoked from another directory — handy for agents that know the
   project path but are not inside it.
+- `osh --no-input` (or `OSH_NO_INPUT=1`) disables every interactive
+  prompt; a command that would ask now exits with code 3 — distinct
+  from 1 (error/abort) and 2 (usage error) — so scripts and agents can
+  tell "supply the missing input or flags" apart from a real failure.
 
 ## 1.15.1 — 2026-11-12
 

@@ -172,6 +172,20 @@ def osh_source_dirs(tmp_project):
 
 
 @pytest.fixture(autouse=True)
+def _reset_no_input():
+    """Keep the process-global ``--no-input`` state from leaking between tests.
+
+    ``osh --no-input`` sets a module flag in ``osh.cli_utils``; tests that
+    invoke subcommands directly (bypassing the root ``main`` callback)
+    would otherwise inherit it from an earlier ``main`` invocation.
+    """
+    yield
+    from osh import cli_utils
+
+    cli_utils.set_no_input(False)
+
+
+@pytest.fixture(autouse=True)
 def _free_odoo_http_port(monkeypatch):
     """Resolve the configured Odoo HTTP port to a free ephemeral port.
 

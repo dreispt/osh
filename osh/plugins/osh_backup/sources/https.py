@@ -9,6 +9,7 @@ import click
 
 from .... import echo
 from ....backup_sources import BackupSource, SourceError, now_stamp, safe_name
+from ....cli_utils import require_input
 from ....termui import choose
 
 
@@ -208,6 +209,7 @@ class HttpsSource(BackupSource):
         env_pwd = os.environ.get("ODOO_MASTER_PASSWORD")
         if env_pwd:
             return env_pwd
+        require_input("the remote Odoo master password")
         return click.prompt("Remote Odoo master password", hide_input=True, err=True)
 
 

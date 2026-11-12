@@ -160,3 +160,49 @@ def test_silent_and_verbose_map_to_levels(monkeypatch):
     runner.invoke(main, ["db"])
 
     assert seen == ["silent", "verbose", "debug", None]
+
+
+def test_no_input_flag_exits_3_when_a_prompt_is_needed(tmp_path):
+    """``osh --no-input`` turns a would-be prompt into exit code 3.
+
+    ``osh init`` on a non-git directory asks "Continue anyway?" — with
+    input disabled the command must fail with the dedicated exit code
+    instead of blocking on (or silently answering) the prompt.
+    """
+    target = tmp_path / "plain"
+    target.mkdir()
+
+    result = CliRunner().invoke(
+        main, ["--no-input", "init", "19.0", "--edition", "ce", str(target)]
+    )
+
+    assert result.exit_code == 3
+    assert "interactive input" in result.output
+    assert not (target / ".osh").exists()
+
+
+def test_osh_no_input_env_var_exits_3(monkeypatch, tmp_path):
+    """``OSH_NO_INPUT`` disables prompts without the CLI flag."""
+    monkeypatch.setenv("OSH_NO_INPUT", "1")
+    target = tmp_path / "plain"
+    target.mkdir()
+
+    result = CliRunner().invoke(main, ["init", "19.0", "--edition", "ce", str(target)])
+
+    assert result.exit_code == 3
+    assert "interactive input" in result.output
+
+
+def test_no_input_still_runs_commands_that_do_not_prompt():
+    """``--no-input`` only blocks prompts — quiet commands still work."""
+    result = CliRunner().invoke(main, ["--no-input", "skill"])
+
+    assert result.exit_code == 0
+
+
+def test_no_input_flag_works_after_the_subcommand():
+    """Click consumes root options interspersed, so ``--no-input`` may
+    trail the subcommand like any other global flag."""
+    result = CliRunner().invoke(main, ["skill", "--no-input"])
+
+    assert result.exit_code == 0
