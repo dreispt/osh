@@ -194,8 +194,19 @@ class Db(CommandHandler):
         echo.success(f"Branch '{self.branch}' will use database '{self.value}'")
 
     @subcommand
-    @click.argument("from_db")
-    @click.argument("to_db")
+    @click.argument("from_db", required=False)
+    @click.argument("to_db", required=False)
+    @click.option(
+        "--from-current",
+        is_flag=True,
+        help="Use the current branch's database as the copy source.",
+    )
+    @click.option(
+        "--to-current",
+        is_flag=True,
+        help="Use the current branch's database as the copy target — "
+        "the name 'osh db show' reports.",
+    )
     @click.option(
         "--filestore",
         type=click.Choice(["link", "copy", "none"]),
@@ -218,13 +229,61 @@ class Db(CommandHandler):
         without a rebuild. ``--filestore copy`` gives the target its own
         independent copy instead (slower, isolated), and
         ``--filestore none`` leaves the filestore alone.
+
+        Either side may be the current branch's database instead of a
+        typed name: ``--from-current`` snapshots it, ``--to-current``
+        seeds it (the target is created when missing).
         """
         self.base = find_project_root(required=True)
-        from_name = sanitize_db_name(self.from_db)
-        to_name = sanitize_db_name(self.to_db)
+        from_name, to_name = self._copy_targets()
         if not db_exists(self.base, from_name, ctx=self.ctx):
             raise click.ClickException(f"Source database '{from_name}' does not exist.")
         copy_db(self.base, from_name, to_name, ctx=self.ctx, filestore=self.filestore)
+
+    def _copy_targets(self):
+        """Resolve the ``db copy`` FROM/TO names.
+
+        Positional names are sanitised as before; ``--from-current`` /
+        ``--to-current`` substitute the current branch's resolved
+        database for that side. Conflicting or missing sides are usage
+        errors — there is no silent guessing of the target.
+        """
+        if self.from_current and self.to_current:
+            raise click.UsageError(
+                "--from-current and --to-current would copy the current "
+                "database onto itself."
+            )
+        from_arg, to_arg = self.from_db, self.to_db
+        if self.from_current and to_arg is None and from_arg is not None:
+            # ``db copy --from-current DST`` — the lone positional fills
+            # the unclaimed TO side even though it binds the FROM slot.
+            from_arg, to_arg = None, from_arg
+        if self.from_current and from_arg:
+            raise click.UsageError("'FROM' and --from-current are mutually exclusive.")
+        if self.to_current and to_arg:
+            raise click.UsageError("'TO' and --to-current are mutually exclusive.")
+        current = None
+        if self.from_current or self.to_current:
+            current = resolve_db_name(self.base, verbose=False)
+        from_name = (
+            current
+            if self.from_current
+            else sanitize_db_name(from_arg) if from_arg else None
+        )
+        to_name = (
+            current if self.to_current else sanitize_db_name(to_arg) if to_arg else None
+        )
+        missing = [
+            side for side, name in (("FROM", from_name), ("TO", to_name)) if not name
+        ]
+        if missing:
+            raise click.UsageError(
+                f"Missing {' and '.join(missing)}. Pass "
+                f"{'/'.join(missing)} explicitly or use "
+                "--from-current/--to-current for the current branch's "
+                "database."
+            )
+        return from_name, to_name
 
     @subcommand(
         name="exec",
