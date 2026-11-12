@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from ... import echo
+from ...cli_utils import require_input
 from ...common import run_command
 
 # Dev compose files a Doodba project carries, in precedence order.
@@ -81,6 +82,7 @@ def _scaffold_if_needed(
             "or pass --compose-file to an existing project."
         )
     if not (assume_yes or confirmed):
+        require_input("the 'Scaffold one with copier?' confirmation")
         if not click.confirm(
             f"This does not look like a Doodba project ({', '.join(missing)} "
             "missing). Scaffold one with copier?",

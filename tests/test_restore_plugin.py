@@ -188,6 +188,28 @@ def test_backup_list_cached_backups(in_project):
     assert "second.zip" not in result.output
 
 
+def test_backup_list_json(in_project):
+    """`osh backup list --json` emits cached backups as JSON."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dump = cache_dir / "first.dump"
+    dump.write_bytes(b"x")
+    Path(str(dump) + ".meta.json").write_text(
+        json.dumps({"source": "db://db1", "format": "dump", "created_at": "2026-01-01"})
+    )
+
+    result = CliRunner().invoke(backup_list, ["--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload["backups"]) == 1
+    entry = payload["backups"][0]
+    assert entry["filename"] == "first.dump"
+    assert entry["source"] == "db://db1"
+    assert entry["created_at"] == "2026-01-01"
+    assert entry["path"].endswith("first.dump")
+
+
 def test_restore_list_option_is_gone(in_project):
     """Listing moved to `osh backup list`; `restore --list` is rejected."""
     result = CliRunner().invoke(restore, ["--list"])

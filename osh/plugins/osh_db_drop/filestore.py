@@ -13,18 +13,24 @@ class DanglingFilestores(Db):
     filters what is displayed unless ``self.show_all`` is set.
     """
 
-    def extra_sections(self):
-        lines = list(super().extra_sections())
-        dangling = [
+    def _dangling_filestores(self):
+        return [
             name
             for name in list_filestore_dirs(self.ctx, self.base)
             if name not in self.db_names
             and (self.show_all or name.startswith(self.prefix))
         ]
+
+    def extra_sections(self):
+        lines = list(super().extra_sections())
+        dangling = self._dangling_filestores()
         if dangling:
             lines.append("Filestore directories without a database:")
             lines.extend(f"  {name}" for name in dangling)
         return lines
+
+    def extra_data(self):
+        return {"filestore_without_database": self._dangling_filestores()}
 
 
 def remove_filestore(ctx, base, db_name):

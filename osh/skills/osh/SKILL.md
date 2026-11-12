@@ -40,21 +40,30 @@ and diagnose instead of guessing.
 1. **Non-interactive first.** Many commands prompt (init plan,
    missing-database assistant, database picker). Prefer explicit flags and
    subcommands; only rely on prompts when a TTY is actually present.
-   `osh init --yes` skips confirmations.
-2. **Never drop databases or overwrite data without explicit user
+   `osh init --yes` skips confirmations. `osh --no-input` (or
+   `OSH_NO_INPUT=1`, works in any flag position) disables every prompt —
+   a command that would ask exits with code 3, distinct from 1 (error)
+   and 2 (usage), so you know to supply the missing input or flags.
+2. **Machine-readable output.** Read-only commands offer `--json`
+   (`db show`, `db list`, `config show`, `backup list`,
+   `stop --list`, `init info`) — prefer it over parsing human text.
+   `osh init info` reports the resolved environment (roots, runtime,
+   version, database, config paths) in one call, and `osh -C DIR` runs
+   any command from another directory.
+3. **Never drop databases or overwrite data without explicit user
    confirmation** for that exact operation. Describe the impact and wait
    for a yes first.
-3. **Filestore semantics matter.** Database copies link the filestore by
+4. **Filestore semantics matter.** Database copies link the filestore by
    default — fast, but source and copy share attachment files. An
    independent copy is isolated but slower; skipping the filestore leaves
    the copy without attachments. Pick the mode that matches the task.
-4. **Branch = database.** The database name derives from the project
+5. **Branch = database.** The database name derives from the project
    directory and current git branch. Switching branches switches
    databases — check which one you are on before reading or writing data.
-5. **Python compatibility.** Venv runtimes need a Python the project's
+6. **Python compatibility.** Venv runtimes need a Python the project's
    Odoo series supports; old Odoo may also need the `pip` installer for
    source packages that `uv` cannot extract. Both are selectable at init.
-6. **Stale-environment warnings** mean the environment predates config or
+7. **Stale-environment warnings** mean the environment predates config or
    source changes — re-running the runtime's init refreshes it.
 
 ## Databases follow branches — give each branch its own copy

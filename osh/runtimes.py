@@ -371,6 +371,18 @@ class Runtime(ABC):
         """
         return get_odoo_port(base)
 
+    def port_holder_entries(self, ctx, port, base):
+        """Return structured holder records for host *port*.
+
+        The machine-readable counterpart of :meth:`port_holders` —
+        ``osh stop --list --json`` consumes these. Each entry is a dict
+        carrying at least ``kind`` and ``description`` (the human line
+        :meth:`port_holders` prints) plus whatever fields the runtime
+        knows (pid, container name, owning project, ...). The default
+        reports no holders.
+        """
+        return []
+
     def port_holders(self, ctx, port, base):
         """Return report lines for this runtime's holders of host *port*.
 
@@ -379,9 +391,14 @@ class Runtime(ABC):
         Docker container publishing the port of a host-runtime project.
         *base* is the project asking: lines should name the owning
         resource and which ``osh stop`` invocation frees it. The default
-        reports no holders.
+        formats :meth:`port_holder_entries`; runtimes may override this
+        directly instead.
         """
-        return []
+        return [
+            entry["description"]
+            for entry in self.port_holder_entries(ctx, port, base)
+            if entry.get("description")
+        ]
 
     def stop(self, ctx, base, *, dry_run=False, **options):
         """Stop resources the runtime may have left running.
@@ -392,6 +409,17 @@ class Runtime(ABC):
         safe to run.
         """
         echo.info(f"Nothing to stop for the '{self.name}' runtime.", err=True)
+
+    def stop_report(self, ctx, base, **options):
+        """Return a structured description of what ``stop`` would remove.
+
+        ``osh stop --list --json`` asks the active runtime for this
+        instead of parsing the human ``stop(dry_run=True)`` output.
+        Runtimes return a JSON-serialisable dict — e.g. the project's
+        containers, listener processes, or compose project names — or
+        ``None`` when they have no structured report.
+        """
+        return None
 
     def stop_by_name(self, ctx, name, *, dry_run=False, **options):
         """Stop resources belonging to the Osh project named *name*.
@@ -741,32 +769,59 @@ class HostRuntime(Runtime):
                 f"(pid {pid})"
             )
 
-    def port_holders(self, ctx, port, base):
+    def port_holder_entries(self, ctx, port, base):
         """Report host processes listening on *port* and their owners."""
-        lines = []
+        entries = []
         for pid in _port_listeners(port):
             cmdline = _pid_command(pid) or "unknown"
             desc = f"'{cmdline}' (pid {pid})"
+            entry = {"kind": "process", "pid": pid, "command": cmdline}
             project = _pid_osh_project(pid)
             if project is not None:
+                entry["project"] = str(project)
                 if Path(project).resolve() == env_root(base).resolve():
                     desc += " — this project's Odoo process"
+                    entry["owner"] = "this_project"
                 else:
                     desc += (
                         f" — Osh project {project}; "
                         f"run 'osh stop {project}' to free it"
                     )
+                    entry["owner"] = "other_project"
             else:
                 cwd = _pid_cwd(pid)
                 if cwd:
                     desc += f" in {cwd}"
+                    entry["cwd"] = cwd
+                looks_like_odoo = _looks_like_odoo(cmdline)
                 desc += (
                     " — Odoo process not managed by Osh"
-                    if _looks_like_odoo(cmdline)
+                    if looks_like_odoo
                     else " — not an Odoo process"
                 )
-            lines.append(desc)
-        return lines
+                entry["looks_like_odoo"] = looks_like_odoo
+            entry["description"] = desc
+            entries.append(entry)
+        return entries
+
+    def stop_report(self, ctx, base, *, http_port=None, **options):
+        """Structured listing of the listeners ``stop`` would act on."""
+        port = http_port or self.odoo_port(base)
+        extra_names = self._odoo_process_names(base)
+        listeners = []
+        for pid in _port_listeners(port):
+            cmdline = _pid_command(pid)
+            listeners.append(
+                {
+                    "pid": pid,
+                    "command": cmdline or "unknown",
+                    "cwd": _pid_cwd(pid),
+                    "looks_like_odoo": _looks_like_odoo(
+                        cmdline, extra_names=extra_names
+                    ),
+                }
+            )
+        return {"port": port, "listeners": listeners}
 
     def stop_all(self, ctx, *, dry_run=False, **options):
         """Stop every Osh-managed Odoo process found on this host.

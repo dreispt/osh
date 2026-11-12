@@ -16,6 +16,7 @@ import threading
 import click
 
 from . import echo
+from .cli_utils import InputRequired, no_input
 
 if os.name == "posix":
     import termios
@@ -69,6 +70,11 @@ def choose(
     are listed once and answered by typing a key or a number, exactly the
     prompt this replaces.
     """
+    if no_input():
+        raise InputRequired(
+            f"Selection '{title or prompt}' requires interactive input, "
+            "but input is disabled (--no-input / OSH_NO_INPUT)."
+        )
     keys = [key for key, _ in options]
     if can_menu():
         index = keys.index(default) if default in keys else 0

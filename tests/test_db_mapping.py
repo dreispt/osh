@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib
+import json
 import shutil
 import subprocess
 import time
@@ -773,6 +774,34 @@ def test_db_show_gitless_reports_default(tmp_project, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "Branch:   default" in result.output
     assert "Database: project-default" in result.output
+
+
+def test_db_show_json(tmp_project, monkeypatch):
+    """`osh db show --json` emits the branch/database facts as JSON."""
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(db, ["show", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "branch": "default",
+        "database": "project-default",
+        "exists": False,
+    }
+
+
+def test_list_command_json(tmp_project, pg_db, monkeypatch):
+    """`osh db list --json` emits the project databases as JSON."""
+    import uuid
+
+    matching = pg_db.create(f"project-{uuid.uuid4().hex[:12]}")
+    pg_db.create()
+    monkeypatch.chdir(tmp_project)
+    result = CliRunner().invoke(db, ["list", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["project"] == "project"
+    assert payload["prefix"] == "project-"
+    assert payload["all"] is False
+    assert payload["databases"] == [matching]
 
 
 @requires_git

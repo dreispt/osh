@@ -240,6 +240,13 @@ def confirm(message, default=True, abort=False):
     """
     import sys
 
+    from .cli_utils import InputRequired, no_input
+
+    if no_input():
+        raise InputRequired(
+            f"Confirmation '{message}' requires interactive input, "
+            "but input is disabled (--no-input / OSH_NO_INPUT)."
+        )
     if not sys.stdin.isatty():
         # Non-interactive mode, return default
         return default

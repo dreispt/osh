@@ -18,6 +18,21 @@ section collects the release notes for the next version as changes land on
   `--help`/`--dry-run`/`--verbose` discovery path and points at
   `osh skill`.
 
+- `osh init info` reports the environment Osh has resolved for the
+  project — roots, runtime, Odoo version/edition, the branch's
+  database, config file paths and the venv interpreter — in one
+  read-only call, with `--json` for machine-readable output.
+- `--json` flags on `osh db show`, `osh db list`, `osh config show`,
+  `osh backup list` and `osh stop --list` emit stable JSON on stdout
+  for scripts and AI agents.
+- `osh -C DIR` (repeatable, like `git -C`) runs any command as if
+  invoked from another directory — handy for agents that know the
+  project path but are not inside it.
+- `osh --no-input` (or `OSH_NO_INPUT=1`) disables every interactive
+  prompt; a command that would ask now exits with code 3 — distinct
+  from 1 (error/abort) and 2 (usage error) — so scripts and agents can
+  tell "supply the missing input or flags" apart from a real failure.
+
 ## 1.15.1 — 2026-11-12
 
 A small bug-fix release: databases copied with `osh db copy` now come
