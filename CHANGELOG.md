@@ -6,14 +6,26 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 1.15.1 — 2026-11-12
+
+A small bug-fix release: databases copied with `osh db copy` now come
+with their files attached, so images and asset bundles show up
+immediately instead of leaving the copy looking blank.
+
+### Fixed
+
+- `osh db copy` (and the copy option in the missing-database prompt)
+  now takes care of the new database's filestore, so attachments —
+  asset bundles, images — resolve right away instead of the copied
+  database rendering blank pages.
+
 ### Changed
 
-- `osh db copy` now takes care of the new database's filestore:
-  `--filestore link` (the default) symlinks it onto the source's so
-  copied attachments (asset bundles, images) resolve immediately,
-  `--filestore copy` gives the target its own independent copy, and
-  `--filestore none` skips it. The missing-database prompt offers the
-  same choice — `[c]` for the fast linked copy, `[f]` for a full copy.
+- `osh db copy` gained `--filestore` to choose how the copy gets its
+  files: `link` (the default) symlinks the filestore onto the source's
+  for speed, `copy` gives the target its own independent copy, and
+  `none` skips it. The missing-database prompt offers the same choice
+  — `[c]` for the fast linked copy, `[f]` for a full copy.
 
 ## 1.15.0 — 2026-11-11
 
