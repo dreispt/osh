@@ -6,7 +6,7 @@ Odoo project, see `README.md`. If you want to extend `osh` with plugins, see
 
 ## Prerequisites
 
-- Python 3.8 or later
+- Python 3.10 or later
 - `git`
 - `pip` and `venv`
 
