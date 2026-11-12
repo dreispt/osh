@@ -71,11 +71,12 @@ and diagnose instead of guessing.
 - Each branch automatically maps to its own database named
   `<project>-<branch>`; branches never share data unless you say so.
 - To hand a branch a copy of existing data, switch to the branch first,
-  then copy the source database to the branch's derived name —
-  `osh db copy <source-db> <project>-<branch>` — or simply run `osh odoo`
+  then `osh db copy <source-db> --to-current` — or simply run `osh odoo`
   and pick `[c]` (fast, linked filestore) or `[f]` (full independent
-  copy) when the missing-database prompt appears. `osh db set` points a
-  branch at any existing database instead of copying.
+  copy) when the missing-database prompt appears. `--from-current`
+  snapshots the branch's database under another name, `osh db set`
+  points a branch at any existing database instead of copying, and
+  replacing an existing target needs `--force` or confirmation.
 - `osh db exec <cmd>` runs a command inside the branch database's
   environment — `osh db exec psql`, `osh db exec pg_dump ...` — with the
   right `PG*` variables already set. This is the sanctioned way to touch

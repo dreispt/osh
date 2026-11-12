@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from .. import echo
-from ..cli_utils import handler_group
+from ..cli_utils import emit_json, handler_group
 from ..common import discover_addons_paths, env_root, find_project_root, is_module_dir
 from ..config import get_project_config, set_project_config
 from ..handlers import CommandHandler, subcommand
@@ -123,25 +123,34 @@ class ExtraAddons(CommandHandler):
             )
 
     @subcommand
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        help="Print the registered paths as JSON for machine consumption.",
+    )
     def list(self):
         """List the extra addon directories registered for this project."""
         base = find_project_root(required=True)
         entries = addon_path_entries(base)
+        if self.as_json:
+            emit_json({"addon_paths": [_addon_path_info(base, e) for e in entries]})
+            return
         if not entries:
             echo.info("No extra addon paths registered.", err=True)
             return
         for entry in entries:
-            path = resolve_addon_path(base, entry)
-            if not path.is_dir():
-                echo.output(f"{path.name}\t{path}\tmissing")
+            info = _addon_path_info(base, entry)
+            if info["missing"]:
+                echo.output(f"{info['name']}\t{info['path']}\tmissing")
                 continue
-            branch = _source_branch(path)
-            modules = len(discover_addons_paths(path))
             details = []
-            if branch:
-                details.append(f"branch {branch}")
-            details.append(f"{modules} module{'s' if modules != 1 else ''}")
-            echo.output(f"{path.name}\t{path}\t{', '.join(details)}")
+            if info["branch"]:
+                details.append(f"branch {info['branch']}")
+            details.append(
+                f"{info['modules']} module{'s' if info['modules'] != 1 else ''}"
+            )
+            echo.output(f"{info['name']}\t{info['path']}\t{', '.join(details)}")
 
     def _add_local_dir(self, path):
         """Register a local directory, resolving a module dir to its parent."""
@@ -174,6 +183,22 @@ class ExtraAddons(CommandHandler):
 
 
 extra_addons = handler_group("extra-addons", ExtraAddons)
+
+
+def _addon_path_info(base, entry):
+    """Return the machine-readable facts for one registered addon path."""
+    path = resolve_addon_path(base, entry)
+    info = {
+        "name": path.name,
+        "path": str(path),
+        "missing": not path.is_dir(),
+        "branch": None,
+        "modules": None,
+    }
+    if not info["missing"]:
+        info["branch"] = _source_branch(path) or None
+        info["modules"] = len(discover_addons_paths(path))
+    return info
 
 
 def _match_entry(base, entries, name_or_path):

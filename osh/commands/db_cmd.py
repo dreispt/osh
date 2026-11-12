@@ -1,9 +1,11 @@
 """`osh db` command for managing databases and branch-to-database mappings."""
 
+import sys
+
 import click
 
 from .. import echo
-from ..cli_utils import emit_json, handler_group
+from ..cli_utils import InputRequired, emit_json, handler_group, no_input
 from ..common import env_root, find_project_root
 from ..db import (
     _list_db_names,
@@ -216,8 +218,16 @@ class Db(CommandHandler):
         "onto the source's (fast, shared), 'copy' gives the target its "
         "own copy (slower, isolated), 'none' leaves it alone.",
     )
+    @click.option(
+        "--force",
+        is_flag=True,
+        help="Replace an existing target database without asking.",
+    )
     def copy(self):
-        """Copy a PostgreSQL database to a new name, replacing the target if it exists.
+        """Copy a PostgreSQL database to a new name.
+
+        An existing target is replaced only with ``--force`` (or after
+        interactive confirmation) — it is never dropped silently.
 
         An idle source is cloned near-instantly via ``CREATE DATABASE ...
         TEMPLATE``. When other sessions hold the source open, you are asked
@@ -236,9 +246,34 @@ class Db(CommandHandler):
         """
         self.base = find_project_root(required=True)
         from_name, to_name = self._copy_targets()
+        if from_name == to_name:
+            raise click.UsageError("Source and target database are the same.")
         if not db_exists(self.base, from_name, ctx=self.ctx):
             raise click.ClickException(f"Source database '{from_name}' does not exist.")
+        self._confirm_target_replace(to_name)
         copy_db(self.base, from_name, to_name, ctx=self.ctx, filestore=self.filestore)
+
+    def _confirm_target_replace(self, to_name):
+        """Gate replacing an existing target behind ``--force``.
+
+        Mirrors ``db drop``/``backup restore``: a TTY asks, a pipe fails
+        with instructions, and ``--no-input`` exits 3 naming the flag —
+        an existing target is never dropped silently.
+        """
+        if self.force or not db_exists(self.base, to_name, ctx=self.ctx):
+            return
+        if no_input():
+            raise InputRequired(
+                f"Database '{to_name}' already exists; "
+                "re-run with --force to replace it."
+            )
+        if not _stdin_is_tty():
+            raise click.ClickException(
+                f"Database '{to_name}' already exists. Use --force to replace it."
+            )
+        click.confirm(
+            f"Replace existing database '{to_name}'?", default=False, abort=True
+        )
 
     def _copy_targets(self):
         """Resolve the ``db copy`` FROM/TO names.
@@ -373,3 +408,8 @@ def _set_branch_db(base, db_name, branch):
     value = sanitize_db_name(db_name)
     set_project_config(base, "db", branch, value)
     return branch, value
+
+
+def _stdin_is_tty():
+    """Return True when stdin is an interactive terminal."""
+    return sys.stdin.isatty()

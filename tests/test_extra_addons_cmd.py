@@ -1,6 +1,7 @@
 """Tests for the ``osh init extra-addons`` command group."""
 
 import importlib
+import json
 import shutil
 import subprocess
 
@@ -165,6 +166,39 @@ def test_extra_addons_list(in_project, tmp_path):
     assert result.exit_code == 0, result.output
     assert str(dep) in result.output
     assert "1 module" in result.output
+
+
+def test_extra_addons_list_json(in_project, tmp_path):
+    """``extra-addons list --json`` emits the registered paths as JSON."""
+
+    dep = _make_addons_dir(tmp_path / "payroll")
+    _osh("init", "extra-addons", "add", str(dep))
+
+    result = _osh("init", "extra-addons", "list", "--json")
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload["addon_paths"]) == 1
+    entry = payload["addon_paths"][0]
+    assert entry["name"] == "payroll"
+    assert entry["path"] == str(dep.resolve())
+    assert entry["missing"] is False
+    assert entry["modules"] == 1
+
+
+def test_extra_addons_list_json_marks_missing_paths(in_project, tmp_path):
+    """A registered path that vanished reports ``missing`` in JSON."""
+
+    dep = _make_addons_dir(tmp_path / "payroll")
+    _osh("init", "extra-addons", "add", str(dep))
+    shutil.rmtree(dep)
+
+    result = _osh("init", "extra-addons", "list", "--json")
+
+    assert result.exit_code == 0, result.output
+    entry = json.loads(result.output)["addon_paths"][0]
+    assert entry["missing"] is True
+    assert entry["modules"] is None
 
 
 def test_extra_addons_add_git_url_with_name(in_project, tmp_path):

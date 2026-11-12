@@ -63,6 +63,21 @@ def test_remote_add_rejects_duplicate(in_project):
     assert "already exists" in result.output
 
 
+def test_remote_list_json(in_project):
+    """`osh backup remote list --json` emits remotes as JSON."""
+    CliRunner().invoke(remote, ["add", "prod", "db://proddb"])
+    CliRunner().invoke(remote, ["add", "staging", "db://stagedb"])
+
+    result = CliRunner().invoke(remote, ["list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["remotes"] == [
+        {"name": "prod", "source": "db://proddb"},
+        {"name": "staging", "source": "db://stagedb"},
+    ]
+
+
 def test_remote_list_empty(in_project):
     result = CliRunner().invoke(remote, ["list"])
     assert result.exit_code == 0, result.output

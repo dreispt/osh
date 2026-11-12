@@ -17,11 +17,21 @@ section collects the release notes for the next version as changes land on
   opencode, gemini, copilot). `osh --help` now also explains the
   `--help`/`--dry-run`/`--verbose` discovery path and points at
   `osh skill`.
+- `--json` output extended to `osh backup remote list` and
+  `osh init extra-addons list`, completing machine-readable coverage
+  of the read-only commands.
+- `docs/SCRIPTING.md` documents the automation contract: exit codes
+  (0 success, 1 error/abort, 2 usage, 3 interactive input required),
+  `--no-input`/`OSH_NO_INPUT`, the `--json` surfaces and `osh -C`.
+  `osh --help` now summarizes the exit codes.
 - `osh db copy` accepts `--from-current` and `--to-current` to use the
   current branch's resolved database as the copy source or target, so
   `osh db copy prod-dump --to-current` seeds the branch's database
   without typing its generated name. A lone positional fills whichever
   side no flag claimed; conflicting or missing sides are usage errors.
+- `osh db copy` no longer replaces an existing target silently: a TTY
+  asks first, a pipe fails with instructions, `--no-input` exits 3, and
+  `--force` skips the check — matching `db drop`/`backup restore`.
 
 - `osh init info` reports the environment Osh has resolved for the
   project — roots, runtime, Odoo version/edition, the branch's

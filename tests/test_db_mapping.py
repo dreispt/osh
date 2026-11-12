@@ -235,6 +235,63 @@ def test_copy_from_current_uses_the_branch_database(tmp_project, pg_db, monkeypa
     assert pg_db.exists(dst)
 
 
+def test_copy_onto_existing_target_requires_force(tmp_project, pg_db, monkeypatch):
+    """`osh db copy` refuses to replace an existing database silently."""
+    src = pg_db.create()
+    dst = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", src, dst])
+
+    assert result.exit_code != 0
+    assert "already exists" in result.output
+    assert "--force" in result.output
+    assert pg_db.exists(dst)
+
+
+def test_copy_onto_existing_target_with_force(tmp_project, pg_db, monkeypatch):
+    """`--force` replaces the existing target database."""
+    src = pg_db.create()
+    dst = pg_db.create()
+    pg_db.track(dst)
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", src, dst, "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert pg_db.exists(dst)
+
+
+def test_copy_onto_existing_target_confirms_on_tty(tmp_project, pg_db, monkeypatch):
+    """On a terminal the replace is confirmed; declining keeps the target."""
+    src = pg_db.create()
+    dst = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+    monkeypatch.setattr("osh.commands.db_cmd._stdin_is_tty", lambda: True)
+
+    declined = CliRunner().invoke(db, ["copy", src, dst], input="n\n")
+    assert declined.exit_code != 0
+    assert pg_db.exists(dst)
+
+    accepted = CliRunner().invoke(db, ["copy", src, dst], input="y\n")
+    assert accepted.exit_code == 0, accepted.output
+    pg_db.track(dst)
+    assert pg_db.exists(dst)
+
+
+def test_copy_same_source_and_target_is_a_usage_error(tmp_project, pg_db, monkeypatch):
+    """`osh db copy X X` fails before touching anything."""
+    name = pg_db.name()
+    pg_db.track(name)
+    pg_db.create(name)
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(db, ["copy", name, name])
+
+    assert result.exit_code == 2
+    assert pg_db.exists(name)
+
+
 def test_copy_current_flags_reject_ambiguous_targets(tmp_project, pg_db, monkeypatch):
     """Conflicting or incomplete --*-current/positional combos are usage errors."""
     monkeypatch.chdir(tmp_project)
