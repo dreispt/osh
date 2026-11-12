@@ -32,6 +32,9 @@ but a few gaps make automation fragile:
   incidental. Documenting which codes mean "not inside an Osh project",
   "input required", "command failed" would let agents branch reliably
   instead of inspecting stderr text.
+- **`osh test` agent UX.** Re-evaluate how agents select modules and
+  tests — argument passthrough, result reporting — and document the
+  intended non-interactive usage.
 
 The revived `osh doctor` (see below) doubles as the agent health check —
 worth giving it `--json` output from the start.
