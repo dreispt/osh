@@ -6,35 +6,24 @@ This document tracks planned improvements and future development work for the Os
 
 AI agents increasingly drive `osh` inside Odoo projects — installing
 environments, copying databases, running tests, debugging failures. The
-CLI is usable today (every command has `--help`, `--dry-run`,
-`--verbose`/`--debug`, and a bundled agent skill describes the workflow),
-but a few gaps make automation fragile:
+core surface is now agent-ready: `--json` on the read-only commands,
+`osh init info` for the resolved environment, `--no-input`/`OSH_NO_INPUT`
+with the exit-code-3 contract (see `docs/SCRIPTING.md`),
+`db copy --from-current`/`--to-current`, and the bundled `osh skill`.
+Remaining gaps:
 
-- **Machine-readable output.** `db list`, `db show`, `config show`,
-  `backup list`, `stop --list` all print human-oriented tables. A
-  `--json` flag (or `--format json`) would let agents consume results
-  without fragile text parsing.
-- **A resolved-environment command.** Agents currently assemble by hand
-  the facts they need to compose commands: project root, env root,
-  active runtime, branch→database name, odoo config path, addons path,
-  Python. An `osh env`/`osh info` command printing those — ideally both
-  human-readable and `--json` — would be the single source of truth.
-- **Guaranteed non-interactive mode.** Prompts depend on TTY detection;
-  a global `--no-input` flag (or `OSH_NO_INPUT` env var) that fails fast
-  with a clear "pass `--flag X`" error — plus extending `--yes` beyond
-  `osh init` — would stop agents from silently blocking on menus.
-- **Branch-aware database copies.** `osh db copy` makes the caller
-  compute the `<project>-<branch>` target name, which is exactly the
-  kind of derivation agents get wrong. A `--current`/`--to-branch`
-  target — or defaulting the target to the current branch's database
-  when omitted — removes that failure mode.
-- **Documented exit-code contract.** Exit codes are currently
-  incidental. Documenting which codes mean "not inside an Osh project",
-  "input required", "command failed" would let agents branch reliably
-  instead of inspecting stderr text.
-
-The revived `osh doctor` (see below) doubles as the agent health check —
-worth giving it `--json` output from the start.
+- **`--yes` beyond `osh init`.** A global `--yes` stays rejected — it
+  cannot answer menus — but scoped `--yes`/`--force` on destructive
+  commands (`db drop`, `backup restore`, `db unset`) that currently
+  only offer prompts would help non-interactive callers.
+- **`stop --list --all --json`.** The structured report is per-project
+  today; aggregating it across projects is doable if agents ever manage
+  more than one.
+- **`osh doctor` with `--json`.** `osh init info` already covers the
+  read side (resolved facts); a revived doctor would add live health
+  checks on top — venv Python runs, Postgres reachable, `odoo.conf`
+  parses, Docker daemon up, addons paths resolve — reusing the
+  `Runtime.diagnose` machinery. Worth `--json` output from the start.
 
 ## Plugin API improvements
 

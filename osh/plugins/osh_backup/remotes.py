@@ -13,6 +13,7 @@ import click
 
 from ... import echo
 from ...backup_sources import SourceError
+from ...cli_utils import emit_json
 from ...common import find_project_root
 from ...db import load_osh_config, set_project_config
 from ...handlers import CommandHandler, subcommand
@@ -119,10 +120,26 @@ class DbRemote(CommandHandler):
         echo.info(f"Remote '{self.name}' -> {self.source}")
 
     @subcommand
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        help="Print the remotes as JSON for machine consumption.",
+    )
     def list(self):
         """List registered remotes."""
         base = find_project_root(required=True)
         remotes = get_remotes(base)
+        if self.as_json:
+            emit_json(
+                {
+                    "remotes": [
+                        {"name": name, "source": source}
+                        for name, source in sorted(remotes.items())
+                    ]
+                }
+            )
+            return
         if not remotes:
             echo.info("No remotes configured.", err=True)
             return
