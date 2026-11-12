@@ -114,15 +114,25 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
 
     Use `osh init` to initialize an Odoo environment in a project, and
     `osh init <runtime>` to set up a runtime (host, venv, docker, ...).
-    Use `osh exec` to enter the runtime environment or run any command inside it.
-    Use `osh odoo` to run Odoo in that environment, and `osh stop` to stop
-    what the runtime left running.
-    Add the `--help` option to a command to learn more.
+    Use `osh exec` to enter the runtime environment or run any command
+    inside it. Use `osh odoo` to run Odoo in that environment, and
+    `osh stop` to stop what the runtime left running.
+
+    Every command and subcommand has its own `--help`; commands that
+    change something usually accept `--dry-run` to show what they would
+    do. `--verbose` prints the commands being run, `--debug` adds exit
+    codes and timing — use them to diagnose failures.
 
     Plugins add commands and runtimes; they are Python packages installed
     into the osh environment (e.g. `pipx inject osh osh-contrib`, or
     `pip install` when osh was installed with pip). See docs/PLUGINS.md for
     the plugin system documentation.
+
+    Working with an AI agent? Run `osh skill` to print the agent skill
+    that ships in the package — it teaches how to discover and drive
+    this CLI — or `osh skill --install <agent>` to wire it into the
+    project's agent configuration (devin, claude, cursor, agents,
+    codex, opencode, gemini, copilot).
     """
     ctx.ensure_object(dict)
     selected = [

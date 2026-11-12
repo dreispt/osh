@@ -2,6 +2,40 @@
 
 This document tracks planned improvements and future development work for the Osh project.
 
+## Agent-friendly surface
+
+AI agents increasingly drive `osh` inside Odoo projects — installing
+environments, copying databases, running tests, debugging failures. The
+CLI is usable today (every command has `--help`, `--dry-run`,
+`--verbose`/`--debug`, and a bundled agent skill describes the workflow),
+but a few gaps make automation fragile:
+
+- **Machine-readable output.** `db list`, `db show`, `config show`,
+  `backup list`, `stop --list` all print human-oriented tables. A
+  `--json` flag (or `--format json`) would let agents consume results
+  without fragile text parsing.
+- **A resolved-environment command.** Agents currently assemble by hand
+  the facts they need to compose commands: project root, env root,
+  active runtime, branch→database name, odoo config path, addons path,
+  Python. An `osh env`/`osh info` command printing those — ideally both
+  human-readable and `--json` — would be the single source of truth.
+- **Guaranteed non-interactive mode.** Prompts depend on TTY detection;
+  a global `--no-input` flag (or `OSH_NO_INPUT` env var) that fails fast
+  with a clear "pass `--flag X`" error — plus extending `--yes` beyond
+  `osh init` — would stop agents from silently blocking on menus.
+- **Branch-aware database copies.** `osh db copy` makes the caller
+  compute the `<project>-<branch>` target name, which is exactly the
+  kind of derivation agents get wrong. A `--current`/`--to-branch`
+  target — or defaulting the target to the current branch's database
+  when omitted — removes that failure mode.
+- **Documented exit-code contract.** Exit codes are currently
+  incidental. Documenting which codes mean "not inside an Osh project",
+  "input required", "command failed" would let agents branch reliably
+  instead of inspecting stderr text.
+
+The revived `osh doctor` (see below) doubles as the agent health check —
+worth giving it `--json` output from the start.
+
 ## Plugin API improvements
 
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
