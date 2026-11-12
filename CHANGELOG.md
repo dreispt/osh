@@ -6,6 +6,14 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Added
+
+- An agent skill describing how to drive `osh` now ships in the package
+  at `osh/skills/osh/SKILL.md` — copy it into a project's agent skills
+  directory (e.g. `.devin/skills/osh/`) so an AI assistant can use osh.
+  `osh --help` now also explains the `--help`/`--dry-run`/`--verbose`
+  discovery path and points at the skill.
+
 ## 1.15.1 — 2026-11-12
 
 A small bug-fix release: databases copied with `osh db copy` now come
