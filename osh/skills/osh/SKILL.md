@@ -27,6 +27,8 @@ assuming a command exists or guessing its flags:
 - `osh --help` — command groups and plugin commands
 - `osh <command> --help` — options for a command
 - `osh <command> <subcommand> --help` — options for a subcommand
+- `osh skill` — prints the current version of this file; re-run it if
+  the instructions here look stale
 
 Commands that change something usually accept `--dry-run` to print the
 assembled action without performing it; `--verbose` shows the commands

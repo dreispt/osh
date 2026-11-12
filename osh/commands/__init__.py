@@ -4,7 +4,7 @@ Importing this package provides the list `COMMANDS` that can be registered
 with the root click group in `cli.py`.
 """
 
-from . import config_cmd, db_cmd, init_cmd, odoo_cmd, shell_cmd, stop_cmd
+from . import config_cmd, db_cmd, init_cmd, odoo_cmd, shell_cmd, skill_cmd, stop_cmd
 
 COMMANDS = [
     init_cmd.init,
@@ -13,6 +13,7 @@ COMMANDS = [
     shell_cmd.exec_cmd,
     db_cmd.db,
     config_cmd.config,
+    skill_cmd.skill,
 ]
 
 __all__ = ["COMMANDS"]

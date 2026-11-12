@@ -67,6 +67,69 @@ def test_version_subcommand_removed():
     assert "No such command" in result.output
 
 
+def test_skill_prints_the_bundled_skill():
+    """``osh skill`` prints the agent skill shipped in the package."""
+    result = CliRunner().invoke(main, ["skill"])
+
+    assert result.exit_code == 0, result.output
+    assert "name: osh" in result.output
+    assert "Git worktrees share one environment" in result.output
+
+
+def test_skill_path_prints_the_skill_location():
+    """``osh skill --path`` prints the skill file's absolute path."""
+    result = CliRunner().invoke(main, ["skill", "--path"])
+
+    assert result.exit_code == 0, result.output
+    path = Path(result.output.strip())
+    assert path.name == "SKILL.md"
+    assert path.is_file()
+
+
+def test_skill_install_devin_writes_project_skill(in_project):
+    """``osh skill --install devin`` drops a SKILL.md into .devin/skills."""
+    result = CliRunner().invoke(main, ["skill", "--install", "devin"])
+
+    assert result.exit_code == 0, result.output
+    skill = in_project / ".devin" / "skills" / "osh" / "SKILL.md"
+    assert skill.is_file()
+    assert "name: osh" in skill.read_text()
+
+
+def test_skill_install_codex_uses_agents_skills_dir(in_project):
+    """``osh skill --install codex`` writes .agents/skills — Codex's
+    canonical repo skills directory."""
+    result = CliRunner().invoke(main, ["skill", "--install", "codex"])
+
+    assert result.exit_code == 0, result.output
+    skill = in_project / ".agents" / "skills" / "osh" / "SKILL.md"
+    assert skill.is_file()
+    assert "name: osh" in skill.read_text()
+
+
+def test_skill_install_opencode_appends_managed_block(in_project):
+    """``osh skill --install opencode`` appends an idempotent block to AGENTS.md."""
+    agents_md = in_project / "AGENTS.md"
+    agents_md.write_text("# My project notes\n")
+
+    for _ in range(2):
+        result = CliRunner().invoke(main, ["skill", "--install", "opencode"])
+        assert result.exit_code == 0, result.output
+
+    text = agents_md.read_text()
+    assert text.count("osh:agent-skill") == 2  # begin + end markers, one block
+    assert "# My project notes" in text
+    assert "Git worktrees share one environment" in text
+
+
+def test_skill_install_and_path_are_mutually_exclusive(in_project):
+    """``--install`` cannot be combined with ``--path``."""
+    result = CliRunner().invoke(main, ["skill", "--install", "devin", "--path"])
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
 def test_global_flags_are_mutually_exclusive():
     """Passing any two of --silent/--verbose/--debug is a usage error."""
     runner = CliRunner()

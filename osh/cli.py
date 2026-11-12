@@ -128,10 +128,11 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     `pip install` when osh was installed with pip). See docs/PLUGINS.md for
     the plugin system documentation.
 
-    Working with an AI agent? A skill describing how to drive osh ships
-    in the package at `osh/skills/osh/SKILL.md` — copy it into the
-    project's agent skills directory (e.g. `.devin/skills/osh/`) or your
-    global agent configuration.
+    Working with an AI agent? Run `osh skill` to print the agent skill
+    that ships in the package — it teaches how to discover and drive
+    this CLI — or `osh skill --install <agent>` to wire it into the
+    project's agent configuration (devin, claude, cursor, agents,
+    codex, opencode, gemini, copilot).
     """
     ctx.ensure_object(dict)
     selected = [
