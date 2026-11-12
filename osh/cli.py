@@ -4,6 +4,9 @@ Provides the root Click group and attaches sub-commands that live in
 `osh.commands`.
 """
 
+import os
+from pathlib import Path
+
 import click
 
 from . import __version__, echo
@@ -104,13 +107,22 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
     is_flag=True,
     help="Verbose output plus internal diagnostics (exit codes, timing).",
 )
+@click.option(
+    "-C",
+    "--directory",
+    "directories",
+    multiple=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Run the command as if invoked from DIRECTORY, like 'git -C'. "
+    "May be given multiple times; each is resolved against the previous.",
+)
 @click.pass_context
-def main(ctx, silent, verbose, debug):  # noqa: D401
+def main(ctx, silent, verbose, debug, directories):  # noqa: D401
     """
     Odoo Shell – your toolkit for Odoo environments
     to accelerate your development and staging workflows.
 
-    Usage: osh [--silent | --verbose | --debug] <command> [args]
+    Usage: osh [--silent | --verbose | --debug] [-C DIR] <command> [args]
 
     Use `osh init` to initialize an Odoo environment in a project, and
     `osh init <runtime>` to set up a runtime (host, venv, docker, ...).
@@ -135,6 +147,13 @@ def main(ctx, silent, verbose, debug):  # noqa: D401
     codex, opencode, gemini, copilot).
     """
     ctx.ensure_object(dict)
+    for directory in directories:
+        try:
+            os.chdir(directory)
+        except OSError as exc:
+            raise click.ClickException(
+                f"Cannot change to directory '{directory}': {exc.strerror or exc}"
+            ) from exc
     selected = [
         name
         for name, on in (("silent", silent), ("verbose", verbose), ("debug", debug))

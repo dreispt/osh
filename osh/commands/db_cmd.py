@@ -3,7 +3,7 @@
 import click
 
 from .. import echo
-from ..cli_utils import handler_group
+from ..cli_utils import emit_json, handler_group
 from ..common import env_root, find_project_root
 from ..db import (
     _list_db_names,
@@ -52,6 +52,12 @@ class Db(CommandHandler):
     _cli_name = "db"
 
     @subcommand
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        help="Print the result as JSON for machine consumption.",
+    )
     def show(self):
         """Show the database for the current branch.
 
@@ -63,6 +69,15 @@ class Db(CommandHandler):
         self.branch = resolve_branch(self.base, None)
         self.db_name = resolve_db_name(self.base, verbose=False)
         self.exists = db_exists(self.base, self.db_name, ctx=self.ctx)
+        if self.as_json:
+            emit_json(
+                {
+                    "branch": self.branch,
+                    "database": self.db_name,
+                    "exists": self.exists,
+                }
+            )
+            return
         echo.info(f"Branch:   {self.branch}")
         echo.info(f"Database: {self.db_name}")
         echo.info(f"Exists:   {'yes' if self.exists else 'no'}")
@@ -73,6 +88,12 @@ class Db(CommandHandler):
         "show_all",
         is_flag=True,
         help="List all databases, not only this project's.",
+    )
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        help="Print the result as JSON for machine consumption.",
     )
     def list(self):
         """List PostgreSQL databases, filtered to this project by default.
@@ -97,12 +118,28 @@ class Db(CommandHandler):
         if returncode != 0:
             raise click.ClickException(f"Could not list databases: {stderr.strip()}")
         self.prefix = f"{sanitize_db_name(env_root(self.base).name)}-"
+        names = _list_db_names(stdout)
+        self.db_names = set(names)
+        if self.as_json:
+            emit_json(
+                {
+                    "project": env_root(self.base).name,
+                    "prefix": self.prefix,
+                    "all": self.show_all,
+                    "databases": (
+                        names
+                        if self.show_all
+                        else [n for n in names if n.startswith(self.prefix)]
+                    ),
+                    **self.extra_data(),
+                }
+            )
+            return
         if self.show_all:
             click.echo(stdout, nl=False)
         else:
             click.echo(_filter_db_listing(stdout, self.prefix), nl=False)
 
-        self.db_names = set(_list_db_names(stdout))
         for line in self.extra_sections():
             click.echo(line)
 
@@ -114,6 +151,15 @@ class Db(CommandHandler):
         reports filestore directories with no matching database.
         """
         return []
+
+    def extra_data(self):
+        """Structured extras merged into ``db list --json`` output.
+
+        The JSON counterpart of :meth:`extra_sections` — plugins
+        subclass ``Db`` and override this to contribute machine-readable
+        fields; the default contributes nothing.
+        """
+        return {}
 
     @subcommand
     @click.argument("db_name", required=False)

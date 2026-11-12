@@ -3,7 +3,7 @@
 import click
 
 from .. import echo
-from ..cli_utils import handler_group
+from ..cli_utils import emit_json, handler_group
 from ..common import find_project_root
 from ..config import get_project_config_path, save_user_preference
 from ..db import load_osh_config, save_osh_config, set_project_config
@@ -16,12 +16,21 @@ class Config(CommandHandler):
     _cli_name = "config"
 
     @subcommand
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        help="Print the configuration as JSON for machine consumption.",
+    )
     def show(self):
         """Show the current Osh project configuration."""
         self.base = find_project_root(required=True)
 
         cfg = load_osh_config(self.base)
         config_path = get_project_config_path(self.base)
+        if self.as_json:
+            emit_json({"config_file": str(config_path), "sections": cfg.to_dict()})
+            return
         echo.info(f"Configuration file: {config_path}")
 
         if cfg.has_section("db"):

@@ -1,8 +1,19 @@
 """Click helpers shared by the root CLI and command groups."""
 
 import inspect
+import json
 
 import click
+
+
+def emit_json(payload):
+    """Print *payload* as JSON on stdout for machine consumers.
+
+    Commands with a ``--json`` flag call this instead of their usual
+    ``echo``/``click.echo`` output, so agents get a stable shape to parse
+    rather than human-oriented text.
+    """
+    click.echo(json.dumps(payload, indent=2))
 
 
 class ExtensibleCommand(click.Command):

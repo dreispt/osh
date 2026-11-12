@@ -1,5 +1,6 @@
 """Tests for ``osh stop`` — host teardown and the by-name/``--all`` dispatch."""
 
+import json
 import signal
 import sys
 
@@ -263,6 +264,55 @@ def test_stop_list_marks_a_foreign_listener_as_untouchable(
     assert "does not look like Odoo" in result.output
     assert "would leave it alone" in result.output
     assert proc.poll() is None
+
+
+def test_stop_list_json_reports_listener_without_stopping(
+    in_project, odoo_port, tmp_path, spawn
+):
+    """``osh stop --list --json`` emits a structured report, still read-only."""
+    proc = spawn(_odoo_argv(tmp_path, odoo_port), odoo_port)
+
+    result = CliRunner().invoke(main, ["stop", "--list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["runtime"] == "host"
+    assert payload["port"] == odoo_port
+    assert payload["report"]["port"] == odoo_port
+    listeners = payload["report"]["listeners"]
+    assert [entry["pid"] for entry in listeners] == [proc.pid]
+    assert listeners[0]["looks_like_odoo"] is True
+    assert payload["port_holders"]
+    assert proc.poll() is None
+
+
+def test_stop_list_json_without_listener(in_project, odoo_port):
+    """``osh stop --list --json`` reports an empty listener list."""
+    result = CliRunner().invoke(main, ["stop", "--list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["report"]["listeners"] == []
+    assert payload["port_holders"] == []
+
+
+def test_stop_json_requires_list():
+    """``--json`` without ``--list`` is a usage error."""
+    result = CliRunner().invoke(main, ["stop", "--json"])
+
+    assert result.exit_code != 0
+    assert "--json requires --list" in result.output
+
+
+def test_stop_json_rejects_all_and_name():
+    """``--json`` only supports the plain project listing."""
+    for args in (
+        ["stop", "--list", "--json", "--all"],
+        ["stop", "--list", "--json", "x"],
+    ):
+        result = CliRunner().invoke(main, args)
+        assert result.exit_code != 0
+        assert "only supported" in result.output
 
 
 def test_stop_all_rejects_a_name_argument():

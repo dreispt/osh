@@ -724,29 +724,66 @@ class DockerRuntime(Runtime):
             configured = 8069
         return _override_port(base) or configured
 
-    def port_holders(self, ctx, port, base):
+    def port_holder_entries(self, ctx, port, base):
         """Report the containers publishing host *port* and their owners."""
-        lines = []
+        entries = []
         resolved = env_root(base).resolve()
         for c in _port_publishers(port):
             desc = f"container '{c['name']}'"
+            entry = {
+                "kind": "container",
+                "name": c["name"],
+                "image": c["image"],
+            }
             if c["image"]:
                 desc += f" ({c['image']})"
             project = c["project"]
             if project is not None and project.resolve() == resolved:
                 desc += " — this project's stack"
+                entry["owner"] = "this_project"
             elif project is not None:
                 desc += (
                     f" — Osh project {project}; " f"run 'osh stop {project}' to free it"
                 )
+                entry["owner"] = "other_project"
             elif c["compose_project"]:
                 desc += (
                     f" — Compose stack '{c['compose_project']}'" " (not managed by Osh)"
                 )
+                entry["compose_project"] = c["compose_project"]
             else:
                 desc += " — not managed by Osh"
-            lines.append(desc)
-        return lines
+            if project is not None:
+                entry["project"] = str(project)
+            entry["description"] = desc
+            entries.append(entry)
+        return entries
+
+    def stop_report(self, ctx, base, **options):
+        """Structured listing of the stack ``stop`` would tear down."""
+        cfg = _load_docker_config(base)
+        report = {"port": self.odoo_port(base), "configured": bool(cfg)}
+        if not cfg:
+            return report
+        try:
+            containers = _project_containers(base)
+        except click.ClickException:
+            containers = []
+        report["containers"] = [
+            {
+                "name": c["name"],
+                "image": c["image"],
+                "status": c.get("status"),
+                "ports": c.get("ports"),
+                "compose_project": c.get("compose_project"),
+            }
+            for c in containers
+        ]
+        try:
+            report["compose_projects"] = sorted(_compose_project_names_for(base))
+        except click.ClickException:
+            report["compose_projects"] = []
+        return report
 
     def _describe_stack(self, ctx, base):
         """Print what ``osh stop`` would remove for *base* (``--list``).

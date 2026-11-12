@@ -5,6 +5,7 @@ import traceback
 import click
 
 from ... import echo
+from ...cli_utils import emit_json
 from ...commands.helpers import check_run_diagnostics
 from ...commands.odoo_cmd import odoo
 from ...common import find_project_root
@@ -22,6 +23,7 @@ from ...handlers import CommandHandler
 from ...utils.odoo_layout import find_odoo_executable
 from ...utils.version import get_version_tuple
 from . import restore_ops
+from .cache import list_cache
 from .remotes import newest_cache_for_remote, newest_cache_for_source
 
 
@@ -302,7 +304,29 @@ class BackupList(CommandHandler):
         is_flag=True,
         help="List oldest backups first.",
     )
+    @click.option(
+        "--json",
+        "as_json",
+        is_flag=True,
+        help="Print the result as JSON for machine consumption.",
+    )
     def run(self):
-        restore_ops.list_cached_backups(
-            find_project_root(required=True), limit=self.limit, reverse=self.reverse
-        )
+        base = find_project_root(required=True)
+        if self.as_json:
+            entries = list_cache(base, limit=self.limit, reverse=self.reverse)
+            emit_json(
+                {
+                    "backups": [
+                        {
+                            "id": entry["id"],
+                            "filename": entry["filename"],
+                            "source": entry["source"],
+                            "created_at": entry["created_at"],
+                            "path": str(entry["path"]),
+                        }
+                        for entry in entries
+                    ]
+                }
+            )
+            return
+        restore_ops.list_cached_backups(base, limit=self.limit, reverse=self.reverse)

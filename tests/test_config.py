@@ -1,7 +1,11 @@
 """Tests for the TOML-backed configuration helpers."""
 
+import json
 from pathlib import Path
 
+from click.testing import CliRunner
+
+from osh.commands.config_cmd import config
 from osh.config import (
     _format_toml_key,
     _format_toml_value,
@@ -42,3 +46,16 @@ def test_format_toml_key_quotes_non_bare_keys():
 def test_format_toml_value_accepts_path():
     """Path values are serialised as strings."""
     assert _format_toml_value(Path("/tmp/foo")) == "'/tmp/foo'"
+
+
+def test_config_show_json(tmp_project, monkeypatch):
+    """`osh config show --json` emits the stored sections as JSON."""
+    set_project_config(tmp_project, "db", "default", "mydb")
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(config, ["show", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["config_file"].endswith(".osh/config.toml")
+    assert payload["sections"]["db"]["default"] == "mydb"

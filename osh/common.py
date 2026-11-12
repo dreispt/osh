@@ -282,14 +282,21 @@ def find_project_repos(base, *, max_depth=4):
     def _walk(current, depth):
         if depth > max_depth:
             return
-        for child in current.iterdir():
+        try:
+            children = list(current.iterdir())
+        except OSError:
+            return
+        for child in children:
             if child.name.startswith(".") or child.name.startswith("__"):
                 continue
-            if child.is_dir():
-                if _is_git_repo(child):
-                    repos.append(child)
-                else:
-                    _walk(child, depth + 1)
+            try:
+                if child.is_dir():
+                    if _is_git_repo(child):
+                        repos.append(child)
+                    else:
+                        _walk(child, depth + 1)
+            except OSError:
+                continue
 
     _walk(base, 0)
     return sorted(repos)

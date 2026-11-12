@@ -1,5 +1,6 @@
 """Tests for ``osh init`` source resolution."""
 
+import json
 import os
 import subprocess
 import sys
@@ -1318,3 +1319,22 @@ class TestUpdateSourcesCli:
 
         assert result.exit_code == 0, result.output
         assert _rev_parse(link) == pushed
+
+
+def test_dash_c_runs_command_in_other_directory(tmp_project, monkeypatch):
+    """`osh -C DIR db show` resolves the project from another directory."""
+    # ``-C`` chdirs the process like ``git -C``; park the test somewhere
+    # safe first so monkeypatch restores the original cwd on teardown.
+    monkeypatch.chdir(tmp_project.parent)
+    result = CliRunner().invoke(main, ["-C", str(tmp_project), "db", "show", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["database"] == "project-default"
+
+
+def test_dash_c_missing_directory_is_an_error(tmp_path):
+    """`osh -C` on a nonexistent directory fails cleanly."""
+    result = CliRunner().invoke(main, ["-C", str(tmp_path / "nope"), "db", "show"])
+
+    assert result.exit_code != 0
+    assert "Cannot change to directory" in result.output

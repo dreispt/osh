@@ -18,6 +18,13 @@ section collects the release notes for the next version as changes land on
   `--help`/`--dry-run`/`--verbose` discovery path and points at
   `osh skill`.
 
+- `--json` flags on `osh db show`, `osh db list`, `osh config show`,
+  `osh backup list` and `osh stop --list` emit stable JSON on stdout
+  for scripts and AI agents.
+- `osh -C DIR` (repeatable, like `git -C`) runs any command as if
+  invoked from another directory — handy for agents that know the
+  project path but are not inside it.
+
 ## 1.15.1 — 2026-11-12
 
 A small bug-fix release: databases copied with `osh db copy` now come
