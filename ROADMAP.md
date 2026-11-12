@@ -24,6 +24,9 @@ Remaining gaps:
   checks on top — venv Python runs, Postgres reachable, `odoo.conf`
   parses, Docker daemon up, addons paths resolve — reusing the
   `Runtime.diagnose` machinery. Worth `--json` output from the start.
+- **`osh test` agent UX.** Re-evaluate how agents select modules and
+  tests — argument passthrough, result reporting — and document the
+  intended non-interactive usage.
 
 ## Plugin API improvements
 

@@ -44,13 +44,12 @@ and diagnose instead of guessing.
    `OSH_NO_INPUT=1`, works in any flag position) disables every prompt —
    a command that would ask exits with code 3, distinct from 1 (error)
    and 2 (usage), so you know to supply the missing input or flags.
-2. **Machine-readable output.** Read-only commands offer `--json`
-   (`db show`, `db list`, `config show`, `backup list`,
-   `backup remote list`, `stop --list`, `init info`,
-   `init extra-addons list`) — prefer it over parsing human text.
-   `osh init info` reports the resolved environment (roots, runtime,
-   version, database, config paths) in one call, and `osh -C DIR` runs
-   any command from another directory.
+2. **Machine-readable output.** Read-only commands offer `--json` —
+   check `--help` for which ones in your version. `osh init info`
+   reports the resolved environment (roots, runtime, version,
+   database, config paths, interpreter) in one call — use it as the
+   readiness check — and `osh -C DIR` runs any command from another
+   directory.
 3. **Never drop databases or overwrite data without explicit user
    confirmation** for that exact operation. Describe the impact and wait
    for a yes first.
@@ -72,15 +71,22 @@ and diagnose instead of guessing.
 - Each branch automatically maps to its own database named
   `<project>-<branch>`; branches never share data unless you say so.
 - To hand a branch a copy of existing data, switch to the branch first,
-  then copy the source database to the branch's derived name —
-  `osh db copy <source-db> <project>-<branch>` — or simply run `osh odoo`
+  then `osh db copy <source-db> --to-current` — or simply run `osh odoo`
   and pick `[c]` (fast, linked filestore) or `[f]` (full independent
-  copy) when the missing-database prompt appears. `osh db set` points a
-  branch at any existing database instead of copying.
+  copy) when the missing-database prompt appears. `--from-current`
+  snapshots the branch's database under another name, `osh db set`
+  points a branch at any existing database instead of copying, and
+  replacing an existing target needs `--force` or confirmation.
 - `osh db exec <cmd>` runs a command inside the branch database's
   environment — `osh db exec psql`, `osh db exec pg_dump ...` — with the
   right `PG*` variables already set. This is the sanctioned way to touch
   data; don't go hunting for credentials or socket paths yourself.
+- `osh exec <cmd>` runs any command inside the project environment
+  (the runtime's venv or container) — the counterpart for non-database
+  work like `pip`, `odoo shell` helpers or project scripts.
+- `osh backup get`/`osh backup restore` move dumps in and out;
+  `restore` neutralizes credentials by default, so a restored
+  production dump cannot be logged into as-is.
 
 ## Git worktrees share one environment
 
@@ -95,7 +101,9 @@ and diagnose instead of guessing.
 
 ## Typical assignment flow
 
-1. Confirm `.osh/` exists; if not, initialize the project and a runtime.
+1. Run `osh init info` — it reports whether `.osh/` exists and
+   resolves runtime, version and database in one call; initialize the
+   project and a runtime only when it is missing.
 2. Preview what would run (`--dry-run`), then run the environment or the
    test suite.
 3. For data work, copy an existing database and point the branch at the
