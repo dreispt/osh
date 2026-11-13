@@ -44,3 +44,55 @@ jobs:
 
       - name: Run Docker tests
         run: pytest -q -m docker
+
+  contrib:
+    # Plugin compatibility: run the osh-contrib plugin test suites
+    # against this branch's osh, so core API changes cannot silently
+    # break plugins. Some plugin tests need a real PostgreSQL.
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: dreispt/osh-contrib
+          path: osh-contrib
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Install osh and test dependencies
+        run: pip install -e ".[tests]"
+
+      - name: Install contrib plugins
+        # --no-deps: the bundle declares `osh`, which must resolve to this
+        # checkout — never to the unrelated `osh` distribution on PyPI.
+        run: pip install pytest && pip install --no-deps -e ./osh-contrib
+
+      - name: Run contrib plugin tests
+        run: cd osh-contrib && ./run_tests.sh -q
