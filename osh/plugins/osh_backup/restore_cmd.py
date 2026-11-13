@@ -59,8 +59,8 @@ class DbRestore(CommandHandler):
     determined, `osh backup restore` warns and continues without the filestore.
 
     After the dump is restored, the database is neutralized. Odoo 16.0+ uses
-    `odoo-bin neutralize -d <db>`; older versions rely on `.osh/neutralize/`
-    scripts.
+    `odoo-bin neutralize -d <db>`; older versions get the bundled SQL
+    fallback script instead.
 
     Once the restore (and neutralization) completes, plugins extending the
     ``backup.restore`` handler through ``post_restore()`` run — e.g. to record
@@ -69,11 +69,13 @@ class DbRestore(CommandHandler):
 
     Neutralization hooks:
 
-    Custom `.sql` scripts inside `.osh/neutralize/` run after the built-in
-    neutralization step, in sorted order. Use numeric prefixes to control the
-    order (e.g. `000_default.sql`, `100_anonymize_partners.sql`). Global
-    defaults can be placed in `~/.config/osh/neutralize/` and are copied to
-    `.osh/neutralize/` during `osh init`.
+    `.sql` scripts run after the built-in neutralization step, resolved in
+    sorted order from layered sources — bundled defaults, user scripts in
+    `~/.config/osh/neutralize/`, then project scripts in `.osh/neutralize/`.
+    A same-named script in a later layer overrides, so drop a file in
+    `~/.config/osh/neutralize/` to maintain defaults centrally or in
+    `.osh/neutralize/` for project-specific hooks. Use numeric prefixes to
+    control the order (e.g. `100_anonymize_partners.sql`).
 
     Examples:
 
@@ -93,6 +95,9 @@ class DbRestore(CommandHandler):
     dump = None
     force = False
     no_neutralize = False
+    scripts = ()
+    skips = ()
+    neutralize_scripts = ()
     target_db = None
     dry_run = False
 
@@ -106,6 +111,18 @@ class DbRestore(CommandHandler):
         "--no-neutralize",
         is_flag=True,
         help="Skip neutralizing the database after restoring.",
+    )
+    @click.option(
+        "--script",
+        "scripts",
+        multiple=True,
+        help="Run only the named neutralize scripts (repeatable).",
+    )
+    @click.option(
+        "--skip",
+        "skips",
+        multiple=True,
+        help="Drop the named neutralize scripts from the run (repeatable).",
     )
     @click.option(
         "-d",
@@ -126,6 +143,11 @@ class DbRestore(CommandHandler):
         self.db_name = self.resolve_target_db()
         self.runtime = resolve_runtime(self.base)
         check_run_diagnostics(self.base, self.runtime, self.ctx)
+        if not self.no_neutralize:
+            # Validate --script/--skip before the target database is touched.
+            self.neutralize_scripts = restore_ops.resolve_neutralize_scripts(
+                self.base, only=self.scripts, skip=self.skips
+            )
         self.prepare_target()
         self.restore_dump()
         if not self.no_neutralize:
@@ -195,7 +217,11 @@ class DbRestore(CommandHandler):
             # after restore.
             self.odoo_neutralize(dry_run=True)
             restore_ops.run_project_neutralize_scripts(
-                self.base, self.db_name, dry_run=True, ctx=self.ctx
+                self.base,
+                self.db_name,
+                self.neutralize_scripts,
+                dry_run=True,
+                ctx=self.ctx,
             )
             return
 
@@ -227,7 +253,10 @@ class DbRestore(CommandHandler):
             restore_ops.neutralize_with_sql(self.base, self.db_name, ctx=self.ctx)
 
         restore_ops.run_project_neutralize_scripts(
-            self.base, self.db_name, dry_run=self.dry_run, ctx=self.ctx
+            self.base,
+            self.db_name,
+            self.neutralize_scripts,
+            ctx=self.ctx,
         )
 
     def odoo_neutralize(self, *, dry_run):

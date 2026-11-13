@@ -25,7 +25,6 @@ Every `osh init` performs the runtime-independent base setup:
   and asks which edition to use (`ce`, `ee`, `sh`) when it isn't known.
 - Migrates an existing `.odoorc` into `.osh/odoo.conf` and writes a
   dev-friendly generated config (`--no-dev` opts out).
-- Installs the database neutralize scripts used by restore flows.
 - Shows the plan and asks before writing; `--yes` accepts it and
   `--dry-run` prints it without touching anything.
 

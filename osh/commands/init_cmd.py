@@ -1,8 +1,8 @@
 """`osh init` command implementation.
 
 ``osh init`` performs the runtime-independent project setup: ``.osh/`` and
-the project config, ``.odoorc`` migration, dev-friendly config and the
-neutralize scripts. ``osh init <runtime>`` layers a runtime's own setup on
+the project config, ``.odoorc`` migration and dev-friendly config.
+``osh init <runtime>`` layers a runtime's own setup on
 top (:func:`run_runtime_init`) and records it as the active runtime —
 ``osh init host`` switches the project back to plain host execution.
 
@@ -32,12 +32,7 @@ from ..cli_utils import (
     param_values,
     require_input,
 )
-from ..common import (
-    env_root,
-    find_enclosing_project,
-    find_nested_projects,
-    setup_project_neutralize_scripts,
-)
+from ..common import env_root, find_enclosing_project, find_nested_projects
 from ..config import (
     get_init_parent,
     get_user_preference,
@@ -54,6 +49,7 @@ from ..db import (
 from ..handlers import CommandHandler
 from ..runtimes import copy_odoo_rc_to_osh_conf
 from ..sources import parse_source_pins, update_osh_sources
+from ..sql_scripts import prune_redundant_project_scripts
 from ..termui import can_menu, choose
 from ..utils.plugin_loader import get_runtime_class, runtime_meta
 from ..utils.version import KNOWN_ODOO_SERIES, detect_project_version
@@ -70,8 +66,8 @@ class Init(CommandHandler):
     previous ``osh init`` in the project, then the saved configuration.
     DIRECTORY: Project directory to initialise (defaults to current directory)
 
-    Creates `.osh/` and the project configuration, migrates `.odoorc` and
-    installs the neutralize scripts. ``osh init <runtime>`` also runs the
+    Creates `.osh/` and the project configuration and migrates `.odoorc`.
+    ``osh init <runtime>`` also runs the
     runtime's own setup — virtualenv and Odoo sources, Docker stack — and
     records it as the active runtime (``osh init host`` switches back to
     plain host execution). Each runtime is a subcommand carrying its own
@@ -555,7 +551,7 @@ def base_init(
 
     Creates the target directory and ``.osh/``, resolves the version and
     edition, migrates ``.odoorc``, applies dev-friendly config, records the
-    ``[init]`` settings and installs the neutralize scripts. Returns the
+    ``[init]`` settings. Returns the
     resolved ``(edition, version)`` pair for the runtime init to reuse.
     """
     edition, version, enclosing = resolve_init_inputs(
@@ -672,7 +668,7 @@ def apply_init_setup(
     set_project_config(target, "init", values=init_values)
     if enclosing is None and get_project_config(target, "init", "parent"):
         unset_project_config(target, "init", "parent")
-    setup_project_neutralize_scripts(target, version)
+    prune_redundant_project_scripts(target, "neutralize")
 
 
 def run_runtime_init(

@@ -9,7 +9,6 @@ commands work identically on host and container runtimes — no host file
 path ever reaches the execution environment.
 """
 
-import importlib.resources
 import shlex
 import tempfile
 import time
@@ -19,14 +18,15 @@ from pathlib import Path
 import click
 
 from ... import echo
-from ...common import env_root
 from ...db import install_filestore, run_in_runtime, run_psql_script
+from ...sql_scripts import filter_sql_scripts, resolve_sql_scripts, run_sql_scripts
 from ...termui import human_duration, human_size, stdin_progress
 from .cache import get_cache_dir, list_cache, read_metadata, resolve_cache_id
 from .format_detect import detect_backup_format_by_content
 
 SOURCE_COLUMN_WIDTH = 40
 SOURCE_TRUNCATE_AT = SOURCE_COLUMN_WIDTH - len("...")
+FALLBACK_SCRIPT = "000_osh_default.sql"
 
 
 def resolve_backup_path(base, dump):
@@ -160,33 +160,38 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
 
 
 def neutralize_with_sql(base, db_name, ctx=None):
-    """Run the bundled SQL fallback neutralization script."""
-    script = importlib.resources.files("osh.data") / "neutralize_fallback.sql"
-    with importlib.resources.as_file(script) as script_path:
-        run_psql_script(base, db_name, script_path, ctx=ctx)
+    """Run the SQL fallback neutralization script.
+
+    A same-named ``000_osh_default.sql`` in the user or project layer
+    replaces the bundled fallback.
+    """
+    fallback = next(
+        script
+        for script in resolve_sql_scripts(base, "neutralize")
+        if script.name == FALLBACK_SCRIPT
+    )
+    run_psql_script(base, db_name, fallback.resource, ctx=ctx)
 
 
-def run_project_neutralize_scripts(base, db_name, *, dry_run=False, ctx=None):
-    """Run ``.osh/neutralize/*.sql`` scripts in sorted order."""
-    neutralize_dir = env_root(base) / ".osh" / "neutralize"
-    if not neutralize_dir.is_dir():
-        return
+def resolve_neutralize_scripts(base, *, only=(), skip=()):
+    """Return the selected neutralize scripts, without the fallback.
 
-    scripts = sorted(neutralize_dir.glob("*.sql"))
-    if not scripts:
-        return
+    The fallback (``000_osh_default.sql``) is not a post-neutralize hook:
+    ``neutralize_with_sql`` runs it directly when the restore needs the
+    SQL path, so it is dropped from every layer here. An unknown
+    *only*/*skip* name raises a usage error.
+    """
+    scripts = [
+        script
+        for script in resolve_sql_scripts(base, "neutralize")
+        if script.name != FALLBACK_SCRIPT
+    ]
+    return filter_sql_scripts(scripts, only=only, skip=skip)
 
-    if dry_run:
-        for script in scripts:
-            echo.info(f"Would run neutralization script: {script.name}", err=True)
-        return
 
-    for script in scripts:
-        echo.info(f"Running neutralization script: {script.name}", err=True)
-        try:
-            run_psql_script(base, db_name, script, ctx=ctx)
-        except RuntimeError as exc:
-            raise click.ClickException(str(exc)) from exc
+def run_project_neutralize_scripts(base, db_name, scripts, *, dry_run=False, ctx=None):
+    """Run the resolved neutralize *scripts* against *db_name* in order."""
+    run_sql_scripts(base, "neutralize", db_name, scripts, dry_run=dry_run, ctx=ctx)
 
 
 def _run_db_tool(ctx, base, argv, error_msg, *, stdin_path=None):

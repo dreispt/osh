@@ -134,6 +134,24 @@ def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
     assert "--force" in result.output
 
 
+def test_restore_unknown_script_fails_before_touching_target(
+    patched_restore, in_project
+):
+    """A mistyped ``--script`` is rejected before any database is replaced."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "dump.dump").write_bytes(b"x")
+
+    runner = CliRunner()
+    result = runner.invoke(restore, ["--force", "--script", "900_clera_assets"])
+
+    assert result.exit_code != 0
+    assert "Unknown script(s): 900_clera_assets" in result.output
+    assert patched_restore["dropped"] == []
+    assert patched_restore["created"] == []
+    assert patched_restore["restore"] == []
+
+
 def test_restore_no_neutralize(patched_restore, in_project):
     """`osh backup restore --no-neutralize` skips neutralization."""
     cache_dir = in_project / ".osh" / "backups"
