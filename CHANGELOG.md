@@ -8,6 +8,11 @@ section collects the release notes for the next version as changes land on
 
 ### Added
 
+- `osh backup restore` neutralize scripts resolve at run time from
+  layered sources — bundled, `~/.config/osh/neutralize/`, then
+  `.osh/neutralize/` — merged by filename. `osh init` no longer copies
+  them into projects, centrally maintained fixes apply everywhere, and
+  `--script`/`--skip` select from the resolved set.
 - An agent skill describing how to drive `osh` now ships in the package
   at `osh/skills/osh/SKILL.md`. `osh skill` prints it — or
   `osh skill --path` for its location — so an AI assistant can fetch

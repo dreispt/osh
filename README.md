@@ -52,6 +52,14 @@ the unreleased tip of `master`:
 pipx install git+https://github.com/dreispt/osh@latest
 ```
 
+To update later, re-run the install — `pipx upgrade osh` re-resolves the
+same spec, or force a reinstall when the ref changed:
+
+```bash
+pipx upgrade osh
+# or: pipx install --force git+https://github.com/dreispt/osh@latest
+```
+
 On an existing project directory initialize the osh run environment
 and then start Odoo:
 
