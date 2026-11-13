@@ -153,9 +153,9 @@ def main(ctx, silent, verbose, debug, no_input, directories):  # noqa: D401
 
     Working with an AI agent? Run `osh skill` to print the agent skill
     that ships in the package — it teaches how to discover and drive
-    this CLI — or `osh skill --install <agent>` to wire it into the
-    project's agent configuration (devin, claude, cursor, agents,
-    codex, opencode, gemini, copilot).
+    this CLI — or `osh skill install <agent>` to drop the skill into
+    the agent's skills directory (devin, claude, cursor, agents, codex,
+    opencode, gemini).
     """
     ctx.ensure_object(dict)
     cli_utils.set_no_input(no_input)

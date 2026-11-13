@@ -77,7 +77,7 @@ def find_shell():
     raise click.ClickException("Could not determine a shell to launch.")
 
 
-def _find_git_root(start):
+def find_git_root(start):
     """Return the nearest ancestor (including *start*) that is a git repo root.
 
     A git repo root is a directory containing a ``.git`` entry (directory for
@@ -126,7 +126,7 @@ def find_project_root(start=None, *, required=False):
 
     # Inside a git repo the search starts at the repo root (``.osh`` lives
     # there); outside git it starts at *start* itself.
-    git_root = _find_git_root(start)
+    git_root = find_git_root(start)
     walk_from = git_root if git_root is not None else start
     for p in [walk_from] + list(walk_from.parents):
         if (p / ".osh").exists():
