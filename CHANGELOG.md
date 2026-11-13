@@ -12,11 +12,14 @@ section collects the release notes for the next version as changes land on
   at `osh/skills/osh/SKILL.md`. `osh skill` prints it — or
   `osh skill --path` for its location — so an AI assistant can fetch
   the instructions even when the install directory is out of its file
-  scope, and `osh skill --install <agent>` wires it into the current
-  project's agent configuration (devin, claude, cursor, agents, codex,
-  opencode, gemini, copilot). `osh --help` now also explains the
-  `--help`/`--dry-run`/`--verbose` discovery path and points at
-  `osh skill`.
+  scope, and `osh skill install <agent>` drops a `SKILL.md` into the
+  agent's skills directory (devin, claude, cursor, agents, codex,
+  opencode, gemini) — user-level by default, `--project` for the
+  repo-scoped copy. Run it without an agent to detect what is installed
+  on the machine — one detection installs directly, several open a
+  picker, and `--all` wires every detected agent. `osh --help` now also
+  explains the `--help`/`--dry-run`/`--verbose` discovery path and
+  points at `osh skill`.
 - `--json` output extended to `osh backup remote list` and
   `osh init extra-addons list`, completing machine-readable coverage
   of the read-only commands.
