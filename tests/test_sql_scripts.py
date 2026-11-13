@@ -2,7 +2,17 @@
 
 import pytest
 
-from osh.sql_scripts import filter_sql_scripts, resolve_sql_scripts, run_sql_scripts
+from osh.plugins.osh_backup.restore_ops import (
+    FALLBACK_SCRIPT,
+    neutralize_with_sql,
+    resolve_neutralize_scripts,
+)
+from osh.sql_scripts import (
+    filter_sql_scripts,
+    prune_redundant_project_scripts,
+    resolve_sql_scripts,
+    run_sql_scripts,
+)
 
 
 @pytest.fixture
@@ -108,3 +118,78 @@ def test_run_sql_scripts_dry_run_runs_nothing(tmp_project, user_dir, capsys):
     out = capsys.readouterr().err
     assert "Would run neutralize script: 000_osh_default.sql (bundled)" in out
     assert "Would run neutralize script: 900_clear_assets.sql (bundled)" in out
+
+
+def test_tail_match_does_not_pick_shorter_tails(tmp_project, user_dir):
+    """``mail_message`` picks ``020_mail_message.sql``, not ``010_mail.sql``."""
+    (tmp_project / ".osh" / "neutralize").mkdir(parents=True)
+    for name in ("010_mail.sql", "020_mail_message.sql"):
+        (tmp_project / ".osh" / "neutralize" / name).write_text(f"-- {name}\n")
+    scripts = resolve_sql_scripts(tmp_project, "neutralize", bundled=lambda name: False)
+
+    assert _names(filter_sql_scripts(scripts, only=("mail_message",))) == [
+        "020_mail_message.sql"
+    ]
+    assert _names(filter_sql_scripts(scripts, only=("mail",))) == [
+        "010_mail.sql",
+        "020_mail_message.sql",
+    ]
+
+
+def test_dry_run_does_not_print_script_bodies(tmp_project, user_dir, capsys):
+    """Script bodies may hold credentials — dry runs only name the scripts."""
+    (tmp_project / ".osh" / "neutralize").mkdir(parents=True)
+    (tmp_project / ".osh" / "neutralize" / "100_secret.sql").write_text(
+        "-- s3cret-token\n"
+    )
+    scripts = resolve_sql_scripts(tmp_project, "neutralize")
+
+    run_sql_scripts(tmp_project, "neutralize", "somedb", scripts, dry_run=True)
+
+    out = capsys.readouterr().err
+    assert "100_secret.sql (project)" in out
+    assert "s3cret-token" not in out
+
+
+def test_prune_removes_untouched_legacy_copies(tmp_project, user_dir):
+    """Copies identical to the bundled or user script go; edited ones stay."""
+    bundled = resolve_sql_scripts(tmp_project, "neutralize")
+    (user_dir / "neutralize").mkdir(parents=True)
+    (user_dir / "neutralize" / "100_custom.sql").write_text("-- central\n")
+    project_dir = tmp_project / ".osh" / "neutralize"
+    project_dir.mkdir(parents=True)
+    for script in bundled:
+        (project_dir / script.name).write_text(script.read_text())
+    (project_dir / "100_custom.sql").write_text("-- central\n")
+    (project_dir / "200_edited.sql").write_text("-- project\n")
+
+    prune_redundant_project_scripts(tmp_project, "neutralize")
+
+    assert sorted(path.name for path in project_dir.iterdir()) == ["200_edited.sql"]
+
+
+def test_restore_neutralize_scripts_drop_fallback_from_every_layer(
+    tmp_project, user_dir
+):
+    """A copied or overriding ``000_osh_default.sql`` is never a post-hook."""
+    project_dir = tmp_project / ".osh" / "neutralize"
+    project_dir.mkdir(parents=True)
+    (project_dir / FALLBACK_SCRIPT).write_text("-- custom fallback\n")
+
+    assert _names(resolve_neutralize_scripts(tmp_project)) == ["900_clear_assets.sql"]
+
+
+def test_sql_fallback_honours_overrides(tmp_project, user_dir, monkeypatch):
+    """The SQL fallback runs the project override instead of the bundled one."""
+    project_dir = tmp_project / ".osh" / "neutralize"
+    project_dir.mkdir(parents=True)
+    (project_dir / FALLBACK_SCRIPT).write_text("-- custom fallback\n")
+    ran = []
+    monkeypatch.setattr(
+        "osh.plugins.osh_backup.restore_ops.run_psql_script",
+        lambda base, db, script, **kw: ran.append(script.read_text()),
+    )
+
+    neutralize_with_sql(tmp_project, "somedb")
+
+    assert ran == ["-- custom fallback\n"]

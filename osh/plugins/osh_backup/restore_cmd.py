@@ -97,6 +97,7 @@ class DbRestore(CommandHandler):
     no_neutralize = False
     scripts = ()
     skips = ()
+    neutralize_scripts = ()
     target_db = None
     dry_run = False
 
@@ -142,6 +143,11 @@ class DbRestore(CommandHandler):
         self.db_name = self.resolve_target_db()
         self.runtime = resolve_runtime(self.base)
         check_run_diagnostics(self.base, self.runtime, self.ctx)
+        if not self.no_neutralize:
+            # Validate --script/--skip before the target database is touched.
+            self.neutralize_scripts = restore_ops.resolve_neutralize_scripts(
+                self.base, only=self.scripts, skip=self.skips
+            )
         self.prepare_target()
         self.restore_dump()
         if not self.no_neutralize:
@@ -213,8 +219,7 @@ class DbRestore(CommandHandler):
             restore_ops.run_project_neutralize_scripts(
                 self.base,
                 self.db_name,
-                only=self.scripts,
-                skip=self.skips,
+                self.neutralize_scripts,
                 dry_run=True,
                 ctx=self.ctx,
             )
@@ -250,9 +255,7 @@ class DbRestore(CommandHandler):
         restore_ops.run_project_neutralize_scripts(
             self.base,
             self.db_name,
-            only=self.scripts,
-            skip=self.skips,
-            dry_run=self.dry_run,
+            self.neutralize_scripts,
             ctx=self.ctx,
         )
 

@@ -9,7 +9,6 @@ commands work identically on host and container runtimes — no host file
 path ever reaches the execution environment.
 """
 
-import importlib.resources
 import shlex
 import tempfile
 import time
@@ -161,29 +160,37 @@ def restore_dump(base, dump_path, target_db, *, dry_run=False, ctx=None):
 
 
 def neutralize_with_sql(base, db_name, ctx=None):
-    """Run the bundled SQL fallback neutralization script."""
-    script = importlib.resources.files("osh.data") / "neutralize" / FALLBACK_SCRIPT
-    with importlib.resources.as_file(script) as script_path:
-        run_psql_script(base, db_name, script_path, ctx=ctx)
+    """Run the SQL fallback neutralization script.
+
+    A same-named ``000_osh_default.sql`` in the user or project layer
+    replaces the bundled fallback.
+    """
+    fallback = next(
+        script
+        for script in resolve_sql_scripts(base, "neutralize")
+        if script.name == FALLBACK_SCRIPT
+    )
+    run_psql_script(base, db_name, fallback.resource, ctx=ctx)
 
 
-def resolve_neutralize_scripts(base):
-    """Return the neutralize script set minus the bundled fallback.
+def resolve_neutralize_scripts(base, *, only=(), skip=()):
+    """Return the selected neutralize scripts, without the fallback.
 
     The fallback (``000_osh_default.sql``) is not a post-neutralize hook:
     ``neutralize_with_sql`` runs it directly when the restore needs the
-    SQL path, so it is filtered out of the resolved set here.
+    SQL path, so it is dropped from every layer here. An unknown
+    *only*/*skip* name raises a usage error.
     """
-    return resolve_sql_scripts(
-        base, "neutralize", bundled=lambda name: name != FALLBACK_SCRIPT
-    )
+    scripts = [
+        script
+        for script in resolve_sql_scripts(base, "neutralize")
+        if script.name != FALLBACK_SCRIPT
+    ]
+    return filter_sql_scripts(scripts, only=only, skip=skip)
 
 
-def run_project_neutralize_scripts(
-    base, db_name, *, only=(), skip=(), dry_run=False, ctx=None
-):
-    """Run the resolved neutralize scripts against *db_name* in order."""
-    scripts = filter_sql_scripts(resolve_neutralize_scripts(base), only=only, skip=skip)
+def run_project_neutralize_scripts(base, db_name, scripts, *, dry_run=False, ctx=None):
+    """Run the resolved neutralize *scripts* against *db_name* in order."""
     run_sql_scripts(base, "neutralize", db_name, scripts, dry_run=dry_run, ctx=ctx)
 
 

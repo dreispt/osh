@@ -78,6 +78,29 @@ def resolve_sql_scripts(base, kind, *, bundled=None, package="osh.data"):
     return [scripts[name] for name in sorted(scripts)]
 
 
+def prune_redundant_project_scripts(base, kind, *, package="osh.data"):
+    """Remove project scripts identical to the user or bundled script they shadow.
+
+    Earlier ``osh init`` copied the bundled and user scripts into
+    ``.osh/<kind>/``; untouched copies would shadow later central fixes.
+    Edited copies are genuine project overrides and are kept.
+    """
+    project_dir = get_project_scripts_dir(base, kind)
+    if not project_dir.is_dir():
+        return
+    candidates = [importlib.resources.files(package) / kind, get_user_scripts_dir(kind)]
+    for path in sorted(project_dir.glob("*.sql")):
+        content = path.read_text(encoding="utf-8")
+        for directory in candidates:
+            shadowed = directory / path.name
+            if shadowed.is_file() and shadowed.read_text(encoding="utf-8") == content:
+                path.unlink()
+                echo.info(
+                    f"Removed redundant {kind} script copy: {path.name}", err=True
+                )
+                break
+
+
 def filter_sql_scripts(scripts, *, only=(), skip=()):
     """Apply ``--script``/``--skip`` selections to resolved *scripts*.
 
@@ -114,7 +137,7 @@ def _script_matches(script, arg):
     if arg in (script.name, stem):
         return True
     _, sep, tail = stem.partition("_")
-    return bool(sep) and (tail == arg or tail.startswith(arg) or arg.startswith(tail))
+    return bool(sep) and (tail == arg or tail.startswith(arg))
 
 
 def run_sql_scripts(
@@ -140,7 +163,6 @@ def run_sql_scripts(
                 f"Would run {kind} script: {script.name} ({script.layer})",
                 err=True,
             )
-            echo.info(prelude + script.read_text(), err=True)
             continue
         echo.info(f"Running {kind} script: {script.name}", err=True)
         returncode, _, stderr = psql(

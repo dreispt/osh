@@ -49,6 +49,7 @@ from ..db import (
 from ..handlers import CommandHandler
 from ..runtimes import copy_odoo_rc_to_osh_conf
 from ..sources import parse_source_pins, update_osh_sources
+from ..sql_scripts import prune_redundant_project_scripts
 from ..termui import can_menu, choose
 from ..utils.plugin_loader import get_runtime_class, runtime_meta
 from ..utils.version import KNOWN_ODOO_SERIES, detect_project_version
@@ -667,6 +668,7 @@ def apply_init_setup(
     set_project_config(target, "init", values=init_values)
     if enclosing is None and get_project_config(target, "init", "parent"):
         unset_project_config(target, "init", "parent")
+    prune_redundant_project_scripts(target, "neutralize")
 
 
 def run_runtime_init(
