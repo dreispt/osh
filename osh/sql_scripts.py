@@ -88,17 +88,18 @@ def prune_redundant_project_scripts(base, kind, *, package="osh.data"):
     project_dir = get_project_scripts_dir(base, kind)
     if not project_dir.is_dir():
         return
-    candidates = [importlib.resources.files(package) / kind, get_user_scripts_dir(kind)]
+    bundled_dir = importlib.resources.files(package) / kind
+    user_dir = get_user_scripts_dir(kind)
     for path in sorted(project_dir.glob("*.sql")):
-        content = path.read_text(encoding="utf-8")
-        for directory in candidates:
-            shadowed = directory / path.name
-            if shadowed.is_file() and shadowed.read_text(encoding="utf-8") == content:
-                path.unlink()
-                echo.info(
-                    f"Removed redundant {kind} script copy: {path.name}", err=True
-                )
-                break
+        # Only the effective lower layer would run once the copy is gone.
+        shadowed = user_dir / path.name
+        if not shadowed.is_file():
+            shadowed = bundled_dir / path.name
+        if not shadowed.is_file():
+            continue
+        if shadowed.read_text(encoding="utf-8") == path.read_text(encoding="utf-8"):
+            path.unlink()
+            echo.info(f"Removed redundant {kind} script copy: {path.name}", err=True)
 
 
 def filter_sql_scripts(scripts, *, only=(), skip=()):

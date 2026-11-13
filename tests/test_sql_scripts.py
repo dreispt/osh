@@ -168,6 +168,21 @@ def test_prune_removes_untouched_legacy_copies(tmp_project, user_dir):
     assert sorted(path.name for path in project_dir.iterdir()) == ["200_edited.sql"]
 
 
+def test_prune_keeps_copy_that_differs_from_the_user_layer(tmp_project, user_dir):
+    """A project copy of the bundled script stays when the user layer differs."""
+    bundled = resolve_sql_scripts(tmp_project, "neutralize")
+    clear_assets = _by_name(bundled, "900_clear_assets.sql")
+    (user_dir / "neutralize").mkdir(parents=True)
+    (user_dir / "neutralize" / clear_assets.name).write_text("-- keep assets\n")
+    project_dir = tmp_project / ".osh" / "neutralize"
+    project_dir.mkdir(parents=True)
+    (project_dir / clear_assets.name).write_text(clear_assets.read_text())
+
+    prune_redundant_project_scripts(tmp_project, "neutralize")
+
+    assert (project_dir / clear_assets.name).exists()
+
+
 def test_restore_neutralize_scripts_drop_fallback_from_every_layer(
     tmp_project, user_dir
 ):
