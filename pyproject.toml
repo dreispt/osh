@@ -3,7 +3,7 @@ name = "osh"
 version = "2.0.0"
 description = "Odoo Shell command-line interface"
 authors = [
-    {name = "Odoo Community Association", email="info@odoo-community.org"}
+    {name = "Daniel Reis", email = "dreis.pt@gmail.com"}
 ]
 readme = "README.md"
 license = {text = "LGPL-3.0-only"}
