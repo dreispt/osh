@@ -6,6 +6,10 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 2.0.1 — 2026-11-14
+
+A patch release polishing the help output:
+
 ### Fixed
 
 - Plugin-created command groups now show a description in `--help`:
