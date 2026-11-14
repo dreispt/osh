@@ -1,6 +1,6 @@
 [project]
 name = "osh"
-version = "2.0.0"
+version = "2.0.1"
 description = "Odoo Shell command-line interface"
 authors = [
     {name = "Daniel Reis", email = "dreis.pt@gmail.com"}
