@@ -6,6 +6,18 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 2.0.0 — 2026-11-14
+
+A major release headlined by the agent-friendly CLI surface: `osh` is
+now scriptable end to end — machine-readable `--json` output, a strict
+non-interactive contract (`--no-input`/`OSH_NO_INPUT`, exit code 3),
+`osh -C` for running against a project from anywhere, and `osh init
+info`/`osh skill` giving agents a single readiness call and bundled
+instructions. Database workflows gained branch-aware copies
+(`--from-current`/`--to-current`, `--force`), layered runtime SQL
+scripts for restore neutralization (`--script`/`--skip`), and CI now
+runs the osh-contrib plugin suites against every change.
+
 ### Added
 
 - `osh backup restore` neutralize scripts resolve at run time from
