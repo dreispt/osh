@@ -1,5 +1,6 @@
 """Tests for the layered SQL script resolver in ``osh.sql_scripts``."""
 
+import click
 import pytest
 
 from osh.plugins.osh_backup.restore_ops import (
@@ -105,16 +106,21 @@ def test_filter_unknown_name_is_a_usage_error(tmp_project, user_dir):
     """Naming a script outside the resolved set fails with the set listed."""
     scripts = resolve_sql_scripts(tmp_project, "neutralize")
 
-    with pytest.raises(Exception, match="Unknown script.*nope.sql"):
+    with pytest.raises(click.UsageError, match="Unknown script.*nope.sql"):
         filter_sql_scripts(scripts, only=("nope.sql",))
 
 
-def test_run_sql_scripts_dry_run_runs_nothing(tmp_project, user_dir, capsys):
+def test_run_sql_scripts_dry_run_runs_nothing(
+    tmp_project, user_dir, capsys, monkeypatch
+):
     """``--dry-run`` names each script and its layer without touching psql."""
+    calls = []
+    monkeypatch.setattr("osh.sql_scripts.psql", lambda *a, **kw: calls.append((a, kw)))
     scripts = resolve_sql_scripts(tmp_project, "neutralize")
 
     run_sql_scripts(tmp_project, "neutralize", "somedb", scripts, dry_run=True)
 
+    assert calls == []
     out = capsys.readouterr().err
     assert "Would run neutralize script: 000_osh_default.sql (bundled)" in out
     assert "Would run neutralize script: 900_clear_assets.sql (bundled)" in out

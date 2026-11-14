@@ -152,6 +152,23 @@ def test_restore_unknown_script_fails_before_touching_target(
     assert patched_restore["restore"] == []
 
 
+def test_restore_script_selection_reaches_neutralize(patched_restore, in_project):
+    """``--script``/``--skip`` pick which neutralize scripts run."""
+    cache_dir = in_project / ".osh" / "backups"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "dump.dump").write_bytes(b"x")
+    # A second resolvable script proves --script actually filters.
+    (in_project / ".osh" / "neutralize").mkdir(parents=True)
+    (in_project / ".osh" / "neutralize" / "100_extra.sql").write_text("-- x\n")
+
+    runner = CliRunner()
+    result = runner.invoke(restore, ["--force", "--script", "900_clear_assets.sql"])
+
+    assert result.exit_code == 0, result.output
+    names = [script.name for script in patched_restore["neutralize_scripts"][0]]
+    assert names == ["900_clear_assets.sql"]
+
+
 def test_restore_no_neutralize(patched_restore, in_project):
     """`osh backup restore --no-neutralize` skips neutralization."""
     cache_dir = in_project / ".osh" / "backups"
