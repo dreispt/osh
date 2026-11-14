@@ -403,7 +403,7 @@ def patched_restore(monkeypatch, in_project, pg_db):
     )
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_ops.run_project_neutralize_scripts",
-        lambda base, db, scripts, **kw: state["neutralize_scripts"].append(db),
+        lambda base, db, scripts, **kw: state["neutralize_scripts"].append(scripts),
     )
     monkeypatch.setattr(
         "osh.plugins.osh_backup.restore_cmd.odoo",
