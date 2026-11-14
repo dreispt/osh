@@ -11,7 +11,22 @@ from ..handlers import CommandHandler, subcommand
 
 
 class Config(CommandHandler):
-    """Manage Osh project settings stored in `.osh/config.toml`."""
+    """Manage Osh project settings stored in `.osh/config.toml`.
+
+    `osh config` covers the settings that do not have their own command:
+    user preferences (verbosity) and Odoo runtime defaults (dev mode).
+    Database mappings are managed by `osh db set`/`osh db unset`, and
+    extra addon directories by `osh init extra-addons` — both are stored
+    in the same file and shown by `osh config show`.
+
+    Examples:
+
+    \b
+      osh config show
+      osh config show --json
+      osh config user verbosity verbose
+      osh config odoo dev xml,reload
+    """
 
     _cli_name = "config"
 
@@ -23,7 +38,18 @@ class Config(CommandHandler):
         help="Print the configuration as JSON for machine consumption.",
     )
     def show(self):
-        """Show the current Osh project configuration."""
+        """Show the current Osh project configuration.
+
+        Prints every section of `.osh/config.toml` — database mappings,
+        addon paths, user preferences and Odoo defaults — with the file
+        location. Use `--json` for machine-readable output.
+
+        Examples:
+
+        \b
+          osh config show
+          osh config show --json
+        """
         self.base = find_project_root(required=True)
 
         cfg = load_osh_config(self.base)
@@ -63,7 +89,13 @@ config = handler_group("config", Config)
 
 
 class ConfigUser(CommandHandler):
-    """Manage user preferences for this project."""
+    """Manage user preferences for this project.
+
+    Currently only the verbosity level — how much `osh` prints. Project
+    settings live in `.osh/config.toml`; pass `--global` to `verbosity`
+    to store the preference in `~/.config/osh/config.toml` instead, so it
+    applies to every project.
+    """
 
     _cli_name = "config.user"
 
@@ -107,7 +139,13 @@ class ConfigUser(CommandHandler):
 
 
 class ConfigOdoo(CommandHandler):
-    """Manage Odoo runtime defaults."""
+    """Manage Odoo runtime defaults.
+
+    Currently only the default `--dev` value `osh odoo` injects on server
+    runs (see `osh odoo --help`). Project settings live in
+    `.osh/config.toml`; pass `--global` to store the preference in
+    `~/.config/osh/config.toml` instead.
+    """
 
     _cli_name = "config.odoo"
 

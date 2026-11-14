@@ -6,6 +6,19 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Fixed
+
+- Plugin-created command groups now show a description in `--help`:
+  auto-created groups pick up a same-named runtime's description, an
+  explicit `[tool.osh.group_help]` declaration, or — when a single plugin
+  provides the whole group — that plugin's own description. `osh backup`
+  and similar groups are no longer bare `Usage:` lines.
+
+### Changed
+
+- `osh config` help now explains which settings live where and gives
+  examples for `show`, `user verbosity` and `odoo dev`.
+
 ## 2.0.0 — 2026-11-14
 
 A major release. The headline is that `osh` is now easy for scripts and

@@ -229,6 +229,28 @@ for plugin_source, plugin_cmd in load_plugins():
         _plugin_commands[name] = plugin_source
 main.plugin_commands = _plugin_commands
 
+
+def _plugin_group_help(group_name, entries):
+    """Return help text for an auto-created plugin command group.
+
+    Resolution order: a runtime of the same name, an explicit
+    ``group_help`` declaration, then the contributing plugin's own
+    description when a single plugin provides the whole group.
+    """
+    help_text = declared_meta("runtimes").get(group_name)
+    if help_text:
+        return help_text
+    help_text = declared_meta("group_help").get(group_name)
+    if help_text:
+        return help_text
+    sources = {source for source, _cmd in entries}
+    if len(sources) == 1:
+        spec = plugin_registry().specs.get(next(iter(sources)))
+        if spec is not None and spec.help_text:
+            return spec.help_text
+    return None
+
+
 # Register plugin-provided subcommands on command groups — plugin
 # handlers with dotted names (``backup.restore``) declared under
 # ``[group_commands.<group>]``. Missing target
@@ -241,7 +263,7 @@ for group_name, entries in load_group_commands().items():
     if target is None:
         target = NaturalOrderGroup(
             name=group_name,
-            help=declared_meta("runtimes").get(group_name),
+            help=_plugin_group_help(group_name, entries),
         )
         registered = _register_plugin_command(main, target, entries[0][0], group_name)
         if registered is None:

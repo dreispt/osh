@@ -282,3 +282,68 @@ def test_no_input_flag_works_after_the_subcommand():
     result = CliRunner().invoke(main, ["skill", "--no-input"])
 
     assert result.exit_code == 0
+
+
+def test_plugin_group_help_prefers_runtime_description(monkeypatch):
+    """A group named after a runtime gets the runtime's description."""
+    from osh import cli
+
+    monkeypatch.setattr(cli, "declared_meta", lambda key: {"docker": "Docker runtime."})
+
+    assert cli._plugin_group_help("docker", [("p", None)]) == "Docker runtime."
+
+
+def test_plugin_group_help_uses_group_help_declaration(monkeypatch):
+    """An explicit ``group_help`` entry beats the plugin description."""
+    from osh import cli
+
+    def meta(key):
+        return {
+            "runtimes": {},
+            "group_help": {"apps": "Manage Odoo modules."},
+        }.get(key, {})
+
+    monkeypatch.setattr(cli, "declared_meta", meta)
+    spec = PluginSpec(name="upd", target_ref="x", help_text="Update modules.")
+    monkeypatch.setattr(
+        cli, "plugin_registry", lambda: type("R", (), {"specs": {"upd": spec}})()
+    )
+
+    entries = [("upd", None), ("uninst", None)]
+    assert cli._plugin_group_help("apps", entries) == "Manage Odoo modules."
+
+
+def test_plugin_group_help_falls_back_to_single_plugin_description(monkeypatch):
+    """A group provided by one plugin gets that plugin's description."""
+    from osh import cli
+
+    monkeypatch.setattr(cli, "declared_meta", lambda key: {})
+    spec = PluginSpec(
+        name="osh-backup",
+        target_ref="x",
+        help_text="Download, cache and restore backups.",
+    )
+    monkeypatch.setattr(
+        cli, "plugin_registry", lambda: type("R", (), {"specs": {"osh-backup": spec}})()
+    )
+
+    assert (
+        cli._plugin_group_help("backup", [("osh-backup", None)])
+        == "Download, cache and restore backups."
+    )
+
+
+def test_plugin_group_help_is_empty_for_multi_plugin_group(monkeypatch):
+    """A group shared by several plugins gets no guessed description."""
+    from osh import cli
+
+    monkeypatch.setattr(cli, "declared_meta", lambda key: {})
+    specs = {
+        "a": PluginSpec(name="a", target_ref="x", help_text="Does A."),
+        "b": PluginSpec(name="b", target_ref="x", help_text="Does B."),
+    }
+    monkeypatch.setattr(
+        cli, "plugin_registry", lambda: type("R", (), {"specs": specs})()
+    )
+
+    assert cli._plugin_group_help("apps", [("a", None), ("b", None)]) is None
