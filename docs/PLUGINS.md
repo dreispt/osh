@@ -138,7 +138,18 @@ docker = "Run Odoo inside a Docker Compose stack."
 
 [tool.osh.sources]             # `osh backup get` backup source schemes provided
 s3 = "Download a backup from an S3 bucket."
+
+[tool.osh.group_help]          # help text for a plugin-created command group
+backup = "Download, cache and restore Odoo database backups."
 ```
+
+`group_help` maps a `group_commands` group name to the description shown
+by `osh <group> --help` and the top-level `osh --help` listing. Groups
+auto-created for plugin commands get their help from a same-named
+runtime, then `group_help`, then — when a single plugin provides the
+whole group — that plugin's own `description`. Declare `group_help`
+when several plugins share a group, so the listing describes the group
+rather than one plugin's slice of it.
 
 Command declaration values are the short help text shown in `--help`
 listings, or a table with `help` and optional `group = true` when the
