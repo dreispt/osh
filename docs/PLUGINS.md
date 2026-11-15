@@ -151,6 +151,20 @@ whole group — that plugin's own `description`. Declare `group_help`
 when several plugins share a group, so the listing describes the group
 rather than one plugin's slice of it.
 
+To retire an option without breaking callers, mark it with
+`cli_utils.deprecated_option` — the flag keeps working but prints a
+warning naming the replacement and the removal version:
+
+```python
+from osh.cli_utils import deprecated_option
+
+class Demo(CommandHandler):
+    @deprecated_option("--old", remove_in="3.0", instead="use --new")
+    @click.option("--old", "value")
+    @click.option("--new", "value")
+    def run(self): ...
+```
+
 Command declaration values are the short help text shown in `--help`
 listings, or a table with `help` and optional `group = true` when the
 command is itself a group (e.g. `osh backup remote` — a handler class with

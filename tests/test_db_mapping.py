@@ -524,7 +524,7 @@ def test_drop_command_drops_db_filestore_and_last_db(
     set_last_db(tmp_project, name)
     monkeypatch.chdir(tmp_project)
 
-    result = CliRunner().invoke(drop, ["-d", name, "--force"])
+    result = CliRunner().invoke(drop, [name, "--force"])
 
     assert result.exit_code == 0, result.output
     assert f"Dropped database '{name}'" in result.output
@@ -544,7 +544,7 @@ def test_drop_command_aborts_without_confirmation(tmp_project, pg_db, monkeypatc
     name = pg_db.create()
     monkeypatch.chdir(tmp_project)
 
-    result = CliRunner().invoke(drop, ["-d", name], input="n\n")
+    result = CliRunner().invoke(drop, [name], input="n\n")
 
     assert result.exit_code != 0
     assert pg_db.exists(name)
@@ -560,7 +560,7 @@ def test_drop_command_reports_missing_db(tmp_project, pg_db, monkeypatch):
     monkeypatch.chdir(tmp_project)
 
     # No input: a prompt would hit EOF and abort with a non-zero exit.
-    result = CliRunner().invoke(drop, ["-d", pg_db.name()])
+    result = CliRunner().invoke(drop, [pg_db.name()])
 
     assert result.exit_code == 0, result.output
     assert "does not exist" in result.output
@@ -588,8 +588,25 @@ def test_drop_command_defaults_to_the_branch_database(tmp_project, pg_db, monkey
     assert pg_db.exists(other)
 
 
-def test_drop_command_dash_d_selects_the_database(tmp_project, pg_db, monkeypatch):
-    """`osh db drop -d name` drops a specific database."""
+def test_drop_command_positional_selects_the_database(tmp_project, pg_db, monkeypatch):
+    """`osh db drop name` drops a specific database."""
+    from osh.cli_utils import handler_command
+    from osh.plugins.osh_db_drop.drop_cmd import DbDrop
+
+    drop = handler_command("drop", DbDrop)
+
+    name = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(drop, [name, "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Dropped database '{name}'" in result.output
+    assert not pg_db.exists(name)
+
+
+def test_drop_command_dash_d_warns_deprecated(tmp_project, pg_db, monkeypatch):
+    """`osh db drop -d name` still works but warns it is deprecated."""
     from osh.cli_utils import handler_command
     from osh.plugins.osh_db_drop.drop_cmd import DbDrop
 
@@ -601,8 +618,25 @@ def test_drop_command_dash_d_selects_the_database(tmp_project, pg_db, monkeypatc
     result = CliRunner().invoke(drop, ["-d", name, "--force"])
 
     assert result.exit_code == 0, result.output
+    assert "deprecated" in result.output
     assert f"Dropped database '{name}'" in result.output
     assert not pg_db.exists(name)
+
+
+def test_drop_command_rejects_name_and_dash_d_together(tmp_project, pg_db, monkeypatch):
+    """Giving the name both ways is a usage error."""
+    from osh.cli_utils import handler_command
+    from osh.plugins.osh_db_drop.drop_cmd import DbDrop
+
+    drop = handler_command("drop", DbDrop)
+
+    name = pg_db.create()
+    monkeypatch.chdir(tmp_project)
+
+    result = CliRunner().invoke(drop, [name, "-d", name, "--force"])
+
+    assert result.exit_code == 2
+    assert pg_db.exists(name)
 
 
 def test_list_command_reports_dangling_filestores(
