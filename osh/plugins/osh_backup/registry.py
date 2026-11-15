@@ -1,4 +1,4 @@
-"""Backup source registry for `osh backup get`.
+"""Backup source registry for `osh db backup`.
 
 Sources are discovered by subclassing: any ``BackupSource`` subclass
 importable from a plugin registers automatically — including

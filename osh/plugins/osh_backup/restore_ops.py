@@ -1,4 +1,4 @@
-"""Backup restore internals for ``osh backup restore``.
+"""Backup restore internals for ``osh db restore``.
 
 These helpers resolve a backup file from the project cache or a path, pick
 the right restore tool for its format, restore the dump, copy the filestore
@@ -45,7 +45,7 @@ def resolve_backup_path(base, dump):
         entries = list_cache(base, limit=1)
         if not entries:
             raise click.ClickException(
-                "No cached backup found. Run 'osh backup get <source>' first."
+                "No cached backup found. Run 'osh db backup <source>' first."
             )
         return entries[0]["path"]
 

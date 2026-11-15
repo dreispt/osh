@@ -252,12 +252,11 @@ def _plugin_group_help(group_name, entries):
 
 
 # Register plugin-provided subcommands on command groups — plugin
-# handlers with dotted names (``backup.restore``) declared under
+# handlers with dotted names (``db.restore``) declared under
 # ``[group_commands.<group>]``. Missing target
 # groups are created on demand: a group named after a declared runtime
 # gets the runtime's description as its help; any other auto-created
-# group (e.g. the ``backup.get`` handler creating ``backup``) is a
-# plugin command. Targeting a non-group command is an error.
+# group is a plugin command. Targeting a non-group command is an error.
 for group_name, entries in load_group_commands().items():
     target = main.commands.get(group_name)
     if target is None:

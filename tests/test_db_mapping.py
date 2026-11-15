@@ -156,14 +156,19 @@ def test_switch_command_removed():
 
 
 def test_backup_commands_come_from_plugin():
-    """`osh backup ...` is contributed by the osh_backup plugin, not `osh db`."""
+    """`osh db backup/restore/...` are contributed by the osh_backup plugin."""
     from osh import cli
 
     main = importlib.reload(cli).main
-    backup = main.commands["backup"]
-    assert set(backup.commands) == {"get", "restore", "list", "remote"}
     db_commands = main.commands["db"].commands
-    assert not {"get", "restore", "remote"} & set(db_commands)
+    assert {"backup", "restore", "backups", "remote"} <= set(db_commands)
+    # The former `osh backup` spellings remain as deprecated aliases.
+    assert set(main.commands["backup"].commands) == {
+        "get",
+        "restore",
+        "list",
+        "remote",
+    }
     assert "restore" not in main.commands
 
 

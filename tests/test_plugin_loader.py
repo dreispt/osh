@@ -35,6 +35,19 @@ def test_builtin_plugins_inherit_osh_version():
     assert spec.version == osh.__version__
 
 
+def test_backup_commands_registered_under_db():
+    """Backup commands live under ``osh db``; the old ``osh backup``
+    spellings remain as hidden deprecated stubs."""
+    groups = plugin_loader.load_group_commands()
+
+    db_cmds = {cmd.name: cmd for _src, cmd in groups["db"]}
+    assert {"backup", "restore", "backups", "remote"} <= set(db_cmds)
+
+    backup_cmds = {cmd.name: cmd for _src, cmd in groups["backup"]}
+    assert set(backup_cmds) == {"get", "restore", "list", "remote"}
+    assert all(cmd.hidden for cmd in backup_cmds.values())
+
+
 def test_plugin_version_comes_from_distribution(pip_install):
     """A plugin's spec version is the installed distribution's version."""
     pip_install("plug_src")

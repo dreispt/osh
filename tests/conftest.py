@@ -351,7 +351,7 @@ def subprocess_check_call_capture(monkeypatch):
 
 @pytest.fixture
 def patched_restore(monkeypatch, in_project, pg_db):
-    """Patch external dependencies used by `osh backup restore` for isolated tests.
+    """Patch external dependencies used by `osh db restore` for isolated tests.
 
     The branch database is mapped to a unique name that is guaranteed not to
     exist, so the real ``db_exists`` check drives the create path.

@@ -1,10 +1,17 @@
-description = "Download, cache and restore Odoo database backups."
+description = "Download, cache and restore Odoo database backups. Deprecated: use 'osh db backup'/'osh db restore' instead."
 
-[group_commands.backup]
-get = "Download or dump a backup source."
+[group_commands.db]
+backup = "Download or dump a backup source (default: the current database)."
 restore = "Restore a backup and neutralize it."
-list = "List cached backups."
+backups = "List cached backups."
 remote = { group = true, help = "Manage named backup sources." }
+
+# Deprecated spellings — hidden aliases that warn on use.
+[group_commands.backup]
+get = { help = "Deprecated: use 'osh db backup'.", hidden = true }
+restore = { help = "Deprecated: use 'osh db restore'.", hidden = true }
+list = { help = "Deprecated: use 'osh db backups'.", hidden = true }
+remote = { group = true, help = "Deprecated: use 'osh db remote'.", hidden = true }
 
 [sources]
 db = "Dump a local PostgreSQL database using pg_dump."
