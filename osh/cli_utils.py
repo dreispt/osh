@@ -6,6 +6,8 @@ import os
 
 import click
 
+from . import echo
+
 # Set by the root ``--no-input`` flag; ``OSH_NO_INPUT`` works without it.
 _no_input = False
 
@@ -65,6 +67,53 @@ def emit_json(payload):
     rather than human-oriented text.
     """
     click.echo(json.dumps(payload, indent=2))
+
+
+def deprecated_option(*names, remove_in, instead=None):
+    """Decorator marking click options as deprecated.
+
+    Place it above the ``@click.option`` decorators it applies to; each
+    named flag keeps working but prints a warning when used on the
+    command line::
+
+        @deprecated_option("--database", remove_in="3.0",
+                           instead="pass the name as a positional argument")
+        @click.option("-d", "--database", ...)
+        @click.option("--force", ...)
+        def run(self): ...
+
+    *names* are option strings to match (``"--database"``); every option
+    carrying one of them is marked. *remove_in* is the osh version that
+    drops the option; *instead* tells the user what to use instead.
+    """
+
+    def decorator(func):
+        for param in getattr(func, "__click_params__", []):
+            opts = set(param.opts) | set(param.secondary_opts)
+            matched = opts.intersection(names)
+            if not matched:
+                continue
+            previous = param.callback
+
+            def callback(ctx, param_, value, _previous=previous, _matched=matched):
+                if (
+                    ctx.get_parameter_source(param_.name)
+                    == click.core.ParameterSource.COMMANDLINE
+                ):
+                    flags = "/".join(sorted(_matched))
+                    message = f"{flags} is deprecated"
+                    if instead:
+                        message += f"; {instead}"
+                    message += f" — will be removed in osh {remove_in}."
+                    echo.warning(message, err=True)
+                if _previous is not None:
+                    return _previous(ctx, param_, value)
+                return value
+
+            param.callback = callback
+        return func
+
+    return decorator
 
 
 class ExtensibleCommand(click.Command):

@@ -3,7 +3,7 @@
 import click
 
 from ... import echo
-from ...cli_utils import require_input
+from ...cli_utils import deprecated_option, require_input
 from ...common import find_project_root
 from ...db import (
     db_exists,
@@ -20,8 +20,9 @@ from .filestore import filestore_exists, remove_filestore
 class DbDrop(CommandHandler):
     """Drop a PostgreSQL database and its Odoo filestore.
 
-    Without options, drops the current branch's database — the one
-    ``osh db show`` reports. A specific name can be given with ``-d``.
+    Without arguments, drops the current branch's database — the one
+    ``osh db show`` reports. A specific name can be given as a positional
+    argument (``-d``/``--database`` still works but is deprecated).
 
     Removes the database and the matching ``filestore/<db>`` directory under
     Odoo's ``data_dir`` (inside the container on Docker runtimes). Asks for
@@ -31,31 +32,45 @@ class DbDrop(CommandHandler):
 
     \b
       osh db drop
-      osh db drop -d myproject-fix-123
-      osh db drop -d myproject-fix-123 --force
+      osh db drop myproject-fix-123
+      osh db drop myproject-fix-123 --force
     """
 
     _cli_name = "db.drop"
 
+    db_name = None
     database = None
     force = False
 
+    @deprecated_option(
+        "-d",
+        "--database",
+        remove_in="3.0",
+        instead="pass the name as a positional argument",
+    )
     @click.option(
         "-d",
         "--database",
-        help="Database to drop (defaults to the current branch's database).",
+        help="Deprecated: use the DB_NAME argument instead.",
     )
     @click.option(
         "--force",
         is_flag=True,
         help="Drop without asking for confirmation.",
     )
+    @click.argument("db_name", required=False)
     def run(self):
         ctx = self.ctx
         base = find_project_root(required=True)
+        requested = self.db_name or self.database
+        if self.db_name and self.database:
+            raise click.UsageError(
+                "Give the database name either as an argument or with "
+                "-d/--database, not both."
+            )
         name = (
-            sanitize_db_name(self.database)
-            if self.database
+            sanitize_db_name(requested)
+            if requested
             else resolve_db_name(base, verbose=True)
         )
         exists = db_exists(base, name, ctx=ctx)

@@ -347,3 +347,44 @@ def test_plugin_group_help_is_empty_for_multi_plugin_group(monkeypatch):
     )
 
     assert cli._plugin_group_help("apps", [("a", None), ("b", None)]) is None
+
+
+def test_deprecated_option_warns_only_when_used_on_the_command_line():
+    """``deprecated_option`` flags warn when passed, stay silent otherwise."""
+    import click
+    from click.testing import CliRunner
+
+    from osh.cli_utils import deprecated_option, handler_command
+    from osh.handlers import CommandHandler
+
+    class Demo(CommandHandler):
+        """Demo."""
+
+        _cli_name = "demo"
+        value = None
+        flag = False
+
+        @deprecated_option("--old", remove_in="3.0", instead="use --flag")
+        @click.option("--old", "value", help="Old flag.")
+        @click.option("--flag", is_flag=True, help="New flag.")
+        def run(self):
+            click.echo(f"value={self.value} flag={self.flag}")
+
+    demo = handler_command("demo", Demo)
+    runner = CliRunner()
+
+    result = runner.invoke(demo, ["--old", "x"])
+    assert result.exit_code == 0, result.output
+    assert (
+        "--old is deprecated; use --flag — will be removed in osh 3.0." in result.output
+    )
+    assert "value=x" in result.output
+
+    result = runner.invoke(demo, ["--flag"])
+    assert result.exit_code == 0, result.output
+    assert "deprecated" not in result.output
+    assert "flag=True" in result.output
+
+    result = runner.invoke(demo, [])
+    assert result.exit_code == 0, result.output
+    assert "deprecated" not in result.output
