@@ -1,4 +1,4 @@
-"""`osh backup get` command implementation."""
+"""`osh db backup` command implementation."""
 
 from pathlib import Path
 
@@ -7,6 +7,7 @@ import click
 from ... import echo
 from ...backup_sources import SourceError
 from ...common import find_project_root
+from ...db import resolve_db_name
 from ...handlers import CommandHandler
 from .cache import ensure_cache_dir, write_metadata
 from .format_detect import detect_backup_format_by_content
@@ -14,12 +15,14 @@ from .registry import get_backup_source_help, list_backup_schemes, parse_source
 from .remotes import resolve_remote_source
 
 
-# `osh backup get` handler — extensions subclass DbGet and override step
+# `osh db backup` handler — extensions subclass DbGet and override step
 # methods, calling super(). Command state is on ``self``: ``ctx``, the
 # parsed params plus ``base``, ``parsed`` and ``output_path`` as ``run()``
 # fills them in.
 class DbGet(CommandHandler):
     """Download or dump a backup source to the project cache or current directory.
+
+    With no SOURCE, the current branch's database is dumped (``db://``).
 
     The available source schemes are listed below; they are registered by
     plugins, including the built-in backup source plugins.
@@ -40,12 +43,12 @@ class DbGet(CommandHandler):
     works unchanged.
 
     \b
-      osh backup get https://my.odoo.com?db=prod&format=zip
-      osh backup get https://my.odoo.com?db=prod&format=sql
-      osh backup get https://my.odoo.com?db=prod
+      osh db backup https://my.odoo.com?db=prod&format=zip
+      osh db backup https://my.odoo.com?db=prod&format=sql
+      osh db backup https://my.odoo.com?db=prod
 
     The downloaded backup is not neutralized. Neutralize after restoring with
-    ``osh backup restore`` (which neutralizes by default), or on a running database
+    ``osh db restore`` (which neutralizes by default), or on a running database
     with ``osh odoo neutralize -d DB``.
 
     Odoo.sh quick start:
@@ -54,11 +57,11 @@ class DbGet(CommandHandler):
     2. Copy the domain from the SSH tab of your branch.
     3. Download the latest daily SQL dump:
 
-       osh backup get odoosh://PROJECT-BRANCH-BUILD
+       osh db backup odoosh://PROJECT-BRANCH-BUILD
 
     The build id is the numeric suffix of the odoo.sh domain; `.dev.odoo.com`
     is optional. Add `--filestore` to also download the filestore over SSH and
-    produce a full `.zip` backup that `osh backup restore` can restore directly.
+    produce a full `.zip` backup that `osh db restore` can restore directly.
 
     Generic SSH (VPS / disabled dbmanager):
 
@@ -66,26 +69,26 @@ class DbGet(CommandHandler):
     an existing backup file from the server:
 
     \b
-      osh backup get ssh://user@vps.example.com/var/backups/odoo.sql.gz
-      osh backup get ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
+      osh db backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh db backup ssh://user@vps.example.com:2222/~/backups/odoo.sql.gz
 
     See docs/odoo-sh-backup-howto.md for the complete guide.
 
     Examples:
 
     \b
-      osh backup get db://prod_db
-      osh backup get https://my.odoo.com?db=prod&format=zip
-      osh backup get https://my.odoo.com?db=prod /path/to/backups/
-      osh backup get https://my.odoo.com?db=prod /path/to/prod.zip
-      osh backup get odoosh://my-project-master-123456
-      osh backup get odoosh://my-project-master-123456 --filestore
-      osh backup get odoosh://my-project-master-123456.dev.odoo.com
-      osh backup get odoosh://123456@my-project-master-123456.dev.odoo.com
-      osh backup get ssh://user@vps.example.com/var/backups/odoo.sql.gz
+      osh db backup db://prod_db
+      osh db backup https://my.odoo.com?db=prod&format=zip
+      osh db backup https://my.odoo.com?db=prod /path/to/backups/
+      osh db backup https://my.odoo.com?db=prod /path/to/prod.zip
+      osh db backup odoosh://my-project-master-123456
+      osh db backup odoosh://my-project-master-123456 --filestore
+      osh db backup odoosh://my-project-master-123456.dev.odoo.com
+      osh db backup odoosh://123456@my-project-master-123456.dev.odoo.com
+      osh db backup ssh://user@vps.example.com/var/backups/odoo.sql.gz
     """
 
-    _cli_name = "backup.get"
+    _cli_name = "db.backup"
 
     source = None
     output = None
@@ -113,7 +116,7 @@ class DbGet(CommandHandler):
         callback=lambda ctx, param, value: _print_scheme_help(ctx, param, value),
         help="Show detailed help for a backup source scheme and exit.",
     )
-    @click.argument("source")
+    @click.argument("source", required=False)
     @click.argument("output", required=False, type=click.Path())
     @click.option(
         "--format",
@@ -145,6 +148,10 @@ class DbGet(CommandHandler):
     def run(self):
         self.base = find_project_root()
         self.source = resolve_remote_source(self.base, self.source)
+        if self.source is None:
+            if self.base is None:
+                raise click.UsageError("SOURCE is required outside an Osh project.")
+            self.source = f"db://{resolve_db_name(self.base)}"
         self.parsed = self.parse()
         self.output_path = self.resolve_output_path()
         self.fetch()
@@ -198,6 +205,20 @@ class DbGet(CommandHandler):
         return _record_cache_metadata(self.output_path, self.source, self.parsed)
 
 
+class BackupGet(DbGet):
+    """Deprecated alias of ``osh db backup``, kept for compatibility."""
+
+    _cli_name = "backup.get"
+    _cli_hidden = True
+
+    def run(self):
+        echo.warning(
+            "'osh backup get' is deprecated — use 'osh db backup'.",
+            err=True,
+        )
+        super().run()
+
+
 def _print_scheme_help(ctx, param, value):
     """Eager callback that prints detailed help for a source scheme and exits."""
     if not value or ctx.resilient_parsing:
@@ -217,7 +238,7 @@ def _record_cache_metadata(output_path, source, parsed):
     """Normalize the cached filename to the detected format and write metadata.
 
     The detected content format is the source of truth, so the extension and
-    metadata never mislead `osh backup restore` or directory listings (e.g. a
+    metadata never mislead `osh db restore` or directory listings (e.g. a
     ``.sql`` file that is actually a compressed pg_dump). Returns the final
     path after any extension fix-up.
     """

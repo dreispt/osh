@@ -101,23 +101,24 @@ source checkout, so the worktree runs complete out of the box.
 
 ## Pull in real data
 
-A fresh empty database is rarely what you want. `osh backup` moves
-database copies between machines in two steps — get, then restore:
+A fresh empty database is rarely what you want. `osh db backup` and
+`osh db restore` move database copies between machines in two steps —
+fetch, then restore:
 
 ```bash
-osh backup get https://myserver.odoo.com/web/database/manager
-osh backup list                     # what's in the local cache
-osh backup restore                  # apply the latest to this branch's db
+osh db backup https://myserver.odoo.com/web/database/manager
+osh db backups                     # what's in the local cache
+osh db restore                     # apply the latest to this branch's db
 ```
 
-`get` fetches from anywhere — odoo.sh, a live server, an Odoo database
-manager URL, a file — into the cache; `restore` only ever applies cached
-backups, detects the format, and shows a progress bar. Give a frequent
-source a short name and skip the URL:
+`osh db backup` fetches from anywhere — odoo.sh, a live server, an Odoo
+database manager URL, a file — into the cache; `osh db restore` only
+ever applies cached backups, detects the format, and shows a progress
+bar. Give a frequent source a short name and skip the URL:
 
 ```bash
-osh backup remote add prod https://myserver.odoo.com/web/database/manager
-osh backup restore prod
+osh db remote add prod https://myserver.odoo.com/web/database/manager
+osh db restore prod
 ```
 
 ## Do the daily work

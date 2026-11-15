@@ -1,4 +1,4 @@
-"""Tests for the `osh backup get` command."""
+"""Tests for the `osh db backup` command."""
 
 import json
 import subprocess
@@ -43,7 +43,7 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
 def test_download_uses_cwd_outside_project(
     monkeypatch, tmp_path, subprocess_run_capture
 ):
-    """Outside a project, `osh backup get` writes to the current directory."""
+    """Outside a project, `osh db backup` writes to the current directory."""
     subprocess_run_capture.stdout = b"dump"
     monkeypatch.chdir(tmp_path)
 
@@ -59,7 +59,7 @@ def test_download_uses_cwd_outside_project(
 def test_download_with_output_outside_project(
     monkeypatch, tmp_path, subprocess_run_capture
 ):
-    """With --output, `osh backup get` works outside a project."""
+    """With --output, `osh db backup` works outside a project."""
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "sourcedb.dump"
 
@@ -437,7 +437,7 @@ def test_ssh_source_missing_host_or_path_raises():
 def test_download_ssh_source_invokes_fetch(
     monkeypatch, tmp_project, subprocess_run_capture
 ):
-    """`osh backup get ssh://...` copies the remote file into the cache."""
+    """`osh db backup ssh://...` copies the remote file into the cache."""
     monkeypatch.chdir(tmp_project)
 
     def _scp_write(args, **kwargs):
@@ -491,7 +491,7 @@ def test_download_help_scheme_prints_source_help():
 
     assert result.exit_code == 0, result.output
     assert "Dump a local PostgreSQL database" in result.output
-    assert "osh backup get db://mydb" in result.output
+    assert "osh db backup db://mydb" in result.output
 
 
 def test_download_help_scheme_unknown_reports_error():
@@ -504,7 +504,7 @@ def test_download_help_scheme_unknown_reports_error():
 
 
 def test_backup_detects_format_mismatch(monkeypatch, in_project):
-    """`osh backup get` detects format mismatch and corrects metadata."""
+    """`osh db backup` detects format mismatch and corrects metadata."""
     from osh.plugins.osh_backup.cache import read_metadata, write_metadata
     from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
 
@@ -536,3 +536,33 @@ def test_backup_detects_format_mismatch(monkeypatch, in_project):
     assert (
         meta["requested_format"] == "sql"
     ), "Metadata should preserve user's explicit request"
+
+
+def test_backup_defaults_to_current_database(in_project, subprocess_run_capture):
+    """`osh db backup` with no SOURCE dumps the resolved branch database."""
+    from osh.config import set_project_config
+
+    set_project_config(in_project, "db", "default", "currentdb")
+    subprocess_run_capture.stdout = b"PGDMP" + b"\x00" * 100
+
+    result = CliRunner().invoke(get, [])
+
+    assert result.exit_code == 0, result.output
+    meta_files = list((in_project / ".osh" / "backups").glob("*.meta.json"))
+    assert len(meta_files) == 1
+    meta = json.loads(meta_files[0].read_text())
+    assert meta["source"] == "db://currentdb"
+
+
+def test_deprecated_backup_get_alias_warns(in_project, subprocess_run_capture):
+    """`osh backup get` still works but warns it is deprecated."""
+    from osh.plugins.osh_backup.backup_cmd import BackupGet
+
+    deprecated_get = handler_command("get", BackupGet)
+    subprocess_run_capture.stdout = b"dump"
+
+    result = CliRunner().invoke(deprecated_get, ["db://sourcedb"])
+
+    assert result.exit_code == 0, result.output
+    assert "'osh backup get' is deprecated" in result.output
+    assert "'osh db backup'" in result.output

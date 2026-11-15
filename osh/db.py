@@ -782,7 +782,7 @@ def _raise_missing_db_error(base, branch, db_name, last_db):
         "Use one of:",
         f"  osh db set <db> --branch {branch}",
         f"  osh db copy {last_db or '<from>'} {db_name}",
-        "  osh backup restore <backup>",
+        "  osh db restore <backup>",
         "  osh odoo -d <db>",
     ]
     raise click.ClickException("\n".join(lines))

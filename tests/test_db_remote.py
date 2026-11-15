@@ -1,4 +1,4 @@
-"""Tests for ``osh backup remote`` and remote-name resolution in get/restore."""
+"""Tests for ``osh db remote`` and remote-name resolution in get/restore."""
 
 import json
 import os
@@ -64,7 +64,7 @@ def test_remote_add_rejects_duplicate(in_project):
 
 
 def test_remote_list_json(in_project):
-    """`osh backup remote list --json` emits remotes as JSON."""
+    """`osh db remote list --json` emits remotes as JSON."""
     CliRunner().invoke(remote, ["add", "prod", "db://proddb"])
     CliRunner().invoke(remote, ["add", "staging", "db://stagedb"])
 
@@ -85,7 +85,7 @@ def test_remote_list_empty(in_project):
 
 
 def test_remote_registered_under_backup_group(in_project):
-    """`osh backup remote` is reachable through the backup group."""
+    """`osh db remote` is reachable through the backup group."""
     result = CliRunner().invoke(
         main, ["backup", "remote", "add", "prod", "db://proddb"]
     )
@@ -97,7 +97,7 @@ def test_remote_registered_under_backup_group(in_project):
 
 
 def test_get_resolves_remote_name(in_project, subprocess_run_capture):
-    """`osh backup get <remote>` fetches from the remote's stored source."""
+    """`osh db backup <remote>` fetches from the remote's stored source."""
     runner = CliRunner()
     assert runner.invoke(remote, ["add", "prod", "db://proddb"]).exit_code == 0
 
@@ -122,7 +122,7 @@ def test_get_raw_source_still_works(in_project, subprocess_run_capture):
 
 
 def test_restore_remote_picks_newest_from_that_remote(in_project, patched_restore):
-    """`osh backup restore <remote>` restores that remote's newest cached backup."""
+    """`osh db restore <remote>` restores that remote's newest cached backup."""
     runner = CliRunner()
     runner.invoke(remote, ["add", "prod", "db://proddb"])
 
@@ -151,7 +151,7 @@ def test_restore_remote_without_cache_errors(in_project, patched_restore):
     result = runner.invoke(restore, ["prod"])
 
     assert result.exit_code != 0
-    assert "osh backup get prod" in result.output
+    assert "osh db backup prod" in result.output
 
 
 def test_restore_unknown_name_falls_through(in_project, patched_restore):
@@ -169,7 +169,7 @@ def test_restore_unknown_name_falls_through(in_project, patched_restore):
 def test_restore_never_contacts_external_source(
     in_project, patched_restore, monkeypatch
 ):
-    """`osh backup restore` reads only the local cache — no fetching."""
+    """`osh db restore` reads only the local cache — no fetching."""
     import urllib.request
 
     def _boom(*args, **kwargs):
@@ -195,7 +195,7 @@ def test_newest_cache_for_remote_not_a_remote(in_project):
 
 
 def test_restore_source_url_picks_newest_matching_cache(in_project, patched_restore):
-    """`osh backup restore <url>` restores the newest cache entry for that source."""
+    """`osh db restore <url>` restores the newest cache entry for that source."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     old = _write_cached_backup(
@@ -225,7 +225,7 @@ def test_restore_source_url_without_cache_errors(in_project, patched_restore):
     result = CliRunner().invoke(restore, ["https://demo.odoo.com?db=prod"])
 
     assert result.exit_code != 0
-    assert "osh backup get" in result.output
+    assert "osh db backup" in result.output
 
 
 def test_newest_cache_for_source_not_a_source(in_project):
@@ -233,3 +233,17 @@ def test_newest_cache_for_source_not_a_source(in_project):
     assert newest_cache_for_source(in_project, "some.dump") is None
     assert newest_cache_for_source(in_project, "cache:1") is None
     assert newest_cache_for_source(in_project, None) is None
+
+
+def test_deprecated_backup_remote_alias_warns(in_project):
+    """`osh backup remote` still works but warns it is deprecated."""
+    from osh.plugins.osh_backup.remotes import BackupRemote
+
+    deprecated_remote = handler_group("remote", BackupRemote)
+
+    result = CliRunner().invoke(deprecated_remote, ["add", "prod", "db://proddb"])
+
+    assert result.exit_code == 0, result.output
+    assert "'osh backup remote' is deprecated" in result.output
+    assert "'osh db remote'" in result.output
+    assert get_remotes(in_project) == {"prod": "db://proddb"}

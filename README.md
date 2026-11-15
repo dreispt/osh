@@ -20,7 +20,7 @@ Docker) so `osh odoo` just works.
   auto-discovered and generated
 - **Runtimes** — run on the host, in a managed virtualenv, or in a Docker
   Compose stack
-- **Backups that travel** — `osh backup restore` from odoo.sh, a live
+- **Backups that travel** — `osh db restore` from odoo.sh, a live
   server, an Odoo database manager, or a file
 - **Transparent** — `--dry-run` prints the exact command it would run
 - **Pluggable** — pip-installed plugins add commands, runtimes, and backup
@@ -81,9 +81,9 @@ auto-discovered. `osh init` is safe to re-run at any time — see
 [docs/INIT.md](docs/INIT.md) for the full story, including `osh init
 extra-addons` and the runtime subcommands.
 
-To restore a real database into the project: `osh backup get <source>`
+To restore a real database into the project: `osh db backup <source>`
 downloads a backup from a file or an Odoo database manager URL, and
-`osh backup restore <source>` applies it to the current branch's
+`osh db restore <source>` applies it to the current branch's
 database — see [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) for a
 full walkthrough.
 
@@ -93,16 +93,16 @@ Run `osh <command> --help` for full usage details, and
 [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) for a walkthrough of a
 full session.
 
-| Command                    | What it does                                                                                 |
-| -------------------------- | -------------------------------------------------------------------------------------------- |
-| `osh init [version] [dir]` | Initialise a project; `osh init <runtime>` selects the runtime; bare run reports status      |
-| `osh odoo [args]`          | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...) |
-| `osh exec`                 | Enter the project's runtime environment or run a command in it                               |
-| `osh stop`                 | Stop whatever the active runtime left running                                                |
-| `osh test`                 | Run Odoo tests for project modules                                                           |
-| `osh db`                   | List, show, set, copy, drop, exec, or unset project databases                                |
-| `osh backup`               | Get, list, or restore database backups, and register named remote sources                    |
-| `osh config`               | View or change osh settings for this project                                                 |
+| Command                            | What it does                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `osh init [version] [dir]`         | Initialise a project; `osh init <runtime>` selects the runtime; bare run reports status                            |
+| `osh odoo [args]`                  | Run Odoo with the project's env auto-configured (`osh odoo shell`, `osh odoo -u mymod`, ...)                       |
+| `osh exec`                         | Enter the project's runtime environment or run a command in it                                                     |
+| `osh stop`                         | Stop whatever the active runtime left running                                                                      |
+| `osh test`                         | Run Odoo tests for project modules                                                                                 |
+| `osh db`                           | List, show, set, copy, drop, exec, or unset project databases                                                      |
+| `osh db backup` / `osh db restore` | Fetch or dump backups, restore and neutralize them; `osh db backups`, `osh db remote` manage the cache and sources |
+| `osh config`                       | View or change osh settings for this project                                                                       |
 
 `osh --help` always reflects what's actually installed — core commands,
 bundled plugins, and pip-installed plugins listed together.
@@ -144,7 +144,7 @@ picks one and `osh odoo`, `osh exec` and `osh db` run through it.
 ## Plugins
 
 `osh` is extensible: plugins can add commands, runtimes, backup
-source schemes and extend core commands in place. The bundled plugins provide `osh backup`
+source schemes and extend core commands in place. The bundled plugins provide the `osh db backup`/`restore` commands
 (`get`, `restore`, `list`, `remote`) and `osh test`, plus the `venv` and
 `docker` runtimes (the `host` runtime is built in).
 

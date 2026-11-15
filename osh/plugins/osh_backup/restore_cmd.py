@@ -1,4 +1,4 @@
-"""`osh backup restore` command provided by the osh_backup plugin."""
+"""`osh db restore` command provided by the osh_backup plugin."""
 
 import traceback
 
@@ -27,7 +27,7 @@ from .cache import list_cache
 from .remotes import newest_cache_for_remote, newest_cache_for_source
 
 
-# `osh backup restore` handler — extensions subclass DbRestore and override
+# `osh db restore` handler — extensions subclass DbRestore and override
 # step methods, calling super(). Command state is on ``self``: ``ctx``,
 # the parsed params plus ``base``, ``runtime``, ``dump_path`` and
 # ``db_name`` as ``run()`` fills them in.
@@ -35,8 +35,8 @@ class DbRestore(CommandHandler):
     """Restore a backup into the current branch's database and neutralize it.
 
     With no DUMP argument, the newest backup from the project cache is used.
-    Use `cache:<id>` to pick a specific entry shown by `osh backup list`.
-    DUMP may also be a remote name (see `osh backup remote`) or a backup source
+    Use `cache:<id>` to pick a specific entry shown by `osh db backups`.
+    DUMP may also be a remote name (see `osh db remote`) or a backup source
     URL — the newest cached backup fetched from it is restored.
 
     PostgreSQL credentials are read from ``.osh/odoo.conf`` (or ``.odoorc``)
@@ -56,14 +56,14 @@ class DbRestore(CommandHandler):
 
     For `.zip` backups, the filestore directory is copied into the configured
     Odoo `data_dir` under `filestore/<dbname>/`. If `data_dir` cannot be
-    determined, `osh backup restore` warns and continues without the filestore.
+    determined, `osh db restore` warns and continues without the filestore.
 
     After the dump is restored, the database is neutralized. Odoo 16.0+ uses
     `odoo-bin neutralize -d <db>`; older versions get the bundled SQL
     fallback script instead.
 
     Once the restore (and neutralization) completes, plugins extending the
-    ``backup.restore`` handler through ``post_restore()`` run — e.g. to record
+    ``db.restore`` handler through ``post_restore()`` run — e.g. to record
     module fingerprints in the restored database. Failures are reported as
     warnings; they cannot fail an already-completed restore.
 
@@ -80,17 +80,17 @@ class DbRestore(CommandHandler):
     Examples:
 
     \b
-      osh backup restore
-      osh backup restore cache:1
-      osh backup restore prod
-      osh backup restore https://my.odoo.com/web?db=prod
-      osh backup restore /path/to/backup.zip
-      osh backup restore /path/to/backup.zip --db prod_restore
-      osh backup restore /path/to/backup.sql.gz --force
-      osh backup restore /path/to/backup.sql.gz --db prod_restore --force
+      osh db restore
+      osh db restore cache:1
+      osh db restore prod
+      osh db restore https://my.odoo.com/web?db=prod
+      osh db restore /path/to/backup.zip
+      osh db restore /path/to/backup.zip --db prod_restore
+      osh db restore /path/to/backup.sql.gz --force
+      osh db restore /path/to/backup.sql.gz --db prod_restore --force
     """
 
-    _cli_name = "backup.restore"
+    _cli_name = "db.restore"
 
     dump = None
     force = False
@@ -311,13 +311,13 @@ class DbRestore(CommandHandler):
             )
 
 
-class BackupList(CommandHandler):
+class DbBackups(CommandHandler):
     """List cached backups in the project cache, newest first.
 
-    The ids shown can be passed to `osh backup restore cache:<id>`.
+    The ids shown can be passed to `osh db restore cache:<id>`.
     """
 
-    _cli_name = "backup.list"
+    _cli_name = "db.backups"
 
     limit = 20
     reverse = False
@@ -359,3 +359,31 @@ class BackupList(CommandHandler):
             )
             return
         restore_ops.list_cached_backups(base, limit=self.limit, reverse=self.reverse)
+
+
+class BackupRestore(DbRestore):
+    """Deprecated alias of ``osh db restore``, kept for compatibility."""
+
+    _cli_name = "backup.restore"
+    _cli_hidden = True
+
+    def run(self):
+        echo.warning(
+            "'osh backup restore' is deprecated — use 'osh db restore'.",
+            err=True,
+        )
+        super().run()
+
+
+class BackupList(DbBackups):
+    """Deprecated alias of ``osh db backups``, kept for compatibility."""
+
+    _cli_name = "backup.list"
+    _cli_hidden = True
+
+    def run(self):
+        echo.warning(
+            "'osh backup list' is deprecated — use 'osh db backups'.",
+            err=True,
+        )
+        super().run()

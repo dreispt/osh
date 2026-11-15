@@ -14,7 +14,7 @@ Remaining gaps:
 
 - **`--yes` beyond `osh init`.** A global `--yes` stays rejected — it
   cannot answer menus — but scoped `--yes`/`--force` on destructive
-  commands (`db drop`, `backup restore`, `db unset`) that currently
+  commands (`db drop`, `db restore`, `db unset`) that currently
   only offer prompts would help non-interactive callers.
 - **`stop --list --all --json`.** The structured report is per-project
   today; aggregating it across projects is doable if agents ever manage
@@ -31,7 +31,7 @@ Remaining gaps:
 ## Plugin API improvements
 
 - Document the exact keys passed in `**options` for each lifecycle method, or replace `**options` with named keyword arguments.
-- Graduate the built-in `osh_backup` plugin (`osh backup get`, `osh backup restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
+- Graduate the built-in `osh_backup` plugin (`osh db backup`, `osh db restore`, bundled source schemes) into a separately distributed repository once the plugin boundary has proven stable.
 
 ## Plugin test discovery
 
