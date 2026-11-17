@@ -303,7 +303,16 @@ def link_filestore(ctx, base, src_db, dst_db):
     side in the same filestore root. An existing *dst_db* filestore
     (dangling when its database is missing) is replaced, matching
     ``copy_db``'s replace-the-target semantics.
+
+    Outside a project (*base* ``None``) there is no project filestore —
+    the link is skipped with an info note.
     """
+    if base is None:
+        echo.info(
+            "No Osh project — skipping filestore link " f"('{src_db}' -> '{dst_db}').",
+            err=True,
+        )
+        return
     src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
     if src is None:
         echo.warning("could not determine Odoo data_dir; filestore not linked.")
@@ -325,7 +334,16 @@ def copy_filestore(ctx, base, src_db, dst_db):
     be determined or the copy fails, and skips silently when the source
     has no filestore. Unlike the link, the target gets its own
     independent copy — slower and larger, but isolated from the source.
+
+    Outside a project (*base* ``None``) there is no project filestore —
+    the copy is skipped with an info note.
     """
+    if base is None:
+        echo.info(
+            "No Osh project — skipping filestore copy " f"('{src_db}' -> '{dst_db}').",
+            err=True,
+        )
+        return
     src, dst = filestore_path(base, src_db), filestore_path(base, dst_db)
     if src is None:
         echo.warning("could not determine Odoo data_dir; filestore not copied.")
@@ -414,13 +432,17 @@ def list_db_names(base, ctx=None):
 
     Runs ``psql -l`` inside the runtime and keeps only names under the
     generated ``<project>-`` prefix, matching ``osh db list`` without
-    ``--all``. Returns an empty list when the listing fails.
+    ``--all``. Outside a project (*base* ``None``) there is no prefix —
+    every database name is returned. Returns an empty list when the
+    listing fails.
     """
     returncode, stdout, _ = run_in_runtime(ctx, base, ["psql", "-l"])
     if returncode != 0:
         return []
-    prefix = f"{sanitize_db_name(env_root(base).name)}-"
-    return [name for name in _list_db_names(stdout) if name.startswith(prefix)]
+    prefix = f"{sanitize_db_name(env_root(base).name)}-" if base is not None else ""
+    return [
+        name for name in _list_db_names(stdout) if not prefix or name.startswith(prefix)
+    ]
 
 
 def _psql_table_split(output):
@@ -645,7 +667,12 @@ def resolve_db_name(base, verbose=False, branch=None):
     Returns the configured database for the current branch, a database matching
     a glob pattern, the configured default, or a generated ``<project>-<branch>``
     name. There is no global "last used" fallback.
+
+    *base* ``None`` means "no project": there is no branch→database mapping
+    and no project name to generate one from, so ``None`` is returned.
     """
+    if base is None:
+        return None
     branch = resolve_branch(base, branch)
     db_name = _resolve_config_db_name(base, branch)
     if db_name is None:
@@ -661,8 +688,12 @@ def get_last_db(base):
 
 
 def set_last_db(base, db_name):
-    """Record *db_name* as the most recently used database."""
-    if not db_name:
+    """Record *db_name* as the most recently used database.
+
+    A no-op outside a project (*base* ``None``) — there is no project
+    config to record it in.
+    """
+    if base is None or not db_name:
         return
     cfg = load_osh_config(base)
     cfg.set("db", "last_db", db_name)

@@ -21,6 +21,10 @@ from . import echo
 
 DEFAULT_ODOO_DATA_DIR = Path.home() / ".local" / "share" / "Odoo"
 
+# Shared wording for "this needs an Osh project" errors — config writes,
+# ``env_root`` and project-bound commands all use it.
+_NO_PROJECT_MSG = "Not inside an Osh project; run 'osh init' to create one."
+
 
 def get_venv_bin(base):
     """Return the virtualenv binary directory for *base*'s env root."""
@@ -150,8 +154,11 @@ def env_root(base):
     worktree carrying its own ``.osh`` — is its own env root.
 
     ``.osh`` paths are always built against ``env_root(base)``, never
-    against *base* directly.
+    against *base* directly. *base* ``None`` means "no project" and is a
+    hard error: there is no env root to return.
     """
+    if base is None:
+        raise click.ClickException(_NO_PROJECT_MSG)
     base = Path(base)
     if (base / ".osh").exists():
         return base
@@ -270,7 +277,11 @@ def find_project_repos(base, *, max_depth=4):
     not reported.
 
     Directories starting with ``.`` or ``__`` are ignored.
+
+    *base* ``None`` (no project) yields no repositories.
     """
+    if base is None:
+        return []
     base = Path(base)
     if _is_git_repo(base):
         return [base]
@@ -359,7 +370,13 @@ def get_osh_odoo_config_path(base):
 
 
 def _iter_conf_options(base, *extra_confs):
-    """Yield the ``options`` sections of each existing project config."""
+    """Yield the ``options`` sections of each existing project config.
+
+    *base* ``None`` (no project) yields nothing — there are no project
+    config files to read.
+    """
+    if base is None:
+        return
     for conf in (
         get_osh_odoo_config_path(base),
         get_odoo_config_path(base),

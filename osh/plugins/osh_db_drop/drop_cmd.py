@@ -52,12 +52,18 @@ class DbDrop(CommandHandler):
     )
     def run(self):
         ctx = self.ctx
-        base = find_project_root(required=True)
-        name = (
-            sanitize_db_name(self.database)
-            if self.database
-            else resolve_db_name(base, verbose=True)
-        )
+        base = find_project_root()
+        if self.database:
+            name = sanitize_db_name(self.database)
+        elif base is not None:
+            name = resolve_db_name(base, verbose=True)
+        else:
+            # Outside a project there is no branch→database mapping to
+            # fall back to — the name must be given explicitly.
+            raise click.UsageError(
+                "A database name is required outside an Osh project — "
+                "pass it with -d/--database."
+            )
         exists = db_exists(base, name, ctx=ctx)
         has_filestore = filestore_exists(ctx, base, name)
         if not exists and not has_filestore:
@@ -76,6 +82,6 @@ class DbDrop(CommandHandler):
                 raise click.ClickException(f"Could not drop database '{name}'.")
             echo.success(f"Dropped database '{name}'")
         remove_filestore(ctx, base, name)
-        if get_last_db(base) == name:
+        if base is not None and get_last_db(base) == name:
             unset_project_config(base, "db", "last_db")
             unset_project_config(base, "db", "last")

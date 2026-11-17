@@ -138,11 +138,12 @@ class DbRestore(CommandHandler):
         help="Print the steps that would be executed without running them.",
     )
     def run(self):
-        self.base = find_project_root(required=True)
+        self.base = find_project_root()
         self.dump_path = self.resolve_dump_path()
         self.db_name = self.resolve_target_db()
         self.runtime = resolve_runtime(self.base)
-        check_run_diagnostics(self.base, self.runtime, self.ctx)
+        if self.base is not None:
+            check_run_diagnostics(self.base, self.runtime, self.ctx)
         if not self.no_neutralize:
             # Validate --script/--skip before the target database is touched.
             self.neutralize_scripts = restore_ops.resolve_neutralize_scripts(
@@ -158,7 +159,13 @@ class DbRestore(CommandHandler):
             self.report()
 
     def resolve_dump_path(self):
-        """Resolve the DUMP argument to a local backup file path."""
+        """Resolve the DUMP argument to a local backup file path.
+
+        Outside a project (*base* ``None``) there is no backup cache and
+        no remotes — only plain file paths resolve.
+        """
+        if self.base is None:
+            return restore_ops.resolve_backup_path(self.base, self.dump)
         return (
             newest_cache_for_remote(self.base, self.dump)
             or newest_cache_for_source(self.base, self.dump)
@@ -166,12 +173,20 @@ class DbRestore(CommandHandler):
         )
 
     def resolve_target_db(self):
-        """Return the database name to restore into."""
-        db_name = (
-            sanitize_db_name(self.target_db)
-            if self.target_db
-            else resolve_db_name(self.base, verbose=False)
-        )
+        """Return the database name to restore into.
+
+        ``--db`` wins; inside a project the branch's resolved database is
+        next; outside a project the sanitized dump file stem is used —
+        ``osh db restore foo.dump`` restores into ``foo``.
+        """
+        if self.target_db:
+            db_name = sanitize_db_name(self.target_db)
+        elif self.base is not None:
+            db_name = resolve_db_name(self.base, verbose=False)
+        elif self.dump_path is not None:
+            db_name = sanitize_db_name(self.dump_path.stem)
+        else:
+            db_name = None
         if not db_name:
             raise click.ClickException("Could not resolve a target database name.")
         return db_name
@@ -214,8 +229,16 @@ class DbRestore(CommandHandler):
         if self.dry_run:
             # The database does not exist in dry-run mode, so just preview
             # the built-in neutralize command. The real method is decided
-            # after restore.
-            self.odoo_neutralize(dry_run=True)
+            # after restore. Outside a project there is no local Odoo, so
+            # the SQL path is the only possibility — preview that instead.
+            if self.base is None:
+                echo.info(
+                    "Would neutralize with the bundled SQL scripts "
+                    "(no local Odoo outside an Osh project)",
+                    err=True,
+                )
+            else:
+                self.odoo_neutralize(dry_run=True)
             restore_ops.run_project_neutralize_scripts(
                 self.base,
                 self.db_name,
@@ -261,6 +284,11 @@ class DbRestore(CommandHandler):
 
     def odoo_neutralize(self, *, dry_run):
         """Run ``odoo neutralize -d <db_name>`` through ``osh odoo``."""
+        if self.base is None:
+            raise click.ClickException(
+                "'odoo neutralize' requires an Osh project — use the SQL "
+                "neutralization path instead."
+            )
         self.ctx.invoke(
             odoo,
             dry_run=dry_run,

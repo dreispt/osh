@@ -55,6 +55,9 @@ def resolve_sql_scripts(base, kind, *, bundled=None, package="osh.data"):
     *package* names the package whose ``<kind>/`` directory provides the
     bundled layer — plugins ship their own script sets under their own
     data package (e.g. ``osh_sanitize.data``).
+
+    *base* ``None`` (no project) skips the project layer — only the
+    bundled and user scripts apply.
     """
     scripts = {}
 
@@ -64,12 +67,10 @@ def resolve_sql_scripts(base, kind, *, bundled=None, package="osh.data"):
             if res.name.endswith(".sql") and (bundled is None or bundled(res.name)):
                 scripts[res.name] = SqlScript(res.name, "bundled", res)
 
-    for layer in ("user", "project"):
-        directory = (
-            get_user_scripts_dir(kind)
-            if layer == "user"
-            else get_project_scripts_dir(base, kind)
-        )
+    layers = [("user", get_user_scripts_dir(kind))]
+    if base is not None:
+        layers.append(("project", get_project_scripts_dir(base, kind)))
+    for layer, directory in layers:
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.sql")):

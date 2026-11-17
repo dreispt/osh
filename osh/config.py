@@ -12,6 +12,8 @@ import re
 import warnings
 from pathlib import Path
 
+import click
+
 try:
     import tomllib
 except ImportError:  # pragma: no cover (<3.11)
@@ -277,6 +279,13 @@ def get_user_preference(key, section="user", fallback=None):
 # Project config (TOML)
 
 
+def _no_project_error():
+    """Error for project-config writes attempted outside an Osh project."""
+    return click.ClickException(
+        "Not inside an Osh project; run 'osh init' to create one."
+    )
+
+
 def _ensure_default_sections(data):
     for section in ("db", "user"):
         if section not in data or not isinstance(data[section], dict):
@@ -297,7 +306,13 @@ def _flatten_section(options, prefix=""):
 
 
 def load_project_config(base):
-    """Load or create the Osh project configuration."""
+    """Load or create the Osh project configuration.
+
+    *base* ``None`` means "no project": an empty store with the default
+    sections is returned, so reads fall back cleanly.
+    """
+    if base is None:
+        return ConfigStore(_ensure_default_sections({}))
     data = _load_toml(get_project_config_path(base))
     for section, options in list(data.items()):
         if isinstance(options, dict):
@@ -306,7 +321,13 @@ def load_project_config(base):
 
 
 def save_project_config(base, cfg):
-    """Write the Osh project configuration file."""
+    """Write the Osh project configuration file.
+
+    *base* ``None`` (no project) is a ``ClickException`` — there is no
+    ``.osh/config.toml`` to write.
+    """
+    if base is None:
+        raise _no_project_error()
     if isinstance(cfg, ConfigStore):
         data = cfg.to_dict()
     else:
@@ -323,7 +344,12 @@ def get_project_config(base, section, option, fallback=None):
 
 
 def set_project_config(base, section, option=None, value=None, *, values=None):
-    """Set one or more values in ``.osh/config.toml``, creating the section if absent."""
+    """Set one or more values in ``.osh/config.toml``, creating the section if absent.
+
+    *base* ``None`` (no project) is a ``ClickException``.
+    """
+    if base is None:
+        raise _no_project_error()
     cfg = load_project_config(base)
     if option is not None:
         if value is None:
@@ -336,7 +362,12 @@ def set_project_config(base, section, option=None, value=None, *, values=None):
 
 
 def unset_project_config(base, section, option):
-    """Remove *option* from *section* in ``.osh/config.toml`` if it exists."""
+    """Remove *option* from *section* in ``.osh/config.toml`` if it exists.
+
+    *base* ``None`` (no project) is a ``ClickException``.
+    """
+    if base is None:
+        raise _no_project_error()
     cfg = load_project_config(base)
     if not cfg.has_option(section, option):
         return

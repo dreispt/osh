@@ -23,7 +23,12 @@ def find_odoo_executable(base, *, required=False):
     3. First `odoo-bin` or `odoo` found in PATH.
 
     When *required* is True, raise a ClickException instead of returning None.
+
+    *base* ``None`` (no project) returns ``None`` — there is no project
+    virtualenv or source checkout to look in.
     """
+    if base is None:
+        return None
     env = env_root(base)
     # 1. virtualenv local - prefer odoo-bin over odoo
     venv_dir = env / ".venv" / ("Scripts" if os.name == "nt" else "bin")
@@ -60,7 +65,12 @@ def build_addons_paths(base, *, include_themes=False):
     discovered there and addons directories missing or empty in the
     worktree — uninitialized submodules — fall back to the source
     repository's copy, appended after the worktree's own.
+
+    *base* ``None`` (no project) yields no paths — there is no project
+    layout to discover.
     """
+    if base is None:
+        return []
     base = Path(base).resolve()
     env = env_root(base)
     addons_paths = []
