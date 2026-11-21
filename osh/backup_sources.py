@@ -1,4 +1,4 @@
-"""Backup source interface for `osh backup get`.
+"""Backup source interface for `osh db backup`.
 
 Third-party plugins implement :class:`BackupSource` subclasses; any subclass
 defined at a plugin module's top level is discovered automatically — see
@@ -33,7 +33,7 @@ class BackupSource:
     Subclasses must define a ``scheme`` class attribute (e.g. ``"s3"``) and
     implement ``from_source()``, ``default_output_name()``, and ``fetch()``.
     They may also set ``description`` to a short human-readable summary shown
-    in ``osh backup get --help``.
+    in ``osh db backup --help``.
     Plugins register subclasses simply by defining them at a plugin
     module's top level — they are discovered automatically.
     """
@@ -48,7 +48,7 @@ class BackupSource:
 
         *source* is the full URL (e.g. ``s3://bucket/key``). *base* is the
         project root. Additional keyword arguments come from the
-        ``osh backup get`` CLI options.
+        ``osh db backup`` CLI options.
         """
         raise NotImplementedError
 
@@ -56,7 +56,7 @@ class BackupSource:
     def canonical_source(cls, source):
         """Return the canonical identity of *source* for cache matching.
 
-        ``osh backup restore <source>`` selects the newest cached backup whose
+        ``osh db restore <source>`` selects the newest cached backup whose
         source has the same canonical identity, so cosmetic differences in
         the source string (e.g. a ``/web`` path copied from the browser)
         still match. The default is the source string unchanged.

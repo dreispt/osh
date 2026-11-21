@@ -79,7 +79,7 @@ def check_run_diagnostics(base, runtime, ctx, *, compose_file=None):
     """Collect run-phase diagnostics; print warnings, raise on errors.
 
     Shared pre-flight for ``osh odoo``/``osh exec`` and plugin commands that
-    need the runtime checked before executing (e.g. ``osh backup restore``).
+    need the runtime checked before executing (e.g. ``osh db restore``).
     Returns the collected ``Diagnostics``.
     """
     diagnostics = collect_diagnostics(

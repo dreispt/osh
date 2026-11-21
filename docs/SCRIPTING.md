@@ -39,8 +39,8 @@ parses cleanly:
 - `osh db list --json` — project databases (plus plugin extras such as
   dangling filestores)
 - `osh config show --json` — the project's `.osh/config.toml` sections
-- `osh backup list --json` — cached backups
-- `osh backup remote list --json` — named backup sources
+- `osh db backups --json` — cached backups
+- `osh db remote list --json` — named backup sources
 - `osh stop --list --json` — what `osh stop` would tear down
 - `osh init info [--json]` — the resolved environment (roots, runtime,
   Odoo version/edition, database, config paths, interpreter) in one call

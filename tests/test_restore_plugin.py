@@ -1,4 +1,4 @@
-"""Tests for the `osh backup restore` command."""
+"""Tests for the `osh db restore` command."""
 
 import importlib
 import json
@@ -11,11 +11,11 @@ from click.testing import CliRunner
 from osh.cli_utils import handler_command
 from osh.commands.helpers import Diagnostics
 from osh.db import set_project_config
-from osh.plugins.osh_backup.restore_cmd import BackupList, DbRestore
+from osh.plugins.osh_backup.restore_cmd import DbBackups, DbRestore
 from osh.utils import plugin_loader
 
 restore = handler_command("restore", DbRestore)
-backup_list = handler_command("list", BackupList)
+backup_list = handler_command("backups", DbBackups)
 
 
 def _setup_fake_db_config(project, db_name="testdb"):
@@ -24,7 +24,7 @@ def _setup_fake_db_config(project, db_name="testdb"):
 
 
 def test_restore_uses_latest_cache(patched_restore, in_project):
-    """`osh backup restore` with no argument uses the newest cached backup."""
+    """`osh db restore` with no argument uses the newest cached backup."""
     from osh.db import get_last_db
 
     cache_dir = in_project / ".osh" / "backups"
@@ -55,7 +55,7 @@ def test_restore_uses_latest_cache(patched_restore, in_project):
 
 
 def test_restore_cache_id(patched_restore, in_project):
-    """`osh backup restore cache:<id>` selects the correct cached backup."""
+    """`osh db restore cache:<id>` selects the correct cached backup."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     first = cache_dir / "first.dump"
@@ -71,7 +71,7 @@ def test_restore_cache_id(patched_restore, in_project):
 
 
 def test_restore_explicit_file(patched_restore, in_project):
-    """`osh backup restore <path>` restores an explicit file outside the cache."""
+    """`osh db restore <path>` restores an explicit file outside the cache."""
     dump = in_project / "custom.sql"
     dump.write_text("SELECT 1;")
 
@@ -85,7 +85,7 @@ def test_restore_explicit_file(patched_restore, in_project):
 
 
 def test_restore_no_cache_error(in_project):
-    """`osh backup restore` without an argument fails when the cache is empty."""
+    """`osh db restore` without an argument fails when the cache is empty."""
     _setup_fake_db_config(in_project)
 
     runner = CliRunner()
@@ -96,7 +96,7 @@ def test_restore_no_cache_error(in_project):
 
 
 def test_restore_dry_run(patched_restore, in_project):
-    """`osh backup restore --dry-run` does not execute subprocesses."""
+    """`osh db restore --dry-run` does not execute subprocesses."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
@@ -114,7 +114,7 @@ def test_restore_dry_run(patched_restore, in_project):
 
 
 def test_restore_db_exists_no_force(in_project, monkeypatch, pg_db):
-    """`osh backup restore` fails when the target database exists without --force."""
+    """`osh db restore` fails when the target database exists without --force."""
     _setup_fake_db_config(in_project, pg_db.create())
     dump = in_project / "dump.dump"
     dump.write_bytes(b"x")
@@ -170,7 +170,7 @@ def test_restore_script_selection_reaches_neutralize(patched_restore, in_project
 
 
 def test_restore_no_neutralize(patched_restore, in_project):
-    """`osh backup restore --no-neutralize` skips neutralization."""
+    """`osh db restore --no-neutralize` skips neutralization."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True)
     dump = cache_dir / "dump.dump"
@@ -185,7 +185,7 @@ def test_restore_no_neutralize(patched_restore, in_project):
 
 
 def test_backup_list_cached_backups(in_project):
-    """`osh backup list` shows cached backups newest first."""
+    """`osh db backups` shows cached backups newest first."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True, exist_ok=True)
     first = cache_dir / "first.dump"
@@ -224,7 +224,7 @@ def test_backup_list_cached_backups(in_project):
 
 
 def test_backup_list_json(in_project):
-    """`osh backup list --json` emits cached backups as JSON."""
+    """`osh db backups --json` emits cached backups as JSON."""
     cache_dir = in_project / ".osh" / "backups"
     cache_dir.mkdir(parents=True, exist_ok=True)
     dump = cache_dir / "first.dump"
@@ -246,7 +246,7 @@ def test_backup_list_json(in_project):
 
 
 def test_restore_list_option_is_gone(in_project):
-    """Listing moved to `osh backup list`; `restore --list` is rejected."""
+    """Listing moved to `osh db backups`; `restore --list` is rejected."""
     result = CliRunner().invoke(restore, ["--list"])
 
     assert result.exit_code != 0
@@ -254,7 +254,7 @@ def test_restore_list_option_is_gone(in_project):
 
 
 def test_backup_list_outside_project(monkeypatch, tmp_path):
-    """`osh backup list` reports when run outside an Osh project."""
+    """`osh db backups` reports when run outside an Osh project."""
     monkeypatch.chdir(tmp_path)
 
     runner = CliRunner()
@@ -265,7 +265,7 @@ def test_backup_list_outside_project(monkeypatch, tmp_path):
 
 
 def test_restore_uses_metadata_format(monkeypatch, in_project):
-    """`osh backup restore` uses metadata format when available, not just file extension."""
+    """`osh db restore` uses metadata format when available, not just file extension."""
     from osh.plugins.osh_backup.cache import write_metadata
     from osh.plugins.osh_backup.restore_ops import restore_dump
 
@@ -515,7 +515,7 @@ def test_export_filestore_missing_returns_false(monkeypatch, in_project, tmp_pat
 
 
 def test_restore_uses_content_detection(monkeypatch, in_project):
-    """`osh backup restore` falls back to content detection when metadata and extension fail."""
+    """`osh db restore` falls back to content detection when metadata and extension fail."""
     from osh.plugins.osh_backup.format_detect import detect_backup_format_by_content
     from osh.plugins.osh_backup.restore_ops import restore_dump
 
@@ -575,8 +575,9 @@ def test_restore_older_db_uses_sql_fallback(patched_restore, in_project, monkeyp
     assert "using SQL fallback" in result.output
 
 
-def test_restore_available_under_backup_group(patched_restore, in_project):
-    """`osh backup restore` is reachable through the backup group."""
+def test_restore_available_under_db_group(patched_restore, in_project):
+    """`osh db restore` is reachable through the db group; the deprecated
+    `osh backup restore` spelling still works end to end."""
     from osh import cli
 
     main = importlib.reload(cli).main
@@ -587,10 +588,13 @@ def test_restore_available_under_backup_group(patched_restore, in_project):
     dump.write_bytes(b"x")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["backup", "restore", str(dump)])
-
+    result = runner.invoke(main, ["db", "restore", str(dump)])
     assert result.exit_code == 0, result.output
     assert patched_restore["restore"]
+
+    result = runner.invoke(main, ["backup", "restore", str(dump)])
+    assert result.exit_code == 0, result.output
+    assert "deprecated" in result.output
 
 
 def test_restore_top_level_alias_is_gone(patched_restore, in_project):
@@ -721,3 +725,29 @@ def test_backup_list_does_not_run_extensions(patched_restore, in_project, monkey
     assert result.exit_code == 0, result.output
     assert calls == []
     assert not patched_restore["restore"]
+
+
+def test_deprecated_backup_restore_alias_warns(monkeypatch, tmp_path):
+    """`osh backup restore` warns about the deprecated spelling."""
+    from osh.plugins.osh_backup.restore_cmd import BackupRestore
+
+    monkeypatch.chdir(tmp_path)
+    deprecated_restore = handler_command("restore", BackupRestore)
+
+    result = CliRunner().invoke(deprecated_restore, [])
+
+    assert "'osh backup restore' is deprecated" in result.output
+    assert "'osh db restore'" in result.output
+
+
+def test_deprecated_backup_list_alias_warns(monkeypatch, tmp_path):
+    """`osh backup list` warns about the deprecated spelling."""
+    from osh.plugins.osh_backup.restore_cmd import BackupList
+
+    monkeypatch.chdir(tmp_path)
+    deprecated_list = handler_command("list", BackupList)
+
+    result = CliRunner().invoke(deprecated_list, [])
+
+    assert "'osh backup list' is deprecated" in result.output
+    assert "'osh db backups'" in result.output

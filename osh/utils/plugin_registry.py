@@ -17,7 +17,7 @@ stage 1::
 
     [tool.osh]
     description = "Short plugin description."
-    extends = ["backup.restore"]          # handlers the plugin extends
+    extends = ["db.restore"]          # handlers the plugin extends
     handlers = ["my_plugin.cmd"]          # named non-CLI handlers provided
     depends = ["osh-backup"]              # plugins imported before this one
 

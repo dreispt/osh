@@ -84,7 +84,7 @@ and diagnose instead of guessing.
 - `osh exec <cmd>` runs any command inside the project environment
   (the runtime's venv or container) — the counterpart for non-database
   work like `pip`, `odoo shell` helpers or project scripts.
-- `osh backup get`/`osh backup restore` move dumps in and out;
+- `osh db backup`/`osh db restore` move dumps in and out;
   `restore` neutralizes credentials by default, so a restored
   production dump cannot be logged into as-is.
 
