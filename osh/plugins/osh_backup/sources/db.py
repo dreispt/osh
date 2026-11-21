@@ -1,14 +1,17 @@
 """Backup source for dumping a local PostgreSQL database."""
 
+import json
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
 
+import click
+
 from .... import echo
 from ....backup_sources import BackupSource, SourceError, now_stamp
 from ....common import decode_stderr, get_odoo_data_dir, merged_env, run_subprocess
-from ....db import export_filestore, run_in_runtime
+from ....db import export_filestore, psql_rows, run_in_runtime
 
 
 class DbSource(BackupSource):
@@ -22,7 +25,7 @@ Dump a local PostgreSQL database using credentials from .odoorc / odoo.conf.
 Supported output formats:
   --format dump   Custom pg_dump format (default)
   --format sql    Plain SQL
-  --format zip    Plain SQL plus the filestore
+  --format zip    Odoo zip backup: plain SQL, filestore and manifest.json
 
 Examples:
   osh db backup db://mydb
@@ -48,7 +51,9 @@ Examples:
     def fetch(self, output, *, dry_run=False):
         if self.output_format in ("dump", "sql"):
             format_flag = "-Fc" if self.output_format == "dump" else "-Fp"
-            args = ["pg_dump", format_flag, self.db_name]
+            # --no-owner matches Odoo's dump_db: OWNER TO statements fail
+            # when restoring under a different role (e.g. odoo.sh's `odoo` user).
+            args = ["pg_dump", "--no-owner", format_flag, self.db_name]
             if dry_run:
                 echo.info(f"Would run: {' '.join(args)} > {output}", err=True)
                 return
@@ -58,7 +63,7 @@ Examples:
         if self.output_format == "zip":
             if dry_run:
                 echo.info(
-                    f"Would create zip {output} containing dump.sql and filestore",
+                    f"Would create zip {output} containing dump.sql, filestore and manifest.json",
                     err=True,
                 )
                 return
@@ -89,14 +94,17 @@ Examples:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             dump_sql = tmp_path / "dump.sql"
-            dump_args = ["pg_dump", "-Fp", self.db_name]
+            # --no-owner matches Odoo's dump_db (see above).
+            dump_args = ["pg_dump", "--no-owner", "-Fp", self.db_name]
             with dump_sql.open("wb") as f:
                 self._checked_pg_dump(dump_args, f)
 
+            manifest_path = self._write_manifest(tmp_path)
             filestore_dir = tmp_path / "filestore"
             found = self._export_filestore(filestore_dir)
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.write(dump_sql, "dump.sql")
+                if manifest_path is not None:
+                    zf.write(manifest_path, "manifest.json")
                 if found:
                     for path in filestore_dir.rglob("*"):
                         if path.is_file():
@@ -107,6 +115,93 @@ Examples:
                             zf.write(path, arcname)
                 else:
                     echo.warning(f"filestore not found for database '{self.db_name}'")
+                # dump.sql goes last, matching the order Odoo's dump_db writes.
+                zf.write(dump_sql, "dump.sql")
+
+    def _write_manifest(self, tmp_path):
+        """Write ``manifest.json`` like Odoo's ``dump_db_manifest``.
+
+        Returns the path, or ``None`` when the database is not an Odoo
+        database (no ``ir_module_module`` table) or metadata is unavailable.
+        """
+        modules = self._installed_modules()
+        if modules is None:
+            return None
+        manifest = {"odoo_dump": "1", "db_name": self.db_name, "modules": modules}
+        release = self._odoo_release()
+        if release:
+            manifest.update(release)
+        pg_version = self._pg_version()
+        if pg_version:
+            manifest["pg_version"] = pg_version
+        path = tmp_path / "manifest.json"
+        path.write_text(json.dumps(manifest, indent=4), encoding="utf-8")
+        return path
+
+    def _odoo_release(self):
+        """Return the runtime Odoo's ``version``/``version_info``/``major_version``."""
+        if self.base is None:
+            return None
+        code = (
+            "import json, odoo.release as r;"
+            "print(json.dumps({"
+            "'version': r.version,"
+            "'version_info': list(r.version_info),"
+            "'major_version': r.major_version,"
+            "}))"
+        )
+        returncode, stdout, _ = run_in_runtime(None, self.base, ["python", "-c", code])
+        if returncode != 0:
+            return None
+        try:
+            return json.loads(stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            return None
+
+    def _pg_version(self):
+        """Return the server version as ``major.minor`` (e.g. ``18.6``)."""
+        num = self._sql_scalar("SELECT current_setting('server_version_num')::int")
+        if num is None:
+            return None
+        try:
+            version_num = int(num)
+        except ValueError:
+            return None
+        if version_num >= 100000:
+            return f"{version_num // 10000}.{version_num % 10000}"
+        return f"{version_num // 10000}.{(version_num // 100) % 100}"
+
+    def _installed_modules(self):
+        """Return ``{name: latest_version}`` for installed modules, or None."""
+        rows = self._sql_rows(
+            "SELECT name, latest_version FROM ir_module_module"
+            " WHERE state = 'installed'"
+        )
+        if rows is None:
+            return None
+        return {row[0]: (row[1] or None) for row in rows if row}
+
+    def _sql_scalar(self, sql):
+        rows = self._sql_rows(sql)
+        if not rows:
+            return None
+        return rows[0][0] or None
+
+    def _sql_rows(self, sql):
+        """Run *sql* via psql; return row lists, or ``None`` on failure."""
+        if self.base is not None:
+            try:
+                returncode, rows, _ = psql_rows(self.base, self.db_name, sql)
+            except click.ClickException:
+                return None
+            return rows if returncode == 0 else None
+        returncode, stdout, _ = run_subprocess(
+            ["psql", "-d", self.db_name, "-tA", "-c", sql],
+            env=merged_env(),
+        )
+        if returncode != 0:
+            return None
+        return [line.split("|") for line in stdout.splitlines() if line]
 
     def _export_filestore(self, dest_dir):
         """Copy this database's filestore into *dest_dir*; False if missing."""

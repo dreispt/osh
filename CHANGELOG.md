@@ -6,8 +6,28 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+## 2.1.1 — 2026-11-21
+
+### Fixed
+
+- `osh db backup db://NAME --format zip` now includes Odoo's `manifest.json`
+  when database metadata is available. SQL and ZIP backups no longer emit
+  ownership statements, making it easier to restore under a different
+  PostgreSQL role.
+
+## 2.1.0 — 2026-11-21
+
+Database commands are easier to use outside an Osh project, and backup
+commands now live under `osh db`.
+
 ### Added
 
+- `osh db list`, `osh db copy`, `osh db exec`, `osh db drop`, and
+  `osh db restore` can run outside an Osh project using PostgreSQL's
+  normal connection settings. Use explicit database names for `copy`
+  and `drop`, and a local dump file for `restore`. Branch database
+  mappings, cached backup listings, and configured remotes still require
+  a project.
 - `osh db drop` accepts the database name as a positional argument:
   `osh db drop mydb`. `-d`/`--database` still works but prints a
   deprecation warning — it will be removed in osh 3.0.
