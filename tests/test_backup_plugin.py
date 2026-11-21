@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,56 @@ def test_download_db_source_writes_to_cache(in_project, subprocess_run_capture):
     assert meta["source"] == "db://sourcedb"
     assert meta["format"] == "dump"  # Detected format (source of truth)
     assert "requested_format" not in meta  # No explicit request for db:// source
+
+
+def test_download_db_source_zip_format(in_project, monkeypatch):
+    """A project user can export a ZIP with SQL, attachments and Odoo metadata."""
+    data_dir = in_project / "data"
+    attachment = data_dir / "filestore" / "sourcedb" / "ab" / "attachment"
+    attachment.parent.mkdir(parents=True)
+    attachment.write_bytes(b"attachment contents")
+    (in_project / ".osh" / "odoo.conf").write_text(
+        f"[options]\ndata_dir = {data_dir}\n"
+    )
+    dump = b"-- PostgreSQL database dump\n"
+    release = {
+        "version": "19.0",
+        "version_info": [19, 0, 0, "final", 0, ""],
+        "major_version": "19.0",
+    }
+    real_run = subprocess.run
+
+    def run(argv, **kwargs):
+        if argv[0] == "pg_dump":
+            assert "--no-owner" in argv
+            kwargs["stdout"].write(dump)
+            return subprocess.CompletedProcess(argv, 0)
+        if argv[0] == "psql":
+            sql = kwargs["input"]
+            if "ir_module_module" in sql:
+                return subprocess.CompletedProcess(argv, 0, "base|19.0.1.3\n")
+            assert "server_version_num" in sql
+            return subprocess.CompletedProcess(argv, 0, "180006\n")
+        if argv[:2] == ["python", "-c"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(release))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    result = CliRunner().invoke(get, ["db://sourcedb", "--format", "zip"])
+
+    assert result.exit_code == 0, result.output
+    (archive,) = (in_project / ".osh" / "backups").glob("*.zip")
+    with zipfile.ZipFile(archive) as zf:
+        assert zf.read("dump.sql") == dump
+        assert zf.read("filestore/ab/attachment") == b"attachment contents"
+        assert json.loads(zf.read("manifest.json")) == {
+            "odoo_dump": "1",
+            "db_name": "sourcedb",
+            **release,
+            "pg_version": "18.6",
+            "modules": {"base": "19.0.1.3"},
+        }
 
 
 def test_download_uses_cwd_outside_project(
