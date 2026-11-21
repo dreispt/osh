@@ -25,9 +25,9 @@ Supported output formats:
   --format zip    Plain SQL plus the filestore
 
 Examples:
-  osh backup get db://mydb
-  osh backup get db://mydb --format sql
-  osh backup get db://mydb --format zip
+  osh db backup db://mydb
+  osh db backup db://mydb --format sql
+  osh db backup db://mydb --format zip
 """
 
     def __init__(self, db_name, base, output_format="dump"):

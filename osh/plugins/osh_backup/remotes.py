@@ -1,7 +1,7 @@
-"""Named backup sources ("remotes") for ``osh backup get``/``osh backup restore``.
+"""Named backup sources ("remotes") for ``osh db backup``/``osh db restore``.
 
 Remotes give a backup source string a short, stable name — git-remote style —
-so ``osh backup get prod`` / ``osh backup restore prod`` work instead of retyping a
+so ``osh db backup prod`` / ``osh db restore prod`` work instead of retyping a
 full ``odoosh://``/``https://`` URL. They are stored in the project's
 ``.osh/config.toml`` under the ``[remote]`` section, next to the ``[db]``
 branch mappings.
@@ -80,7 +80,7 @@ def _newest_cache_matching(base, source, *, what, hint):
         if match:
             return entry["path"]
     raise click.ClickException(
-        f"No cached backup from {what}. Run 'osh backup get {hint}' first."
+        f"No cached backup from {what}. Run 'osh db backup {hint}' first."
     )
 
 
@@ -88,20 +88,20 @@ class DbRemote(CommandHandler):
     """Manage named backup sources (git-remote style).
 
     A remote maps a short name to a backup source string, so
-    ``osh backup get prod`` and ``osh backup restore prod`` can be used instead of
+    ``osh db backup prod`` and ``osh db restore prod`` can be used instead of
     the full source URL.
     """
 
-    _cli_name = "backup.remote"
+    _cli_name = "db.remote"
 
     @subcommand
     @click.argument("name")
     @click.argument("source")
     def add(self):
-        """Register SOURCE under NAME for use with ``osh backup get``/``restore``.
+        """Register SOURCE under NAME for use with ``osh db backup``/``restore``.
 
         NAME must not look like a source URL or cache reference, so it stays
-        unambiguous when used as an argument to ``osh backup get``/``osh db
+        unambiguous when used as an argument to ``osh db backup``/``osh db
         restore``.
         """
         base = find_project_root(required=True)
@@ -145,3 +145,24 @@ class DbRemote(CommandHandler):
             return
         for name, source in sorted(remotes.items()):
             echo.info(f"{name}\t{source}")
+
+
+class BackupRemote(DbRemote):
+    """Deprecated alias of ``osh db remote``, kept for compatibility."""
+
+    _cli_name = "backup.remote"
+    _cli_hidden = True
+
+    def add(self):
+        echo.warning(
+            "'osh backup remote' is deprecated — use 'osh db remote'.",
+            err=True,
+        )
+        super().add()
+
+    def list(self):
+        echo.warning(
+            "'osh backup remote' is deprecated — use 'osh db remote'.",
+            err=True,
+        )
+        super().list()

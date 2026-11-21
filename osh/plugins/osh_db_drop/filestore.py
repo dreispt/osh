@@ -39,8 +39,11 @@ def remove_filestore(ctx, base, db_name):
     Prints the removed path when a filestore directory existed. Best
     effort: warns and returns when the data dir cannot be determined.
     On container runtimes the removal runs inside the container, where the
-    data dir volume is mounted.
+    data dir volume is mounted. Outside a project (*base* ``None``) there
+    is no project filestore — nothing is removed.
     """
+    if base is None:
+        return
     path = filestore_path(base, db_name)
     if path is None:
         echo.warning("could not determine Odoo data_dir; filestore not removed.")
@@ -52,7 +55,12 @@ def remove_filestore(ctx, base, db_name):
 
 
 def filestore_exists(ctx, base, db_name):
-    """Return True when *db_name* has a filestore directory."""
+    """Return True when *db_name* has a filestore directory.
+
+    Outside a project (*base* ``None``) there is no project filestore.
+    """
+    if base is None:
+        return False
     path = filestore_path(base, db_name)
     if path is None:
         return False
@@ -64,8 +72,11 @@ def list_filestore_dirs(ctx, base):
     """Return filestore directory names inside the runtime env, or [].
 
     Returns an empty list when the data dir cannot be determined or the
-    filestore directory does not exist.
+    filestore directory does not exist. Outside a project (*base*
+    ``None``) there is no project filestore.
     """
+    if base is None:
+        return []
     data_dir = resolve_runtime(base).odoo_data_dir(base)
     if data_dir is None:
         return []

@@ -2,7 +2,7 @@
 
 Every extensible command delegates its behaviour to a *handler class* —
 a ``CommandHandler`` subclass named by ``_cli_name`` (e.g.
-``"backup.restore"``). The generated Click command is a thin shell: it
+``"db.restore"``). The generated Click command is a thin shell: it
 parses ``get_options()`` and delegates to the handler::
 
     DbRestore(ctx, dump="prod.dump").run()
@@ -35,7 +35,7 @@ When the target class is not importable — e.g. another plugin's handler
 — ``resolve("name")`` imports the declaring plugin and returns the
 class::
 
-    class Mine(resolve("backup.restore")):
+    class Mine(resolve("db.restore")):
         ...
 """
 
@@ -91,7 +91,7 @@ class CommandHandler:
 
     Declaring ``_cli_name`` in the class's own body makes a handler
     *named*: it becomes an extension target and a CLI command. The
-    dotted name carries the placement: ``backup.restore`` becomes the
+    dotted name carries the placement: ``db.restore`` becomes the
     ``restore`` command of the ``backup`` group; a plain name registers a
     top-level command. A name with a ``_``-prefixed segment (``_util.fmt``,
     ``db._fmt``) is programmatic-only — no command is generated; declare
@@ -236,10 +236,10 @@ class CommandHandler:
         """Return ``(group_name, click.Command)`` for this named handler.
 
         *group_name* is ``None`` for top-level commands. Placement
-        derives from the dotted ``_cli_name`` (``backup.restore`` → group
+        derives from the dotted ``_cli_name`` (``db.restore`` → group
         ``backup``, command ``restore``); ``_cli_group`` overrides it (``""``
         forces top level). A class with ``@subcommand`` methods produces
-        a ``click.Group`` — ``backup.remote`` becomes the ``remote`` subgroup
+        a ``click.Group`` — ``db.remote`` becomes the ``remote`` subgroup
         of ``backup``. Returns ``(None, None)`` when the handler is
         unnamed or ``_``-named (programmatic-only).
         """
@@ -294,7 +294,7 @@ class CommandHandler:
 class Env:
     """Per-invocation environment binding a Click context to handlers.
 
-    ``env["backup.restore"]`` or ``env[DbRestore]`` returns a bound handler
+    ``env["db.restore"]`` or ``env[DbRestore]`` returns a bound handler
     instance — its ``self.env`` and ``self.ctx`` point back to it.
     Instantiation resolves extensions transparently, so lookups always
     yield the effective class. Call the instance with the command's

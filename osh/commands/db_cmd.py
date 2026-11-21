@@ -1,12 +1,13 @@
 """`osh db` command for managing databases and branch-to-database mappings."""
 
 import sys
+from pathlib import Path
 
 import click
 
 from .. import echo
 from ..cli_utils import InputRequired, emit_json, handler_group, no_input
-from ..common import env_root, find_project_root
+from ..common import env_root, find_git_root, find_project_root, git_current_branch
 from ..db import (
     _list_db_names,
     _psql_table_split,
@@ -67,7 +68,10 @@ class Db(CommandHandler):
         the database already exists in PostgreSQL. This is a quick way to check
         what ``osh odoo`` would use before starting Odoo.
         """
-        self.base = find_project_root(required=True)
+        self.base = find_project_root()
+        if self.base is None:
+            self._show_without_project()
+            return
         self.branch = resolve_branch(self.base, None)
         self.db_name = resolve_db_name(self.base, verbose=False)
         self.exists = db_exists(self.base, self.db_name, ctx=self.ctx)
@@ -83,6 +87,22 @@ class Db(CommandHandler):
         echo.info(f"Branch:   {self.branch}")
         echo.info(f"Database: {self.db_name}")
         echo.info(f"Exists:   {'yes' if self.exists else 'no'}")
+
+    def _show_without_project(self):
+        """Report the git branch context when no Osh project is present.
+
+        There is no branch→database mapping and no project database to
+        probe — ``db show`` degrades to the repository facts it can still
+        answer.
+        """
+        git_root = find_git_root(Path.cwd())
+        branch = git_current_branch(git_root) if git_root else None
+        if self.as_json:
+            emit_json({"project": None, "branch": branch, "database": None})
+            return
+        if branch:
+            echo.info(f"Branch:   {branch}")
+        echo.info("No Osh project found — there is no project database mapping.")
 
     @subcommand
     @click.option(
@@ -111,7 +131,7 @@ class Db(CommandHandler):
           osh db list
           osh db list --all
         """
-        self.base = find_project_root(required=True)
+        self.base = find_project_root()
         returncode, stdout, stderr = run_in_runtime(self.ctx, self.base, ["psql", "-l"])
         if returncode is None:
             raise click.ClickException(
@@ -119,25 +139,32 @@ class Db(CommandHandler):
             )
         if returncode != 0:
             raise click.ClickException(f"Could not list databases: {stderr.strip()}")
-        self.prefix = f"{sanitize_db_name(env_root(self.base).name)}-"
+        # Outside a project there is no ``<project>-`` prefix: every
+        # database is listed, exactly like ``--all``.
+        self.prefix = (
+            f"{sanitize_db_name(env_root(self.base).name)}-"
+            if self.base is not None
+            else None
+        )
         names = _list_db_names(stdout)
         self.db_names = set(names)
+        listing_all = self.show_all or self.prefix is None
         if self.as_json:
             emit_json(
                 {
-                    "project": env_root(self.base).name,
+                    "project": env_root(self.base).name if self.base else None,
                     "prefix": self.prefix,
-                    "all": self.show_all,
+                    "all": listing_all,
                     "databases": (
                         names
-                        if self.show_all
+                        if listing_all
                         else [n for n in names if n.startswith(self.prefix)]
                     ),
                     **self.extra_data(),
                 }
             )
             return
-        if self.show_all:
+        if listing_all:
             click.echo(stdout, nl=False)
         else:
             click.echo(_filter_db_listing(stdout, self.prefix), nl=False)
@@ -244,7 +271,7 @@ class Db(CommandHandler):
         typed name: ``--from-current`` snapshots it, ``--to-current``
         seeds it (the target is created when missing).
         """
-        self.base = find_project_root(required=True)
+        self.base = find_project_root()
         from_name, to_name = self._copy_targets()
         if from_name == to_name:
             raise click.UsageError("Source and target database are the same.")
@@ -287,6 +314,12 @@ class Db(CommandHandler):
             raise click.UsageError(
                 "--from-current and --to-current would copy the current "
                 "database onto itself."
+            )
+        if (self.from_current or self.to_current) and self.base is None:
+            raise click.UsageError(
+                "--from-current/--to-current require an Osh project "
+                "(there is no branch database mapping outside one); "
+                "pass both database names explicitly."
             )
         from_arg, to_arg = self.from_db, self.to_db
         if self.from_current and to_arg is None and from_arg is not None:

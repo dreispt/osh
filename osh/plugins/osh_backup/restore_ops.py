@@ -1,4 +1,4 @@
-"""Backup restore internals for ``osh backup restore``.
+"""Backup restore internals for ``osh db restore``.
 
 These helpers resolve a backup file from the project cache or a path, pick
 the right restore tool for its format, restore the dump, copy the filestore
@@ -30,18 +30,31 @@ FALLBACK_SCRIPT = "000_osh_default.sql"
 
 
 def resolve_backup_path(base, dump):
-    """Resolve a dump argument to an existing file path."""
-    cache_dir = get_cache_dir(base)
+    """Resolve a dump argument to an existing file path.
 
+    *base* ``None`` (no project) means there is no backup cache: *dump*
+    must be a plain file path — ``cache:`` references and cache lookups
+    are unavailable.
+    """
     if dump is None:
+        if base is None:
+            raise click.ClickException(
+                "No backup file given — outside an Osh project there is "
+                "no backup cache; pass a dump file path."
+            )
         entries = list_cache(base, limit=1)
         if not entries:
             raise click.ClickException(
-                "No cached backup found. Run 'osh backup get <source>' first."
+                "No cached backup found. Run 'osh db backup <source>' first."
             )
         return entries[0]["path"]
 
     if dump.startswith("cache:"):
+        if base is None:
+            raise click.ClickException(
+                f"Invalid cache reference outside an Osh project: {dump}. "
+                "Pass a plain backup file path instead."
+            )
         try:
             cache_id = int(dump[6:])
         except ValueError:
@@ -54,10 +67,12 @@ def resolve_backup_path(base, dump):
             raise click.ClickException(str(exc)) from exc
 
     path = Path(dump).expanduser()
-    if not path.is_absolute() and cache_dir.exists():
-        cached = cache_dir / path.name
-        if cached.exists():
-            return cached
+    if base is not None:
+        cache_dir = get_cache_dir(base)
+        if not path.is_absolute() and cache_dir.exists():
+            cached = cache_dir / path.name
+            if cached.exists():
+                return cached
 
     if not path.exists():
         raise click.ClickException(f"Backup file not found: {path}")

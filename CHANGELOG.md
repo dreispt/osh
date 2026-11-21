@@ -6,6 +6,25 @@ section collects the release notes for the next version as changes land on
 
 ## Unreleased
 
+### Added
+
+- `osh db drop` accepts the database name as a positional argument:
+  `osh db drop mydb`. `-d`/`--database` still works but prints a
+  deprecation warning — it will be removed in osh 3.0.
+- `cli_utils.deprecated_option` lets plugins mark options as deprecated:
+  the flag keeps working, prints a warning with the replacement and
+  removal version when used.
+
+### Changed
+
+- Backup commands moved under `osh db`: `osh backup get` is now
+  `osh db backup` (with no SOURCE it dumps the current branch's
+  database), `osh backup restore` is `osh db restore`, `osh backup list`
+  is `osh db backups`, and `osh backup remote` is `osh db remote`. The
+  old `osh backup` spellings still work but print a deprecation warning.
+  Plugin authors: update `extends`/`resolve()` targets from
+  `backup.restore` to `db.restore`.
+
 ## 2.0.1 — 2026-11-14
 
 A patch release polishing the help output:

@@ -109,14 +109,19 @@ def prepare_env_context(
 
     The database name is resolved without probing or prompting — commands
     that need an existing database resolve it beforehand and pass it in.
+
+    *base* ``None`` (no project — only reachable via ``db exec``) skips
+    the generated config and db-name resolution entirely: there is no
+    ``.osh`` to write the config into and no branch→database mapping, so
+    only an explicit ``-d``/``--database`` produces ``PGDATABASE``.
     """
     explicit_config = has_arg(extra_args, "--config", short="-c")
     no_db_filter = no_db_filter or has_arg(extra_args, "--db-filter")
-    if not db_name and not explicit_config:
+    if not db_name and not explicit_config and base is not None:
         db_name = db_module.resolve_db_name(base)
 
     conf_path = None
-    if not explicit_config:
+    if base is not None and not explicit_config:
         conf_path = build_dynamic_odoo_config(
             base,
             db_name,
@@ -184,11 +189,16 @@ class ShellRun(CommandHandler):
     )
     @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
     def run(self):
-        self.base = find_project_root(required=True)
+        # ``db exec`` (``use_db_env``) is the one entry point allowed
+        # outside a project — it resolves to the host runtime with the
+        # ambient libpq environment. Plain ``osh exec`` still requires
+        # a project.
+        self.base = find_project_root(required=not self.use_db_env)
         self.runtime = db_module.resolve_runtime(self.base)
-        check_run_diagnostics(
-            self.base, self.runtime, self.ctx, compose_file=self.compose_file
-        )
+        if self.base is not None:
+            check_run_diagnostics(
+                self.base, self.runtime, self.ctx, compose_file=self.compose_file
+            )
         self.args = list(self.extra_args)
         if self.args and self.args[0] == "--":
             self.args.pop(0)

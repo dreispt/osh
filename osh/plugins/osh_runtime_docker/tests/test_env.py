@@ -254,7 +254,7 @@ def test_docker_runtime_requires_service(tmp_project):
 def test_docker_runtime_env_forwards_stdin(docker_shared_project):
     """``EnvSpec.stdin`` reaches the container through ``compose exec -T``.
 
-    This is how ``osh backup restore`` streams dumps into the container
+    This is how ``osh db restore`` streams dumps into the container
     without relying on any volume mount.
     """
     payload = "dump-bytes\n"
